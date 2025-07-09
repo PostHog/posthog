@@ -309,21 +309,36 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         # Compile filters to bytecode for the Hog function
         compiled_filters = compile_filters_bytecode(self.filters, self.team)
+        
+        # Generate Hog code for counter increment
+        hog_code = f"""
+export function onEvent(inputs, globals) {{
+    const eventDate = new Date(globals.event.timestamp || Date.now());
+    const dateStr = eventDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const counterKey = `behavioral_counter:${{globals.project.id}}:${{inputs.filter_hash}}:${{globals.person_id}}:${{dateStr}}`;
+    
+    redis.incr(counterKey);
+    redis.expire(counterKey, 7776000); // 90 days
+    
+    return globals.event; // Pass through unchanged
+}}
+"""
 
         if existing_hog_function:
             # Update existing Hog function
             existing_hog_function.filters = compiled_filters
+            existing_hog_function.hog = hog_code
             existing_hog_function.enabled = True
             existing_hog_function.save()
         else:
-            # Create new Hog function (no hog code needed, handled in TypeScript)
+            # Create new Hog function
             HogFunction.objects.create(
                 team=self.team,
                 name=hog_function_name,
                 description=f"Behavioral cohort counter for '{self.name}'",
                 type=HogFunctionType.BEHAVIORAL_COHORT_COUNTER,
                 filters=compiled_filters,
-                hog="// Counter logic handled in plugin server",
+                hog=hog_code,
                 enabled=True,
                 inputs={
                     "cohort_id": self.id,
