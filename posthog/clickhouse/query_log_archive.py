@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     lc_temporal__workflow_run_id String, -- comment 'JSONExtractString(log_comment, temporal, workflow_run_id)',
     lc_temporal__activity_type String, -- comment 'JSONExtractString(log_comment, temporal, activity_type)',
     lc_temporal__activity_id String, -- comment 'JSONExtractString(log_comment, temporal, activity_id)',
-    lc_temporal__attempt Int64--, -- comment 'JSONExtractString(log_comment, temporal, attempt)'
+    lc_temporal__attempt Int64, -- comment 'JSONExtractString(log_comment, temporal, attempt)'
 
     -- dagster workflows
     lc_dagster__job_name String,  -- comment JSONExtractString(log_comment, 'dagster', 'job_name')
