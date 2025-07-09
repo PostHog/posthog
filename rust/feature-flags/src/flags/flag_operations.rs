@@ -1,6 +1,5 @@
 use crate::api::errors::FlagError;
 use crate::flags::flag_models::*;
-use crate::properties::property_models::PropertyFilter;
 use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -20,8 +19,9 @@ impl FeatureFlag {
     pub fn get_variants(&self) -> Vec<MultivariateFlagVariant> {
         self.filters
             .multivariate
-            .clone()
-            .map_or(vec![], |m| m.variants)
+            .as_ref()
+            .map(|m| m.variants.clone())
+            .unwrap_or_default()
     }
 
     pub fn get_payload(&self, match_val: &str) -> Option<serde_json::Value> {
@@ -30,33 +30,6 @@ impl FeatureFlag {
                 .as_object()
                 .and_then(|obj| obj.get(match_val).cloned())
         })
-    }
-
-    /// Extracts dependent FeatureFlagIds from the feature flag's filters
-    ///
-    /// # Returns
-    /// * `HashSet<FeatureFlagId>` - A set of dependent feature flag IDs
-    /// * `FlagError` - If there is an error parsing the filters
-    pub fn extract_dependencies(&self) -> Result<HashSet<FeatureFlagId>, FlagError> {
-        let mut dependencies = HashSet::new();
-        for group in &self.filters.groups {
-            if let Some(properties) = &group.properties {
-                for filter in properties {
-                    if let Some(feature_flag_id) = Self::extract_feature_flag_dependency(filter) {
-                        dependencies.insert(feature_flag_id);
-                    }
-                }
-            }
-        }
-        Ok(dependencies)
-    }
-
-    fn extract_feature_flag_dependency(filter: &PropertyFilter) -> Option<FeatureFlagId> {
-        if filter.depends_on_feature_flag() {
-            filter.get_feature_flag_id()
-        } else {
-            None
-        }
     }
 
     /// Returns true if the flag requires DB preparation in order to evaluate the flag.
@@ -89,7 +62,19 @@ impl DependencyProvider for FeatureFlag {
     }
 
     fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
-        self.extract_dependencies()
+        let mut dependencies = HashSet::new();
+        for group in &self.filters.groups {
+            if let Some(properties) = &group.properties {
+                for filter in properties {
+                    if filter.depends_on_feature_flag() {
+                        if let Some(feature_flag_id) = filter.get_feature_flag_id() {
+                            dependencies.insert(feature_flag_id);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(dependencies)
     }
 
     fn dependency_type() -> DependencyType {
@@ -104,7 +89,7 @@ mod tests {
             flag_models::*,
             test_helpers::{create_simple_flag, create_simple_property_filter},
         },
-        properties::property_models::{OperatorType, PropertyType},
+        properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     };
     use serde_json::{json, Value};
     use std::time::Instant;
@@ -211,6 +196,165 @@ mod tests {
 
     // TODO: Add more tests to validate deserialization of flags.
     // TODO: Also make sure old flag data is handled, or everything is migrated to new style in production
+
+    #[test]
+    fn test_extract_dependencies() {
+        use crate::utils::graph_utils::DependencyProvider;
+        use std::collections::HashSet;
+
+        // Test flag with no dependencies
+        let flag_no_deps = FeatureFlag {
+            id: 1,
+            team_id: 1,
+            name: Some("No Dependencies".to_string()),
+            key: "no_deps".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: None,
+        };
+
+        let deps = flag_no_deps.extract_dependencies().unwrap();
+        assert!(deps.is_empty());
+
+        // Test flag with feature flag dependency
+        let flag_with_dep = FeatureFlag {
+            id: 2,
+            team_id: 1,
+            name: Some("With Dependency".to_string()),
+            key: "with_dep".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "100".to_string(), // Feature flag ID as string
+                        value: Some(json!("true")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Flag,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: None,
+        };
+
+        let deps = flag_with_dep.extract_dependencies().unwrap();
+        assert_eq!(deps, HashSet::from([100]));
+
+        // Test flag with multiple dependencies
+        let flag_with_multiple_deps = FeatureFlag {
+            id: 3,
+            team_id: 1,
+            name: Some("Multiple Dependencies".to_string()),
+            key: "multiple_deps".to_string(),
+            filters: FlagFilters {
+                groups: vec![
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "200".to_string(), // Feature flag ID as string
+                            value: Some(json!("true")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Flag,
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                    },
+                    FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: "300".to_string(), // Feature flag ID as string
+                            value: Some(json!("false")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Flag,
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(50.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: None,
+        };
+
+        let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
+        assert_eq!(deps, HashSet::from([200, 300]));
+
+        // Test flag with mixed property types (feature flag + regular properties)
+        let flag_with_mixed_props = FeatureFlag {
+            id: 4,
+            team_id: 1,
+            name: Some("Mixed Properties".to_string()),
+            key: "mixed_props".to_string(),
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![
+                        PropertyFilter {
+                            key: "400".to_string(), // Feature flag ID as string
+                            value: Some(json!("true")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Flag,
+                            group_type_index: None,
+                            negation: None,
+                        },
+                        PropertyFilter {
+                            key: "regular_property".to_string(),
+                            value: Some(json!("value")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                        },
+                    ]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: false,
+            version: None,
+        };
+
+        let deps = flag_with_mixed_props.extract_dependencies().unwrap();
+        assert_eq!(deps, HashSet::from([400]));
+    }
 
     #[test]
     fn test_operator_type_deserialization() {
