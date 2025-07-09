@@ -11,7 +11,6 @@ import structlog
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
-    AssistantMessage,
     AssistantToolCallMessage,
 )
 from ee.hogai.graph.base import AssistantNode
@@ -173,12 +172,8 @@ class InsightSearchNode(AssistantNode):
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content="Searching insights...",
-                        tool_call_id=state.root_tool_call_id,
-                        id=str(uuid4()),
-                    ),
-                    AssistantMessage(
                         content=formatted_content,
+                        tool_call_id=state.root_tool_call_id,
                         id=str(uuid4()),
                     ),
                 ],
@@ -208,12 +203,8 @@ class InsightSearchNode(AssistantNode):
             return PartialAssistantState(
                 messages=[
                     AssistantToolCallMessage(
-                        content="Searching insights...",
-                        tool_call_id=state.root_tool_call_id,
-                        id=str(uuid4()),
-                    ),
-                    AssistantMessage(
-                        content="Sorry, I encountered an issue while searching for insights. Please try again with a different search term.",
+                        content="INSTRUCTIONS: Tell the user that you encountered an issue while searching for insights and suggest they try again with a different search term.",
+                        tool_call_id=state.root_tool_call_id or "unknown",
                         id=str(uuid4()),
                     ),
                 ],
@@ -295,7 +286,7 @@ class InsightSearchNode(AssistantNode):
         return results, cache_stats
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
-        return "end"
+        return "root"
 
     def _semantic_filter_insights(self, insights: list[RawInsightData], query: str | None) -> list[InsightWithScores]:
         """Filter insights by semantic relevance using LLM classification."""
@@ -446,10 +437,10 @@ class InsightSearchNode(AssistantNode):
             return "No query data available"
 
     def _format_insight_results(self, results: list[EnrichedInsight], search_query: str | None) -> str:
-        """Format insight search results for user display."""
+        """Format insight search results for tool call message to Root node."""
 
         if not results:
-            return f"No insights found matching '{search_query or 'your search'}'.\n\nYou might want to try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
+            return f"No insights found matching '{search_query or 'your search'}'.\n\nSuggest that the user try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
 
         header = f"Found {len(results)} insight{'s' if len(results) != 1 else ''}"
         if search_query:
@@ -480,9 +471,9 @@ Description: {description}
         content = header + "\n\n".join(formatted_results)
 
         if len(results) == 1:
-            content += "\n\nWould you like me to help you modify this insight or create a similar one?"
+            content += "\n\nINSTRUCTIONS: Ask the user if they want to modify this insight or use it as a starting point for a new one."
         else:
-            content += "\n\nWould you like me to help you explore any of these insights further?"
+            content += "\n\nINSTRUCTIONS: Ask the user if they want to modify one of these insights, or use them as a starting point for a new one."
 
         return content
 

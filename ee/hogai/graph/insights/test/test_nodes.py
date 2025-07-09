@@ -6,7 +6,7 @@ from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 from posthog.models import Insight, InsightViewed
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
+from posthog.schema import AssistantToolCallMessage, HumanMessage
 from posthog.test.base import BaseTest
 
 
@@ -49,10 +49,10 @@ class TestInsightSearchNode(BaseTest):
             last_viewed_at=timezone.now(),
         )
 
-    def test_router_returns_end(self):
-        """Test that router returns 'end' as expected."""
+    def test_router_returns_root(self):
+        """Test that router returns 'root' as expected."""
         result = self.node.router(AssistantState(messages=[]))
-        self.assertEqual(result, "end")
+        self.assertEqual(result, "root")
 
     def test_search_insights_returns_unique_insights(self):
         """Test that search returns unique insights without duplicates."""
@@ -183,7 +183,7 @@ class TestInsightSearchNode(BaseTest):
         result = self.node._format_insight_results([], "test query")
 
         self.assertIn("No insights found matching 'test query'", result)
-        self.assertIn("Using different keywords", result)
+        self.assertIn("Suggest that the user try", result)
 
     def test_format_insight_results_single_result(self):
         """Test formatting for single insight result."""
@@ -205,7 +205,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn("Track daily website traffic", result)
         self.assertIn("/insights/abc123", result)
         self.assertIn("TrendsQuery analysis", result)
-        self.assertIn("modify this insight", result)
+        self.assertIn("INSTRUCTIONS: Ask the user if they want to modify this insight", result)
 
     def test_format_insight_results_multiple_results(self):
         """Test formatting for multiple insight results."""
@@ -233,7 +233,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn("Found 2 insights matching 'analysis'", result)
         self.assertIn("**1. Daily Pageviews**", result)
         self.assertIn("**2. User Signup Funnel**", result)
-        self.assertIn("explore any of these insights further", result)
+        self.assertIn("INSTRUCTIONS: Ask the user if they want to modify one of these insights", result)
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_run_with_semantic_filtering(self, mock_openai):
@@ -260,12 +260,11 @@ class TestInsightSearchNode(BaseTest):
         result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
 
         self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 2)
+        self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_3")
-        self.assertEqual(result.messages[0].content, "Searching insights...")
-        self.assertIsInstance(result.messages[1], AssistantMessage)
-        self.assertIn("Found", result.messages[1].content)
+        self.assertIn("Found", result.messages[0].content)
+        self.assertIn("INSTRUCTIONS:", result.messages[0].content)
         self.assertEqual(result.root_to_search_insights, "")  # Should reset state
 
     def test_run_without_semantic_filtering(self):
@@ -283,11 +282,11 @@ class TestInsightSearchNode(BaseTest):
         result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
 
         self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 2)
+        self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id")
-        self.assertEqual(result.messages[0].content, "Searching insights...")
-        self.assertIsInstance(result.messages[1], AssistantMessage)
+        self.assertIn("Found", result.messages[0].content)
+        self.assertIn("INSTRUCTIONS:", result.messages[0].content)
         self.assertEqual(result.root_to_search_insights, "")
 
     def test_run_with_no_query(self):
@@ -305,11 +304,11 @@ class TestInsightSearchNode(BaseTest):
         result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
 
         self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 2)
+        self.assertEqual(len(result.messages), 1)
         self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_2")
-        self.assertEqual(result.messages[0].content, "Searching insights...")
-        self.assertIsInstance(result.messages[1], AssistantMessage)
+        self.assertIn("Found", result.messages[0].content)
+        self.assertIn("INSTRUCTIONS:", result.messages[0].content)
         self.assertEqual(result.root_to_search_insights, "")
 
     def test_search_insights_team_filtering(self):
