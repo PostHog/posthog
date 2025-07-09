@@ -376,9 +376,13 @@ export class PersonMergeService {
         //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
-        const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        const propertyUpdates = computeEventPropertyUpdates(this.context.event, properties)
-        applyEventPropertyUpdates(propertyUpdates, properties)
+        const mergedProperties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
+        const propertyUpdates = computeEventPropertyUpdates(this.context.event, mergedProperties)
+
+        // Create a temporary person object to apply property updates to
+        const tempPerson: InternalPerson = { ...mergeInto, properties: mergedProperties }
+        const [updatedTempPerson, _] = applyEventPropertyUpdates(propertyUpdates, tempPerson)
+        const properties = updatedTempPerson.properties
 
         const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
             mergeInto,

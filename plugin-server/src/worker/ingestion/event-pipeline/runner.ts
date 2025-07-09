@@ -89,6 +89,25 @@ export class EventPipelineRunner {
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
     }
 
+    validateEvent(event: PluginEvent): true | { warning: string; data: any } {
+        if (event.event === '$groupidentify') {
+            const groupKey = event.properties?.$group_key
+            if (groupKey && groupKey.toString().length > 400) {
+                return {
+                    warning: 'group_key_too_long',
+                    data: {
+                        eventUuid: event.uuid,
+                        event: event.event,
+                        distinctId: event.distinct_id,
+                        groupKeyLength: groupKey.toString().length,
+                        maxLength: 400,
+                    },
+                }
+            }
+        }
+        return true
+    }
+
     /**
      * Heatmap ingestion will eventually be its own plugin server deployment
      * in the meantime we run this set of steps instead of wrapping each step in a conditional
@@ -164,6 +183,21 @@ export class EventPipelineRunner {
 
     async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
+
+        // Validate event properties
+        const validationResult = this.validateEvent(event)
+        if (validationResult !== true) {
+            kafkaAcks.push(
+                captureIngestionWarning(
+                    this.hub.db.kafkaProducer,
+                    event.team_id,
+                    validationResult.warning,
+                    validationResult.data,
+                    { alwaysSend: false }
+                )
+            )
+            return this.registerLastStep('validateEventStep', [event], kafkaAcks)
+        }
 
         let processPerson = true // The default.
 

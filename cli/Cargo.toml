@@ -1,6 +1,6 @@
 [package]
 name = "posthog-cli"
-version = "0.3.3"
+version = "0.3.4"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",

@@ -84,9 +84,9 @@ pub async fn insert_new_team_in_pg(
     // Create new organization from scratch
     client.run_query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, members_can_invite, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist) 
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, members_can_invite, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys) 
         VALUES
-        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, true, false, NULL, '{}', '{}', true, '{}')
+        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, true, false, NULL, '{}', '{}', true, '{}', true)
         ON CONFLICT DO NOTHING"#.to_string(),
         vec![ORG_ID.to_string()],
         Some(2000),

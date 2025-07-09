@@ -31,6 +31,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
+from posthog.models.team import WeekStartDay
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
@@ -1006,6 +1007,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "hogql_modifiers": to_dict(self.modifiers),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
+            "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
 

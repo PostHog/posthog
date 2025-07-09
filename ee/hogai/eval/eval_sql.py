@@ -1,15 +1,17 @@
+import pytest
+from asgiref.sync import sync_to_async
+from braintrust import EvalCase, Score
+from braintrust_core.score import Scorer
+
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
 from posthog.errors import InternalCHQueryError
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
-from .conftest import MaxEval
-import pytest
-from braintrust import EvalCase, Score
-from braintrust_core.score import Scorer
-from asgiref.sync import sync_to_async
 from posthog.schema import AssistantHogQLQuery, NodeKind
-from .scorers import QueryKindSelection, PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
+
+from .conftest import MaxEval
+from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 QUERY_GENERATION_MAX_RETRIES = 3
 
@@ -91,8 +93,8 @@ class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
 
 
 @pytest.mark.django_db
-def eval_sql(call_root_for_insight_generation):
-    MaxEval(
+async def eval_sql(call_root_for_insight_generation):
+    await MaxEval(
         experiment_name="sql",
         task=call_root_for_insight_generation,
         scores=[

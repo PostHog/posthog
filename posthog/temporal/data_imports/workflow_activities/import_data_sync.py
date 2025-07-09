@@ -161,13 +161,27 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 hubspot_refresh_access_token,
             )
 
-            hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
-            refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
-            if not refresh_token:
-                raise ValueError(f"Hubspot refresh token not found for job {model.id}")
+            if "hubspot_integration_id" in model.pipeline.job_inputs.keys():
+                hubspot_integration_id = model.pipeline.job_inputs.get("hubspot_integration_id")
+                if not Integration.objects.filter(id=hubspot_integration_id, team_id=inputs.team_id).exists():
+                    raise Exception(f"Hubspot integration not found with id = {hubspot_integration_id}")
 
-            if not hubspot_access_code:
-                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+                integration = Integration.objects.get(id=hubspot_integration_id, team_id=inputs.team_id)
+
+                if not integration.access_token or not integration.refresh_token:
+                    raise ValueError(f"Hubspot refresh or access token not found for job {model.id}")
+
+                hubspot_access_code = integration.access_token
+                refresh_token = integration.refresh_token
+            else:
+                # TODO: convert all old-style hubspot sources to use the `Integration` model
+                hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
+                refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
+                if not refresh_token:
+                    raise ValueError(f"Hubspot refresh token not found for job {model.id}")
+
+                if not hubspot_access_code:
+                    hubspot_access_code = hubspot_refresh_access_token(refresh_token)
 
             source = hubspot(
                 api_key=hubspot_access_code,
@@ -501,6 +515,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
             if not salesforce_integration_id:
                 raise ValueError(f"Salesforce integration not found for job {model.id}")
+
+            if not Integration.objects.filter(id=salesforce_integration_id, team_id=inputs.team_id).exists():
+                raise Exception(f"Salesforce integration not found with id = {salesforce_integration_id}")
 
             integration = Integration.objects.get(id=salesforce_integration_id, team_id=inputs.team_id)
             salesforce_refresh_token = integration.refresh_token
