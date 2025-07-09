@@ -4666,3 +4666,120 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1, f"Expected 1 conversion, got {conversion_count}"
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    def test_attribution_window_30_day_individual_conversion_boundaries(self):
+        """
+        Test Case: Attribution window calculated individually per conversion
+
+        Scenario: Two users with different timelines to validate that attribution
+        windows are calculated from each conversion date, not the query date range.
+
+        Timeline:
+        - May 29 2024: User2 pageview with UTM (social_campaign/facebook)
+        - May 30 2024: User1 pageview with UTM (email_campaign/newsletter)
+        - June 5 2024: User2 converts (7 days after pageview - within 30-day window)
+        - July 1 2024: User1 converts (32 days after pageview - outside 30-day window)
+
+        Query Range: June 2 to July 2 (both conversions included)
+        Attribution Window: 30 days
+
+        Expected Results:
+        - User1: Should be attributed as "organic" (pageview outside 30-day window)
+        - User2: Should be attributed to "social_campaign/facebook" (within window)
+
+        This validates that attribution windows work per-conversion, not per-query.
+        """
+        # User2: Pageview on May 29 with UTM
+        with freeze_time("2024-05-29"):
+            _create_person(distinct_ids=["user2"], team=self.team)
+            _create_event(
+                distinct_id="user2",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "social_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        # User1: Pageview on May 30 with UTM
+        with freeze_time("2024-05-30"):
+            _create_person(distinct_ids=["user1"], team=self.team)
+            _create_event(
+                distinct_id="user1",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "email_campaign", "utm_source": "newsletter"},
+            )
+            flush_persons_and_events()
+
+        # User2: Converts on June 5 (7 days after pageview - within 30-day window)
+        with freeze_time("2024-06-05"):
+            _create_event(
+                distinct_id="user2",
+                event="user signed up",
+                team=self.team,
+                properties={"value": 1}
+            )
+            flush_persons_and_events()
+
+        # User1: Converts on July 1 (32 days after pageview - outside 30-day window)
+        with freeze_time("2024-07-01"):
+            _create_event(
+                distinct_id="user1",
+                event="user signed up",
+                team=self.team,
+                properties={"value": 1}
+            )
+            flush_persons_and_events()
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="user signed up",
+            conversion_goal_id="signup_goal",
+            conversion_goal_name="User Signup",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(
+            goal=goal,
+            index=0,
+            team=self.team,
+        )
+        processor.attribution_window_days = 30  # 30-day attribution window
+
+        # Query range: June 2 to July 2 (includes both conversions)
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2024-06-02")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2024-07-02")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Convert results to dict for easier validation
+        results_dict = {}
+        for result in response.results:
+            key = f"{result[0]}/{result[1]}"
+            results_dict[key] = result[2]
+
+        # Should have exactly 2 results (one per user)
+        assert len(results_dict) == 2, f"Expected 2 results, got {len(results_dict)}: {results_dict}"
+
+        # User2: Within 30-day window - should be attributed to UTM
+        assert "social_campaign/facebook" in results_dict, f"Missing social_campaign/facebook attribution. Results: {results_dict}"
+        assert results_dict["social_campaign/facebook"] == 1, f"Expected 1 conversion for social_campaign/facebook, got {results_dict['social_campaign/facebook']}"
+
+        # User1: Outside 30-day window - should be organic
+        assert "organic/organic" in results_dict, f"Missing organic attribution. Results: {results_dict}"
+        assert results_dict["organic/organic"] == 1, f"Expected 1 conversion for organic, got {results_dict['organic/organic']}"
+
+        # Validate that email_campaign is NOT present (it's outside attribution window)
+        assert "email_campaign/newsletter" not in results_dict, f"email_campaign should not be attributed (outside 30-day window). Results: {results_dict}"
