@@ -3669,6 +3669,7 @@ class PersonPropertyFilter(BaseModel):
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
 
+
 class ActionsPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3677,7 +3678,7 @@ class ActionsPropertyFilter(BaseModel):
     label: Optional[str] = None
     name: str
     type: Literal["actions"] = Field(default="actions", description="Actions properties")
-    
+
 
 class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
@@ -10601,7 +10602,17 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         extra="forbid",
     )
     type: FilterLogicalOperator
-    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter, GroupPropertyFilter, CohortPropertyFilter, ActionsPropertyFilter]]
+    values: list[
+        Union[
+            EventPropertyFilter,
+            PersonPropertyFilter,
+            SessionPropertyFilter,
+            RecordingPropertyFilter,
+            GroupPropertyFilter,
+            CohortPropertyFilter,
+            ActionsPropertyFilter,
+        ]
+    ]
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):
