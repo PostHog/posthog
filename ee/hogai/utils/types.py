@@ -165,8 +165,9 @@ class _SharedAssistantState(BaseModel):
     The ID of the previous OpenAI Responses API response made by the filter options node.
     """
     filter_options_previous_response_id: Optional[str] = Field(default=None)
+    query_planner_previous_response_id: Optional[str] = Field(default=None)
     """
-    The ID of the previous OpenAI Responses API response made by the filter options node.
+    The ID of the previous OpenAI Responses API response made by the query planner.
     """
     generated_filter_options: Optional[dict] = Field(default=None)
     """
