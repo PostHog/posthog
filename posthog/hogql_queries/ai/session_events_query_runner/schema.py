@@ -66,8 +66,6 @@ class SessionEventsItem(BaseModel):
         description="List of events for this session, each event is a list of field values matching the query columns",
     )
 
-    event_count: int = Field(..., description="Number of events returned for this session")
-
 
 class SessionBatchEventsQueryResponse(EventsQueryResponse):
     """
@@ -82,11 +80,6 @@ class SessionBatchEventsQueryResponse(EventsQueryResponse):
     # Session-grouped results (when group_by_session=True)
     session_events: Optional[list[SessionEventsItem]] = Field(
         default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
-    )
-
-    # Summary metrics for batch queries
-    total_sessions: Optional[int] = Field(
-        default=None, description="Total number of sessions that had events in the result"
     )
 
     sessions_with_no_events: list[str] = Field(
