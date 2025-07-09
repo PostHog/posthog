@@ -5,6 +5,7 @@ import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
 
+from asgiref.sync import sync_to_async
 from django.db.models import Prefetch, Q
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
@@ -21,7 +22,6 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
-from posthog.sync import database_sync_to_async
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
@@ -245,7 +245,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         )
         return result
 
-    @database_sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=True)
     def _put(
         self,
         config: RunnableConfig,
@@ -352,7 +352,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         )
         return None
 
-    @database_sync_to_async(thread_sensitive=True)
+    @sync_to_async(thread_sensitive=True)
     def _put_writes(
         self,
         config: RunnableConfig,
