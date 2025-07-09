@@ -1085,7 +1085,6 @@ class ShortlinkIntegration:
             "url": original_url,
             "domain": settings.DUB_DOMAIN,
             "externalId": external_id,
-            "tagNames": f"posthog,insights,team-{team_id},user-{user_id}",
             "title": "PostHog Insight Template",
         }
 

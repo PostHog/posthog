@@ -36,8 +36,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action, format_paginated_url
-from posthog.auth import SharingAccessTokenAuthentication
+from posthog.auth import SharingAccessTokenAuthentication, SessionAuthentication
 from posthog.caching.fetch_from_cache import InsightResult
+from posthog.models.integration import ShortlinkIntegration, ShortlinkServiceError
+from posthog.models.shortlink import Shortlink
+from posthog.rate_limit import ShortlinkRateThrottle
+from django.conf import settings
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import (
@@ -1265,6 +1269,82 @@ When set, the specified dashboard's filters and date range override will be appl
             KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
 
         return Response(status=status.HTTP_201_CREATED)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        throttle_classes=[ShortlinkRateThrottle],
+        authentication_classes=[SessionAuthentication],  # Session-only, no Personal API Keys
+    )
+    def create_shortlink(self, request: request.Request, **kwargs) -> Response:
+        """
+        Create a shortlink for this insight's template URL.
+
+        This action is only available to logged-in users (session auth),
+        not via Personal API Keys, for security.
+        """
+        insight = self.get_object()
+
+        # Check if dub.co is enabled
+        if not settings.DUB_ENABLED:
+            return Response({"error": "Shortlink service is not enabled"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not settings.DUB_API_KEY:
+            return Response(
+                {"error": "Shortlink service is not configured"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        try:
+            # Build the insight template URL
+            # In a real implementation, you'd construct the actual template URL
+            # For now, using a placeholder URL structure
+            template_url = f"https://app.posthog.com/insights/{insight.short_id}"
+
+            # Get or create the shortlink integration for this team
+            integration = ShortlinkIntegration.integration_from_settings(team_id=self.team_id, created_by=request.user)
+
+            shortlink_service = ShortlinkIntegration(integration)
+
+            # Create the shortlink via dub.co API
+            dub_response = shortlink_service.create_shortlink(original_url=template_url, user_id=request.user.id)
+
+            # Create the database record
+            shortlink = Shortlink.objects.create(
+                team_id=self.team_id,
+                created_by=request.user,
+                original_url=template_url,
+                short_code=dub_response["key"],
+                short_url=dub_response["shortLink"],
+            )
+
+            logger.info(
+                "insight_shortlink_created",
+                team_id=self.team_id,
+                user_id=request.user.id,
+                insight_id=str(insight.id),
+                shortlink_id=str(shortlink.id),
+                short_code=shortlink.short_code,
+            )
+
+            return Response(
+                {
+                    "short_url": shortlink.short_url,
+                    "short_code": shortlink.short_code,
+                    "original_url": shortlink.original_url,
+                    "created_at": shortlink.created_at,
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except ShortlinkServiceError as e:
+            logger.exception(
+                "insight_shortlink_creation_failed",
+                team_id=self.team_id,
+                user_id=request.user.id,
+                insight_id=str(insight.id),
+                error=str(e),
+            )
+            return Response({"error": f"Failed to create shortlink: {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class LegacyInsightViewSet(InsightViewSet):
