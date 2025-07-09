@@ -127,7 +127,7 @@ def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
 
 
-def DROP_PARTITION_SQL(table_name, date_start, on_cluster=True, granularity="daily"):
+def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="daily"):
     """
     Generate SQL to drop a partition for a specific date.
     This enables idempotent operations by ensuring clean state before insertion.

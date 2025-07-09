@@ -31,6 +31,16 @@ class TestPartitionDropSQL:
     """
             assert sql.strip() == expected.strip()
 
+    def test_drop_partition_daily_default_no_cluster(self):
+        sql = DROP_PARTITION_SQL("web_stats_daily", "2024-01-15")
+
+        expected = """
+    ALTER TABLE web_stats_daily
+    DROP PARTITION '20240115'
+    """
+        assert sql.strip() == expected.strip()
+        assert "ON CLUSTER" not in sql
+
     def test_drop_partition_hourly_with_hour(self):
         sql = DROP_PARTITION_SQL("web_stats_hourly", "2024-01-15 14", on_cluster=False, granularity="hourly")
 
