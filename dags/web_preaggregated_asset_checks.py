@@ -16,7 +16,6 @@ from dags.common import JobOwners
 from dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.schema import WebOverviewQuery, DateRange, HogQLQueryModifiers, WebOverviewItem
 from posthog.models import Team
 from posthog.clickhouse.client import sync_execute
@@ -254,10 +253,9 @@ def bounces_export_chdb_queryable() -> AssetCheckResult:
     return check_export_chdb_queryable("web_bounces_daily", "bounces_export_chdb_check")
 
 
-def log_query_sql(runner, query_name: str, context, team: Team, use_pre_agg: bool = False) -> None:
-    if not context:
-        return
-
+def log_query_sql(
+    runner, query_name: str, context: dagster.AssetCheckExecutionContext, team: Team, use_pre_agg: bool = False
+) -> None:
     try:
         if use_pre_agg:
             query_ast = runner.preaggregated_query_builder.get_query()
@@ -273,7 +271,11 @@ def log_query_sql(runner, query_name: str, context, team: Team, use_pre_agg: boo
 
 
 def compare_web_overview_metrics(
-    team_id: int, date_from: str, date_to: str, tolerance_pct: float = DEFAULT_TOLERANCE_PCT, context=None
+    team_id: int,
+    date_from: str,
+    date_to: str,
+    context: dagster.AssetCheckExecutionContext,
+    tolerance_pct: float = DEFAULT_TOLERANCE_PCT,
 ) -> tuple[bool, dict[str, Any]]:
     """
     Compare pre-aggregated vs regular WebOverview metrics for accuracy.
@@ -286,40 +288,38 @@ def compare_web_overview_metrics(
     except Team.DoesNotExist:
         raise ValueError(f"Team {team_id} does not exist")
 
-    # Query with pre-aggregated tables
-    query_pre_agg = WebOverviewQuery(
+    query_fn = lambda: WebOverviewQuery(
         dateRange=DateRange(date_from=date_from, date_to=date_to),
-        properties=[],  # Add required empty properties field
+        properties=[],
     )
 
-    modifiers_pre_agg = HogQLQueryModifiers(
-        useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False, debug=True
+    runner_pre_agg = WebOverviewQueryRunner(
+        query=query_fn(),
+        team=team,
+        modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False),
     )
-
-    modifiers_regular = HogQLQueryModifiers(
-        useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False, debug=True
+    runner_regular = WebOverviewQueryRunner(
+        query=query_fn(),
+        team=team,
+        modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False),
     )
-
-    # Force fresh execution by using CALCULATE_BLOCKING_ALWAYS (bypasses all caches)
-    runner_pre_agg = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_pre_agg)
-    runner_regular = WebOverviewQueryRunner(query=query_pre_agg, team=team, modifiers=modifiers_regular)
 
     try:
         log_query_sql(runner_pre_agg, "Pre-aggregated SQL", context, team, use_pre_agg=True)
+        log_query_sql(runner_regular, "Regular SQL", context, team, use_pre_agg=False)
+
+        context.log.info("About to execute pre-aggregated query")
         start_time = time.time()
-        response_pre_agg = runner_pre_agg.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response_pre_agg = runner_pre_agg.calculate()
         pre_agg_time = time.time() - start_time
 
-        log_query_sql(runner_regular, "Regular SQL", context, team, use_pre_agg=False)
+        context.log.info("About to execute regular query")
         start_time = time.time()
-        response_regular = runner_regular.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        response_regular = runner_regular.calculate()
         regular_time = time.time() - start_time
 
-        logger.info(
-            "Query execution completed",
-            team_id=team_id,
-            pre_agg_time=round(pre_agg_time, 3),
-            regular_time=round(regular_time, 3),
+        context.log.info(
+            f"Query execution completed for team {team_id}, pre-agg time: {pre_agg_time}, regular time: {regular_time}"
         )
 
         # Convert results to dict for easier comparison
@@ -376,7 +376,7 @@ def compare_web_overview_metrics(
             "metrics": {},
             "all_within_tolerance": False,
             "tolerance_pct": tolerance_pct,
-            "timing": {"pre_aggregated": 0, "regular": 0},
+            "timing": {"pre_aggregated": 0.0, "regular": 0.0},
         }
 
 
@@ -409,10 +409,10 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
             f"Running accuracy check for team {team_id}, date range: {date_from} to {date_to}, tolerance: {tolerance_pct}%"
         )
         is_valid, comparison_data = compare_web_overview_metrics(
-            team_id=team_id, date_from=date_from, date_to=date_to, tolerance_pct=tolerance_pct, context=context
+            team_id=team_id, date_from=date_from, date_to=date_to, context=context, tolerance_pct=tolerance_pct
         )
 
-        validation_result = comparison_data
+        check_results = comparison_data
 
         timing = comparison_data.get("timing", {})
         context.log.info(
@@ -420,7 +420,7 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
         )
     except Exception as e:
         context.log.exception(f"Failed to run accuracy check for team {team_id}: {str(e)}")
-        validation_result = {
+        check_results = {
             "team_id": team_id,
             "error": str(e),
             "date_from": date_from,
@@ -428,9 +428,9 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
             "skipped": True,
         }
 
-    total_metrics_checked = len(validation_result.get("metrics", {}))
+    total_metrics_checked = len(check_results.get("metrics", {}))
     failed_metrics = sum(
-        1 for metric in validation_result.get("metrics", {}).values() if not metric.get("within_tolerance", True)
+        1 for metric in check_results.get("metrics", {}).values() if not metric.get("within_tolerance", True)
     )
 
     success_rate = (total_metrics_checked - failed_metrics) / max(total_metrics_checked, 1) * 100
@@ -454,11 +454,11 @@ def web_analytics_accuracy_check(context: dagster.AssetCheckExecutionContext) ->
     }
 
     # Add timing metadata if available
-    if validation_result and not validation_result.get("skipped") and "timing" in validation_result:
+    if check_results and not check_results.get("skipped") and "timing" in check_results:
         metadata.update(
             {
-                "pre_agg_time": MetadataValue.float(round(validation_result["timing"]["pre_aggregated"], 3)),
-                "regular_time": MetadataValue.float(round(validation_result["timing"]["regular"], 3)),
+                "pre_agg_time": MetadataValue.float(round(check_results["timing"]["pre_aggregated"], 3)),
+                "regular_time": MetadataValue.float(round(check_results["timing"]["regular"], 3)),
             }
         )
 
