@@ -7,12 +7,15 @@ from dags import (
     web_preaggregated_daily,
     web_preaggregated_ddl,
     web_preaggregated_hourly,
+    web_preaggregated_hourly_historical,
+    web_preaggregated_accuracy_comparison,
 )
 
 defs = dagster.Definitions(
     assets=[
         web_preaggregated_ddl.web_analytics_preaggregated_tables,
         web_preaggregated_ddl.web_analytics_preaggregated_hourly_tables,
+        web_preaggregated_ddl.web_analytics_preaggregated_hourly_historical_tables,
         web_preaggregated_ddl.web_analytics_combined_views,
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
@@ -20,6 +23,9 @@ defs = dagster.Definitions(
         web_preaggregated_daily.web_bounces_daily_export,
         web_preaggregated_hourly.web_stats_hourly,
         web_preaggregated_hourly.web_bounces_hourly,
+        web_preaggregated_hourly_historical.web_stats_hourly_historical,
+        web_preaggregated_hourly_historical.web_bounces_hourly_historical,
+        web_preaggregated_accuracy_comparison.web_analytics_accuracy_comparison,
     ],
     asset_checks=[
         web_preaggregated_asset_checks.web_analytics_accuracy_check,
@@ -33,12 +39,16 @@ defs = dagster.Definitions(
         web_preaggregated_ddl.daily_bounces_table_exist,
         web_preaggregated_ddl.hourly_stats_table_exist,
         web_preaggregated_ddl.hourly_bounces_table_exist,
+        web_preaggregated_ddl.hourly_historical_stats_table_exist,
+        web_preaggregated_ddl.hourly_historical_bounces_table_exist,
         web_preaggregated_ddl.combined_stats_view_exist,
         web_preaggregated_ddl.combined_bounces_view_exist,
     ],
     jobs=[
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
         web_preaggregated_daily.web_pre_aggregate_daily_job,
+        web_preaggregated_hourly_historical.web_pre_aggregate_hourly_historical_job,
+        web_preaggregated_accuracy_comparison.web_analytics_accuracy_comparison_job,
         web_preaggregated_asset_checks.web_analytics_data_quality_job,
         web_preaggregated_asset_checks.simple_data_checks_job,
     ],

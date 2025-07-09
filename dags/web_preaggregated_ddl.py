@@ -16,6 +16,10 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_COMBINED_VIEW_SQL,
     WEB_STATS_DAILY_SQL,
     WEB_STATS_HOURLY_SQL,
+    WEB_STATS_HOURLY_HISTORICAL_SQL,
+    WEB_BOUNCES_HOURLY_HISTORICAL_SQL,
+    DISTRIBUTED_WEB_STATS_HOURLY_HISTORICAL_SQL,
+    DISTRIBUTED_WEB_BOUNCES_HOURLY_HISTORICAL_SQL,
 )
 from dags.web_preaggregated_utils import web_analytics_retry_policy_def
 
@@ -215,3 +219,56 @@ def combined_stats_view_exist() -> AssetCheckResult:
 )
 def combined_bounces_view_exist() -> AssetCheckResult:
     return check_table_exist("web_bounces_combined")
+
+
+@dagster.asset(
+    name="web_analytics_preaggregated_hourly_historical_tables",
+    group_name="web_analytics",
+    description="Creates the hourly historical tables for web analytics accuracy comparison (no TTL).",
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_analytics_preaggregated_hourly_historical_tables(
+    context: dagster.AssetExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> bool:
+    """
+    Create hourly historical web analytics tables for accuracy comparison.
+
+    These tables store the same data as daily tables but aggregated hourly to test
+    the hypothesis that hourly aggregation provides better accuracy than daily aggregation.
+    Unlike the regular hourly tables, these have no TTL and are meant for historical analysis.
+    """
+
+    def drop_tables(client: Client):
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_stats_hourly_historical SYNC", context)
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_bounces_hourly_historical SYNC", context)
+
+    def create_tables(client: Client):
+        execute_with_logging(client, WEB_STATS_HOURLY_HISTORICAL_SQL(), context)
+        execute_with_logging(client, WEB_BOUNCES_HOURLY_HISTORICAL_SQL(), context)
+
+        execute_with_logging(client, DISTRIBUTED_WEB_STATS_HOURLY_HISTORICAL_SQL(), context)
+        execute_with_logging(client, DISTRIBUTED_WEB_BOUNCES_HOURLY_HISTORICAL_SQL(), context)
+
+    cluster.map_all_hosts(drop_tables).result()
+    cluster.map_all_hosts(create_tables).result()
+    return True
+
+
+@asset_check(
+    asset=web_analytics_preaggregated_hourly_historical_tables,
+    name="hourly_historical_stats_table_exist",
+    description="Check if hourly historical stats table was created",
+)
+def hourly_historical_stats_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_stats_hourly_historical")
+
+
+@asset_check(
+    asset=web_analytics_preaggregated_hourly_historical_tables,
+    name="hourly_historical_bounces_table_exist",
+    description="Check if hourly historical bounces table was created",
+)
+def hourly_historical_bounces_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_bounces_hourly_historical")

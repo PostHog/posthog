@@ -609,3 +609,60 @@ def WEB_STATS_COMBINED_VIEW_SQL():
 
 def WEB_BOUNCES_COMBINED_VIEW_SQL():
     return create_combined_view_sql("web_bounces")
+
+
+# Historical hourly tables (without TTL) for accuracy comparison
+def WEB_STATS_HOURLY_HISTORICAL_SQL(table_name="web_stats_hourly_historical", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
+def DISTRIBUTED_WEB_STATS_HOURLY_HISTORICAL_SQL():
+    return DISTRIBUTED_TABLE_TEMPLATE(
+        "web_stats_hourly_historical_distributed",
+        "web_stats_hourly_historical",
+        WEB_STATS_COLUMNS,
+        granularity="hourly",
+    )
+
+
+def WEB_BOUNCES_HOURLY_HISTORICAL_SQL(table_name="web_bounces_hourly_historical", on_cluster=True):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
+
+
+def DISTRIBUTED_WEB_BOUNCES_HOURLY_HISTORICAL_SQL():
+    return DISTRIBUTED_TABLE_TEMPLATE(
+        "web_bounces_hourly_historical_distributed",
+        "web_bounces_hourly_historical",
+        WEB_BOUNCES_COLUMNS,
+        granularity="hourly",
+    )
+
+
+def WEB_STATS_HOURLY_HISTORICAL_INSERT_SQL(
+    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_hourly_historical"
+):
+    """Insert historical data into hourly aggregation table for accuracy comparison"""
+    return WEB_STATS_INSERT_SQL(
+        date_start=date_start,
+        date_end=date_end,
+        team_ids=team_ids,
+        timezone=timezone,
+        settings=settings,
+        table_name=table_name,
+        granularity="hourly",
+    )
+
+
+def WEB_BOUNCES_HOURLY_HISTORICAL_INSERT_SQL(
+    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_bounces_hourly_historical"
+):
+    """Insert historical data into hourly aggregation table for accuracy comparison"""
+    return WEB_BOUNCES_INSERT_SQL(
+        date_start=date_start,
+        date_end=date_end,
+        team_ids=team_ids,
+        timezone=timezone,
+        settings=settings,
+        table_name=table_name,
+        granularity="hourly",
+    )

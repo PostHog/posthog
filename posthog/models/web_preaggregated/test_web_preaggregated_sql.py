@@ -183,3 +183,79 @@ class TestWebPreAggregatedReplacingMergeTree(ClickhouseTestMixin, APIBaseTest):
         assert "updated_at" in table_sql
 
         assert "updated_at DateTime64(6, 'UTC') DEFAULT now()" in table_sql
+
+    def test_hourly_historical_table_creation(self):
+        """Test that hourly historical tables are created correctly"""
+        from posthog.models.web_preaggregated.sql import (
+            WEB_STATS_HOURLY_HISTORICAL_SQL,
+            WEB_BOUNCES_HOURLY_HISTORICAL_SQL,
+            DISTRIBUTED_WEB_STATS_HOURLY_HISTORICAL_SQL,
+            DISTRIBUTED_WEB_BOUNCES_HOURLY_HISTORICAL_SQL,
+        )
+
+        # Test web_stats_hourly_historical
+        stats_sql = WEB_STATS_HOURLY_HISTORICAL_SQL(on_cluster=False)
+        self._assert_sql_contains_patterns(stats_sql, self.REPLACING_MERGE_TREE_PATTERNS)
+        self._assert_sql_contains_patterns(stats_sql, ["web_stats_hourly_historical"])
+
+        # Test web_bounces_hourly_historical
+        bounces_sql = WEB_BOUNCES_HOURLY_HISTORICAL_SQL(on_cluster=False)
+        self._assert_sql_contains_patterns(bounces_sql, self.REPLACING_MERGE_TREE_PATTERNS)
+        self._assert_sql_contains_patterns(bounces_sql, ["web_bounces_hourly_historical"])
+
+        # Test distributed table creation
+        dist_stats_sql = DISTRIBUTED_WEB_STATS_HOURLY_HISTORICAL_SQL()
+        self._assert_sql_contains_patterns(dist_stats_sql, ["CREATE TABLE"])
+        self._assert_sql_contains_patterns(dist_stats_sql, ["web_stats_hourly_historical_distributed"])
+
+        dist_bounces_sql = DISTRIBUTED_WEB_BOUNCES_HOURLY_HISTORICAL_SQL()
+        self._assert_sql_contains_patterns(dist_bounces_sql, ["CREATE TABLE"])
+        self._assert_sql_contains_patterns(dist_bounces_sql, ["web_bounces_hourly_historical_distributed"])
+
+    def test_hourly_historical_insert_functions(self):
+        """Test that hourly historical insert functions work correctly"""
+        from posthog.models.web_preaggregated.sql import (
+            WEB_STATS_HOURLY_HISTORICAL_INSERT_SQL,
+            WEB_BOUNCES_HOURLY_HISTORICAL_INSERT_SQL,
+        )
+
+        # Test web_stats insert
+        stats_insert_sql = WEB_STATS_HOURLY_HISTORICAL_INSERT_SQL(
+            date_start=self.TEST_DATE_START,
+            date_end=self.TEST_DATE_END,
+            team_ids=self.TEST_TEAM_IDS,
+        )
+        self._assert_sql_contains_patterns(stats_insert_sql, ["INSERT INTO web_stats_hourly_historical"])
+        self._assert_sql_contains_patterns(stats_insert_sql, ["toStartOfHour"])
+
+        # Test web_bounces insert
+        bounces_insert_sql = WEB_BOUNCES_HOURLY_HISTORICAL_INSERT_SQL(
+            date_start=self.TEST_DATE_START,
+            date_end=self.TEST_DATE_END,
+            team_ids=self.TEST_TEAM_IDS,
+        )
+        self._assert_sql_contains_patterns(bounces_insert_sql, ["INSERT INTO web_bounces_hourly_historical"])
+        self._assert_sql_contains_patterns(bounces_insert_sql, ["toStartOfHour"])
+
+    def test_hourly_historical_no_ttl(self):
+        """Test that hourly historical tables don't have TTL (unlike intra-day hourly tables)"""
+        from posthog.models.web_preaggregated.sql import (
+            WEB_STATS_HOURLY_HISTORICAL_SQL,
+            WEB_BOUNCES_HOURLY_HISTORICAL_SQL,
+            WEB_STATS_HOURLY_SQL,
+            WEB_BOUNCES_HOURLY_SQL,
+        )
+
+        # Historical tables should not have TTL
+        stats_historical_sql = WEB_STATS_HOURLY_HISTORICAL_SQL(on_cluster=False)
+        bounces_historical_sql = WEB_BOUNCES_HOURLY_HISTORICAL_SQL(on_cluster=False)
+
+        self._assert_sql_contains_patterns(stats_historical_sql, ["TTL"], should_contain=False)
+        self._assert_sql_contains_patterns(bounces_historical_sql, ["TTL"], should_contain=False)
+
+        # Intra-day hourly tables should have TTL
+        stats_hourly_sql = WEB_STATS_HOURLY_SQL(on_cluster=False)
+        bounces_hourly_sql = WEB_BOUNCES_HOURLY_SQL(on_cluster=False)
+
+        self._assert_sql_contains_patterns(stats_hourly_sql, ["TTL"])
+        self._assert_sql_contains_patterns(bounces_hourly_sql, ["TTL"])
