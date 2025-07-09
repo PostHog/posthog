@@ -33,7 +33,7 @@ export const LinearTeamSelectField = ({ integrationId }: { integrationId: number
     const { options, loading } = useLinearTeams(integrationId)
 
     return (
-        <LemonField name="teamIds" label="Title">
+        <LemonField name="teamIds" label="Team">
             <LemonInputSelect
                 mode="single"
                 data-attr="select-linear-team"
