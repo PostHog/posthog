@@ -159,7 +159,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                             let kafkaMessages: TopicMessage[] = []
                             switch (this.options.dbWriteMode) {
                                 case 'NO_ASSERT': {
-                                    const [_, messages] = await this.updatePersonNoAssert(update, 'batch')
+                                    const [_, messages] = await promiseRetry(
+                                        () => this.updatePersonNoAssert(update, 'batch'),
+                                        'updatePersonNoAssert',
+                                        this.options.maxOptimisticUpdateRetries,
+                                        this.options.optimisticUpdateRetryInterval,
+                                        undefined,
+                                        [MessageSizeTooLarge]
+                                    )
                                     kafkaMessages = messages
                                     break
                                 }
