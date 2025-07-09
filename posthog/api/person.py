@@ -580,11 +580,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=he.response.status_code,
                 )
 
-            except CaptureInternalError as cie:
+            except CaptureInternalError:
                 return response.Response(
                     {
                         "success": False,
-                        "detail": f"Unable to delete property: {cie}",
+                        "detail": f"Unable to delete property",
                     },
                     status=400,
                 )
@@ -714,7 +714,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
                 resp.raise_for_status()
 
-            # Failures in this codepath (old and new) are ignored for some reason :(
+            # Failures in this codepath (old and new) are ignored here
             except (HTTPError, CaptureInternalError):
                 pass
 
