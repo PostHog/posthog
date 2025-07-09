@@ -45,7 +45,7 @@ from posthog.warehouse.models import (
     get_s3_client,
 )
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 # preserve casing since we are already coming from a sql dialect, we don't need to worry about normalizing
 os.environ["SCHEMA__NAMING"] = "direct"
@@ -907,6 +907,33 @@ async def create_job_model_activity(inputs: CreateJobModelInputs) -> str:
     return str(job.id)
 
 
+@dataclasses.dataclass
+class CleanupRunningJobsActivityInputs:
+    team_id: int
+
+
+@temporalio.activity.defn
+async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs) -> None:
+    """Mark all existing RUNNING DataModelingJobs as FAILED when starting a new run.
+    Since only one job can run at a time per team, any existing RUNNING jobs
+    are orphaned when a new run starts.
+    """
+    logger = await bind_temporal_worker_logger(inputs.team_id)
+
+    orphaned_count = await database_sync_to_async(
+        DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
+    )(
+        status=DataModelingJob.Status.FAILED,
+        error="Job was orphaned when a new data modeling run started",
+        updated_at=dt.datetime.now(dt.UTC),
+    )
+
+    if orphaned_count > 0:
+        await logger.ainfo(f"Cleaned up {orphaned_count} orphaned jobs", orphaned_count=orphaned_count)
+    else:
+        await logger.adebug("No orphaned jobs found")
+
+
 @temporalio.activity.defn
 async def start_run_activity(inputs: StartRunActivityInputs) -> None:
     """Activity that starts a run by updating statuses of associated models."""
@@ -1080,6 +1107,13 @@ class RunWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> Results:
+        await temporalio.workflow.execute_activity(
+            cleanup_running_jobs_activity,
+            CleanupRunningJobsActivityInputs(team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
+
         job_id = await temporalio.workflow.execute_activity(
             create_job_model_activity,
             CreateJobModelInputs(team_id=inputs.team_id, select=inputs.select),

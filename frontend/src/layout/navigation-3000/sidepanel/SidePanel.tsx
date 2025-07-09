@@ -198,6 +198,7 @@ export function SidePanel(): JSX.Element | null {
                 width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
                 ...theme?.sidebarStyle,
             }}
+            id="side-panel"
         >
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">

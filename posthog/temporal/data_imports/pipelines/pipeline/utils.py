@@ -576,7 +576,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
     # Support both given schemas and inferred schemas
-    if schema is None:
+    if schema is None or len(schema.names) == 0:
         try:
             # Gather all unique keys from all items, not just the first
             all_keys = set().union(*(d.keys() for d in table_data))

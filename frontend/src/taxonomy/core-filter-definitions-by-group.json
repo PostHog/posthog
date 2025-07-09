@@ -1147,22 +1147,6 @@
             "label": "Sentry event ID",
             "system": true
         },
-        "$sentry_exception": {
-            "description": "Raw Sentry exception data.",
-            "label": "Sentry exception",
-            "system": true
-        },
-        "$sentry_exception_message": {
-            "label": "Sentry exception message"
-        },
-        "$sentry_exception_type": {
-            "description": "Class name of the exception object.",
-            "label": "Sentry exception type"
-        },
-        "$sentry_tags": {
-            "description": "Tags sent to Sentry along with the exception.",
-            "label": "Sentry tags"
-        },
         "$sentry_url": {
             "description": "Direct link to the exception in Sentry",
             "examples": ["https://sentry.io/..."],
@@ -3254,22 +3238,6 @@
             "label": "Sentry event ID",
             "system": true
         },
-        "$sentry_exception": {
-            "description": "Raw Sentry exception data.",
-            "label": "Sentry exception",
-            "system": true
-        },
-        "$sentry_exception_message": {
-            "label": "Sentry exception message"
-        },
-        "$sentry_exception_type": {
-            "description": "Class name of the exception object.",
-            "label": "Sentry exception type"
-        },
-        "$sentry_tags": {
-            "description": "Tags sent to Sentry along with the exception.",
-            "label": "Sentry tags"
-        },
         "$sentry_url": {
             "description": "Direct link to the exception in Sentry",
             "examples": ["https://sentry.io/..."],
@@ -3835,47 +3803,56 @@
         "amount": {
             "description": "The amount of the revenue event.",
             "label": "Amount",
-            "type": "Numeric"
+            "type": "Numeric",
+            "virtual": true
         },
         "cohort": {
             "description": "The cohort of the customer connected to the revenue event.",
             "label": "Cohort",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         },
         "country": {
             "description": "The country of the customer connected to the revenue event.",
             "label": "Country",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         },
         "coupon": {
             "description": "The name of the coupon on the revenue event.",
             "label": "Coupon",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         },
         "coupon_id": {
             "description": "The ID of the coupon on the revenue event.",
             "label": "Coupon ID",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         },
         "initial_coupon": {
             "description": "The name of the coupon on the initial revenue event for the customer.",
             "label": "Initial coupon",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         },
         "initial_coupon_id": {
             "description": "The ID of the coupon on the initial revenue event for the customer.",
             "label": "Initial coupon ID",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         },
         "product": {
             "description": "The product of the revenue event.",
             "label": "Product",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         },
         "source": {
             "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "label": "Source",
-            "type": "String"
+            "type": "String",
+            "virtual": true
         }
     },
     "session_properties": {

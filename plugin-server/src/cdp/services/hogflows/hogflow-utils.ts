@@ -79,12 +79,7 @@ export function findContinueAction(invocation: CyclotronJobInvocationHogFlow): H
         throw new Error('Cannot find continue action without a current action')
     }
 
-    const nextAction = findNextAction(invocation.hogFlow, currentActionId)
-    if (!nextAction) {
-        throw new Error(`Next action with id '${currentActionId}' not found`)
-    }
-
-    return nextAction
+    return findNextAction(invocation.hogFlow, currentActionId)
 }
 
 export async function shouldSkipAction(

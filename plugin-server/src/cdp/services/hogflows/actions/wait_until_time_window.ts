@@ -2,9 +2,26 @@ import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '~/schema/hogflow'
 
+import { CyclotronJobInvocationHogFlow } from '../../../types'
+import { findContinueAction } from '../hogflow-utils'
+import { ActionHandler, ActionHandlerResult } from './action.interface'
+
 type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 
 const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+
+export class WaitUntilTimeWindowHandler implements ActionHandler {
+    execute(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>
+    ): ActionHandlerResult {
+        const nextTime = getWaitUntilTime(action)
+        return {
+            nextAction: findContinueAction(invocation),
+            scheduledAt: nextTime ?? undefined,
+        }
+    }
+}
 
 function isValidDay(date: DateTime, dateConfig: Action['config']['date']): boolean {
     if (dateConfig === 'any') {

@@ -1,21 +1,21 @@
-// Signup.stories.tsx
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
+import { Meta, StoryObj } from '@storybook/react'
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { useEffect } from 'react'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { MockSignature } from '~/mocks/utils'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-Other/Org Member Invites',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
+        featureFlags: Object.values(FEATURE_FLAGS), // Enable all feature flags to properly render the sidebar
+        pageUrl: urls.settings('organization-members'),
     },
     decorators: [
         mswDecorator({
@@ -38,61 +38,72 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const CurrentUserIsOwner = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+
+type Story = StoryObj<typeof meta>
+export const CurrentUserIsOwner: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                },
             },
-        },
-    })
-    useEffect(() => {
-        router.actions.push(urls.settings('organization-members'))
-    }, [])
-    return <App />
+        }),
+    ],
 }
 
-export const CurrentUserIsAdmin = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+export const CurrentUserIsAdmin: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                },
+                '/api/organizations/@current/': (): MockSignature => [
+                    200,
+                    { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Admin },
+                ],
             },
-            '/api/organizations/@current/': (): MockSignature => [
-                200,
-                { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Admin },
-            ],
-        },
-    })
-    useEffect(() => {
-        router.actions.push(urls.settings('organization-members'))
-    }, [])
-    return <App />
+        }),
+    ],
 }
 
-export const CurrentUserIsMember = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/_preflight': {
-                ...preflightJson,
-                cloud: false,
-                realm: 'hosted-clickhouse',
-                available_social_auth_providers: { github: false, gitlab: false, 'google-oauth2': false, saml: false },
+export const CurrentUserIsMember: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': false,
+                        saml: false,
+                    },
+                },
+                '/api/organizations/@current/': (): MockSignature => [
+                    200,
+                    { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Member },
+                ],
             },
-            '/api/organizations/@current/': (): MockSignature => [
-                200,
-                { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Member },
-            ],
-        },
-    })
-    useEffect(() => {
-        router.actions.push(urls.settings('organization-members'))
-    }, [])
-    return <App />
+        }),
+    ],
 }
