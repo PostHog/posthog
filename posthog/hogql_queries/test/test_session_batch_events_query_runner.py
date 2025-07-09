@@ -28,22 +28,6 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.session_3_id = str(uuid.uuid4())
         self.session_4_id = str(uuid.uuid4())
 
-    @property
-    def sample_events(self) -> list[tuple[str, str, str, dict[str, Any]]]:
-        return [
-            # Session 1 events
-            ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
-            ("user1", "2025-01-11T12:01:00Z", self.session_1_id, {"page": "/about"}),
-            ("user1", "2025-01-11T12:02:00Z", self.session_1_id, {"page": "/contact"}),
-            # Session 2 events
-            ("user2", "2025-01-11T13:00:01Z", self.session_2_id, {"page": "/home"}),
-            ("user2", "2025-01-11T13:01:00Z", self.session_2_id, {"page": "/products"}),
-            # Session 3 events
-            ("user3", "2025-01-11T14:00:01Z", self.session_3_id, {"page": "/login"}),
-            # Session not in our query (should be ignored)
-            ("user4", "2025-01-11T15:00:01Z", self.session_4_id, {"page": "/signup"}),
-        ]
-
     def _create_events_for_sessions(self, data: list[tuple[str, str, str, Any]]):
         """Create events for testing with session IDs."""
 
@@ -62,7 +46,16 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_simple_events_query(self):
         # Create sample events
-        self._create_events_for_sessions(self.sample_events)
+        self._create_events_for_sessions(
+            [
+                # Session 1 events
+                ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
+                # Session 2 events
+                ("user2", "2025-01-11T13:00:01Z", self.session_2_id, {"page": "/home"}),
+                # Session 3 events
+                ("user3", "2025-01-11T14:00:01Z", self.session_3_id, {"page": "/login"}),
+            ]
+        )
         # Query to get all
         with freeze_time("2025-01-11T16:00:00"):
             query = EventsQuery(
@@ -75,16 +68,14 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = EventsQueryRunner(query=query, team=self.team)
             response = runner.run()
         # Verify results
-        assert len(response.results) == 7
+        assert len(response.results) == 3
         assert response.results[0][0]["distinct_id"] == "user1"
-        assert response.results[3][0]["distinct_id"] == "user2"
-        assert response.results[5][0]["distinct_id"] == "user3"
-        assert response.results[6][0]["distinct_id"] == "user4"
+        assert response.results[1][0]["distinct_id"] == "user2"
+        assert response.results[2][0]["distinct_id"] == "user3"
 
     def test_basic_session_batch_query(self):
-        """Test basic functionality of SessionBatchEventsQueryRunner with multiple sessions."""
-        # Create events for three different sessions
-        self._create_events_for_sessions(
+        """Test happy path for session batch query"""
+        self._create_events_for_sessions(  # Create events for three different sessions
             [
                 # Session 1 events
                 ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
@@ -138,35 +129,29 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             expected_columns = ["event", "timestamp", "properties.page"]  # $session_id removed during grouping
             self.assertEqual(response.columns, expected_columns)
 
-    # def test_session_with_no_events(self):
-    #     """Test handling of sessions that have no matching events."""
-    #     # Create events for only one session
-    #     self._create_events_for_sessions(
-    #         [
-    #             ("user1", "2020-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
-    #         ]
-    #     )
-
-    #     flush_persons_and_events()
-
-    #     with freeze_time("2020-01-11T16:00:00"):
-    #         # Query for multiple sessions, but only one has events
-    #         query = create_session_batch_query(
-    #             session_ids=[self.session_1_id, self.session_2_id, self.session_3_id],
-    #             after="-24h",
-    #         )
-
-    #         runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-    #         response = runner.calculate()
-
-    #         # Should have 1 session with events
-    #         self.assertEqual(len(response.session_events), 1)
-
-    #         # Should track sessions with no events
-    #         self.assertEqual(set(response.sessions_with_no_events), {self.session_2_id, self.session_3_id})
-
-    #         # The one session with events should be session_1
-    #         self.assertEqual(response.session_events[0].session_id, self.session_1_id)
+    def test_session_with_no_events(self):
+        """Test handling of sessions that have no matching events."""
+        self._create_events_for_sessions(  # Create events for only one session
+            [
+                ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
+            ]
+        )
+        with freeze_time("2025-01-11T16:00:00"):
+            # Query for multiple sessions, but only one has events
+            query = create_session_batch_query(
+                session_ids=[self.session_1_id, self.session_2_id, self.session_3_id],
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
+                select=["event", "timestamp", "properties.page", "properties.$session_id"],
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.calculate()
+            # Should have 1 session with events
+            self.assertEqual(len(response.session_events), 1)
+            # Should track sessions with no events
+            self.assertEqual(set(response.sessions_with_no_events), {self.session_2_id, self.session_3_id})
+            # The one session with events should be session_1
+            self.assertEqual(response.session_events[0].session_id, self.session_1_id)
 
     # def test_events_to_ignore_filter(self):
     #     """Test that events_to_ignore parameter properly filters out unwanted events."""
