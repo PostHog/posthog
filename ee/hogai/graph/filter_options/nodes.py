@@ -15,10 +15,17 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from .prompts import (
     FILTER_INITIAL_PROMPT,
-    FILTER_PROPERTIES_PROMPT,
+    FILTER_FIELDS_TAXONOMY_PROMPT,
     FILTER_SET_PROMPT,
     HUMAN_IN_THE_LOOP_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
+    PRODUCT_DESCRIPTION_PROMPT,
+    GROUP_PROPERTY_FILTER_TYPES_PROMPT,
+    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+    FILTER_LOGICAL_OPERATORS_PROMPT,
+    DATE_FIELDS_PROMPT,
+    TOOL_USAGE_PROMPT,
+    SESSION_REPLAY_EXAMPLES_PROMPT,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from pydantic import BaseModel
@@ -51,7 +58,7 @@ class FilterOptionsNode(AssistantNode):
     def _get_react_property_filters_prompt(self) -> str:
         return cast(
             str,
-            ChatPromptTemplate.from_template(FILTER_PROPERTIES_PROMPT, template_format="mustache")
+            ChatPromptTemplate.from_template(FILTER_FIELDS_TAXONOMY_PROMPT, template_format="mustache")
             .format_messages(groups=self._team_group_types)[0]
             .content,
         )
@@ -144,6 +151,13 @@ class FilterOptionsNode(AssistantNode):
                 "user_email": self._user.email,
                 "change": change,
                 "current_filters": current_filters,
+                "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
+                "group_property_filter_types_prompt": GROUP_PROPERTY_FILTER_TYPES_PROMPT,
+                "session_replay_response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+                "filter_logical_operators_prompt": FILTER_LOGICAL_OPERATORS_PROMPT,
+                "date_fields_prompt": DATE_FIELDS_PROMPT,
+                "tool_usage_prompt": TOOL_USAGE_PROMPT,
+                "session_replay_examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
             },
             config,
         )

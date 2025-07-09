@@ -54,15 +54,12 @@ class SearchSessionRecordingsTool(MaxTool):
 
         # Check if this is a help request (filter_options_dict is None but has messages)
         if not state.generated_filter_options and state.messages:
-            messages = state.messages
+            last_message = state.messages[-1]
             help_content = "I need more information to proceed."
-
-            for message in messages:
-                # Only check content for message types that have it
-                content = getattr(message, "content", None)
-                if content:
-                    help_content = str(content)
-                    break
+            tool_call_id = getattr(last_message, "tool_call_id", None)
+            content = getattr(last_message, "content", None)
+            if tool_call_id == "ask_user_for_help":
+                help_content = str(content)
 
             current_filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
             self._state = state
