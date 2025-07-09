@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -46,6 +47,11 @@ class HogQLGeneratorTool(MaxTool):
             template_format="mustache",
         )
 
+        schema_description, core_memory = await asyncio.gather(
+            self._get_database_schema(database, hogql_context),
+            self._aget_core_memory_text(self._team),
+        )
+
         final_error: Optional[Exception] = None
         for _ in range(3):
             try:
@@ -53,7 +59,8 @@ class HogQLGeneratorTool(MaxTool):
                 result = await chain.ainvoke(
                     {
                         **self.context,
-                        "schema_description": self._get_database_schema(),
+                        "schema_description": schema_description,
+                        "core_memory": core_memory,
                         "instructions": instructions,
                     }
                 )
