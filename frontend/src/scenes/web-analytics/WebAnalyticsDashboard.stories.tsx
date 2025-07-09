@@ -43,7 +43,7 @@ const meta: Meta = {
                     const queryKind = query.kind
 
                     if (queryKind === 'DatabaseSchemaQuery') {
-                        return [200, { tables: {} }] // Empty schema, we don't care about this here
+                        return [200, { tables: {}, joins: [] }] // Empty schema, we don't care about this here
                     } else if (queryKind === 'WebOverviewQuery') {
                         return [200, webOverviewMock]
                     } else if (queryKind === 'TrendsQuery') {
