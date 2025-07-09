@@ -104,13 +104,22 @@ class SelectFinder(TraversingVisitor):
 
 
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
+    import hashlib
+    
     filters = filters or {}
     try:
         expr = compile_filters_expr(filters, team, actions)
         if SelectFinder.has_select(expr):
             raise Exception("Select queries are not allowed in filters")
 
-        filters["bytecode"] = create_bytecode(expr).bytecode
+        compiled_bytecode = create_bytecode(expr)
+        filters["bytecode"] = compiled_bytecode.bytecode
+        
+        # Generate hash for behavioral cohort counting
+        filter_str = str(sorted(filters.items()))
+        bytecode_hash = hashlib.sha256(f"{team.id}:{filter_str}".encode()).hexdigest()[:16]
+        filters["bytecode_hash"] = bytecode_hash
+        
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except Exception as e:

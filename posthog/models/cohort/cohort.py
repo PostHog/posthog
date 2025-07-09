@@ -276,6 +276,69 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "deleted": self.deleted,
         }
 
+    def _is_behavioral_cohort(self) -> bool:
+        """Check if this cohort has behavioral properties."""
+        for prop in self.properties.flat:
+            if prop.type == "behavioral":
+                return True
+        return False
+
+    def _create_or_update_behavioral_counter_hog_function(self, is_new: bool):
+        """Create or update a Hog function for behavioral cohort counting."""
+        if not self._is_behavioral_cohort():
+            return
+
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+        from posthog.cdp.filters import compile_filters_bytecode
+
+        # Create Hog function name
+        hog_function_name = f"behavioral_cohort_counter_{self.id}"
+        
+        # Try to find existing Hog function
+        existing_hog_function = None
+        if not is_new:
+            try:
+                existing_hog_function = HogFunction.objects.get(
+                    team=self.team,
+                    name=hog_function_name,
+                    type=HogFunctionType.BEHAVIORAL_COHORT_COUNTER,
+                    deleted=False,
+                )
+            except HogFunction.DoesNotExist:
+                pass
+
+        # Compile filters to bytecode for the Hog function
+        compiled_filters = compile_filters_bytecode(self.filters, self.team)
+
+        if existing_hog_function:
+            # Update existing Hog function
+            existing_hog_function.filters = compiled_filters
+            existing_hog_function.enabled = True
+            existing_hog_function.save()
+        else:
+            # Create new Hog function (no hog code needed, handled in TypeScript)
+            HogFunction.objects.create(
+                team=self.team,
+                name=hog_function_name,
+                description=f"Behavioral cohort counter for '{self.name}'",
+                type=HogFunctionType.BEHAVIORAL_COHORT_COUNTER,
+                filters=compiled_filters,
+                hog="// Counter logic handled in plugin server",
+                enabled=True,
+                inputs={
+                    "cohort_id": self.id,
+                    "filter_hash": compiled_filters.get("bytecode_hash", ""),
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        # Create or update behavioral cohort counter Hog function for behavioral cohorts
+        if not self.is_static:
+            self._create_or_update_behavioral_counter_hog_function(is_new)
+
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
 

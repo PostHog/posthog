@@ -130,6 +130,55 @@ export class HogTransformerService {
         }
     }
 
+    private async incrementBehavioralCohortCounter(
+        hogFunction: HogFunctionType,
+        event: PluginEvent,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<void> {
+        try {
+            // Get current date in team timezone for counter key
+            const eventDate = new Date(event.timestamp || Date.now())
+            const dateStr = eventDate.toISOString().split('T')[0] // YYYY-MM-DD format
+            
+            // Get filter hash from function inputs
+            const filterHash = hogFunction.inputs?.filter_hash || 'unknown'
+            const cohortId = hogFunction.inputs?.cohort_id || 'unknown'
+            
+            // Build Redis key for counter
+            const counterKey = `behavioral_counter:${event.team_id}:${filterHash}:${event.person_id}:${dateStr}`
+            
+            // Increment counter in Redis
+            await this.redis.useClient({ name: 'behavioral_cohort_counter' }, async (client) => {
+                await client.incr(counterKey)
+                await client.expire(counterKey, 7776000) // 90 days
+            })
+
+            // Track metrics
+            this.hub.statsd?.increment('behavioral_cohort.counter_incremented', {
+                team_id: event.team_id.toString(),
+                cohort_id: cohortId.toString(),
+            })
+
+            logger.debug('Incremented behavioral cohort counter', {
+                team_id: event.team_id,
+                cohort_id: cohortId,
+                person_id: event.person_id,
+                date: dateStr,
+                counter_key: counterKey,
+            })
+        } catch (error) {
+            logger.error('Error incrementing behavioral cohort counter', {
+                error,
+                team_id: event.team_id,
+                function_id: hogFunction.id,
+            })
+            
+            this.hub.statsd?.increment('behavioral_cohort.counter_error', {
+                team_id: event.team_id.toString(),
+            })
+        }
+    }
+
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
@@ -138,6 +187,7 @@ export class HogTransformerService {
 
                 const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
                     'transformation',
+                    'behavioral_cohort_counter',
                 ])
 
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
@@ -203,6 +253,16 @@ export class HogTransformerService {
                             filterGlobals,
                             eventUuid: globals.event?.uuid,
                         })
+
+                        // Handle behavioral cohort counter functions differently
+                        if (hogFunction.type === 'behavioral_cohort_counter') {
+                            if (filterResults.match) {
+                                // Increment behavioral cohort counter
+                                await this.incrementBehavioralCohortCounter(hogFunction, event, globals)
+                            }
+                            // Don't transform the event, just continue to next function
+                            continue
+                        }
 
                         // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult
                         if (!filterResults.match) {
