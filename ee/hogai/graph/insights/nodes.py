@@ -365,8 +365,7 @@ class InsightSearchNode(AssistantNode):
                 query=query, insights_list=insights_text.strip()
             )
 
-            model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=1000)
-            structured_model = model.with_structured_output(BestInsightSelection)
+            structured_model = self._model.with_structured_output(BestInsightSelection)
 
             try:
                 selection_result = structured_model.invoke(formatted_prompt)
@@ -479,4 +478,4 @@ Description: {description}
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1-nano", temperature=0.7, max_completion_tokens=100)
+        return ChatOpenAI(model="gpt-4.1-mini", temperature=0.7, max_completion_tokens=100)
