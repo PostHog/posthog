@@ -4,6 +4,7 @@ import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE } fr
 import { useAxisScale } from './useAxisScale'
 import { TickLabels } from './TickLabels'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
+import { useEffect, useState } from 'react'
 
 interface TableHeaderProps {
     results: NewExperimentQueryResponse[]
@@ -12,11 +13,28 @@ interface TableHeaderProps {
 
 export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
     const significanceHeader = 'Change'
+    const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
 
     // Set up tick values and scaling for the header
     const tickValues = chartRadius ? getNiceTickValues(chartRadius) : []
     const scale = useAxisScale(chartRadius || 0, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const { ticksSvgRef } = useSvgResizeObserver([tickValues, chartRadius])
+
+    // Track SVG width for font scaling compensation
+    useEffect(() => {
+        if (ticksSvgRef.current) {
+            const updateWidth = (): void => {
+                const rect = ticksSvgRef.current?.getBoundingClientRect()
+                if (rect) {
+                    setSvgWidth(rect.width)
+                }
+            }
+
+            updateWidth()
+            window.addEventListener('resize', updateWidth)
+            return () => window.removeEventListener('resize', updateWidth)
+        }
+    }, [ticksSvgRef, tickValues, chartRadius])
 
     return (
         <thead>
@@ -45,11 +63,6 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                                     minHeight: `${TICK_PANEL_HEIGHT + 10}px`,
                                 }}
                             >
-                                <defs>
-                                    <style>
-                                        {`.tick-label-fixed-size { font-size: ${TICK_FONT_SIZE}px !important; }`}
-                                    </style>
-                                </defs>
                                 <TickLabels
                                     tickValues={tickValues}
                                     scale={scale}
@@ -58,6 +71,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                                     fontSize={TICK_FONT_SIZE}
                                     fontWeight="600"
                                     dominantBaseline="middle"
+                                    svgWidth={svgWidth}
                                 />
                             </svg>
                         </div>

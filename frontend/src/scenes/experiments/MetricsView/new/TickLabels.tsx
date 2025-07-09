@@ -12,6 +12,7 @@ interface TickLabelsProps {
     textAnchor?: 'start' | 'middle' | 'end'
     dominantBaseline?: 'auto' | 'middle' | 'hanging'
     edgeThreshold?: number
+    svgWidth?: number // Actual rendered width of the SVG
 }
 
 /**
@@ -29,7 +30,10 @@ export function TickLabels({
     textAnchor = 'middle',
     dominantBaseline = 'middle',
     edgeThreshold = 0.06,
+    svgWidth,
 }: TickLabelsProps): JSX.Element {
+    // Calculate scale factor to compensate for SVG scaling
+    const scaleFactor = svgWidth ? viewBoxWidth / svgWidth : 1
     return (
         <>
             {tickValues.map((value) => {
@@ -50,9 +54,8 @@ export function TickLabels({
                         dominantBaseline={dominantBaseline}
                         fill={textColor}
                         fontWeight={fontWeight}
-                        className="tick-label-fixed-size"
                         style={{
-                            fontSize: `${fontSize}px`,
+                            fontSize: `${fontSize * scaleFactor}px`,
                         }}
                     >
                         {formatTickValue(value)}
