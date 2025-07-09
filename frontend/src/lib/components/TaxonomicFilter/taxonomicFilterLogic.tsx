@@ -25,7 +25,7 @@ import {
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { MaxContextOption } from 'scenes/max/maxTypes'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { ReplayTaxonomicFilters } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
@@ -231,7 +231,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 propertyFilters: { excludedProperties: any; propertyAllowList: any },
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
-                maxContextOptions: MaxContextOption[]
+                maxContextOptions: MaxContextTaxonomicFilterOption[]
             ): TaxonomicFilterGroup[] => {
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
@@ -344,7 +344,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                eventNames.length,
+                                expandedCount - count,
                                 'has',
                                 'have',
                                 false
@@ -392,7 +392,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
                             `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                eventNames.length,
+                                expandedCount - count,
                                 'has',
                                 'have',
                                 false
@@ -683,9 +683,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'elements from this page',
                         type: TaxonomicFilterGroupType.MaxAIContext,
                         options: maxContextOptions,
-                        getName: (option: MaxContextOption) => option.name,
-                        getValue: (option: MaxContextOption) => option.value,
-                        getIcon: (option: MaxContextOption) => {
+                        getName: (option: MaxContextTaxonomicFilterOption) => option.name,
+                        getValue: (option: MaxContextTaxonomicFilterOption) => option.value,
+                        getIcon: (option: MaxContextTaxonomicFilterOption) => {
                             const Icon = option.icon as React.ComponentType
                             if (Icon) {
                                 return <Icon />

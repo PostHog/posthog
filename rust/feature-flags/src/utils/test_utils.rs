@@ -1,9 +1,11 @@
 use crate::{
+    api::types::FlagValue,
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{
         FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
+    properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use anyhow::Error;
@@ -189,9 +191,9 @@ pub async fn insert_new_team_in_pg(
     // Create new organization from scratch
     client.run_query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist) 
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys) 
         VALUES
-        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}')
+        ($1::uuid, 'Test Organization', 'test-organization', '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true)
         ON CONFLICT DO NOTHING"#.to_string(),
         vec![ORG_ID.to_string()],
         Some(2000),
@@ -579,4 +581,67 @@ pub async fn update_team_autocapture_exceptions(
         .execute(&mut *conn)
         .await?;
     Ok(())
+}
+
+/// Create a test flag with multiple property filters
+pub fn create_test_flag_with_properties(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    filters: Vec<PropertyFilter>,
+) -> FeatureFlag {
+    create_test_flag(
+        Some(id),
+        Some(team_id),
+        None,
+        Some(key.to_string()),
+        Some(FlagFilters {
+            groups: vec![FlagPropertyGroup {
+                properties: Some(filters),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+            holdout_groups: None,
+        }),
+        None,
+        None,
+        None,
+    )
+}
+
+/// Create a test flag with a single property filter
+pub fn create_test_flag_with_property(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    filter: PropertyFilter,
+) -> FeatureFlag {
+    create_test_flag_with_properties(id, team_id, key, vec![filter])
+}
+
+/// Create a test flag that depends on another flag
+pub fn create_test_flag_that_depends_on_flag(
+    id: i32,
+    team_id: TeamId,
+    key: &str,
+    depends_on_flag_id: i32,
+    depends_on_flag_value: FlagValue,
+) -> FeatureFlag {
+    create_test_flag_with_property(
+        id,
+        team_id,
+        key,
+        PropertyFilter {
+            key: depends_on_flag_id.to_string(),
+            value: Some(json!(depends_on_flag_value)),
+            operator: Some(OperatorType::Exact),
+            prop_type: PropertyType::Flag,
+            group_type_index: None,
+            negation: None,
+        },
+    )
 }

@@ -835,7 +835,8 @@
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
-                "navigate"
+                "navigate",
+                "search_error_tracking_issues"
             ],
             "type": "string"
         },
@@ -9398,6 +9399,45 @@
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
+        "ErrorTrackingSceneToolOutput": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "newFilters": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "orderBy": {
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "enum": ["ASC", "DESC"],
+                    "type": "string"
+                },
+                "removedFilterIndexes": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "searchQuery": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "EventDefinition": {
             "additionalProperties": false,
             "properties": {
@@ -9863,10 +9903,6 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
-                },
-                "useRecentEventsTable": {
-                    "description": "Use recent_events table (last 7 days) for better performance when querying recent data",
-                    "type": "boolean"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -10918,6 +10954,33 @@
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
+        },
+        "ExternalDataSourceType": {
+            "enum": [
+                "Stripe",
+                "Hubspot",
+                "Postgres",
+                "MySQL",
+                "MSSQL",
+                "Zendesk",
+                "Snowflake",
+                "Salesforce",
+                "Vitally",
+                "BigQuery",
+                "Chargebee",
+                "GoogleAds",
+                "MetaAds",
+                "Klaviyo",
+                "Mailchimp",
+                "Braze",
+                "Mailjet",
+                "Redshift",
+                "GoogleSheets",
+                "MongoDB",
+                "TemporalIO",
+                "DoIt"
+            ],
+            "type": "string"
         },
         "ExternalQueryError": {
             "additionalProperties": false,
@@ -12754,7 +12817,7 @@
                     "type": "string"
                 },
                 "ui_context": {
-                    "$ref": "#/definitions/MaxContextShape"
+                    "$ref": "#/definitions/MaxUIContext"
                 }
             },
             "required": ["type", "content"],
@@ -14406,62 +14469,27 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "type": "number"
                 },
                 "name": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "action",
+                    "type": "string"
                 }
             },
-            "required": ["id", "name"],
-            "type": "object"
-        },
-        "MaxContextShape": {
-            "additionalProperties": false,
-            "properties": {
-                "actions": {
-                    "items": {
-                        "$ref": "#/definitions/MaxActionContext"
-                    },
-                    "type": "array"
-                },
-                "dashboards": {
-                    "items": {
-                        "$ref": "#/definitions/MaxDashboardContext"
-                    },
-                    "type": "array"
-                },
-                "events": {
-                    "items": {
-                        "$ref": "#/definitions/MaxEventContext"
-                    },
-                    "type": "array"
-                },
-                "filters_override": {
-                    "$ref": "#/definitions/DashboardFilter"
-                },
-                "insights": {
-                    "items": {
-                        "$ref": "#/definitions/MaxInsightContext"
-                    },
-                    "type": "array"
-                },
-                "variables_override": {
-                    "additionalProperties": {
-                        "$ref": "#/definitions/HogQLVariable"
-                    },
-                    "type": "object"
-                }
-            },
+            "required": ["type", "id", "name"],
             "type": "object"
         },
         "MaxDashboardContext": {
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "filters": {
                     "$ref": "#/definitions/DashboardFilter"
@@ -14476,26 +14504,34 @@
                     "type": "array"
                 },
                 "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "dashboard",
                     "type": "string"
                 }
             },
-            "required": ["id", "insights", "filters"],
+            "required": ["type", "id", "insights", "filters"],
             "type": "object"
         },
         "MaxEventContext": {
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "type": "string"
                 },
                 "name": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "event",
                     "type": "string"
                 }
             },
-            "required": ["id"],
+            "required": ["type", "id"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -14518,19 +14554,23 @@
             "additionalProperties": false,
             "properties": {
                 "description": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "id": {
                     "$ref": "#/definitions/InsightShortId"
                 },
                 "name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema"
+                },
+                "type": {
+                    "const": "insight",
+                    "type": "string"
                 }
             },
-            "required": ["id", "query"],
+            "required": ["type", "id", "query"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {
@@ -14576,6 +14616,45 @@
                 }
             },
             "required": ["duration", "filter_group"],
+            "type": "object"
+        },
+        "MaxUIContext": {
+            "additionalProperties": false,
+            "properties": {
+                "actions": {
+                    "items": {
+                        "$ref": "#/definitions/MaxActionContext"
+                    },
+                    "type": "array"
+                },
+                "dashboards": {
+                    "items": {
+                        "$ref": "#/definitions/MaxDashboardContext"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "items": {
+                        "$ref": "#/definitions/MaxEventContext"
+                    },
+                    "type": "array"
+                },
+                "filters_override": {
+                    "$ref": "#/definitions/DashboardFilter"
+                },
+                "insights": {
+                    "items": {
+                        "$ref": "#/definitions/MaxInsightContext"
+                    },
+                    "type": "array"
+                },
+                "variables_override": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "MaxUniversalFilterValue": {
@@ -20715,6 +20794,207 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "SourceConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "betaSource": {
+                    "type": "boolean"
+                },
+                "caption": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {}
+                    ]
+                },
+                "disabledReason": {
+                    "type": ["string", "null"]
+                },
+                "existingSource": {
+                    "type": "boolean"
+                },
+                "fields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "$ref": "#/definitions/ExternalDataSourceType"
+                },
+                "unreleasedSource": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["name", "caption", "fields"],
+            "type": "object"
+        },
+        "SourceFieldConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/SourceFieldInputConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSwitchGroupConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldSelectConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldOauthConfig"
+                },
+                {
+                    "$ref": "#/definitions/SourceFieldFileUploadConfig"
+                }
+            ]
+        },
+        "SourceFieldFileUploadConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "fileFormat": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "file-upload",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "fileFormat", "required"],
+            "type": "object"
+        },
+        "SourceFieldInputConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "placeholder": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "required", "placeholder"],
+            "type": "object"
+        },
+        "SourceFieldOauthConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "oauth",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "required", "kind"],
+            "type": "object"
+        },
+        "SourceFieldSelectConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "defaultValue": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "options": {
+                    "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                            "fields": {
+                                "items": {
+                                    "$ref": "#/definitions/SourceFieldConfig"
+                                },
+                                "type": "array"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "value": {
+                                "type": "string"
+                            }
+                        },
+                        "required": ["label", "value"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "select",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "required", "defaultValue", "options"],
+            "type": "object"
+        },
+        "SourceFieldSwitchGroupConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "caption": {
+                    "type": "string"
+                },
+                "default": {
+                    "type": ["string", "number", "boolean"]
+                },
+                "fields": {
+                    "items": {
+                        "$ref": "#/definitions/SourceFieldConfig"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "switch-group",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "default", "fields"],
             "type": "object"
         },
         "SourceMap": {

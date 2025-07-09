@@ -655,3 +655,355 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod filter_graph_by_keys_tests {
+    use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup};
+    use crate::utils::graph_utils::{build_dependency_graph, filter_graph_by_keys};
+    use crate::utils::test_utils::create_test_flag;
+    use std::collections::HashSet;
+
+    // Helper function to create a test flag with dependencies for graph testing
+    fn create_test_flag_with_dependencies(
+        id: i32,
+        key: &str,
+        dependencies: HashSet<i32>,
+    ) -> FeatureFlag {
+        let mut filters = FlagFilters {
+            groups: vec![FlagPropertyGroup {
+                properties: Some(vec![]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+            holdout_groups: None,
+        };
+
+        // Add dependency filters for each dependency
+        for dep_id in dependencies {
+            filters.groups[0].properties.as_mut().unwrap().push(
+                crate::properties::property_models::PropertyFilter {
+                    key: dep_id.to_string(),
+                    value: Some(serde_json::json!(true)),
+                    operator: Some(crate::properties::property_models::OperatorType::Exact),
+                    prop_type: crate::properties::property_models::PropertyType::Flag,
+                    group_type_index: None,
+                    negation: None,
+                },
+            );
+        }
+
+        create_test_flag(
+            Some(id),
+            Some(1), // team_id
+            None,    // name
+            Some(key.to_string()),
+            Some(filters),
+            None, // deleted
+            None, // active
+            None, // ensure_experience_continuity
+        )
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_no_requested_keys() {
+        // Create a simple graph with no dependencies
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+
+        let flags = vec![flag1, flag2, flag3];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) = build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(&global_graph, &[]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 0);
+        assert_eq!(filtered_graph.edge_count(), 0);
+        // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        assert_eq!(nodes.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_single_flag_no_dependencies() {
+        // Create a simple graph with no dependencies
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+
+        let flags = vec![flag1, flag2, flag3];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) = build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 1);
+        assert_eq!(filtered_graph.edge_count(), 0);
+        assert!(filtered_graph.contains_node(1));
+
+        // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].id, 1);
+        assert_eq!(nodes[0].key, "flag1");
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_single_flag_with_dependencies() {
+        // Create a simple dependency: flag1 -> flag2
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2]));
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+
+        let flags = vec![flag1, flag2, flag3];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) = build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 2);
+        assert_eq!(filtered_graph.edge_count(), 1);
+        assert!(filtered_graph.contains_node(1));
+        assert!(filtered_graph.contains_node(2));
+
+        // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        assert_eq!(nodes.len(), 2);
+        let flag_ids: Vec<i32> = nodes.iter().map(|f| f.id).collect();
+        let flag_keys: Vec<&str> = nodes.iter().map(|f| f.key.as_str()).collect();
+        assert!(flag_ids.contains(&1));
+        assert!(flag_ids.contains(&2));
+        assert!(flag_keys.contains(&"flag1"));
+        assert!(flag_keys.contains(&"flag2"));
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_multiple_flags_with_shared_dependencies() {
+        // Create dependencies: flag1 -> flag3, flag2 -> flag3
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([3]));
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::from([3]));
+        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+        let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
+
+        let flags = vec![flag1, flag2, flag3, flag4];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) =
+            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result =
+            filter_graph_by_keys(&global_graph, &["flag1".to_string(), "flag2".to_string()]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 3);
+        assert_eq!(filtered_graph.edge_count(), 2);
+        assert!(filtered_graph.contains_node(1));
+        assert!(filtered_graph.contains_node(2));
+        assert!(filtered_graph.contains_node(3));
+        assert!(!filtered_graph.contains_node(4)); // flag4 should not be included
+                                                   // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
+        let flag_keys: std::collections::HashSet<&str> =
+            nodes.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(flag_ids, [1, 2, 3].iter().cloned().collect());
+        assert_eq!(
+            flag_keys,
+            ["flag1", "flag2", "flag3"].iter().cloned().collect()
+        );
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_missing_flag_key() {
+        // Create a simple graph
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+
+        let flags = vec![flag1, flag2];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) =
+            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(&global_graph, &["nonexistent_flag".to_string()]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 0);
+        assert_eq!(filtered_graph.edge_count(), 0);
+        // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        assert_eq!(nodes.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_mixed_existing_and_missing_keys() {
+        // Create a simple graph
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::new());
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+
+        let flags = vec![flag1, flag2];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) =
+            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(
+            &global_graph,
+            &["flag1".to_string(), "nonexistent_flag".to_string()],
+        );
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 1);
+        assert_eq!(filtered_graph.edge_count(), 0);
+        assert!(filtered_graph.contains_node(1));
+
+        // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].id, 1);
+        assert_eq!(nodes[0].key, "flag1");
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_complex_dependency_tree() {
+        // Create a complex dependency tree:
+        // flag1 -> flag2 -> flag4
+        // flag1 -> flag3 -> flag4
+        // flag5 -> flag6
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2, 3]));
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::from([4]));
+        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::from([4]));
+        let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
+        let flag5 = create_test_flag_with_dependencies(5, "flag5", HashSet::from([6]));
+        let flag6 = create_test_flag_with_dependencies(6, "flag6", HashSet::new());
+
+        let flags = vec![flag1, flag2, flag3, flag4, flag5, flag6];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) =
+            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 4);
+        assert_eq!(filtered_graph.edge_count(), 4);
+        assert!(filtered_graph.contains_node(1));
+        assert!(filtered_graph.contains_node(2));
+        assert!(filtered_graph.contains_node(3));
+        assert!(filtered_graph.contains_node(4));
+        assert!(!filtered_graph.contains_node(5)); // flag5 should not be included
+        assert!(!filtered_graph.contains_node(6)); // flag6 should not be included
+                                                   // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
+        let flag_keys: std::collections::HashSet<&str> =
+            nodes.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(flag_ids, [1, 2, 3, 4].iter().cloned().collect());
+        assert_eq!(
+            flag_keys,
+            ["flag1", "flag2", "flag3", "flag4"]
+                .iter()
+                .cloned()
+                .collect()
+        );
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_multiple_disconnected_subgraphs() {
+        // Create two disconnected subgraphs:
+        // flag1 -> flag2
+        // flag3 -> flag4
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2]));
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
+        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::from([4]));
+        let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
+
+        let flags = vec![flag1, flag2, flag3, flag4];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) =
+            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result =
+            filter_graph_by_keys(&global_graph, &["flag1".to_string(), "flag3".to_string()]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 4);
+        assert_eq!(filtered_graph.edge_count(), 2);
+        assert!(filtered_graph.contains_node(1));
+        assert!(filtered_graph.contains_node(2));
+        assert!(filtered_graph.contains_node(3));
+        assert!(filtered_graph.contains_node(4));
+        // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
+        let flag_keys: std::collections::HashSet<&str> =
+            nodes.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(flag_ids, [1, 2, 3, 4].iter().cloned().collect());
+        assert_eq!(
+            flag_keys,
+            ["flag1", "flag2", "flag3", "flag4"]
+                .iter()
+                .cloned()
+                .collect()
+        );
+    }
+
+    #[test]
+    fn test_filter_graph_by_keys_preserves_edge_structure() {
+        // Create a complex dependency structure to test edge preservation
+        // flag1 -> flag2 -> flag3
+        // flag1 -> flag3
+        let flag1 = create_test_flag_with_dependencies(1, "flag1", HashSet::from([2, 3]));
+        let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::from([3]));
+        let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
+
+        let flags = vec![flag1, flag2, flag3];
+        let feature_flags = FeatureFlagList { flags };
+        let team_id = 1;
+
+        let (global_graph, _) =
+            crate::utils::graph_utils::build_dependency_graph(&feature_flags, team_id).unwrap();
+        let result = filter_graph_by_keys(&global_graph, &["flag1".to_string()]);
+
+        assert!(result.is_some());
+        let filtered_graph = result.unwrap();
+        assert_eq!(filtered_graph.node_count(), 3);
+        assert_eq!(filtered_graph.edge_count(), 3);
+        // Verify the actual flag content
+        let nodes = filtered_graph.get_all_nodes();
+        let flag_ids: std::collections::HashSet<i32> = nodes.iter().map(|f| f.id).collect();
+        let flag_keys: std::collections::HashSet<&str> =
+            nodes.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(flag_ids, [1, 2, 3].iter().cloned().collect());
+        assert_eq!(
+            flag_keys,
+            ["flag1", "flag2", "flag3"].iter().cloned().collect()
+        );
+        // Verify the edge structure is preserved
+        let evaluation_stages = filtered_graph.evaluation_stages().unwrap();
+        assert_eq!(evaluation_stages.len(), 3);
+        assert_eq!(evaluation_stages[0].len(), 1); // flag3 (no dependencies)
+        assert_eq!(evaluation_stages[1].len(), 1); // flag2 (depends on flag3)
+        assert_eq!(evaluation_stages[2].len(), 1); // flag1 (depends on flag2 and flag3)
+    }
+}

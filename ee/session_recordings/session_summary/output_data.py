@@ -4,7 +4,12 @@ from rest_framework import serializers
 import yaml
 import structlog
 from ee.session_recordings.session_summary import SummaryValidationError
-from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime, unpack_full_event_id
+from ee.session_recordings.session_summary.utils import (
+    get_column_index,
+    prepare_datetime,
+    strip_raw_llm_content,
+    unpack_full_event_id,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -170,13 +175,11 @@ def load_raw_session_summary_from_llm_content(
     if not raw_content:
         raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
     try:
-        # Strip the first and the last line of the content to load the YAML data only into JSON
-        # TODO Work on a more robust solution
-        json_content: dict = yaml.safe_load(raw_content.strip("```yaml\n").strip("```").strip())  # noqa: B005
-    except Exception as e:
+        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+    except Exception as err:
         raise SummaryValidationError(
-            f"Error loading YAML content into JSON when summarizing session_id {session_id}: {e}"
-        )
+            f"Error loading YAML content into JSON when summarizing session_id {session_id}: {err}"
+        ) from err
     # Validate the LLM output against the schema
     raw_session_summary = RawSessionSummarySerializer(data=json_content)
     if not raw_session_summary.is_valid():
