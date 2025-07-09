@@ -7,52 +7,58 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 _client_map: Dict[str, Any] = {}
+_async_client_map: Dict[str, Any] = {}
 
-T = TypeVar("T", redis.Redis, aioredis.Redis)
 
-
-def _get_fake_redis_client(existing_client: Any, redis_url: str, is_async: bool) -> Any:
-    import fakeredis
+def get_client(redis_url: Optional[str] = None) -> redis.Redis:
+    redis_url = redis_url or settings.REDIS_URL
 
     global _client_map
-    if existing_client and isinstance(existing_client, fakeredis.FakeAsyncRedis if is_async else fakeredis.FakeRedis):
-        return existing_client
-    client = fakeredis.FakeAsyncRedis() if is_async else fakeredis.FakeRedis()
-    _client_map[redis_url] = client
-    return client
 
+    if not _client_map.get(redis_url):
+        client: Any = None
 
-def _get_client_impl(redis_url: str, is_async: bool) -> Any:
-    """Internal implementation for getting Redis clients."""
-    global _client_map
-    existing_client = _client_map.get(redis_url)
-    # If test client
-    if settings.TEST:
-        return _get_fake_redis_client(existing_client, redis_url, is_async)
-    # If the client is created and of a proper type - reuse it
-    if existing_client and isinstance(existing_client, aioredis.Redis if is_async else redis.Redis):
-        return existing_client
-    # Otherwise, create a new client
-    client: Any = None
-    if redis_url:
-        client = aioredis.from_url(redis_url, db=0) if is_async else redis.from_url(redis_url, db=0)
-    if not client:
-        raise ImproperlyConfigured("Redis not configured!")
-    _client_map[redis_url] = client
+        if settings.TEST:
+            import fakeredis
+
+            client = fakeredis.FakeRedis()
+        elif redis_url:
+            client = redis.from_url(redis_url, db=0)
+
+        if not client:
+            raise ImproperlyConfigured("Redis not configured!")
+
+        _client_map[redis_url] = client
+
     return _client_map[redis_url]
 
 
-def get_client(redis_url: str | None = None) -> redis.Redis:
+def get_async_client(redis_url: Optional[str] = None) -> aioredis.Redis:
     redis_url = redis_url or settings.REDIS_URL
-    return _get_client_impl(redis_url, is_async=False)
 
+    global _async_client_map
 
-def get_async_client(redis_url: str | None = None) -> aioredis.Redis:
-    redis_url = redis_url or settings.REDIS_URL
-    return _get_client_impl(redis_url, is_async=True)
+    if not _async_client_map.get(redis_url):
+        client: Any = None
+
+        if settings.TEST:
+            import fakeredis
+
+            client = fakeredis.FakeAsyncRedis()
+        elif redis_url:
+            client = aioredis.from_url(redis_url, db=0)
+
+        if not client:
+            raise ImproperlyConfigured("Redis not configured!")
+
+        _async_client_map[redis_url] = client
+
+    return _async_client_map[redis_url]
 
 
 def TEST_clear_clients():
-    global _client_map
+    global _client_map, _async_client_map
     for key in list(_client_map.keys()):
         del _client_map[key]
+    for key in list(_async_client_map.keys()):
+        del _async_client_map[key]
