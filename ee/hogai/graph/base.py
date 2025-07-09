@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from asgiref.sync import sync_to_async
 from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
@@ -14,6 +13,7 @@ from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
+from posthog.sync import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
@@ -36,7 +36,7 @@ class AssistantNode(ABC):
         try:
             return await self.arun(state, config)
         except NotImplementedError:
-            return await sync_to_async(self.run, thread_sensitive=False)(state, config)
+            return await self._run(state, config)
 
     # DEPRECATED: Use `arun` instead
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
@@ -45,6 +45,10 @@ class AssistantNode(ABC):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NotImplementedError
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        return self.run(state, config)
 
     async def _aget_conversation(self, conversation_id: UUID) -> Conversation | None:
         try:
