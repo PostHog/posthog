@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
 
@@ -230,21 +231,33 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         metadata: CheckpointMetadata,
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
+        start_time = time.time()
         thread_id = config["configurable"]["thread_id"]
+
+        # Track async-to-sync call overhead
+        sync_call_start = time.time()
         thread_lock = await self._get_thread_lock(thread_id)
         try:
             async with thread_lock:
-                return await self._put(config, checkpoint, metadata, new_versions)
+                result, result_str = await self._put(config, checkpoint, metadata, new_versions, sync_call_start)
         finally:
             await self._cleanup_thread_lock(thread_id)
+        sync_call_duration = time.time() - sync_call_start
 
-    @database_sync_to_async(thread_sensitive=False)
+        total_duration = time.time() - start_time
+        print(
+            f"aput: {result_str}, total_duration_ms={round(total_duration * 1000, 2)}, sync_call_duration_ms={round(sync_call_duration * 1000, 2)}, channel_count={len(new_versions)}"
+        )
+        return result
+
+    @database_sync_to_async(thread_sensitive=True)
     def _put(
         self,
         config: RunnableConfig,
         checkpoint: Checkpoint,
         metadata: CheckpointMetadata,
         new_versions: ChannelVersions,
+        start_time: float = 0,
     ) -> RunnableConfig:
         """Save a checkpoint to the database.
 
@@ -260,6 +273,8 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         Returns:
             RunnableConfig: Updated configuration after storing the checkpoint.
         """
+        db_start_time = time.time()
+
         configurable = config["configurable"]
         thread_id: str = configurable["thread_id"]
         checkpoint_id = get_checkpoint_id(config)
@@ -275,8 +290,12 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 "checkpoint_id": checkpoint["id"],
             }
         }
+        transaction_start_time = time.time()
 
         with transaction.atomic():
+            transaction_end_time_time = time.time() - transaction_start_time
+            # Track checkpoint update operation
+            checkpoint_update_start = time.time()
             updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
                 id=checkpoint["id"],
                 thread_id=thread_id,
@@ -287,7 +306,10 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                     "metadata": self._dump_json(metadata),
                 },
             )
+            checkpoint_update_duration = time.time() - checkpoint_update_start
 
+            # Track blob creation operation
+            blob_creation_start = time.time()
             blobs = []
             for channel, version in new_versions.items():
                 type, blob = (
@@ -305,7 +327,14 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                 )
 
             ConversationCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
-        return next_config
+            blob_creation_duration = time.time() - blob_creation_start
+
+        db_total_duration = time.time() - db_start_time
+
+        return (
+            next_config,
+            f"thread_id={thread_id}, checkpoint_id={checkpoint_id}, time_to_start_ms={round((db_start_time - start_time) * 1000, 2)}, db_total_ms={round(db_total_duration * 1000, 2)}, transaction_end_time_time={round(transaction_end_time_time * 1000, 2)}, checkpoint_update_ms={round(checkpoint_update_duration * 1000, 2)}, blob_creation_ms={round(blob_creation_duration * 1000, 2)}",
+        )
 
     async def aput_writes(
         self,
@@ -314,21 +343,33 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         task_id: str,
         task_path: str = "",
     ) -> None:
+        start_time = time.time()
         thread_id = config["configurable"]["thread_id"]
+
+        # Track async-to-sync call overhead
+        sync_call_start = time.time()
         thread_lock = await self._get_thread_lock(thread_id)
         try:
             async with thread_lock:
-                return await self._put_writes(config, writes, task_id, task_path)
+                result = await self._put_writes(config, writes, task_id, task_path, sync_call_start)
         finally:
             await self._cleanup_thread_lock(thread_id)
+        sync_call_duration = time.time() - sync_call_start
 
-    @database_sync_to_async(thread_sensitive=False)
+        total_duration = time.time() - start_time
+        print(
+            f"aput_writes: {result}, total_duration_ms={round(total_duration * 1000, 2)}, sync_call_duration_ms={round(sync_call_duration * 1000, 2)}, write_count={len(writes)}"
+        )
+        return None
+
+    @database_sync_to_async(thread_sensitive=True)
     def _put_writes(
         self,
         config: RunnableConfig,
         writes: Sequence[tuple[str, Any]],
         task_id: str,
         task_path: str = "",
+        start_time: float = 0,
     ):
         """Store intermediate writes linked to a checkpoint.
 
@@ -339,19 +380,25 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             writes (List[Tuple[str, Any]]): List of writes to store.
             task_id (str): Identifier for the task creating the writes.
         """
+        db_start_time = time.time()
+
         configurable = config["configurable"]
         thread_id: str = configurable["thread_id"]
         checkpoint_id = get_checkpoint_id(config)
         checkpoint_ns: str | None = configurable.get("checkpoint_ns") or ""
 
+        transaction_start_time = time.time()
         with transaction.atomic():
-            # `put_writes` and `put` are concurrently called without guaranteeing the call order
-            # so we need to ensure the checkpoint is created before creating writes.
-            # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.
+            transaction_end_time_time = time.time() - transaction_start_time
+            # Track checkpoint get_or_create operation
+            checkpoint_lookup_start = time.time()
             checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
                 id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
             )
+            checkpoint_lookup_duration = time.time() - checkpoint_lookup_start
 
+            # Track write preparation
+            write_prep_start = time.time()
             writes_to_create = []
             for idx, (channel, value) in enumerate(writes):
                 type, blob = self.serde.dumps_typed(value)
@@ -365,13 +412,20 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
                         blob=blob,
                     )
                 )
+            write_prep_duration = time.time() - write_prep_start
 
+            # Track bulk create operation
+            bulk_create_start = time.time()
             ConversationCheckpointWrite.objects.bulk_create(
                 writes_to_create,
                 update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
                 unique_fields=["checkpoint", "task_id", "idx"],
                 update_fields=["channel", "type", "blob"],
             )
+            bulk_create_duration = time.time() - bulk_create_start
+
+        db_total_duration = time.time() - db_start_time
+        return f"thread_id={thread_id}, checkpoint_id={checkpoint_id}, task_id={task_id}, time_to_start_ms={round((db_start_time - start_time) * 1000, 2)}, db_total_ms={round(db_total_duration * 1000, 2)}, transaction_end_time_time={round(transaction_end_time_time * 1000, 2)}, checkpoint_lookup_ms={round(checkpoint_lookup_duration * 1000, 2)}, write_prep_ms={round(write_prep_duration * 1000, 2)}, bulk_create_ms={round(bulk_create_duration * 1000, 2)}"
 
     def get_next_version(self, current: Optional[str | int], channel: ChannelProtocol) -> str:
         if current is None:
