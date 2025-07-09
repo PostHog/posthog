@@ -135,14 +135,14 @@ class InsightSearchNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         start_time = time.time()
-        search_query = state.root_to_search_insights
+        search_query = state.search_insights_query
         conversation_id = config["configurable"]["thread_id"]
 
         cache_hits = 0
         cache_misses = 0
 
         try:
-            results, cache_stats = self._search_insights(root_to_search_insights=search_query)
+            results, cache_stats = self._search_insights(search_insights_query=search_query)
             cache_hits = cache_stats.get("hits", 0)
             cache_misses = cache_stats.get("misses", 0)
 
@@ -178,7 +178,7 @@ class InsightSearchNode(AssistantNode):
                     ),
                 ],
                 # Reset state values
-                root_to_search_insights="",
+                search_insights_query="",
             )
 
         except Exception as e:
@@ -208,16 +208,16 @@ class InsightSearchNode(AssistantNode):
                         id=str(uuid4()),
                     ),
                 ],
-                root_to_search_insights="",
+                search_insights_query="",
             )
 
     def _search_insights(
-        self, root_to_search_insights: str | None = None, limit: int = 10
+        self, search_insights_query: str | None = None, limit: int = 10
     ) -> tuple[list[EnrichedInsight], CacheStats]:
         """Optimized insight search with improved data pipeline and cache tracking."""
 
         # Step 1: Get basic insight data with optimized query size
-        initial_fetch_size = 300 if root_to_search_insights else 3
+        initial_fetch_size = 300 if search_insights_query else 3
 
         insights_qs = (
             InsightViewed.objects.filter(team__project_id=self._team.project_id)
@@ -250,8 +250,8 @@ class InsightSearchNode(AssistantNode):
             return [], cache_stats
 
         # Step 2: Apply semantic filtering if query exists
-        if root_to_search_insights:
-            filtered_results = self._apply_semantic_filtering(raw_results, root_to_search_insights)
+        if search_insights_query:
+            filtered_results = self._apply_semantic_filtering(raw_results, search_insights_query)
 
             if filtered_results:
                 # Step 3: Convert to enriched insights (no additional DB call needed)

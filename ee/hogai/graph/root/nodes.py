@@ -519,7 +519,7 @@ class RootNodeTools(AssistantNode):
         elif tool_call.name == "search_insights":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
-                root_to_search_insights=tool_call.args["search_query"],
+                search_insights_query=tool_call.args["search_query"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
@@ -584,7 +584,7 @@ class RootNodeTools(AssistantNode):
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"
-            elif state.root_to_search_insights:
+            elif state.search_insights_query:
                 return "insights_search"
             else:
                 return "search_documentation"

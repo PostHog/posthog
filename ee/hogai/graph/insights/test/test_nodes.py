@@ -253,7 +253,7 @@ class TestInsightSearchNode(BaseTest):
 
         state = AssistantState(
             messages=[HumanMessage(content="Find pageview insights")],
-            root_to_search_insights="pageview insights",
+            search_insights_query="pageview insights",
             root_tool_call_id="test_tool_call_id_3",  # Set the tool call ID for the test
         )
 
@@ -265,7 +265,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_3")
         self.assertIn("Found", result.messages[0].content)
         self.assertIn("INSTRUCTIONS:", result.messages[0].content)
-        self.assertEqual(result.root_to_search_insights, "")  # Should reset state
+        self.assertEqual(result.search_insights_query, "")  # Should reset state
 
     def test_run_without_semantic_filtering(self):
         """Test run method without semantic filtering (short query)."""
@@ -275,7 +275,7 @@ class TestInsightSearchNode(BaseTest):
 
         state = AssistantState(
             messages=[HumanMessage(content="abc")],
-            root_to_search_insights="ab",  # Too short for semantic filtering
+            search_insights_query="ab",  # Too short for semantic filtering
             root_tool_call_id="test_tool_call_id",  # Set the tool call ID for the test
         )
 
@@ -287,7 +287,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id")
         self.assertIn("Found", result.messages[0].content)
         self.assertIn("INSTRUCTIONS:", result.messages[0].content)
-        self.assertEqual(result.root_to_search_insights, "")
+        self.assertEqual(result.search_insights_query, "")
 
     def test_run_with_no_query(self):
         """Test run method with no search query."""
@@ -297,7 +297,7 @@ class TestInsightSearchNode(BaseTest):
 
         state = AssistantState(
             messages=[HumanMessage(content="test")],
-            root_to_search_insights=None,
+            search_insights_query=None,
             root_tool_call_id="test_tool_call_id_2",  # Set the tool call ID for the test
         )
 
@@ -309,7 +309,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_2")
         self.assertIn("Found", result.messages[0].content)
         self.assertIn("INSTRUCTIONS:", result.messages[0].content)
-        self.assertEqual(result.root_to_search_insights, "")
+        self.assertEqual(result.search_insights_query, "")
 
     def test_search_insights_team_filtering(self):
         """Test that search only returns insights from the correct team."""

@@ -150,7 +150,7 @@ class _SharedAssistantState(BaseModel):
     """
     Tracks the number of times the query generation has been retried.
     """
-    root_to_search_insights: Optional[str] = Field(default=None)
+    search_insights_query: Optional[str] = Field(default=None)
     """
     The insight to search for.
     """
