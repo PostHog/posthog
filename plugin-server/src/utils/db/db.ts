@@ -673,8 +673,8 @@ export class DB {
         return [person, kafkaMessages]
     }
 
-    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<number | undefined> {
-        const result = await this.postgres.query<{ version: string }>(
+    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
+        const { rows } = await this.postgres.query<RawPerson>(
             PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_person SET
@@ -684,7 +684,7 @@ export class DB {
                 is_identified = $4,
                 version = COALESCE(version, 0)::numeric + 1
             WHERE team_id = $5 AND uuid = $6 AND version = $7
-            RETURNING version
+            RETURNING *
             `,
             [
                 JSON.stringify(personUpdate.properties),
@@ -698,11 +698,15 @@ export class DB {
             'updatePersonAssertVersion'
         )
 
-        if (result.rows.length === 0) {
-            return undefined
+        if (rows.length === 0) {
+            return [undefined, []]
         }
 
-        return Number(result.rows[0].version || 0)
+        const updatedPerson = this.toPerson(rows[0])
+
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+        return [updatedPerson.version, [kafkaMessage]]
     }
 
     // Currently in use, but there are various problems with this function

@@ -1154,7 +1154,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
                                         <span className="font-mono font-bold">
                                             {featureFlag.has_encrypted_payloads
-                                                ? 'getDecryptedFeatureFlagPayload'
+                                                ? 'getRemoteConfigPayload'
                                                 : 'getFeatureFlagPayload'}
                                         </span>
                                         . Using standard SDK methods such as{' '}

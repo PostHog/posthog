@@ -29,7 +29,7 @@ from products.messaging.backend.providers.mailjet import MailjetProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
