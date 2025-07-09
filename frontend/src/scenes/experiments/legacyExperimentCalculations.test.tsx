@@ -2,7 +2,7 @@ import {
     expectedRunningTime,
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
-} from './experimentCalculations'
+} from './legacyExperimentCalculations'
 
 describe('experimentCalculations', () => {
     describe('minimumSampleSizePerVariant', () => {
