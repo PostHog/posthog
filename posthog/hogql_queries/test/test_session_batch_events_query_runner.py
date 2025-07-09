@@ -153,43 +153,54 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # The one session with events should be session_1
             self.assertEqual(response.session_events[0].session_id, self.session_1_id)
 
-    # def test_events_to_ignore_filter(self):
-    #     """Test that events_to_ignore parameter properly filters out unwanted events."""
-    #     # Create various types of events
-    #     self._create_events_for_sessions(
-    #         [
-    #             ("user1", "2020-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),  # $pageview
-    #         ]
-    #     )
-
-    #     # Create a feature flag event that should be ignored by default
-    #     with freeze_time("2020-01-11T12:01:00Z"):
-    #         _create_event(
-    #             team=self.team,
-    #             event="$feature_flag_called",
-    #             distinct_id="user1",
-    #             timestamp="2020-01-11T12:01:00Z",
-    #             properties={"$session_id": self.session_1_id, "flag": "test_flag"},
-    #         )
-
-    #     flush_persons_and_events()
-
-    #     with freeze_time("2020-01-11T16:00:00"):
-    #         # Query with default events_to_ignore (should exclude $feature_flag_called)
-    #         query = create_session_batch_query(
-    #             session_ids=[self.session_1_id],
-    #             after="-24h",
-    #         )
-
-    #         runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-    #         response = runner.calculate()
-
-    #         # Should have only 1 event (the $pageview), not the feature flag event
-    #         session_1 = response.session_events[0]
-
-    #         # Verify it's the pageview event, not the feature flag
-    #         event_name = session_1.events[0][0]  # First column is event name
-    #         self.assertEqual(event_name, "$pageview")
+    def test_events_to_ignore_filter(self):
+        """Test that events_to_ignore parameter properly filters out unwanted events."""
+        self._create_events_for_sessions(  # Create a default pageview event
+            [
+                ("user1", "2025-01-11T12:00:01Z", self.session_1_id, {"page": "/home"}),
+            ]
+        )
+        # Create a feature flag event that should be ignored by default
+        with freeze_time("2025-01-11T12:01:00Z"):
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id="user1",
+                timestamp="2025-01-11T12:01:00Z",
+                properties={"$session_id": self.session_1_id, "flag": "test_flag"},
+            )
+        flush_persons_and_events()
+        # Query the events with and without ignoring the feature flag event
+        with freeze_time("2025-01-11T16:00:00"):
+            for ignore_status in [True, False]:
+                if ignore_status:
+                    # Use default ignore settings
+                    events_to_ignore = None
+                else:
+                    # Don't ignore any events
+                    events_to_ignore = []
+                query = create_session_batch_query(
+                    session_ids=[self.session_1_id],
+                    after="2025-01-10T00:00:00",
+                    before="2025-01-12T00:00:00",
+                    select=["event", "timestamp", "properties.page", "properties.$session_id"],
+                    events_to_ignore=events_to_ignore,
+                )
+                runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+                response = runner.calculate()
+                # Verify if the events were ignored of not
+                if ignore_status:
+                    # Should have only 1 event (the $pageview), not the feature flag event
+                    session_1 = response.session_events[0]
+                    event_name_1 = session_1.events[0][0]
+                    self.assertEqual(event_name_1, "$pageview")
+                else:
+                    # Should have 2 events (the $pageview and the feature flag event)
+                    session_1 = response.session_events[0]
+                    event_name_1 = session_1.events[0][0]
+                    self.assertEqual(event_name_1, "$pageview")
+                    event_name_2 = session_1.events[1][0]
+                    self.assertEqual(event_name_2, "$feature_flag_called")
 
     # def test_group_by_session_false(self):
     #     """Test that group_by_session=False returns ungrouped results."""
