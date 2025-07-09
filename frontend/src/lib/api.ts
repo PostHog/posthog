@@ -1401,6 +1401,11 @@ const api = {
         async update(id: number, data: any): Promise<InsightModel> {
             return await new ApiRequest().insight(id).update({ data })
         },
+        async createShortlink(
+            id: number
+        ): Promise<{ short_url: string; short_code: string; original_url: string; created_at: string }> {
+            return await new ApiRequest().insight(id).withAction('create_shortlink').create()
+        },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },

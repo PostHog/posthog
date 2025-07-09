@@ -275,6 +275,8 @@ export function SharingModalContent({
                         heading={TEMPLATE_LINK_HEADING}
                         tooltip={TEMPLATE_LINK_TOOLTIP}
                         piiWarning={TEMPLATE_LINK_PII_WARNING}
+                        insightId={insight.id}
+                        enableShortlinkCreation={true}
                     />
                 </>
             )}

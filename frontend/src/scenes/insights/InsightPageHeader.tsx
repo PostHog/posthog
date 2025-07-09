@@ -362,6 +362,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                             heading={undefined}
                                                             tooltip={undefined}
                                                             piiWarning={TEMPLATE_LINK_PII_WARNING}
+                                                            insightId={insight.id}
+                                                            enableShortlinkCreation={true}
                                                         />
                                                     ),
                                                     width: 600,
