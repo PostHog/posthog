@@ -646,7 +646,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             await lemonToast.promise(
                 (async () => {
                     for (const recording of values.selectedRecordings) {
-                        await addRecordingToPlaylist(short_id, recording.id, true)
+                        try {
+                            await addRecordingToPlaylist(short_id, recording.id, true)
+                        } catch (e) {
+                            posthog.captureException(e)
+                        }
                     }
                     actions.setSelectedRecordings([])
                 })(),

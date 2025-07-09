@@ -153,6 +153,8 @@ export function SessionRecordingsPlaylistTopSettings({
                     onChange={(checked) => handleSelectUnselectAll(checked)}
                     stopPropagation
                     className="ml-2"
+                    dataAttr="select-all-recordings"
+                    aria-label="Select all recordings"
                 />
                 {filters && setFilters ? (
                     <span className="text-xs font-normal inline-flex items-center ml-2">

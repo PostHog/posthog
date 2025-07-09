@@ -228,6 +228,8 @@ export function SessionRecordingPreview({
             >
                 <LemonCheckbox
                     checked={selectedRecordings.some((s) => s.id === recording.id)}
+                    dataAttr="select-recording"
+                    aria-label="Select recording"
                     onChange={() => {
                         if (selectedRecordings.some((r) => r.id === recording.id)) {
                             setSelectedRecordings(selectedRecordings.filter((r) => r.id !== recording.id))
