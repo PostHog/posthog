@@ -254,7 +254,8 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             <ProjectDropdownMenu
                 buttonProps={{
                     size: 'xxs',
-                    className: '-mr-1 text-[12px] text-secondary p-0 hover:text-primary hover:bg-transparent',
+                    className:
+                        '-mr-1 [font-size:var(--content-font-size)] text-secondary p-0 hover:text-primary hover:bg-transparent',
                 }}
             />
         )
