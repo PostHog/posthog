@@ -48,10 +48,6 @@ class FilterOptionsNode(AssistantNode):
             .values_list("group_type", flat=True)
         )
 
-    @cached_property
-    def _team_groups(self) -> list[GroupTypeMapping]:
-        return list(GroupTypeMapping.objects.filter(project_id=self._team.project.id).order_by("group_type_index"))
-
     def _get_react_property_filters_prompt(self) -> str:
         return cast(
             str,
