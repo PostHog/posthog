@@ -129,7 +129,7 @@ CONSTANCE_CONFIG = {
         bool,
     ),
     "SLACK_APP_CLIENT_ID": (
-        get_from_env("SLACK_APP_CLIENT_ID", default=""),
+        get_from_env("SLACK_APP_CLIENT_ID", default="393235051266.9195119509920"),
         "Used to enable the 'Add to Slack' button across all projects",
         str,
     ),

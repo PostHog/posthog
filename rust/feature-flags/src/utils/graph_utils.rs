@@ -3,9 +3,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use petgraph::{
     algo::toposort,
     graph::{DiGraph, NodeIndex},
+    visit::EdgeRef,
 };
 
 use crate::api::errors::FlagError;
+use crate::flags::flag_models::FeatureFlag;
+use crate::metrics::consts::FLAG_EVALUATION_ERROR_COUNTER;
+use common_metrics::inc;
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub enum GraphError<Id> {
@@ -333,4 +338,163 @@ where
             .node_indices()
             .any(|idx| self.graph[idx].get_id() == id)
     }
+
+    #[cfg(test)]
+    pub(crate) fn get_all_nodes(&self) -> Vec<&T> {
+        self.graph
+            .node_indices()
+            .map(|idx| &self.graph[idx])
+            .collect()
+    }
+}
+
+/// Builds a dependency graph for flag evaluation.
+/// Returns None only if there were fatal errors during graph construction.
+/// Partial errors (cycles, missing dependencies) are returned in the errors vector
+/// and the graph contains only the valid nodes.
+pub fn build_dependency_graph(
+    feature_flags: &crate::flags::flag_models::FeatureFlagList,
+    team_id: common_types::TeamId,
+) -> Option<(DependencyGraph<FeatureFlag>, Vec<GraphError<i32>>)> {
+    // Build the global dependency graph once, handling partial errors gracefully
+    let (global_graph, errors) = match DependencyGraph::from_nodes(&feature_flags.flags) {
+        Ok((graph, graph_errors)) => (graph, graph_errors),
+        Err(e) => {
+            log_dependency_graph_operation_error("build global dependency graph", &e, team_id);
+            return None; // Only return None for fatal errors
+        }
+    };
+
+    // Log any dependency errors but continue with the valid graph
+    if !errors.is_empty() {
+        log_dependency_graph_construction_errors(&errors, team_id);
+    }
+
+    Some((global_graph, errors))
+}
+
+/// Filters a dependency graph to include only the requested flags and their dependencies.
+/// Returns None if:
+/// - There were errors during filtering
+/// - The global_graph's internal state is corrupted
+pub fn filter_graph_by_keys(
+    global_graph: &DependencyGraph<FeatureFlag>,
+    requested_keys: &[String],
+) -> Option<DependencyGraph<FeatureFlag>> {
+    let mut nodes_to_include = HashSet::new();
+
+    // Build an index from flag keys to node indices for O(1) lookups
+    let key_to_node: HashMap<&str, petgraph::graph::NodeIndex> = global_graph
+        .graph
+        .node_indices()
+        .map(|idx| (global_graph.graph[idx].key.as_str(), idx))
+        .collect();
+
+    // For each requested flag, traverse the global graph to collect dependencies
+    for key in requested_keys {
+        // Find the flag in the global graph using the index
+        let node_idx = key_to_node.get(key.as_str());
+
+        if let Some(&start_idx) = node_idx {
+            // Use BFS to collect all reachable nodes (dependencies) from this flag
+            let mut visited = HashSet::new();
+            let mut queue = std::collections::VecDeque::new();
+            queue.push_back(start_idx);
+            visited.insert(start_idx);
+
+            while let Some(current_idx) = queue.pop_front() {
+                nodes_to_include.insert(current_idx);
+
+                // Add all dependencies (outgoing edges) to the queue
+                for neighbor_idx in global_graph
+                    .graph
+                    .neighbors_directed(current_idx, petgraph::Direction::Outgoing)
+                {
+                    if visited.insert(neighbor_idx) {
+                        queue.push_back(neighbor_idx);
+                    }
+                }
+            }
+        } else {
+            // Log warning for missing flag key
+            warn!("Requested flag key not found: {}", key);
+            inc(
+                FLAG_EVALUATION_ERROR_COUNTER,
+                &[(
+                    "reason".to_string(),
+                    "missing_requested_flag_key".to_string(),
+                )],
+                1,
+            );
+        }
+    }
+
+    // Create a new graph with only the filtered nodes
+    let mut filtered_graph = DiGraph::new();
+    let mut node_mapping = HashMap::new();
+
+    // Add all the nodes we want to include
+    for &node_idx in &nodes_to_include {
+        let flag = global_graph.graph[node_idx].clone();
+        let new_idx = filtered_graph.add_node(flag);
+        node_mapping.insert(node_idx, new_idx);
+    }
+
+    // Add all the edges between the included nodes
+    for &node_idx in &nodes_to_include {
+        if let Some(&new_source_idx) = node_mapping.get(&node_idx) {
+            for edge in global_graph
+                .graph
+                .edges_directed(node_idx, petgraph::Direction::Outgoing)
+            {
+                let target_idx = edge.target();
+                if let Some(&new_target_idx) = node_mapping.get(&target_idx) {
+                    filtered_graph.add_edge(new_source_idx, new_target_idx, ());
+                }
+            }
+        }
+    }
+
+    Some(DependencyGraph {
+        graph: filtered_graph,
+    })
+}
+
+/// Handles errors during dependency graph operations.
+pub fn log_dependency_graph_operation_error(
+    error_type: &str,
+    error: &dyn std::fmt::Debug,
+    team_id: common_types::TeamId,
+) {
+    tracing::error!("Failed to {} for team {}: {:?}", error_type, team_id, error);
+    inc(
+        FLAG_EVALUATION_ERROR_COUNTER,
+        &[
+            (
+                "reason".to_string(),
+                format!("{}_error", error_type.replace(" ", "_")),
+            ),
+            ("team_id".to_string(), team_id.to_string()),
+        ],
+        1,
+    );
+}
+
+/// Handles errors found during dependency graph construction.
+pub fn log_dependency_graph_construction_errors(
+    errors: &[GraphError<i32>],
+    team_id: common_types::TeamId,
+) {
+    inc(
+        FLAG_EVALUATION_ERROR_COUNTER,
+        &[
+            ("reason".to_string(), "dependency_graph_error".to_string()),
+            ("team_id".to_string(), team_id.to_string()),
+        ],
+        1,
+    );
+    tracing::error!(
+        "There were errors building the feature flag dependency graph for team {}. Will attempt to evaluate the rest of the flags: {:?}",
+        team_id, errors
+    );
 }
