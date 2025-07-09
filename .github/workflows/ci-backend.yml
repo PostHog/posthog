@@ -598,7 +598,7 @@ jobs:
                   bin/check_temporal_up
 
             - name: Restore test durations from cache
-              if: ${{ needs.changes.outputs.backend == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/update-test-durations') }}
+              if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               with:
                   path: .test_durations
@@ -842,7 +842,7 @@ jobs:
     cache-test-durations:
         name: Cache test durations
         needs: [changes, django]
-        if: success() && needs.changes.outputs.backend == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/update-test-durations')
+        if: success() && needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:
             - name: Download all partial test durations
