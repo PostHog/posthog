@@ -99,19 +99,21 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                 }}
                 {...textProps}
             />
-            <div className="flex flex-row gap-x-2 justify-between">
-                {footer}
-                {textProps.maxLength !== undefined ? (
-                    <div
-                        className={cn(
-                            'flex flex-row justify-end text-sm',
-                            textLength >= textProps.maxLength && 'text-error'
-                        )}
-                    >
-                        {textLength} / {textProps.maxLength}
-                    </div>
-                ) : null}
-            </div>
+            {footer || textProps.maxLength ? (
+                <div className="flex flex-row gap-x-2 justify-between">
+                    {footer}
+                    {textProps.maxLength !== undefined ? (
+                        <div
+                            className={cn(
+                                'flex flex-row justify-end text-sm',
+                                textLength >= textProps.maxLength && 'text-error'
+                            )}
+                        >
+                            {textLength} / {textProps.maxLength}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
         </div>
     )
 })
