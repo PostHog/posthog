@@ -167,8 +167,8 @@ def schedule_warming_for_teams_task():
             insight_tuples = list(insights_to_keep_fresh(team, shared_only=shared_only))
 
             capture_ph_event(
-                str(team.uuid),
-                "cache warming - insights to cache",
+                distinct_id=str(team.uuid),
+                event="cache warming - insights to cache",
                 properties={
                     "count": len(insight_tuples),
                     "team_id": team.id,
@@ -236,8 +236,8 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
 
             with ph_scoped_capture() as capture_ph_event:
                 capture_ph_event(
-                    str(insight.team.uuid),
-                    "cache warming - warming insight",
+                    distinct_id=str(insight.team.uuid),
+                    event="cache warming - warming insight",
                     properties={
                         "insight_id": insight.pk,
                         "dashboard_id": dashboard_id,

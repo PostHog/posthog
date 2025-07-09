@@ -74,6 +74,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         <MaxTool
                             name="generate_hogql_query"
                             displayName="Write and tweak SQL"
+                            description="Max can write and tweak SQL queries for you"
                             context={{
                                 current_query: props.queryInput,
                             }}

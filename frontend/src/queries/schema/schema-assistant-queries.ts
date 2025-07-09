@@ -64,7 +64,7 @@ export interface AssistantSetPropertyFilter {
     operator: AssistantSetPropertyFilterOperator
 }
 
-export type AssistantSingleValuePropertyFilterOperator =
+export type AssistantStringOrBooleanValuePropertyFilterOperator =
     | PropertyOperator.Exact
     | PropertyOperator.IsNot
     | PropertyOperator.IContains
@@ -72,23 +72,35 @@ export type AssistantSingleValuePropertyFilterOperator =
     | PropertyOperator.Regex
     | PropertyOperator.NotRegex
 
-export interface AssistantSingleValuePropertyFilter {
+export interface AssistantStringOrBooleanValuePropertyFilter {
     /**
      * `icontains` - case insensitive contains.
      * `not_icontains` - case insensitive does not contain.
      * `regex` - matches the regex pattern.
      * `not_regex` - does not match the regex pattern.
      */
-    operator: AssistantSingleValuePropertyFilterOperator
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator
     /**
      * Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against.
      * Otherwise, the value must be a substring that will be matched against the property value.
+     * Use the string values `true` or `false` for boolean properties.
      */
-    value: string
+    value: string | 'true' | 'false'
+}
+
+export type AssistantNumericValuePropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.LessThan
+
+export interface AssistantNumericValuePropertyFilter {
+    operator: AssistantNumericValuePropertyFilterOperator
+    value: number
 }
 
 export type AssistantStringNumberOrBooleanPropertyFilter =
-    | AssistantSingleValuePropertyFilter
+    | AssistantStringOrBooleanValuePropertyFilter
+    | AssistantNumericValuePropertyFilter
     | AssistantArrayPropertyFilter
 
 export type AssistantDateTimePropertyFilterOperator =

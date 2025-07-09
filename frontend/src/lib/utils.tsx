@@ -452,6 +452,10 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
+export function makeDelay(ms: number): () => Promise<void> {
+    return () => delay(ms)
+}
+
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(resolve, ms)
@@ -1553,9 +1557,14 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
 }
 
 export function timeZoneLabel(timeZone: string, offset: number): string {
-    return `${timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')} (UTC${
-        offset === 0 ? '±' : offset > 0 ? '+' : '-'
-    }${Math.abs(Math.floor(offset))}:${(Math.abs(offset % 1) * 60).toString().padStart(2, '0')})`
+    const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
+    const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    const hours = Math.floor(Math.abs(offset))
+    const minutes = Math.round((Math.abs(offset) % 1) * 60)
+        .toString()
+        .padStart(2, '0')
+
+    return `${formattedZone} (UTC${sign}${hours}:${minutes})`
 }
 
 export function humanTzOffset(timezone?: string): string {

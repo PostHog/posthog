@@ -2,6 +2,7 @@
 
 from typing import Optional
 import structlog
+from posthog.schema import SourceMap
 from posthog.warehouse.models import ExternalDataSource, DataWarehouseTable
 from posthog.hogql.database.database import create_hogql_database
 
@@ -51,7 +52,7 @@ class MarketingSourceFactory:
         self._warehouse_tables = DataWarehouseTable.objects.filter(
             team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_tables()
         ).prefetch_related("externaldataschema_set")
-        self._sources_map = self.context.team.marketing_analytics_config.sources_map
+        self._sources_map = self.context.team.marketing_analytics_config.sources_map_typed
 
     @classmethod
     def register_adapter(cls, source_type: str, adapter_class: type[MarketingSourceAdapter]):
@@ -203,7 +204,7 @@ class MarketingSourceFactory:
 
         return adapters
 
-    def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> Optional[dict]:
+    def _get_source_map_for_table(self, table: DataWarehouseTable, source_id: str | None = None) -> Optional[SourceMap]:
         """Get source map for a table"""
         if source_id and table.external_data_source and table.external_data_source.source_type:
             # Managed table
@@ -215,8 +216,11 @@ class MarketingSourceFactory:
                 if key and key in self._sources_map:
                     return self._sources_map[key]
         else:
-            # Self-managed table
-            return self._sources_map.get(str(table.id))
+            if str(table.id) in self._sources_map:
+                # Self-managed table
+                return self._sources_map[str(table.id)]
+            else:
+                return None
 
         return None
 

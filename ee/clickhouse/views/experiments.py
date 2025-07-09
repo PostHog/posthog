@@ -272,6 +272,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 "active": not is_draft,
                 "creation_context": "experiments",
             }
+
+            # Pass ensure_experience_continuity from experiment parameters
+            parameters = validated_data.get("parameters") or {}
+            if parameters.get("ensure_experience_continuity") is not None:
+                feature_flag_data["ensure_experience_continuity"] = parameters["ensure_experience_continuity"]
             if validated_data.get("_create_in_folder") is not None:
                 feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
             feature_flag_serializer = FeatureFlagSerializer(

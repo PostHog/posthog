@@ -8,14 +8,8 @@ import structlog
 from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
+from posthog.schema import MarketingAnalyticsColumnsSchemaNames, SourceMap
 from posthog.warehouse.models import DataWarehouseTable
-from products.marketing_analytics.backend.hogql_queries.constants import (
-    CAMPAIGN_NAME_FIELD,
-    CLICKS_FIELD,
-    COST_FIELD,
-    IMPRESSIONS_FIELD,
-    SOURCE_NAME_FIELD,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +28,7 @@ class ExternalConfig(BaseMarketingConfig):
     """Configuration for external marketing sources"""
 
     table: DataWarehouseTable
-    source_map: dict[str, Any]
+    source_map: SourceMap
     schema_name: str
     source_id: str
 
@@ -76,11 +70,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     """
 
     # Default fields for the marketing analytics table
-    campaign_name_field: str = CAMPAIGN_NAME_FIELD
-    source_name_field: str = SOURCE_NAME_FIELD
-    impressions_field: str = IMPRESSIONS_FIELD
-    clicks_field: str = CLICKS_FIELD
-    cost_field: str = COST_FIELD
+    campaign_name_field: str = MarketingAnalyticsColumnsSchemaNames.CAMPAIGN
+    source_name_field: str = MarketingAnalyticsColumnsSchemaNames.SOURCE
+    impressions_field: str = MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS
+    clicks_field: str = MarketingAnalyticsColumnsSchemaNames.CLICKS
+    cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
 
     def __init__(self, config: ConfigType, context: QueryContext):
         self.team = context.team

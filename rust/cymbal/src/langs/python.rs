@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
-use crate::frames::{Context, ContextLine, Frame};
+use crate::{
+    frames::{Context, ContextLine, Frame},
+    langs::CommonFrameMetadata,
+};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawPythonFrame {
@@ -16,9 +19,8 @@ pub struct RawPythonFrame {
     pub pre_context: Vec<String>, // The lines of code before the context line
     #[serde(default)]
     pub post_context: Vec<String>, // The lines of code after the context line
-    // Default to false as sometimes not present on library code
-    #[serde(default)]
-    pub in_app: bool, // Whether the frame is in the user's code
+    #[serde(flatten)]
+    pub meta: CommonFrameMetadata,
 }
 
 impl RawPythonFrame {
@@ -82,7 +84,7 @@ impl From<&RawPythonFrame> for Frame {
             line: raw.lineno,
             column: None,
             source: Some(raw.filename.clone()),
-            in_app: raw.in_app,
+            in_app: raw.meta.in_app,
             resolved_name: Some(raw.function.clone()),
             lang: "python".to_string(),
             resolved: true,
@@ -90,6 +92,7 @@ impl From<&RawPythonFrame> for Frame {
             junk_drawer: None,
             context: raw.get_context(),
             release: None,
+            synthetic: raw.meta.synthetic,
         }
     }
 }

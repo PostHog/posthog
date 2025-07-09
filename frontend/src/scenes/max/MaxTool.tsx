@@ -1,9 +1,8 @@
-import { IconSparkles } from '@posthog/icons'
+import { IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTools } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import React, { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -26,6 +25,8 @@ interface MaxToolProps extends ToolDefinition {
 export function MaxTool({
     name,
     displayName,
+    description,
+    icon,
     context,
     introOverride,
     callback,
@@ -44,11 +45,21 @@ export function MaxTool({
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, context, introOverride, callback })
+        registerTool({ name, displayName, description, icon, context, introOverride, callback })
         return () => {
             deregisterTool(name)
         }
-    }, [name, displayName, JSON.stringify(context), introOverride, callback, registerTool, deregisterTool])
+    }, [
+        name,
+        displayName,
+        description,
+        icon,
+        JSON.stringify(context),
+        introOverride,
+        callback,
+        registerTool,
+        deregisterTool,
+    ])
 
     let content: JSX.Element
     if (!isMaxAvailable) {
@@ -67,8 +78,8 @@ export function MaxTool({
                             <>
                                 Max can use this tool
                                 <br />
-                                <IconTools className="mr-1.5" />
-                                <i>{displayName}</i>
+                                {icon || <IconWrench />}
+                                <i className="ml-1.5">{displayName}</i>
                             </>
                         )
                     }

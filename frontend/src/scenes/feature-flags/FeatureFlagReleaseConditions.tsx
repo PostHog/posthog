@@ -31,7 +31,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import {
     featureFlagReleaseConditionsLogic,
     FeatureFlagReleaseConditionsLogicProps,
-} from './FeatureFlagReleaseConditionsLogic'
+} from './featureFlagReleaseConditionsLogic'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === 'cohort') {

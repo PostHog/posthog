@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from typing import Optional
+from unittest.mock import MagicMock, patch
 
 from zoneinfo import ZoneInfo
 from django.utils.timezone import now
@@ -17,7 +18,7 @@ from posthog.test.base import (
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.annotation.report_user_action")
-    def test_retrieving_annotation(self, mock_capture):
+    def test_retrieving_annotation(self, mock_capture: MagicMock) -> None:
         Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -33,7 +34,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response["results"][0]["content"] == "hello world!"
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture) -> None:
+    def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
         with self.assertNumQueries(FuzzyInt(8, 9)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 0
@@ -62,7 +63,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 2
 
-    def test_org_scoped_annotations_are_returned_between_projects(self):
+    def test_org_scoped_annotations_are_returned_between_projects(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         Annotation.objects.create(
             organization=self.organization,
@@ -77,7 +78,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "Cross-project annotation!"
 
-    def test_cannot_fetch_annotations_of_org_user_does_not_belong_to(self):
+    def test_cannot_fetch_annotations_of_org_user_does_not_belong_to(self) -> None:
         separate_org, _, separate_team = Organization.objects.bootstrap(None, name="Second team")
         Annotation.objects.create(
             organization=separate_org,
@@ -103,7 +104,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response_2.json()["results"] == []
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_creating_annotation(self, mock_capture):
+    def test_creating_annotation(self, mock_capture: MagicMock) -> None:
         team2 = Organization.objects.bootstrap(None)[2]
 
         self.client.force_login(self.user)
@@ -134,7 +135,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_can_create_annotations_as_a_bot(self, mock_capture):
+    def test_can_create_annotations_as_a_bot(self, mock_capture: MagicMock) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
             {
@@ -154,7 +155,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert get_created_response.json()["creation_type"] == "GIT"
 
     @patch("posthog.api.annotation.report_user_action")
-    def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture):
+    def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture: MagicMock) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         test_annotation = Annotation.objects.create(
             organization=self.organization,
@@ -179,7 +180,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         # project than the one the user is viewing.
         assert test_annotation.team == second_team
 
-    def test_updating_annotation(self):
+    def test_updating_annotation(self) -> None:
         test_annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -199,7 +200,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert test_annotation.scope == "organization"
         assert test_annotation.date_marker is None
 
-    def test_deleting_annotation(self):
+    def test_deleting_annotation(self) -> None:
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 
         instance = Annotation.objects.create(organization=self.organization, team=self.team, created_by=self.user)
@@ -221,7 +222,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             (None, None, 4),
         ]
     )
-    def test_annotation_can_be_filtered_by_scope(self, scope: str, expected_content: str, expected_result_count: int):
+    def test_annotation_can_be_filtered_by_scope(
+        self, scope: Optional[str], expected_content: Optional[str], expected_result_count: int
+    ) -> None:
         Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -263,7 +266,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             (Annotation.Scope.ORGANIZATION, False, True),  # Outside date range
         ]
     )
-    def test_filter_annotations_by_date_range_and_scope(self, scope, in_date_range, should_be_visible):
+    def test_filter_annotations_by_date_range_and_scope(
+        self, scope: str, in_date_range: bool, should_be_visible: bool
+    ) -> None:
         """Test that annotations can be filtered by date range and scope for session replay integration."""
 
         # Create base dates for our test
@@ -302,7 +307,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         else:
             assert len(results) == 0
 
-    def test_filter_annotations_for_session_replay_scenario(self):
+    def test_filter_annotations_for_session_replay_scenario(self) -> None:
         """Test a realistic session replay scenario with multiple annotations and scopes."""
 
         # Session replay scenario: 1-hour recording from 10:00 to 11:00
@@ -373,7 +378,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert "Project annotation at 45min" in project_contents
         assert "Org annotation at 30min" not in project_contents
 
-    def test_filter_annotations_400_for_invalid_scope(self):
+    def test_filter_annotations_400_for_invalid_scope(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/annotations/",
             {"scope": "invalid_scope"},
@@ -388,7 +393,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             ("2024-01-01T11:00:00Z", "2024-01-01T10:00:00Z", "date_from must be before date_to"),
         ]
     )
-    def test_filter_annotations_400_for_invalid_date_range(self, date_from, date_to, error_message):
+    def test_filter_annotations_400_for_invalid_date_range(
+        self, date_from: str, date_to: str, error_message: str
+    ) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/annotations/",
             {"date_from": date_from, "date_to": date_to},
@@ -396,7 +403,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 400
         assert response.json()["detail"] == f"Invalid date range: {error_message}"
 
-    def test_filter_annotations_by_specific_recording(self):
+    def test_filter_annotations_by_specific_recording(self) -> None:
         annotation = Annotation.objects.create(
             organization=self.organization,
             team=self.team,
@@ -413,3 +420,185 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 200
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == annotation.id
+
+    @parameterized.expand(
+        [
+            ("true", True),  # Filter for emoji annotations
+            ("false", False),  # Filter for non-emoji annotations
+            ("1", True),  # Alternative true value
+            ("0", False),  # Alternative false value
+        ]
+    )
+    def test_filter_annotations_by_is_emoji(self, is_emoji_param: str, should_return_emoji: bool) -> None:
+        """Test filtering annotations by is_emoji parameter."""
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="😊",
+            is_emoji=True,
+            scope=Annotation.Scope.DASHBOARD,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        emoji_annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="😊",
+            is_emoji=True,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Create non-emoji annotation
+        text_annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Text annotation",
+            is_emoji=False,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Test filtering by is_emoji parameter
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"is_emoji": is_emoji_param, "scope": "recording"},
+        )
+
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) == 1
+
+        if should_return_emoji:
+            assert results[0]["id"] == emoji_annotation.id
+            assert results[0]["content"] == "😊"
+            assert results[0]["is_emoji"] is True
+        else:
+            assert results[0]["id"] == text_annotation.id
+            assert results[0]["content"] == "Text annotation"
+            assert results[0]["is_emoji"] is False
+
+    def test_filter_annotations_by_is_emoji_combined_with_other_filters(self) -> None:
+        """Test combining is_emoji filter with scope and recording filters."""
+        # Create emoji annotation for recording - this should be returned
+        emoji_recording = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="🚀",
+            is_emoji=True,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Create emoji annotation for project (different scope) - should not be returned
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="⭐",
+            is_emoji=True,
+            scope=Annotation.Scope.PROJECT,
+        )
+
+        # Create non-emoji annotation for recording - should not be returned
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Text note",
+            is_emoji=False,
+            scope=Annotation.Scope.RECORDING,
+            recording_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        # Test: Filter for emoji annotations on recordings only
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "is_emoji": "true",
+                "scope": "recording",
+                "recording": "123e4567-e89b-12d3-a456-426614174000",
+            },
+        )
+
+        assert response.status_code == 200
+        results = response.json()["results"]
+        assert len(results) == 1
+        assert results[0]["id"] == emoji_recording.id
+        assert results[0]["content"] == "🚀"
+        assert results[0]["is_emoji"] is True
+        assert results[0]["scope"] == "recording"
+
+    @parameterized.expand(
+        [
+            ("Standard emoji", "😊", True, None),
+            ("Another emoji", "🚀", True, None),
+            ("Single letter", "a", False, "When is_emoji is True, content must be a single emoji"),
+            ("Single digit", "1", False, "When is_emoji is True, content must be a single emoji"),
+            ("Single symbol", "!", False, "When is_emoji is True, content must be a single emoji"),
+            ("Empty string", "", False, "When is_emoji is True, content cannot be empty"),
+            ("Multiple characters", "ab", False, "When is_emoji is True, content must be a single emoji"),
+            ("Multiple emojis", "😊😊", False, "When is_emoji is True, content must be a single emoji"),
+            ("No content", None, False, "When is_emoji is True, content cannot be empty"),
+        ]
+    )
+    def test_create_annotation_emoji_validation(
+        self, _name: str, content: Optional[str], should_succeed: bool, error: str
+    ) -> None:
+        """Test emoji validation when creating annotations with is_emoji=True."""
+        data = {
+            "is_emoji": True,
+            "scope": "project",
+            "date_marker": "2020-01-01T00:00:00.000000Z",
+        }
+        if content is not None:
+            data["content"] = content
+
+        response = self.client.post(f"/api/projects/{self.team.id}/annotations/", data)
+
+        if should_succeed:
+            assert response.status_code == status.HTTP_201_CREATED
+            instance = Annotation.objects.get(pk=response.json()["id"])
+            assert instance.content == content
+            assert instance.is_emoji is True
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == error
+
+    @parameterized.expand(
+        [
+            ("Valid emoji", "🚀", True, None),
+            ("Invalid for emoji", "multiple chars", False, "When is_emoji is True, content must be a single emoji"),
+            ("Empty string", "", False, "When is_emoji is True, content cannot be empty"),
+            ("Single symbol", "!", False, "When is_emoji is True, content must be a single emoji"),
+        ]
+    )
+    def test_update_annotation_emoji_validation(
+        self, _name: str, content: str, should_succeed: bool, error: str | None
+    ) -> None:
+        """Test emoji validation when updating annotations with is_emoji=True."""
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="old content",
+            is_emoji=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation.pk}/",
+            {"content": content, "is_emoji": True},
+        )
+
+        if should_succeed:
+            assert response.status_code == status.HTTP_200_OK
+            annotation.refresh_from_db()
+            assert annotation.content == content
+            assert annotation.is_emoji is True
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == error

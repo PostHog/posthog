@@ -35,4 +35,4 @@ class TitleGeneratorNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1-nano", temperature=0.7, max_completion_tokens=100)
+        return ChatOpenAI(model="gpt-4.1-nano", temperature=0.7, max_completion_tokens=100, max_retries=3)

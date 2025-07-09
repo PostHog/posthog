@@ -5,20 +5,24 @@ import { HedgehogActor, HedgehogBuddy } from 'lib/components/HedgehogBuddy/Hedge
 import { useEffect, useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { useDragAndSnap } from '../hooks/useDragAndSnap'
 import { maxGlobalLogic } from '../maxGlobalLogic'
+import { type PositionWithSide } from '../utils/floatingMaxPositioning'
+import { useDragAndSnap } from '../utils/useDragAndSnap'
+
+// Constants
+const DEFAULT_WAVE_INTERVAL = 5000 // milliseconds
 
 interface HedgehogAvatarProps {
     onExpand: () => void
     waveInterval?: number
     isExpanded: boolean
     fixedDirection?: 'left' | 'right'
-    onPositionChange?: (position: { x: number; y: number; side: 'left' | 'right' }) => void
+    onPositionChange?: (position: PositionWithSide) => void
 }
 
 export function HedgehogAvatar({
     onExpand,
-    waveInterval = 5000,
+    waveInterval = DEFAULT_WAVE_INTERVAL,
     isExpanded,
     fixedDirection,
     onPositionChange,
@@ -29,9 +33,10 @@ export function HedgehogAvatar({
     const { setFloatingMaxDragState } = useActions(maxGlobalLogic)
 
     // Use the drag and snap hook
-    const { isDragging, isAnimating, hasDragged, containerStyle, handleMouseDown, avatarButtonRef } = useDragAndSnap({
+    const { isDragging, isAnimating, hasDragged, containerStyle, handleMouseDown, dragElementRef } = useDragAndSnap({
         onPositionChange,
         disabled: false,
+        currentSide: fixedDirection,
     })
 
     // Notify parent of drag state changes
@@ -61,6 +66,7 @@ export function HedgehogAvatar({
             ref={avatarRef}
             className={isDragging || isAnimating ? '' : 'relative flex items-center justify-end'}
             style={containerStyle}
+            id="floating-max"
         >
             <Tooltip
                 title={
@@ -73,7 +79,7 @@ export function HedgehogAvatar({
                 delayMs={0}
             >
                 <div
-                    ref={avatarButtonRef}
+                    ref={dragElementRef}
                     // border color should be the same as textarea :focus border
                     className={`size-10 rounded-full overflow-hidden border border-[var(--border-bold)] transition-all duration-100 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 flex items-center justify-center bg-bg-light m-0.5 ${
                         isDragging ? 'cursor-grabbing' : 'cursor-grab'

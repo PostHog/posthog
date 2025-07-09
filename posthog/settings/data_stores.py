@@ -1,6 +1,7 @@
 import json
 import os
 from contextlib import suppress
+from typing import Optional
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -21,6 +22,7 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 
 # Configuration for sqlcommenter
 SQLCOMMENTER_WITH_FRAMEWORK: bool = False
+
 
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
@@ -132,7 +134,6 @@ if os.getenv("PERSONS_DB_WRITER_URL"):
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
-
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
 # Immediately reading after writing may not return consistent data if done in <100ms
@@ -201,7 +202,6 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
-
 CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
 CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
@@ -222,6 +222,12 @@ try:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
+
+# Set of teams querying the data before we switched to new limits
+API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
+with suppress(Exception):
+    as_json = json.loads(get_from_env("API_QUERIES_LEGACY_TEAM_LIST"))
+    API_QUERIES_LEGACY_TEAM_LIST = {int(v) for v in as_json}
 
 # Per-team API /query concurrent limits, e.g. {"2": 7}
 API_QUERIES_PER_TEAM: dict[int, int] = {}
