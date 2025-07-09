@@ -50,6 +50,7 @@ const Template: StoryFn<StoryProps> = ({ sectionId }) => {
     useEffect(() => {
         router.actions.push(urls.settings(sectionId))
     }, [sectionId])
+
     return <App />
 }
 
