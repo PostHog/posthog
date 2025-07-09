@@ -107,11 +107,11 @@ def create_session_batch_query(
     after: Optional[str] = None,
     before: Optional[str] = None,
     max_total_events: Optional[int] = None,
+    offset: Optional[int] = None,
     include_session_id: bool = True,
     **kwargs: Any,
 ) -> SessionBatchEventsQuery:
     """Create query for getting events for multiple sessions"""
-    # TODO: Do we need offset, if there's limit?
 
     # Default field selection for session summaries
     if select is None:
@@ -143,6 +143,7 @@ def create_session_batch_query(
         "where": where_clauses,
         "orderBy": ["properties.$session_id", "timestamp ASC"],  # Group by session, then chronological
         "limit": max_total_events,
+        "offset": offset,
         "group_by_session": True,
         "after": after,
         "before": before,
