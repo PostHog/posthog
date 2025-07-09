@@ -10,13 +10,7 @@ import {
     ExperimentStatsBase,
 } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
-import {
-    VIEW_BOX_WIDTH,
-    SVG_EDGE_MARGIN,
-    CHART_CELL_VIEW_BOX_HEIGHT,
-    GRID_LINES_OPACITY,
-    CELL_HEIGHT,
-} from './constants'
+import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, CHART_CELL_VIEW_BOX_HEIGHT, GRID_LINES_OPACITY } from './constants'
 import { useChartColors } from '../shared/colors'
 import { useAxisScale } from './useAxisScale'
 import { GridLines } from './GridLines'
@@ -74,11 +68,10 @@ export function VariantRow({
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
-                    className={`w-1/5 border-r border-border-bold p-2 align-top text-left relative ${
+                    className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalVariantRows}
-                    style={{ minHeight: `${CELL_HEIGHT}px` }}
                 >
                     <MetricHeader
                         metricIndex={metricIndex}
@@ -93,7 +86,7 @@ export function VariantRow({
 
             {/* Variant column - show variant key or "Baseline" */}
             <td
-                className={`w-20 p-2 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                     isLastRow ? 'border-b border-border-bold' : ''
                 }`}
             >
@@ -108,7 +101,7 @@ export function VariantRow({
 
             {/* Value column - show conversion rate and raw counts */}
             <td
-                className={`w-24 p-2 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                className={`w-24 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                     isLastRow ? 'border-b border-border-bold' : ''
                 }`}
             >
@@ -135,7 +128,7 @@ export function VariantRow({
 
             {/* Change column - show percentage change (empty for baseline) */}
             <td
-                className={`w-20 p-2 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
                     isLastRow ? 'border-b border-border-bold' : ''
                 }`}
             >
@@ -186,12 +179,11 @@ export function VariantRow({
                     } ${isLastRow ? 'border-b border-border-bold' : ''}`}
                 >
                     {chartRadius && chartRadius > 0 ? (
-                        <div className="relative">
+                        <div className="relative h-full">
                             <svg
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                                 preserveAspectRatio="none"
-                                className="w-full max-w-[1000px]"
-                                style={{ height: `${CELL_HEIGHT}px` }}
+                                className="w-full max-w-[1000px] h-full"
                             >
                                 <GridLines
                                     tickValues={getNiceTickValues(chartRadius)}
