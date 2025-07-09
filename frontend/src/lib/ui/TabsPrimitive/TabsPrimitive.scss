@@ -7,6 +7,10 @@
     color: var(--accent);
 }
 
+.tabs-trigger:disabled {
+    color: var(--text-quaternary);
+}
+
 .tabs-trigger[data-state='active'] {
     border-bottom: 2px solid var(--accent);
 }
