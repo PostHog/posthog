@@ -150,10 +150,7 @@ class _SharedAssistantState(BaseModel):
     """
     Tracks the number of times the query generation has been retried.
     """
-    query_planner_previous_response_id: Optional[str] = Field(default=None)
-    """
-    The ID of the previous OpenAI Responses API response made by the query planner.
-    """
+
     generated_filter_options: Optional[dict] = Field(default=None)
     """
     The filter options to apply to the product.
