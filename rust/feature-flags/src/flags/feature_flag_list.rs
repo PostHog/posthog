@@ -5,7 +5,7 @@ use crate::api::errors::FlagError;
 use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagList, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX,
 };
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
 
 impl FeatureFlagList {
@@ -50,7 +50,7 @@ impl FeatureFlagList {
 
     /// Returns feature flags from postgres given a project_id
     pub async fn from_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresReader,
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
         let mut conn = client.get_connection().await.map_err(|e| {

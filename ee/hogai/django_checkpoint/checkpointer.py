@@ -1,4 +1,3 @@
-import asyncio
 import json
 import random
 from collections.abc import AsyncIterator, Sequence
@@ -21,16 +20,11 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.serde.types import TASKS, ChannelProtocol
 
 from ee.models.assistant import ConversationCheckpoint, ConversationCheckpointBlob, ConversationCheckpointWrite
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
-    _lock: asyncio.Lock
-
-    def __init__(self, *args):
-        super().__init__(*args)
-        self._lock = asyncio.Lock()
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
@@ -62,7 +56,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         filter: Optional[dict[str, Any]],
         before: Optional[RunnableConfig],
     ):
-        query = Q()
+        query = Q(checkpoint__isnull=False)
 
         # construct predicate for config filter
         if config and "configurable" in config:
@@ -214,10 +208,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         metadata: CheckpointMetadata,
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
-        async with self._lock:
-            return await self._put(config, checkpoint, metadata, new_versions)
+        return await self._put(config, checkpoint, metadata, new_versions)
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=True)
     def _put(
         self,
         config: RunnableConfig,
@@ -293,10 +286,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         task_id: str,
         task_path: str = "",
     ) -> None:
-        async with self._lock:
-            return await self._put_writes(config, writes, task_id, task_path)
+        return await self._put_writes(config, writes, task_id, task_path)
 
-    @database_sync_to_async
+    @database_sync_to_async(thread_sensitive=True)
     def _put_writes(
         self,
         config: RunnableConfig,

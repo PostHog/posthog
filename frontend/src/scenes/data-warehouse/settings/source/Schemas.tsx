@@ -29,7 +29,6 @@ import {
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSourceSchema,
-    ExternalDataSourceType,
     ProductKey,
 } from '~/types'
 
@@ -37,6 +36,7 @@ import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 interface SchemasProps {
     id: string
