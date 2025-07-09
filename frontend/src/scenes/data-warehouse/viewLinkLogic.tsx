@@ -10,6 +10,7 @@ import { DataWarehouseViewLink } from '~/types'
 import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
 import type { viewLinkLogicType } from './viewLinkLogicType'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
@@ -21,6 +22,19 @@ const NEW_VIEW_LINK: DataWarehouseViewLink = {
 export interface KeySelectOption {
     value: string
     label: JSX.Element
+    disabledReason?: string
+}
+
+const disabledReasonForColumn = (column: DatabaseSchemaField): string | undefined => {
+    if (column.type === 'lazy_table') {
+        return "Lazy tables can't be joined directly, use SQL expression to join with lazy table fields"
+    }
+
+    if (column.type === 'json') {
+        return "JSON columns can't be joined directly, use SQL expression to join with JSON fields"
+    }
+
+    return undefined
 }
 
 export const viewLinkLogic = kea<viewLinkLogicType>([
@@ -260,6 +274,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     .map((column) => ({
                         value: column.name,
                         label: <ViewLinkKeyLabel column={column} />,
+                        disabledReason: disabledReasonForColumn(column),
                     }))
             },
         ],
@@ -274,6 +289,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     .map((column) => ({
                         value: column.name,
                         label: <ViewLinkKeyLabel column={column} />,
+                        disabledReason: disabledReasonForColumn(column),
                     }))
             },
         ],
