@@ -46,6 +46,12 @@ class SessionSummaryPrompt:
 
 
 @dataclass(frozen=True)
+class PatternsPrompt:
+    patterns_prompt: str
+    system_prompt: str
+
+
+@dataclass(frozen=True)
 class SingleSessionSummaryData:
     session_id: str
     user_id: int
@@ -165,10 +171,10 @@ def generate_single_session_summary_prompt(
             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
         },
     )
-    summary_example = load_custom_template(template_dir, f"example.yml")
+    summary_example = load_custom_template(template_dir, "example.yml")
     summary_prompt = load_custom_template(
         template_dir,
-        f"prompt.djt",
+        "prompt.djt",
         {
             "EVENTS_DATA": json.dumps(prompt_data.results),
             "SESSION_METADATA": json.dumps(prompt_data.metadata.to_dict()),

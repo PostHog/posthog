@@ -1,7 +1,7 @@
 import './LemonTextArea.scss'
 
 import clsx from 'clsx'
-import React, { ReactElement, useEffect, useRef, useState } from 'react'
+import React, { ReactElement, useRef, useState, useEffect } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 import { cn } from 'lib/utils/css-classes'
 
@@ -61,7 +61,6 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     const textRef = ref || _ref
 
     const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
-
     useEffect(() => {
         setTextLength(textProps.value?.length || 0)
     }, [textProps.value])
@@ -106,7 +105,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     <div
                         className={cn(
                             'flex flex-row justify-end text-sm',
-                            textLength >= textProps.maxLength && 'text-danger'
+                            textLength >= textProps.maxLength && 'text-error'
                         )}
                     >
                         {textLength} / {textProps.maxLength}
