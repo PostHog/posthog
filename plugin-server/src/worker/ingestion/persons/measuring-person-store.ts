@@ -100,8 +100,8 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         }
     }
 
-    flush(): Promise<void> {
-        return Promise.resolve()
+    flush(): Promise<TopicMessage[]> {
+        return Promise.resolve([])
     }
 
     reportBatch(): void {
@@ -260,8 +260,9 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
 
         const update: Partial<InternalPerson> = { ...otherUpdates }
-        if (applyEventPropertyUpdates(mainStorePropertyUpdates, person.properties)) {
-            update.properties = person.properties
+        const [updatedPerson, wasUpdated] = applyEventPropertyUpdates(mainStorePropertyUpdates, person)
+        if (wasUpdated) {
+            update.properties = updatedPerson.properties
         }
 
         return await this.updatePersonForUpdate(person, update, distinctId, tx)

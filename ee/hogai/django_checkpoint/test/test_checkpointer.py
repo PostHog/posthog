@@ -1,5 +1,6 @@
 # type: ignore
 
+import asyncio
 import operator
 from typing import Annotated, Any, Optional, TypedDict
 from uuid import uuid4
@@ -487,3 +488,131 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
             call_list()
 
             self.assertEqual(len(context.captured_queries), 7)
+
+    async def test_thread_put_and_put_writes_race_condition(self):
+        """Test race condition with threads calling put and put_writes for same checkpoint."""
+
+        thread = await Conversation.objects.acreate(user=self.user, team=self.team)
+        saver = DjangoCheckpointer()
+
+        # Use a specific checkpoint ID that both operations will target
+        checkpoint_id = str(uuid6(clock_seq=-2))
+
+        # Track exceptions and completion
+        exceptions = []
+        completed = []
+
+        async def put():
+            config = {
+                "configurable": {
+                    "thread_id": str(thread.id),
+                    "checkpoint_ns": "",
+                }
+            }
+            checkpoint = {
+                "v": 1,
+                "ts": "2024-07-31T20:14:19.804150+00:00",
+                "id": checkpoint_id,
+                "channel_values": {
+                    "post": "hog",
+                    "node": "node",
+                },
+                "channel_versions": {
+                    "__start__": 2,
+                    "my_key": 3,
+                    "start:node": 3,
+                    "node": 3,
+                },
+                "versions_seen": {
+                    "__input__": {},
+                    "__start__": {"__start__": 1},
+                    "node": {"start:node": 2},
+                },
+                "pending_sends": [],
+            }
+            metadata = {"source": "thread_put"}
+            await saver.aput(config, checkpoint, metadata, {})
+
+        async def put_writes():
+            config = {
+                "configurable": {
+                    "thread_id": str(thread.id),
+                    "checkpoint_ns": "",
+                    "checkpoint_id": checkpoint_id,
+                }
+            }
+            writes = [
+                ("thread_channel1", "thread_value_1"),
+                ("thread_channel2", "thread_value_2"),
+            ]
+            await saver.aput_writes(config, writes, str(uuid4()))
+
+        async def get_list():
+            return [record async for record in saver.alist({"configurable": {"thread_id": str(thread.id)}})]
+
+        async def delayed_get_list():
+            await asyncio.sleep(0.001)
+            return [record async for record in saver.alist({"configurable": {"thread_id": str(thread.id)}})]
+
+        # Run the test multiple times
+        for attempt in range(10):
+            # Clear state
+            await ConversationCheckpoint.objects.filter(thread=thread).adelete()
+            exceptions.clear()
+            completed.clear()
+
+            # Create and start threads
+            await asyncio.gather(put(), put_writes(), get_list(), delayed_get_list())
+
+            # Verify checkpoint exists
+            checkpoint = await ConversationCheckpoint.objects.filter(thread=thread, id=checkpoint_id).afirst()
+            self.assertIsNotNone(checkpoint, f"Checkpoint not found on attempt {attempt + 1}")
+
+            # Verify writes exist
+            writes_count = await ConversationCheckpointWrite.objects.filter(checkpoint=checkpoint).acount()
+            self.assertEqual(writes_count, 2, f"Expected 2 writes, got {writes_count} on attempt {attempt + 1}")
+
+    async def test_null_checkpoint_not_retrieved(self):
+        """Test that checkpoints with null checkpoint field cannot be retrieved."""
+        thread = await Conversation.objects.acreate(user=self.user, team=self.team)
+        saver = DjangoCheckpointer()
+
+        # Create a checkpoint with valid data first
+        valid_checkpoint = {
+            "v": 1,
+            "ts": "2024-07-31T20:14:19.804150+00:00",
+            "id": str(uuid6(clock_seq=-2)),
+            "channel_values": {},
+            "channel_versions": {},
+            "versions_seen": {},
+            "pending_sends": [],
+        }
+        valid_metadata = {"source": "valid"}
+        config = {"configurable": {"thread_id": str(thread.id), "checkpoint_ns": ""}}
+        await saver.aput(config, valid_checkpoint, valid_metadata, {})
+
+        # Create a checkpoint directly in DB with null checkpoint field
+        null_checkpoint = await ConversationCheckpoint.objects.acreate(
+            id=str(uuid6(clock_seq=-3)),
+            thread=thread,
+            checkpoint_ns="",
+            checkpoint=None,  # This should make it non-retrievable
+            metadata={"source": "null_checkpoint"},
+        )
+
+        # Verify the null checkpoint exists in the database
+        self.assertEqual(await ConversationCheckpoint.objects.filter(thread=thread).acount(), 2)
+
+        # Try to retrieve checkpoints using the saver
+        retrieved_checkpoints = [result async for result in saver.alist(config)]
+
+        # Should only get the valid checkpoint, not the null one
+        self.assertEqual(len(retrieved_checkpoints), 1)
+        self.assertEqual(retrieved_checkpoints[0].metadata["source"], "valid")
+
+        # Try to get the specific null checkpoint directly
+        null_config = {
+            "configurable": {"thread_id": str(thread.id), "checkpoint_ns": "", "checkpoint_id": str(null_checkpoint.id)}
+        }
+        retrieved_null = await saver.aget_tuple(null_config)
+        self.assertIsNone(retrieved_null)

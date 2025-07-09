@@ -256,6 +256,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
+    const { editingView } = useValues(multitabEditorLogic)
 
     const {
         sourceQuery,
@@ -432,7 +433,14 @@ export function OutputPane(): JSX.Element {
                             ? [
                                   {
                                       key: OutputTab.Variables,
-                                      label: 'Variables',
+                                      label: (
+                                          <Tooltip
+                                              title={editingView ? 'Variables are not allowed in views.' : undefined}
+                                          >
+                                              Variables
+                                          </Tooltip>
+                                      ),
+                                      disabled: editingView,
                                       icon: <IconBrackets />,
                                   },
                                   {
@@ -450,9 +458,10 @@ export function OutputPane(): JSX.Element {
                                 {
                                     'font-semibold !border-brand-yellow': tab.key === activeTab,
                                     'border-transparent': tab.key !== activeTab,
+                                    'opacity-50 cursor-not-allowed': tab.disabled,
                                 }
                             )}
-                            onClick={() => setActiveTab(tab.key)}
+                            onClick={() => !tab.disabled && setActiveTab(tab.key)}
                         >
                             <span className="mr-1">{tab.icon}</span>
                             {tab.label}
@@ -713,6 +722,7 @@ const Content = ({
     progress,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
+    const { editingView } = useValues(multitabEditorLogic)
 
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
@@ -751,6 +761,13 @@ const Content = ({
     }
 
     if (activeTab === OutputTab.Variables) {
+        if (editingView) {
+            return (
+                <TabScroller>
+                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
+                </TabScroller>
+            )
+        }
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t max-w-1/2">

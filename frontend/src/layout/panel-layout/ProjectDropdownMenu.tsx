@@ -1,4 +1,4 @@
-import { IconCheck, IconChevronRight, IconFolderOpen, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -46,7 +46,6 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                     className="flex-1 min-w-0 max-w-fit"
                     size="sm"
                 >
-                    <IconFolderOpen className="text-tertiary" />
                     <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
                     <IconChevronRight
                         className={`

@@ -29,6 +29,7 @@ install-updater = true
 npm-scope = "@posthog"
 # Publish jobs to run in CI
 publish-jobs = ["npm"]
+unix-archive = ".tar.gz"
 
 [dist.github-custom-runners]
 # ubuntu-20.04 (the dist default) is now deprecated by github
