@@ -580,14 +580,15 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.error = error_message
     await database_sync_to_async(job.save)()
 
-    report_team_action(
-        team=job.team,
-        event="$materialized_view_failed",
-        properties={
-            "error_message": error_message,
-            "job_id": str(job.id),
-        },
-    )
+    if job.team is not None:
+        report_team_action(
+            team=job.team,
+            event="$materialized_view_failed",
+            properties={
+                "error_message": error_message,
+                "job_id": str(job.id),
+            },
+        )
 
 
 async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
