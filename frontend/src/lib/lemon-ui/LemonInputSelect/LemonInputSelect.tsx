@@ -223,11 +223,6 @@ export function LemonInputSelect<T = string>({
                 continue
             }
             ret.push(option)
-            if (ret.length >= 100) {
-                // :HACKY: This is a quick fix to make the select dropdown work for large values, as it was getting slow when
-                // we'd load more than ~10k entries. Ideally we'd make this a virtualized list.
-                break
-            }
         }
 
         return ret
