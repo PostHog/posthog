@@ -14,9 +14,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { IconChevronDown } from '@posthog/icons'
-import { ContextLoader, ContextTable } from '../../ContextDisplay'
-import { identifierToHuman } from 'lib/utils'
-import { concatValues } from 'lib/components/Errors/utils'
+import { ContextDisplay } from '../../ContextDisplay'
 
 export interface PropertiesTabProps extends TabsPrimitiveContentProps {}
 
@@ -24,42 +22,27 @@ export function PropertiesTab({ ...props }: PropertiesTabProps): JSX.Element {
     const { properties, exceptionAttributes, additionalProperties } = useValues(errorPropertiesLogic)
     const { loading, showJSONProperties, showAdditionalProperties } = useValues(exceptionCardLogic)
 
-    const additionalEntries = Object.entries(additionalProperties).map(
-        ([key, value]) => [identifierToHuman(key, 'title'), value] as [string, unknown]
-    )
-    const exceptionEntries: [string, unknown][] = exceptionAttributes
-        ? [
-              ['Level', exceptionAttributes.level],
-              ['Synthetic', exceptionAttributes.synthetic],
-              ['Library', concatValues(exceptionAttributes, 'lib', 'libVersion')],
-              ['Handled', exceptionAttributes.handled],
-              ['Browser', concatValues(exceptionAttributes, 'browser', 'browserVersion')],
-              ['OS', concatValues(exceptionAttributes, 'os', 'osVersion')],
-              ['URL', exceptionAttributes.url],
-          ]
-        : []
-
     return (
         <TabsPrimitiveContent {...props}>
             <div className="flex justify-end items-center border-b-1 bg-surface-secondary">
-                <ShowDropDownMenu hasAdditionalEntries={additionalEntries.length > 0} />
+                <ShowDropDownMenu />
             </div>
             <div>
                 {showJSONProperties ? (
                     <JSONViewer src={properties} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 ) : (
-                    <ContextLoader loading={loading}>
-                        <ContextTable
-                            entries={[...exceptionEntries, ...(showAdditionalProperties ? additionalEntries : [])]}
-                        />
-                    </ContextLoader>
+                    <ContextDisplay
+                        loading={loading}
+                        exceptionAttributes={exceptionAttributes}
+                        additionalProperties={showAdditionalProperties ? additionalProperties : {}}
+                    />
                 )}
             </div>
         </TabsPrimitiveContent>
     )
 }
 
-function ShowDropDownMenu({ hasAdditionalEntries }: { hasAdditionalEntries: boolean }): JSX.Element {
+function ShowDropDownMenu(): JSX.Element {
     const { showJSONProperties, showAdditionalProperties } = useValues(exceptionCardLogic)
     const { setShowJSONProperties, setShowAdditionalProperties } = useActions(exceptionCardLogic)
 
@@ -71,18 +54,16 @@ function ShowDropDownMenu({ hasAdditionalEntries }: { hasAdditionalEntries: bool
                 </LemonButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-                {hasAdditionalEntries && (
-                    <DropdownMenuCheckboxItem
-                        checked={showAdditionalProperties}
-                        onCheckedChange={setShowAdditionalProperties}
-                        asChild
-                    >
-                        <ButtonPrimitive menuItem size="sm">
-                            <DropdownMenuItemIndicator intent="checkbox" />
-                            Additional properties
-                        </ButtonPrimitive>
-                    </DropdownMenuCheckboxItem>
-                )}
+                <DropdownMenuCheckboxItem
+                    checked={showAdditionalProperties}
+                    onCheckedChange={setShowAdditionalProperties}
+                    asChild
+                >
+                    <ButtonPrimitive menuItem size="sm">
+                        <DropdownMenuItemIndicator intent="checkbox" />
+                        Additional properties
+                    </ButtonPrimitive>
+                </DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem checked={showJSONProperties} onCheckedChange={setShowJSONProperties} asChild>
                     <ButtonPrimitive menuItem size="sm">
                         <DropdownMenuItemIndicator intent="checkbox" />

@@ -1,12 +1,37 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { ExceptionAttributes } from 'lib/components/Errors/types'
+import { concatValues } from 'lib/components/Errors/utils'
+import { identifierToHuman } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { PropsWithChildren } from 'react'
 import { match } from 'ts-pattern'
 
-export type ContextTableProps = { entries: [string, unknown][] }
+export type ContextDisplayProps = {
+    loading: boolean
+    exceptionAttributes: ExceptionAttributes | null
+    additionalProperties: Record<string, unknown>
+}
 
-export function ContextLoader({ loading, children }: PropsWithChildren<{ loading: boolean }>): JSX.Element {
+export function ContextDisplay({
+    loading,
+    exceptionAttributes,
+    additionalProperties,
+}: ContextDisplayProps): JSX.Element {
+    const additionalEntries = Object.entries(additionalProperties).map(
+        ([key, value]) => [identifierToHuman(key, 'title'), value] as [string, unknown]
+    )
+    const exceptionEntries: [string, unknown][] = exceptionAttributes
+        ? [
+              ['Level', exceptionAttributes.level],
+              ['Synthetic', exceptionAttributes.synthetic],
+              ['Library', concatValues(exceptionAttributes, 'lib', 'libVersion')],
+              ['Handled', exceptionAttributes.handled],
+              ['Browser', concatValues(exceptionAttributes, 'browser', 'browserVersion')],
+              ['OS', concatValues(exceptionAttributes, 'os', 'osVersion')],
+              ['URL', exceptionAttributes.url],
+          ]
+        : []
+
     return (
         <>
             {match(loading)
@@ -15,13 +40,15 @@ export function ContextLoader({ loading, children }: PropsWithChildren<{ loading
                         <Spinner />
                     </div>
                 ))
-                .with(false, () => children)
+                .with(false, () => <ContextTable entries={[...exceptionEntries, ...additionalEntries]} />)
                 .exhaustive()}
         </>
     )
 }
 
-export function ContextTable({ entries }: ContextTableProps): JSX.Element {
+type ContextTableProps = { entries: [string, unknown][] }
+
+function ContextTable({ entries }: ContextTableProps): JSX.Element {
     return (
         <LemonTable
             embedded
