@@ -179,30 +179,22 @@ export const buttonPrimitiveVariants = cva({
         {
             hasSideActionRight: true,
             size: 'sm',
-            className: `
-                pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]
-            `,
+            className: 'pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]',
         },
         {
             hasSideActionRight: true,
             size: 'base',
-            className: `
-                pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]
-            `,
+            className: 'pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]',
         },
         {
             hasSideActionRight: true,
             size: 'lg',
-            className: `
-                pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]
-            `,
+            className: 'pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]',
         },
         {
             hasSideActionRight: true,
             menuItem: true,
-            className: `
-                rounded-sm
-            `,
+            className: 'rounded-sm',
         },
     ],
 })
