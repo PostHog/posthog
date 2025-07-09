@@ -361,6 +361,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
+        setSelectedRecordings: (recordings: SessionRecordingType[]) => ({ recordings }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -582,6 +583,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
+            },
+        ],
+        selectedRecordings: [
+            [] as SessionRecordingType[],
+            {
+                setSelectedRecordings: (_, { recordings }) => recordings,
             },
         ],
     })),

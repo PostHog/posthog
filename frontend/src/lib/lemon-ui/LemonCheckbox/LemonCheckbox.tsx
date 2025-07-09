@@ -23,6 +23,8 @@ export interface LemonCheckboxProps {
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
     dataAttr?: string
+    /** Whether to stop propagation of events from the input */
+    stopPropagation?: boolean
 }
 
 export interface BoxCSSProperties extends React.CSSProperties {
@@ -51,6 +53,7 @@ export function LemonCheckbox({
     color,
     size,
     dataAttr,
+    stopPropagation,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'
     disabled = disabled || !!disabledReason
@@ -100,6 +103,9 @@ export function LemonCheckbox({
                     checked={localChecked}
                     defaultChecked={defaultChecked}
                     onChange={(e) => {
+                        if (stopPropagation) {
+                            e.stopPropagation()
+                        }
                         // NOTE: We only want to setLocalChecked if the component is not controlled externally
                         checked === undefined && setLocalChecked(e.target.checked)
                         onChange?.(e.target.checked, e)

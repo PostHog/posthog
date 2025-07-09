@@ -2,7 +2,7 @@ import './SessionRecordingPreview.scss'
 
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -22,6 +22,7 @@ import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
@@ -205,8 +206,9 @@ export function SessionRecordingPreview({
 }: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
+    const { filters, selectedRecordings } = useValues(sessionRecordingsPlaylistLogic)
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
+    const { setSelectedRecordings } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
@@ -224,7 +226,18 @@ export function SessionRecordingPreview({
                 )}
                 onClick={() => onClick?.()}
             >
-                <div className="grow overflow-hidden deprecated-space-y-1">
+                <LemonCheckbox
+                    checked={selectedRecordings.some((s) => s.id === recording.id)}
+                    onChange={() => {
+                        if (selectedRecordings.some((r) => r.id === recording.id)) {
+                            setSelectedRecordings(selectedRecordings.filter((r) => r.id !== recording.id))
+                        } else {
+                            setSelectedRecordings([...selectedRecordings, recording])
+                        }
+                    }}
+                    stopPropagation
+                />
+                <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
                     <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>

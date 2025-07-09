@@ -1,5 +1,4 @@
-import { IconEllipsis } from '@posthog/icons'
-import { IconSort } from '@posthog/icons'
+import { IconEllipsis, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 
@@ -102,6 +101,34 @@ export function SessionRecordingsPlaylistTopSettings({
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
 
+    const menuItems = [
+        {
+            label: 'Autoplay',
+            items: [
+                {
+                    label: 'Off',
+                    onClick: () => setAutoplayDirection(null),
+                    active: !autoplayDirection,
+                },
+                {
+                    label: 'Newer recordings',
+                    onClick: () => setAutoplayDirection('newer'),
+                    active: autoplayDirection === 'newer',
+                },
+                {
+                    label: 'Older recordings',
+                    onClick: () => setAutoplayDirection('older'),
+                    active: autoplayDirection === 'older',
+                },
+            ],
+        },
+
+        {
+            label: 'Add to collection',
+            items: [],
+        },
+    ]
+
     return (
         <SettingsBar border="none" className="justify-between">
             {filters && setFilters ? (
@@ -109,31 +136,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     Sort by: <SortedBy filters={filters} setFilters={setFilters} />
                 </span>
             ) : null}
-            <SettingsMenu
-                items={[
-                    {
-                        label: 'Autoplay',
-                        items: [
-                            {
-                                label: 'Off',
-                                onClick: () => setAutoplayDirection(null),
-                                active: !autoplayDirection,
-                            },
-                            {
-                                label: 'Newer recordings',
-                                onClick: () => setAutoplayDirection('newer'),
-                                active: autoplayDirection === 'newer',
-                            },
-                            {
-                                label: 'Older recordings',
-                                onClick: () => setAutoplayDirection('older'),
-                                active: autoplayDirection === 'older',
-                            },
-                        ],
-                    },
-                ]}
-                icon={<IconEllipsis className="rotate-90" />}
-            />
+            <SettingsMenu items={menuItems} icon={<IconEllipsis className="rotate-90" />} />
         </SettingsBar>
     )
 }
