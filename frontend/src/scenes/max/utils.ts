@@ -174,7 +174,7 @@ export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): M
     return {
         type: MaxContextType.INSIGHT,
         id: insight.short_id!,
-        name: insight.name,
+        name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
     }

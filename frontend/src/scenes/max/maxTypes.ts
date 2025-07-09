@@ -14,16 +14,16 @@ export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & 
 export interface MaxInsightContext {
     type: MaxContextType.INSIGHT
     id: InsightShortId
-    name?: string
-    description?: string
+    name?: string | null
+    description?: string | null
     query: QuerySchema // The actual query node, e.g., TrendsQuery, HogQLQuery
 }
 
 export interface MaxDashboardContext {
     type: MaxContextType.DASHBOARD
     id: number
-    name?: string
-    description?: string
+    name?: string | null
+    description?: string | null
     insights: MaxInsightContext[]
     filters: DashboardFilter
 }
@@ -31,15 +31,15 @@ export interface MaxDashboardContext {
 export interface MaxEventContext {
     type: MaxContextType.EVENT
     id: string
-    name?: string
-    description?: string
+    name?: string | null
+    description?: string | null
 }
 
 export interface MaxActionContext {
     type: MaxContextType.ACTION
     id: number
     name: string
-    description?: string
+    description?: string | null
 }
 
 // The main shape for the UI context sent to the backend
