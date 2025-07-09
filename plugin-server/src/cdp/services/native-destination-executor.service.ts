@@ -89,7 +89,13 @@ export class NativeDestinationExecutorService {
                 addLog('debug', 'config', config)
             }
 
-            await nativeDestination.perform(
+            const action = nativeDestination.actions[config.internal_associated_mapping]
+
+            if (!action) {
+                throw new Error(`Action ${config.internal_associated_mapping} not found`)
+            }
+
+            await action.perform(
                 async (endpoint, options) => {
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
