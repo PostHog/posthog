@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { SAMPLE_GLOBALS } from '~/cdp/_tests/fixtures'
 
 import { NATIVE_HOG_FUNCTIONS } from '../index'
-import { DestinationTester, generateTestData } from './native-test-helpers'
+import { DestinationTester, generateTestData } from './test-helpers'
 
 const template = NATIVE_HOG_FUNCTIONS[0]
 
