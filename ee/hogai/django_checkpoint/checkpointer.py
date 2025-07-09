@@ -5,7 +5,6 @@ import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Optional, cast
 
-from django.db import transaction
 from django.db.models import Prefetch, Q
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
@@ -237,11 +236,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         # Track async-to-sync call overhead
         sync_call_start = time.time()
         thread_lock = await self._get_thread_lock(thread_id)
-        try:
-            async with thread_lock:
-                result, result_str = await self._put(config, checkpoint, metadata, new_versions, sync_call_start)
-        finally:
-            await self._cleanup_thread_lock(thread_id)
+        result, result_str = await self._put(config, checkpoint, metadata, new_versions, sync_call_start)
         sync_call_duration = time.time() - sync_call_start
 
         total_duration = time.time() - start_time
@@ -292,42 +287,41 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         }
         transaction_start_time = time.time()
 
-        with transaction.atomic():
-            transaction_end_time_time = time.time() - transaction_start_time
-            # Track checkpoint update operation
-            checkpoint_update_start = time.time()
-            updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
-                id=checkpoint["id"],
-                thread_id=thread_id,
-                checkpoint_ns=checkpoint_ns,
-                defaults={
-                    "parent_checkpoint_id": checkpoint_id,
-                    "checkpoint": self._dump_json({**checkpoint_copy, "pending_sends": []}),
-                    "metadata": self._dump_json(metadata),
-                },
+        transaction_end_time_time = time.time() - transaction_start_time
+        # Track checkpoint update operation
+        checkpoint_update_start = time.time()
+        updated_checkpoint, _ = ConversationCheckpoint.objects.update_or_create(
+            id=checkpoint["id"],
+            thread_id=thread_id,
+            checkpoint_ns=checkpoint_ns,
+            defaults={
+                "parent_checkpoint_id": checkpoint_id,
+                "checkpoint": self._dump_json({**checkpoint_copy, "pending_sends": []}),
+                "metadata": self._dump_json(metadata),
+            },
+        )
+        checkpoint_update_duration = time.time() - checkpoint_update_start
+
+        # Track blob creation operation
+        blob_creation_start = time.time()
+        blobs = []
+        for channel, version in new_versions.items():
+            type, blob = (
+                self.serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
             )
-            checkpoint_update_duration = time.time() - checkpoint_update_start
-
-            # Track blob creation operation
-            blob_creation_start = time.time()
-            blobs = []
-            for channel, version in new_versions.items():
-                type, blob = (
-                    self.serde.dumps_typed(channel_values[channel]) if channel in channel_values else ("empty", None)
+            blobs.append(
+                ConversationCheckpointBlob(
+                    checkpoint=updated_checkpoint,
+                    thread_id=thread_id,
+                    channel=channel,
+                    version=str(version),
+                    type=type,
+                    blob=blob,
                 )
-                blobs.append(
-                    ConversationCheckpointBlob(
-                        checkpoint=updated_checkpoint,
-                        thread_id=thread_id,
-                        channel=channel,
-                        version=str(version),
-                        type=type,
-                        blob=blob,
-                    )
-                )
+            )
 
-            ConversationCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
-            blob_creation_duration = time.time() - blob_creation_start
+        ConversationCheckpointBlob.objects.bulk_create(blobs, ignore_conflicts=True)
+        blob_creation_duration = time.time() - blob_creation_start
 
         db_total_duration = time.time() - db_start_time
 
@@ -349,11 +343,7 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         # Track async-to-sync call overhead
         sync_call_start = time.time()
         thread_lock = await self._get_thread_lock(thread_id)
-        try:
-            async with thread_lock:
-                result = await self._put_writes(config, writes, task_id, task_path, sync_call_start)
-        finally:
-            await self._cleanup_thread_lock(thread_id)
+        result = await self._put_writes(config, writes, task_id, task_path, sync_call_start)
         sync_call_duration = time.time() - sync_call_start
 
         total_duration = time.time() - start_time
@@ -388,41 +378,40 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_ns: str | None = configurable.get("checkpoint_ns") or ""
 
         transaction_start_time = time.time()
-        with transaction.atomic():
-            transaction_end_time_time = time.time() - transaction_start_time
-            # Track checkpoint get_or_create operation
-            checkpoint_lookup_start = time.time()
-            checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
-                id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
-            )
-            checkpoint_lookup_duration = time.time() - checkpoint_lookup_start
+        transaction_end_time_time = time.time() - transaction_start_time
+        # Track checkpoint get_or_create operation
+        checkpoint_lookup_start = time.time()
+        checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
+            id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
+        )
+        checkpoint_lookup_duration = time.time() - checkpoint_lookup_start
 
-            # Track write preparation
-            write_prep_start = time.time()
-            writes_to_create = []
-            for idx, (channel, value) in enumerate(writes):
-                type, blob = self.serde.dumps_typed(value)
-                writes_to_create.append(
-                    ConversationCheckpointWrite(
-                        checkpoint=checkpoint,
-                        task_id=task_id,
-                        idx=idx,
-                        channel=channel,
-                        type=type,
-                        blob=blob,
-                    )
+        # Track write preparation
+        write_prep_start = time.time()
+        writes_to_create = []
+        for idx, (channel, value) in enumerate(writes):
+            type, blob = self.serde.dumps_typed(value)
+            writes_to_create.append(
+                ConversationCheckpointWrite(
+                    checkpoint=checkpoint,
+                    task_id=task_id,
+                    idx=idx,
+                    channel=channel,
+                    type=type,
+                    blob=blob,
                 )
-            write_prep_duration = time.time() - write_prep_start
-
-            # Track bulk create operation
-            bulk_create_start = time.time()
-            ConversationCheckpointWrite.objects.bulk_create(
-                writes_to_create,
-                update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
-                unique_fields=["checkpoint", "task_id", "idx"],
-                update_fields=["channel", "type", "blob"],
             )
-            bulk_create_duration = time.time() - bulk_create_start
+        write_prep_duration = time.time() - write_prep_start
+
+        # Track bulk create operation
+        bulk_create_start = time.time()
+        ConversationCheckpointWrite.objects.bulk_create(
+            writes_to_create,
+            update_conflicts=all(w[0] in WRITES_IDX_MAP for w in writes),
+            unique_fields=["checkpoint", "task_id", "idx"],
+            update_fields=["channel", "type", "blob"],
+        )
+        bulk_create_duration = time.time() - bulk_create_start
 
         db_total_duration = time.time() - db_start_time
         return f"thread_id={thread_id}, checkpoint_id={checkpoint_id}, task_id={task_id}, time_to_start_ms={round((db_start_time - start_time) * 1000, 2)}, db_total_ms={round(db_total_duration * 1000, 2)}, transaction_end_time_time={round(transaction_end_time_time * 1000, 2)}, checkpoint_lookup_ms={round(checkpoint_lookup_duration * 1000, 2)}, write_prep_ms={round(write_prep_duration * 1000, 2)}, bulk_create_ms={round(bulk_create_duration * 1000, 2)}"
