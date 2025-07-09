@@ -27,7 +27,6 @@ class RawInsightData(TypedDict, total=False):
     insight__description: str | None
     insight__derived_name: str | None
     insight__query: dict[str, Any] | None  # Full query data
-    insight__filters: dict[str, Any] | None  # Filter data
     insight__short_id: str | None  # Short ID for URLs
     keyword_score: float  # Added during processing
     semantic_score: float  # Added during processing
@@ -42,7 +41,6 @@ class InsightWithScores(TypedDict):
     insight__description: str | None
     insight__derived_name: str | None
     insight__query: dict[str, Any] | None
-    insight__filters: dict[str, Any] | None
     insight__short_id: str | None
     keyword_score: float
     semantic_score: float
@@ -57,7 +55,6 @@ class EnrichedInsight(TypedDict):
     derived_name: str | None
     description: str | None
     query: dict[str, Any]
-    filters: dict[str, Any]
     short_id: str
     relevance_score: float
 
@@ -222,11 +219,15 @@ class InsightSearchNode(AssistantNode):
         initial_fetch_size = 300 if root_to_search_insights else 3
 
         insights_qs = (
-            # InsightViewed.objects.filter(team=self._team)
             InsightViewed.objects.filter(team__project_id=self._team.project_id)
             .select_related(
-                "insight__name", "insight__description", "insight__derived_name", "insight__team"
-            )  # Optimize all joins
+                "insight__name",
+                "insight__description",
+                "insight__derived_name",
+                "insight__team",
+                "insight__short_id",
+                "insight__query",
+            )
             .order_by("insight_id", "-last_viewed_at")
             .distinct("insight_id")
         )
@@ -239,7 +240,6 @@ class InsightSearchNode(AssistantNode):
                 "insight__description",
                 "insight__derived_name",
                 "insight__query",  # Full query data
-                "insight__filters",  # Filter data
                 "insight__short_id",  # Short ID for URLs
             )
         )
@@ -270,7 +270,6 @@ class InsightSearchNode(AssistantNode):
                 "insight__description": result["insight__description"],
                 "insight__derived_name": result["insight__derived_name"],
                 "insight__query": result["insight__query"],
-                "insight__filters": result["insight__filters"],
                 "insight__short_id": result["insight__short_id"],
                 "keyword_score": 0.0,
                 "semantic_score": 0.0,
@@ -299,7 +298,6 @@ class InsightSearchNode(AssistantNode):
                     "insight__description": insight["insight__description"],
                     "insight__derived_name": insight["insight__derived_name"],
                     "insight__query": insight["insight__query"],
-                    "insight__filters": insight["insight__filters"],
                     "insight__short_id": insight["insight__short_id"],
                     "keyword_score": 0.0,
                     "semantic_score": 0.0,
@@ -351,7 +349,6 @@ class InsightSearchNode(AssistantNode):
                     "derived_name": insight["insight__derived_name"],
                     "description": insight["insight__description"],
                     "query": insight["insight__query"] or {},
-                    "filters": insight["insight__filters"] or {},
                     "short_id": insight["insight__short_id"] or "",
                     "relevance_score": insight["relevance_score"],
                 }
@@ -424,7 +421,6 @@ class InsightSearchNode(AssistantNode):
                                 "insight__description": insight["insight__description"],
                                 "insight__derived_name": insight.get("insight__derived_name"),
                                 "insight__query": insight.get("insight__query"),
-                                "insight__filters": insight.get("insight__filters"),
                                 "insight__short_id": insight.get("insight__short_id"),
                                 "keyword_score": keyword_score,
                                 "semantic_score": keyword_score,
@@ -441,7 +437,6 @@ class InsightSearchNode(AssistantNode):
                             "insight__description": limited_insights[0]["insight__description"],
                             "insight__derived_name": limited_insights[0].get("insight__derived_name"),
                             "insight__query": limited_insights[0].get("insight__query"),
-                            "insight__filters": limited_insights[0].get("insight__filters"),
                             "insight__short_id": limited_insights[0].get("insight__short_id"),
                             "keyword_score": 0.3,
                             "semantic_score": 0.3,
@@ -473,7 +468,6 @@ class InsightSearchNode(AssistantNode):
                             "insight__description": insight["insight__description"],
                             "insight__derived_name": insight.get("insight__derived_name"),
                             "insight__query": insight.get("insight__query"),
-                            "insight__filters": insight.get("insight__filters"),
                             "insight__short_id": insight.get("insight__short_id"),
                             "keyword_score": keyword_score,
                             "semantic_score": score,
@@ -503,9 +497,8 @@ class InsightSearchNode(AssistantNode):
             name = insight.get("name") or insight.get("derived_name", "Unnamed")
             description = insight.get("description")
             query_data = insight.get("query", {})
-            filters_data = insight.get("filters", {})
 
-            query_summary = self._summarize_query_data(query_data, filters_data)
+            query_summary = self._summarize_query_data(query_data)
 
             if description:
                 insights_text += f"""
@@ -555,17 +548,14 @@ Most relevant insight number:"""
             # Fallback to highest relevance score
             return max(insights, key=lambda x: x.get("relevance_score", 0))
 
-    def _summarize_query_data(self, query_data: dict[str, Any], filters_data: dict[str, Any]) -> str:
-        """Summarize query/filters data for LLM readability."""
+    def _summarize_query_data(self, query_data: dict[str, Any]) -> str:
+        """Summarize query data for LLM readability."""
         if query_data:
             query_kind = query_data.get("kind", "Unknown")
             if "source" in query_data:
                 source_kind = query_data["source"].get("kind", "Unknown")
                 return f"{source_kind} analysis ({query_kind})"
             return f"{query_kind} analysis"
-        elif filters_data:
-            insight_type = filters_data.get("insight", "Unknown")
-            return f"{insight_type} analysis (legacy format)"
         else:
             return "No query data available"
 
@@ -596,7 +586,7 @@ Description: {description}
 [View Insight →]({insight_url})"""
 
             if query_data := insight.get("query", {}):
-                query_summary = self._summarize_query_data(query_data, insight.get("filters", {}))
+                query_summary = self._summarize_query_data(query_data)
                 result_block += f"\nType: {query_summary}"
 
             formatted_results.append(result_block)
