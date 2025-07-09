@@ -42,6 +42,6 @@ export function getConstrainedWeekRange(
 
     return {
         start: weekStart,
-        end: weekEnd.isBefore(weekStart) ? weekStart : weekEnd, // Ensure dateTo is not before dateFrom
+        end: weekEnd,
     }
 }
