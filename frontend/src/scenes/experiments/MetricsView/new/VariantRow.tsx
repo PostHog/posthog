@@ -139,6 +139,17 @@ export function VariantRow({
                         const changeResult = formatPercentageChange(testVariantResult)
                         return (
                             <div className="flex items-center gap-1 text-sm">
+                                <span
+                                    className={`${
+                                        changeResult.isSignificant
+                                            ? changeResult.isPositive
+                                                ? 'text-success font-semibold'
+                                                : 'text-danger font-semibold'
+                                            : 'text-text-primary'
+                                    }`}
+                                >
+                                    {changeResult.text}
+                                </span>
                                 {changeResult.isSignificant && changeResult.isPositive !== null && (
                                     <span
                                         className={`flex-shrink-0 ${
@@ -152,17 +163,6 @@ export function VariantRow({
                                         )}
                                     </span>
                                 )}
-                                <span
-                                    className={`${
-                                        changeResult.isSignificant
-                                            ? changeResult.isPositive
-                                                ? 'text-success font-semibold'
-                                                : 'text-danger font-semibold'
-                                            : 'text-text-primary'
-                                    }`}
-                                >
-                                    {changeResult.text}
-                                </span>
                             </div>
                         )
                     })()
