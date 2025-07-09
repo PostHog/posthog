@@ -111,16 +111,17 @@ class TestInsightSearchNode(BaseTest):
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_semantic_filter_insights(self, mock_openai):
         """Test semantic filtering with mocked LLM."""
-        # Mock LLM response in expected batch format
-        mock_response = MagicMock()
-        mock_response.content = "1: high"
-        mock_openai.return_value.invoke.return_value = mock_response
+        # Mock structured output response
+        mock_structured_model = MagicMock()
+        mock_structured_model.invoke.return_value = {"high": ["Daily Pageviews"], "medium": [], "low": [], "none": []}
+        mock_openai.return_value.with_structured_output.return_value = mock_structured_model
 
         insights = [
             {
                 "insight_id": self.insight1.id,
                 "insight__name": "Daily Pageviews",
                 "insight__description": "Track daily website traffic",
+                "insight__derived_name": None,
             }
         ]
 
@@ -128,7 +129,7 @@ class TestInsightSearchNode(BaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["relevance_score"], 1.0)  # high rating
-        mock_openai.return_value.invoke.assert_called_once()
+        mock_structured_model.invoke.assert_called_once()
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_semantic_filter_insights_low_relevance(self, mock_openai):
@@ -143,6 +144,7 @@ class TestInsightSearchNode(BaseTest):
                 "insight_id": self.insight1.id,
                 "insight__name": "Daily Pageviews",
                 "insight__description": "Track daily website traffic",
+                "insight__derived_name": None,
             }
         ]
 

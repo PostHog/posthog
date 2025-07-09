@@ -20,6 +20,23 @@ Ratings:
 
 Your response:""")
 
+STRUCTURED_SEMANTIC_FILTER_PROMPT = """
+Categorize these insights by relevance to the search query: {query}
+
+Insights:
+{insights_list}
+
+Rating criteria:
+- high: Exact match or directly relevant
+- medium: Partial match or related
+- low: Generic connection
+- none: No meaningful connection
+
+Note: ⭐ EXACT MATCH insights should generally be 'high' unless unrelated.
+
+Group insight names by relevance level.
+"""
+
 IMPROVED_SEMANTIC_FILTER_PROMPT = PromptTemplate.from_template("""
 Rate the relevance of each insight to the search query. Pay special attention to exact keyword matches in insight names (marked with ⭐ EXACT MATCH).
 

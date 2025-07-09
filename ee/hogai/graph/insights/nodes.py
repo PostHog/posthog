@@ -14,7 +14,7 @@ from posthog.schema import (
     AssistantMessage,
 )
 from ee.hogai.graph.base import AssistantNode
-from .prompts import IMPROVED_SEMANTIC_FILTER_PROMPT
+from .prompts import STRUCTURED_SEMANTIC_FILTER_PROMPT
 
 from posthog.models import InsightViewed, Insight
 
@@ -63,6 +63,15 @@ class CacheStats(TypedDict):
     misses: int
 
 
+class SemanticRatings(TypedDict):
+    """Structured output from LLM semantic rating."""
+
+    high: list[str]
+    medium: list[str]
+    low: list[str]
+    none: list[str]
+
+
 class InsightSearchNode(AssistantNode):
     logger = structlog.get_logger(__name__)
 
@@ -77,12 +86,14 @@ class InsightSearchNode(AssistantNode):
 
     def _get_cache_key(self, query: str, insight_names: list[str]) -> str:
         """Generate cache key for semantic filtering results."""
-        # Filter out None values and convert to strings to avoid sorting errors
+        # Use query + insight count + hash of names for better cache hit rates
+        # This allows cache hits when insight sets have similar composition
         cleaned_names = [name for name in insight_names if name is not None]
-        content = f"{query}::{','.join(sorted(cleaned_names))}"
+        names_hash = hashlib.md5(",".join(sorted(cleaned_names)).encode()).hexdigest()[:8]
+        content = f"{query}::{len(cleaned_names)}::{names_hash}"
         return hashlib.md5(content.encode()).hexdigest()
 
-    def _get_cached_semantic_result(self, cache_key: str) -> tuple[dict[int, str] | None, bool]:
+    def _get_cached_semantic_result(self, cache_key: str) -> tuple[SemanticRatings | None, bool]:
         """
         Retrieve cached LLM semantic filtering results to avoid redundant API calls.
 
@@ -110,7 +121,7 @@ class InsightSearchNode(AssistantNode):
                 del self._semantic_cache[cache_key]
         return None, False
 
-    def _cache_semantic_result(self, cache_key: str, result: dict[int, str]) -> None:
+    def _cache_semantic_result(self, cache_key: str, result: SemanticRatings) -> None:
         """Cache semantic filtering result with timestamp."""
         # Simple cache management - keep last 100 entries
         if len(self._semantic_cache) > 100:
@@ -202,7 +213,7 @@ class InsightSearchNode(AssistantNode):
         """Optimized insight search with improved data pipeline and cache tracking."""
 
         # Step 1: Get basic insight data with optimized query size
-        initial_fetch_size = 1500 if root_to_search_insights else 3
+        initial_fetch_size = 300 if root_to_search_insights else 3
 
         insights_qs = (
             InsightViewed.objects.filter(team=self._team)
@@ -234,9 +245,8 @@ class InsightSearchNode(AssistantNode):
                 enriched_results = self._get_full_queries_for_insights(filtered_results)
 
                 if enriched_results:
-                    # Step 4: Final LLM selection of most relevant insight
-                    best_insight = self._select_best_insight(enriched_results, root_to_search_insights)
-                    results = [best_insight] if best_insight else enriched_results[:1]
+                    # Step 4: Return highest scoring insight (already sorted by relevance)
+                    results = enriched_results[:1]
                     cache_stats: CacheStats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
                     return results, cache_stats
 
@@ -267,16 +277,25 @@ class InsightSearchNode(AssistantNode):
     def _semantic_filter_insights(self, insights: list[RawInsightData], query: str | None) -> list[InsightWithScores]:
         """Filter insights by semantic relevance using hybrid keyword + LLM classification."""
         if not query or not insights:
-            return insights
+            # Convert to InsightWithScores with default scores
+            return [
+                {
+                    "insight_id": insight["insight_id"],
+                    "insight__name": insight["insight__name"],
+                    "insight__description": insight["insight__description"],
+                    "insight__derived_name": insight["insight__derived_name"],
+                    "keyword_score": 0.0,
+                    "semantic_score": 0.0,
+                    "relevance_score": 0.5,
+                }
+                for insight in insights
+            ]
 
         # Step 1: Apply keyword matching for exact matches
         insights_with_keyword_scores = self._apply_keyword_matching(insights, query)
 
-        # Step 2: Apply semantic filtering for nuanced matching
-        insights_with_semantic_scores = self._apply_semantic_filtering(insights_with_keyword_scores, query)
-
-        # Step 3: Combine scores and filter
-        return self._combine_and_filter_scores(insights_with_semantic_scores)
+        # Step 2: Apply semantic filtering with structured output (returns filtered results)
+        return self._apply_semantic_filtering(insights_with_keyword_scores, query)
 
     def _apply_keyword_matching(self, insights: list[RawInsightData], query: str) -> list[InsightWithScores]:
         """Apply keyword matching to boost insights with exact matches in names."""
@@ -304,136 +323,120 @@ class InsightSearchNode(AssistantNode):
         return insights
 
     def _apply_semantic_filtering(self, insights: list[RawInsightData], query: str) -> list[InsightWithScores]:
-        """Apply LLM-based semantic filtering with improved prompt."""
-        # Create insight names for cache key
-        insight_names = []
+        """Apply LLM-based semantic filtering with structured output."""
+        MAX_INSIGHTS_PER_BATCH = 300
+        limited_insights = insights[:MAX_INSIGHTS_PER_BATCH]
+
+        # Create insight names mapping for easier lookup
+        insight_by_name = {}
         insights_text = ""
-        for i, insight in enumerate(insights, 1):
+
+        for insight in limited_insights:
             name = insight.get("insight__name") or insight.get("insight__derived_name", "Unnamed")
             description = insight.get("insight__description")
             keyword_score = insight.get("keyword_score", 0.0)
-            insight_names.append(name)
+
+            # Store insight by name for later lookup
+            insight_by_name[name] = insight
 
             # Include keyword score in the prompt to help LLM make better decisions
             score_indicator = "⭐ EXACT MATCH" if keyword_score > 0.5 else "📊"
             if description:
-                insights_text += f"{i}. {score_indicator} {name} - {description}\n"
+                insights_text += f"{score_indicator} {name} - {description}\n"
             else:
-                insights_text += f"{i}. {score_indicator} {name}\n"
+                insights_text += f"{score_indicator} {name}\n"
 
         # Check cache first
-        cache_key = self._get_cache_key(query, insight_names)
+        cache_key = self._get_cache_key(query, list(insight_by_name.keys()))
         cached_ratings, was_cache_hit = self._get_cached_semantic_result(cache_key)
 
         if was_cache_hit:
             self._current_cache_hits += 1
-            ratings = cached_ratings
+            structured_ratings = cached_ratings
         else:
             self._current_cache_misses += 1
-            # Single LLM call for all insights with improved prompt
-            formatted_prompt = IMPROVED_SEMANTIC_FILTER_PROMPT.format(query=query, insights_list=insights_text.strip())
+            # Use structured output for reliable parsing
+            formatted_prompt = STRUCTURED_SEMANTIC_FILTER_PROMPT.format(
+                query=query, insights_list=insights_text.strip()
+            )
 
-            model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=50)
+            model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=1000, timeout=10)
+            structured_model = model.with_structured_output(SemanticRatings)
 
             try:
-                response = model.invoke(formatted_prompt)
-                ratings_text = response.content.strip()
+                structured_ratings = structured_model.invoke(formatted_prompt)
 
-                # Parse batch response
-                ratings = self._parse_batch_ratings(ratings_text, len(insights))
-
-                # Cache the results
-                self._cache_semantic_result(cache_key, ratings)
+                # Cache the structured results
+                self._cache_semantic_result(cache_key, structured_ratings)
 
             except Exception as e:
-                self.logger.warning(
-                    f"Batch semantic filtering failed: {e}, falling back to first {min(3, len(insights))} insights"
-                )
-                # Fallback: return first few insights with keyword scores
-                return [{**insight, "semantic_score": 0.5} for insight in insights[: min(3, len(insights))]]
+                self.logger.warning(f"Structured semantic filtering failed: {e}, falling back to keyword scoring only")
+                # Fast fallback: return top insights with keyword scores (sorted by relevance)
+                fallback_insights = []
 
-        # Add semantic scores to insights
-        for i, insight in enumerate(insights):
-            rating = ratings.get(i + 1, "none")
-            if rating == "high":
-                semantic_score = 1.0
-            elif rating == "medium":
-                semantic_score = 0.7
-            elif rating == "low":
-                semantic_score = 0.3
-            else:
-                semantic_score = 0.0
-            insight["semantic_score"] = semantic_score
+                # Sort by keyword score and take top candidates
+                sorted_insights = sorted(limited_insights, key=lambda x: x.get("keyword_score", 0.0), reverse=True)
 
-        return insights
+                for insight in sorted_insights[:3]:  # Limit to top 3 for faster fallback
+                    keyword_score = insight.get("keyword_score", 0.0)
+                    if keyword_score > 0.2:  # Lower threshold for broader matching
+                        fallback_insights.append(
+                            {
+                                "insight_id": insight["insight_id"],
+                                "insight__name": insight["insight__name"],
+                                "insight__description": insight["insight__description"],
+                                "insight__derived_name": insight.get("insight__derived_name"),
+                                "keyword_score": keyword_score,
+                                "semantic_score": keyword_score,
+                                "relevance_score": keyword_score,
+                            }
+                        )
 
-    def _combine_and_filter_scores(self, insights: list[InsightWithScores]) -> list[InsightWithScores]:
-        """Combine keyword and semantic scores, then filter relevant insights."""
-        relevant_insights = []
+                # If no good keyword matches, return the most recent insight
+                if not fallback_insights and limited_insights:
+                    fallback_insights = [
+                        {
+                            "insight_id": limited_insights[0]["insight_id"],
+                            "insight__name": limited_insights[0]["insight__name"],
+                            "insight__description": limited_insights[0]["insight__description"],
+                            "insight__derived_name": limited_insights[0].get("insight__derived_name"),
+                            "keyword_score": 0.3,
+                            "semantic_score": 0.3,
+                            "relevance_score": 0.3,
+                        }
+                    ]
 
-        for insight in insights:
-            keyword_score = insight.get("keyword_score", 0.0)
-            semantic_score = insight.get("semantic_score", 0.0)
+                return fallback_insights
 
-            # Hybrid scoring: keyword matches get significant boost
-            if keyword_score >= 0.5:
-                # Exact keyword match gets high priority
-                if semantic_score >= 1.0:  # high semantic + exact keyword = perfect match
-                    final_score = 1.0
-                else:
-                    final_score = 0.8 + (keyword_score * 0.2)  # 0.8-1.0 range
-            elif keyword_score > 0.0:
-                # Partial keyword match gets medium priority
-                if semantic_score >= 1.0:  # high semantic + partial keyword = very good match
-                    final_score = 0.95
-                else:
-                    final_score = 0.6 + (keyword_score * 0.2) + (semantic_score * 0.2)  # 0.6-1.0 range
-            else:
-                # No keyword match - rely on semantic score
-                final_score = semantic_score  # Preserve original semantic score for backward compatibility
+        # Convert to InsightWithScores using only high and medium rated insights
+        relevant_insights: list[InsightWithScores] = []
 
-            # Only include insights with reasonable relevance
-            if final_score > 0.3:
-                relevant_insights.append({**insight, "relevance_score": final_score})
+        for category, score in [("high", 1.0), ("medium", 0.7)]:
+            for insight_name in structured_ratings.get(category, []):
+                if insight_name in insight_by_name:
+                    insight = insight_by_name[insight_name]
+                    keyword_score = insight.get("keyword_score", 0.0)
 
-        # Sort by combined relevance score
-        return sorted(relevant_insights, key=lambda x: x["relevance_score"], reverse=True)
-
-    def _parse_batch_ratings(self, ratings_text: str, expected_count: int) -> dict[int, str]:
-        """Parse batch LLM response into insight ratings."""
-        ratings = {}
-
-        lines = ratings_text.split("\n")
-        for line in lines:
-            line = line.strip()
-            if ":" in line:
-                try:
-                    # Parse format "1: high, 2: medium, 3: low"
-                    if "," in line:
-                        parts = line.split(",")
-                        for part in parts:
-                            part = part.strip()
-                            if ":" in part:
-                                idx_str, rating = part.split(":", 1)
-                                idx = int(idx_str.strip())
-                                rating = rating.strip().lower()
-                                if 1 <= idx <= expected_count:
-                                    ratings[idx] = rating
+                    # Combine keyword and semantic scores
+                    if keyword_score >= 0.5:  # Exact keyword match gets boost
+                        final_score = max(score, 0.8 + (keyword_score * 0.2))
                     else:
-                        idx_str, rating = line.split(":", 1)
-                        idx = int(idx_str.strip())
-                        rating = rating.strip().lower()
-                        if 1 <= idx <= expected_count:
-                            ratings[idx] = rating
-                except (ValueError, IndexError):
-                    continue
+                        final_score = score
 
-        # missing ratings
-        for i in range(1, expected_count + 1):
-            if i not in ratings:
-                ratings[i] = "none"
+                    relevant_insights.append(
+                        {
+                            "insight_id": insight["insight_id"],
+                            "insight__name": insight["insight__name"],
+                            "insight__description": insight["insight__description"],
+                            "insight__derived_name": insight.get("insight__derived_name"),
+                            "keyword_score": keyword_score,
+                            "semantic_score": score,
+                            "relevance_score": final_score,
+                        }
+                    )
 
-        return ratings
+        # Sort by relevance score and return
+        return sorted(relevant_insights, key=lambda x: x["relevance_score"], reverse=True)
 
     def _get_full_queries_for_insights(self, filtered_insights: list[InsightWithScores]) -> list[EnrichedInsight]:
         """Get full query data for filtered insights with optimized database access."""
