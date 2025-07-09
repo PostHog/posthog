@@ -90,7 +90,9 @@ export function VariantRow({
                 }`}
             >
                 {variantResult ? (
-                    <div className="text-sm text-text-primary">{variantResult.key}</div>
+                    <div className="text-sm text-text-primary whitespace-nowrap">
+                        <span className="text-red-600">—</span> {variantResult.key}
+                    </div>
                 ) : (
                     <div className="text-xs text-muted">—</div>
                 )}
