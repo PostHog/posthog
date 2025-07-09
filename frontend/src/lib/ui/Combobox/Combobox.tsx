@@ -105,7 +105,8 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
                 id="combobox-listbox"
                 style={
                     {
-                        '--combobox-search-height': '38px',
+                        // Match text input base height with p-1 padding
+                        '--combobox-search-height': 'calc(var(--text-input-height-base) + (var(--spacing) * 2))',
                     } as React.CSSProperties
                 }
             >
@@ -139,6 +140,7 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 placeholder={placeholder}
                 autoFocus={autoFocus}
                 role="combobox"
+                size="default"
                 aria-controls="combobox-listbox"
             />
         </div>
