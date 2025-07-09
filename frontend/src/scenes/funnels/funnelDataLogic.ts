@@ -206,7 +206,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     querySource?.kind === NodeKind.FunnelsQuery
                         ? querySource.series
                               .map((_, i: number) => i + 1)
-                              .filter((stepIndex: number, i: number) => querySource.series[i]?.optionalInFunnel)
+                              .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
                         : []
                 return stepsWithConversionMetrics(steps, stepReference, optionalSteps)
             },
