@@ -65,7 +65,7 @@ export function VariantRow({
             {/* Metric column - only render for first row with rowspan */}
             {isFirstRow && metric && metricType && (
                 <td
-                    className={`w-1/5 min-h-[60px] border-r border-border p-3 align-top text-left relative ${
+                    className={`w-1/5 min-h-[60px] border-r border-border-bold p-3 align-top text-left relative ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalVariantRows}
@@ -83,7 +83,7 @@ export function VariantRow({
 
             {/* Variant column - show variant key or "Baseline" */}
             <td
-                className={`w-20 border-b border-border p-3 align-top text-left ${
+                className={`w-20 border-b border-border-bold p-3 align-top text-left ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                 }`}
             >
@@ -96,7 +96,7 @@ export function VariantRow({
 
             {/* Value column - show conversion rate and raw counts */}
             <td
-                className={`w-24 border-b border-border p-3 align-top text-left ${
+                className={`w-24 border-b border-border-bold p-3 align-top text-left ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                 }`}
             >
@@ -123,7 +123,7 @@ export function VariantRow({
 
             {/* P-value column - show statistical significance (empty for baseline) */}
             <td
-                className={`w-20 border-b border-border p-3 align-top text-left ${
+                className={`w-20 border-b border-border-bold p-3 align-top text-left ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                 }`}
             >
@@ -147,7 +147,7 @@ export function VariantRow({
             {/* Chart column - shows chart for current variant (grid lines for baseline) */}
             {isBaseline ? (
                 <td
-                    className={`min-w-[400px] border-b border-border p-0 align-top text-center relative ${
+                    className={`min-w-[400px] border-b border-border-bold p-0 align-top text-center relative ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                     }`}
                 >

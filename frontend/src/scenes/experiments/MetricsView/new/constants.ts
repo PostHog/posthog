@@ -9,7 +9,7 @@ export const CHART_CELL_VIEW_BOX_HEIGHT = 100
 export const CHART_CELL_BAR_HEIGHT_PERCENT = 30
 export const CHART_CELL_HEIGHT_PX = 60
 export const CHART_BAR_OPACITY = 0.7
-export const GRID_LINES_OPACITY = 0.5
+export const GRID_LINES_OPACITY = 0.8
 
 // Axis
 export const TICK_PANEL_HEIGHT = 20
