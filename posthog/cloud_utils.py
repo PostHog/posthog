@@ -1,6 +1,5 @@
 import os
 from typing import TYPE_CHECKING, Any, Optional
-import uuid
 from datetime import timedelta
 from django.utils import timezone
 
@@ -56,8 +55,9 @@ def get_cached_instance_license() -> Optional["License"]:
 
     # No license found locally, create one for dev mode
     if not license and is_dev_mode():
+        dev_uuid = "69004a5f-a7da-499a-a63a-338f996b6f7a"
         license = License.objects.create(
-            key=f"{uuid.uuid4()}::{settings.LICENSE_SECRET_KEY}",
+            key=f"{dev_uuid}::{settings.LICENSE_SECRET_KEY}",
             plan="enterprise",
             valid_until=timezone.now() + timedelta(weeks=52),
         )

@@ -30,6 +30,8 @@ from posthog.schema import (
 )
 from typing import Optional
 
+QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
+
 
 class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
@@ -154,9 +156,13 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 experiment_feature_flag_key=self.feature_flag_key,
             )
 
+            # Set limit to avoid being cut-off by the default 100 rows limit
+            query = self._get_exposure_query()
+            query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+
             response = execute_hogql_query(
                 query_type="ExperimentExposuresQuery",
-                query=self._get_exposure_query(),
+                query=query,
                 team=self.team,
                 timings=self.timings,
                 modifiers=create_default_modifiers_for_team(self.team),

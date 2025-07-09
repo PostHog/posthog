@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from dateutil import parser
+from django.conf import settings
 from django.db.models import Sum
 import uuid
 from posthog.cloud_utils import get_cached_instance_license
@@ -18,8 +19,13 @@ def _get_hash_key(team_id: int) -> str:
 @contextmanager
 def _get_redis():
     try:
+        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
+            raise Exception(
+                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
+            )
+
         # Ensure redis is up and alive
-        redis = get_client()
+        redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         redis.ping()
 
         yield redis
