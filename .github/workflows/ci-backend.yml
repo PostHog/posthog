@@ -599,7 +599,7 @@ jobs:
 
             - name: Restore test durations from cache
               if: ${{ needs.changes.outputs.backend == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/update-test-durations') }}
-              uses: actions/cache/restore@v4
+              uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               with:
                   path: .test_durations
                   key: tests-durations-${{ github.sha }}
@@ -857,7 +857,7 @@ jobs:
                   > /tmp/.test_durations
 
             - name: Cache final test durations
-              uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+              uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               continue-on-error: true
               with:
                   path: /tmp/.test_durations
