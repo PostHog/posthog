@@ -75,8 +75,8 @@ from posthog.schema import (
     WebOverviewQuery,
     WebStatsTableQuery,
     MarketingAnalyticsTableQuery,
+    SessionBatchEventsQuery,
 )
-from posthog.hogql_queries.ai.session_events_query_runner.schema import SessionBatchEventsQuery
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
@@ -262,7 +262,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "SessionBatchEventsQuery":
-        from .ai.session_events_query_runner.runner import SessionBatchEventsQueryRunner
+        from .events_query_runner import SessionBatchEventsQueryRunner
 
         return SessionBatchEventsQueryRunner(
             query=cast(SessionBatchEventsQuery | dict[str, Any], query),
