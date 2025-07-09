@@ -21,6 +21,7 @@ import { sourceWizardLogic } from './sourceWizardLogic'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconBlank } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
@@ -198,7 +199,11 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Source',
                         width: 0,
                         render: function (_, sourceConfig) {
-                            return <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            return sourceConfig.name ? (
+                                <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            ) : (
+                                <IconBlank />
+                            )
                         },
                     },
                     {
