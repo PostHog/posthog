@@ -69,14 +69,36 @@ class TestInsightSearchNode(BaseTest):
         insight_ids = [r.get("insight_id") or r.get("id") for r in results]
         self.assertEqual(len(insight_ids), len(set(insight_ids)), "Should return unique insights only")
 
-    def test_get_full_queries_for_insights(self):
-        """Test enriching insights with full query data."""
+    def test_convert_to_enriched_insights(self):
+        """Test converting insights with scores to enriched format."""
         filtered_insights = [
-            {"insight_id": self.insight1.id, "relevance_score": 0.9},
-            {"insight_id": self.insight2.id, "relevance_score": 0.7},
+            {
+                "insight_id": self.insight1.id,
+                "insight__name": "Daily Pageviews",
+                "insight__description": "Track daily website traffic",
+                "insight__derived_name": None,
+                "insight__query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}},
+                "insight__filters": {"insight": "TRENDS"},
+                "insight__short_id": "abc123",
+                "relevance_score": 0.9,
+                "keyword_score": 0.8,
+                "semantic_score": 0.9,
+            },
+            {
+                "insight_id": self.insight2.id,
+                "insight__name": "User Signup Funnel",
+                "insight__description": "Track user conversion",
+                "insight__derived_name": None,
+                "insight__query": {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}},
+                "insight__filters": {"insight": "FUNNELS"},
+                "insight__short_id": "def456",
+                "relevance_score": 0.7,
+                "keyword_score": 0.6,
+                "semantic_score": 0.7,
+            },
         ]
 
-        results = self.node._get_full_queries_for_insights(filtered_insights)
+        results = self.node._convert_to_enriched_insights(filtered_insights)
 
         self.assertEqual(len(results), 2)
 

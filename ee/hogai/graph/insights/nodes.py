@@ -16,7 +16,7 @@ from posthog.schema import (
 from ee.hogai.graph.base import AssistantNode
 from .prompts import STRUCTURED_SEMANTIC_FILTER_PROMPT
 
-from posthog.models import InsightViewed, Insight
+from posthog.models import InsightViewed
 
 
 class RawInsightData(TypedDict, total=False):
@@ -26,6 +26,9 @@ class RawInsightData(TypedDict, total=False):
     insight__name: str | None
     insight__description: str | None
     insight__derived_name: str | None
+    insight__query: dict[str, Any] | None  # Full query data
+    insight__filters: dict[str, Any] | None  # Filter data
+    insight__short_id: str | None  # Short ID for URLs
     keyword_score: float  # Added during processing
     semantic_score: float  # Added during processing
     relevance_score: float  # Added during processing
@@ -38,6 +41,9 @@ class InsightWithScores(TypedDict):
     insight__name: str | None
     insight__description: str | None
     insight__derived_name: str | None
+    insight__query: dict[str, Any] | None
+    insight__filters: dict[str, Any] | None
+    insight__short_id: str | None
     keyword_score: float
     semantic_score: float
     relevance_score: float
@@ -216,19 +222,25 @@ class InsightSearchNode(AssistantNode):
         initial_fetch_size = 300 if root_to_search_insights else 3
 
         insights_qs = (
-            InsightViewed.objects.filter(team=self._team)
-            .select_related("insight__team", "insight__created_by")  # Optimize all joins
+            # InsightViewed.objects.filter(team=self._team)
+            InsightViewed.objects.filter(team__project_id=self._team.project_id)
+            .select_related(
+                "insight__name", "insight__description", "insight__derived_name", "insight__team"
+            )  # Optimize all joins
             .order_by("insight_id", "-last_viewed_at")
             .distinct("insight_id")
         )
 
-        # Get basic data for semantic filtering or fallback with optimized field access
+        # Get all needed data in single query to avoid second DB call
         raw_results = list(
             insights_qs[:initial_fetch_size].values(
                 "insight_id",
                 "insight__name",
                 "insight__description",
-                "insight__derived_name",  # Include derived_name for better fallback
+                "insight__derived_name",
+                "insight__query",  # Full query data
+                "insight__filters",  # Filter data
+                "insight__short_id",  # Short ID for URLs
             )
         )
 
@@ -241,8 +253,8 @@ class InsightSearchNode(AssistantNode):
             filtered_results = self._semantic_filter_insights(raw_results, root_to_search_insights)
 
             if filtered_results:
-                # Step 3: Get full query data for filtered insights (single DB call)
-                enriched_results = self._get_full_queries_for_insights(filtered_results)
+                # Step 3: Convert to enriched insights (no additional DB call needed)
+                enriched_results = self._convert_to_enriched_insights(filtered_results)
 
                 if enriched_results:
                     # Step 4: Return highest scoring insight (already sorted by relevance)
@@ -250,13 +262,16 @@ class InsightSearchNode(AssistantNode):
                     cache_stats: CacheStats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
                     return results, cache_stats
 
-        # Fallback: get full data for most recent insights without semantic filtering
+        # Fallback: convert most recent insight without semantic filtering
         fallback_insights: list[InsightWithScores] = [
             {
                 "insight_id": result["insight_id"],
                 "insight__name": result["insight__name"],
                 "insight__description": result["insight__description"],
                 "insight__derived_name": result["insight__derived_name"],
+                "insight__query": result["insight__query"],
+                "insight__filters": result["insight__filters"],
+                "insight__short_id": result["insight__short_id"],
                 "keyword_score": 0.0,
                 "semantic_score": 0.0,
                 "relevance_score": 0.5,
@@ -264,8 +279,7 @@ class InsightSearchNode(AssistantNode):
             for result in raw_results[:1]  # Just get the most recent one
         ]
 
-        enriched_fallback = self._get_full_queries_for_insights(fallback_insights)
-        results = enriched_fallback[:1] if enriched_fallback else []
+        results = self._convert_to_enriched_insights(fallback_insights)
 
         # Return results and cache stats
         cache_stats: CacheStats = {"hits": self._current_cache_hits, "misses": self._current_cache_misses}
@@ -284,6 +298,9 @@ class InsightSearchNode(AssistantNode):
                     "insight__name": insight["insight__name"],
                     "insight__description": insight["insight__description"],
                     "insight__derived_name": insight["insight__derived_name"],
+                    "insight__query": insight["insight__query"],
+                    "insight__filters": insight["insight__filters"],
+                    "insight__short_id": insight["insight__short_id"],
                     "keyword_score": 0.0,
                     "semantic_score": 0.0,
                     "relevance_score": 0.5,
@@ -322,9 +339,29 @@ class InsightSearchNode(AssistantNode):
 
         return insights
 
+    def _convert_to_enriched_insights(self, insights_with_scores: list[InsightWithScores]) -> list[EnrichedInsight]:
+        """Convert InsightWithScores to EnrichedInsight format (no additional DB calls needed)."""
+        enriched_insights = []
+
+        for insight in insights_with_scores:
+            enriched_insights.append(
+                {
+                    "id": insight["insight_id"],
+                    "name": insight["insight__name"],
+                    "derived_name": insight["insight__derived_name"],
+                    "description": insight["insight__description"],
+                    "query": insight["insight__query"] or {},
+                    "filters": insight["insight__filters"] or {},
+                    "short_id": insight["insight__short_id"] or "",
+                    "relevance_score": insight["relevance_score"],
+                }
+            )
+
+        return enriched_insights
+
     def _apply_semantic_filtering(self, insights: list[RawInsightData], query: str) -> list[InsightWithScores]:
         """Apply LLM-based semantic filtering with structured output."""
-        MAX_INSIGHTS_PER_BATCH = 300
+        MAX_INSIGHTS_PER_BATCH = 50
         limited_insights = insights[:MAX_INSIGHTS_PER_BATCH]
 
         # Create insight names mapping for easier lookup
@@ -360,7 +397,7 @@ class InsightSearchNode(AssistantNode):
                 query=query, insights_list=insights_text.strip()
             )
 
-            model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=1000, timeout=10)
+            model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, max_completion_tokens=1000)
             structured_model = model.with_structured_output(SemanticRatings)
 
             try:
@@ -386,6 +423,9 @@ class InsightSearchNode(AssistantNode):
                                 "insight__name": insight["insight__name"],
                                 "insight__description": insight["insight__description"],
                                 "insight__derived_name": insight.get("insight__derived_name"),
+                                "insight__query": insight.get("insight__query"),
+                                "insight__filters": insight.get("insight__filters"),
+                                "insight__short_id": insight.get("insight__short_id"),
                                 "keyword_score": keyword_score,
                                 "semantic_score": keyword_score,
                                 "relevance_score": keyword_score,
@@ -400,6 +440,9 @@ class InsightSearchNode(AssistantNode):
                             "insight__name": limited_insights[0]["insight__name"],
                             "insight__description": limited_insights[0]["insight__description"],
                             "insight__derived_name": limited_insights[0].get("insight__derived_name"),
+                            "insight__query": limited_insights[0].get("insight__query"),
+                            "insight__filters": limited_insights[0].get("insight__filters"),
+                            "insight__short_id": limited_insights[0].get("insight__short_id"),
                             "keyword_score": 0.3,
                             "semantic_score": 0.3,
                             "relevance_score": 0.3,
@@ -429,6 +472,9 @@ class InsightSearchNode(AssistantNode):
                             "insight__name": insight["insight__name"],
                             "insight__description": insight["insight__description"],
                             "insight__derived_name": insight.get("insight__derived_name"),
+                            "insight__query": insight.get("insight__query"),
+                            "insight__filters": insight.get("insight__filters"),
+                            "insight__short_id": insight.get("insight__short_id"),
                             "keyword_score": keyword_score,
                             "semantic_score": score,
                             "relevance_score": final_score,
@@ -437,33 +483,6 @@ class InsightSearchNode(AssistantNode):
 
         # Sort by relevance score and return
         return sorted(relevant_insights, key=lambda x: x["relevance_score"], reverse=True)
-
-    def _get_full_queries_for_insights(self, filtered_insights: list[InsightWithScores]) -> list[EnrichedInsight]:
-        """Get full query data for filtered insights with optimized database access."""
-        if not filtered_insights:
-            return []
-
-        # Extract insight IDs from filtered results
-        insight_ids = [insight["insight_id"] for insight in filtered_insights]
-
-        # Optimized query with select_related for performance
-        full_insights = (
-            Insight.objects.filter(id__in=insight_ids, team=self._team, deleted=False)
-            .select_related("team", "created_by")  # Optimize joins
-            .values("id", "name", "derived_name", "description", "query", "filters", "short_id")
-        )
-
-        # Create a mapping from insight_id to full data
-        insight_map = {insight["id"]: insight for insight in full_insights}
-
-        # Merge relevance scores with full query data
-        enriched_insights = []
-        for filtered_insight in filtered_insights:
-            insight_id = filtered_insight["insight_id"]
-            if full_data := insight_map.get(insight_id):
-                enriched_insights.append({**full_data, "relevance_score": filtered_insight["relevance_score"]})
-
-        return enriched_insights
 
     def _select_best_insight(self, insights: list[EnrichedInsight], query: str | None) -> EnrichedInsight | None:
         """Select the single most relevant insight using LLM analysis."""
