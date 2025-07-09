@@ -65,7 +65,8 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
 
                 <p>
                     When enabled, editing existing feature flags will show a confirmation modal before saving changes.
-                    This helps prevent accidental changes that could impact your users' experience.
+                    This helps prevent accidental changes to flag release conditions that could impact your users'
+                    experience.
                 </p>
 
                 {currentTeam?.feature_flag_confirmation_enabled && (
