@@ -10,8 +10,8 @@ from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import NoOpInputs
-from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
 from posthog.temporal.common.codec import EncryptionCodec
+from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
 
 
 def get_history_event_payloads(event):
