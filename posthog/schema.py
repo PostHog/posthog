@@ -8,6 +8,8 @@ from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
+from posthog.hogql_queries.ai.session_events_query_runner.schema import SessionBatchEventsQuery
+
 
 class SchemaRoot(RootModel[Any]):
     root: Any
@@ -1627,6 +1629,7 @@ class NodeKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
     EVENTS_QUERY = "EventsQuery"
+    SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     PERSONS_NODE = "PersonsNode"
     HOG_QUERY = "HogQuery"
     HOG_QL_QUERY = "HogQLQuery"
@@ -12023,6 +12026,7 @@ class DataTableNode(BaseModel):
     source: Union[
         EventsNode,
         EventsQuery,
+        SessionBatchEventsQuery,
         PersonsNode,
         ActorsQuery,
         GroupsQuery,
@@ -12070,6 +12074,7 @@ class HogQLAutocomplete(BaseModel):
             ActionsNode,
             PersonsNode,
             EventsQuery,
+            SessionBatchEventsQuery,
             ActorsQuery,
             GroupsQuery,
             InsightActorsQuery,
@@ -12133,6 +12138,7 @@ class HogQLMetadata(BaseModel):
             ActionsNode,
             PersonsNode,
             EventsQuery,
+            SessionBatchEventsQuery,
             ActorsQuery,
             GroupsQuery,
             InsightActorsQuery,
@@ -12225,6 +12231,7 @@ class MaxInsightContext(BaseModel):
         PersonsNode,
         DataWarehouseNode,
         EventsQuery,
+        SessionBatchEventsQuery,
         ActorsQuery,
         GroupsQuery,
         InsightActorsQuery,
@@ -12295,6 +12302,7 @@ class QueryRequest(BaseModel):
         PersonsNode,
         DataWarehouseNode,
         EventsQuery,
+        SessionBatchEventsQuery,
         ActorsQuery,
         GroupsQuery,
         InsightActorsQuery,
@@ -12382,6 +12390,7 @@ class QuerySchemaRoot(
             PersonsNode,
             DataWarehouseNode,
             EventsQuery,
+            SessionBatchEventsQuery,
             ActorsQuery,
             GroupsQuery,
             InsightActorsQuery,
@@ -12443,6 +12452,7 @@ class QuerySchemaRoot(
         PersonsNode,
         DataWarehouseNode,
         EventsQuery,
+        SessionBatchEventsQuery,
         ActorsQuery,
         GroupsQuery,
         InsightActorsQuery,
@@ -12508,6 +12518,7 @@ class QueryUpgradeRequest(BaseModel):
         PersonsNode,
         DataWarehouseNode,
         EventsQuery,
+        SessionBatchEventsQuery,
         ActorsQuery,
         GroupsQuery,
         InsightActorsQuery,
@@ -12573,6 +12584,7 @@ class QueryUpgradeResponse(BaseModel):
         PersonsNode,
         DataWarehouseNode,
         EventsQuery,
+        SessionBatchEventsQuery,
         ActorsQuery,
         GroupsQuery,
         InsightActorsQuery,
