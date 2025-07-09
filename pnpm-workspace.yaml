@@ -13,3 +13,7 @@ packages:
     - plugin-server
     - products/*
     - rust/cyclotron-node
+
+catalog:
+    posthog-js: ^1.256.2
+    posthog-js-lite: ^3.6.0
