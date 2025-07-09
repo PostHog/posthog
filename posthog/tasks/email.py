@@ -266,7 +266,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
 
 
 def send_batch_export_run_failure(
-    batch_export_run_id: UUIDT,
+    batch_export_run_id: str | UUIDT,
 ) -> None:
     logger = structlog.get_logger(__name__)
 

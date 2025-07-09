@@ -662,7 +662,7 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
         created_by=user,
         creation_mode="template",
     )
-    create_feature_flag_dashboard(feature_flag, usage_dashboard)
+    create_feature_flag_dashboard(feature_flag, usage_dashboard, user)
 
     feature_flag.usage_dashboard = usage_dashboard
     feature_flag.save()
