@@ -6,7 +6,6 @@ import {
     VIEW_BOX_WIDTH,
     CHART_CELL_VIEW_BOX_HEIGHT,
     CHART_CELL_BAR_HEIGHT_PERCENT,
-    CELL_HEIGHT,
     CHART_BAR_OPACITY,
     GRID_LINES_OPACITY,
 } from './constants'
@@ -55,14 +54,14 @@ export function ChartCell({
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                 } ${isLastRow ? 'border-b border-border-bold' : ''}`}
             >
-                <div className="flex items-center justify-center h-full text-muted text-xs">Not enough data yet</div>
+                <div className="flex items-center justify-center text-muted text-xs">Not enough data yet</div>
             </td>
         )
     }
 
     return (
         <td
-            className={`min-w-[400px] p-0 align-top text-center relative ${
+            className={`min-w-[400px] p-0 align-top text-center relative  ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b border-border-bold' : ''}`}
         >
@@ -71,7 +70,6 @@ export function ChartCell({
                     viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
                     preserveAspectRatio="none"
                     className="w-full max-w-[1000px]"
-                    style={{ height: `${CELL_HEIGHT}px` }}
                 >
                     {/* Grid lines for all ticks - spans full height */}
                     {showGridLines && (
