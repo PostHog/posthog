@@ -2039,6 +2039,7 @@ export interface ErrorTrackingSceneToolOutput
     newFilters?: AnyPropertyFilter[]
     removedFilterIndexes?: integer[]
     dateRange?: DateRange
+    filterTestAccounts?: boolean
 }
 
 export interface ErrorTrackingIssueAssignee {

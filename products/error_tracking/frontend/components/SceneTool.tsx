@@ -60,7 +60,7 @@ function updateFilterGroup(
 
 export function ErrorTrackingSceneTool(): JSX.Element {
     const { query } = useValues(errorTrackingSceneLogic)
-    const { setDateRange, setFilterGroup } = useActions(errorFiltersLogic)
+    const { setDateRange, setFilterGroup, setFilterTestAccounts } = useActions(errorFiltersLogic)
     const { setOrderBy, setOrderDirection, setStatus } = useActions(issueQueryOptionsLogic)
     const { filterGroup } = useValues(errorFiltersLogic)
     const { setSearchQuery } = useActions(
@@ -85,6 +85,9 @@ export function ErrorTrackingSceneTool(): JSX.Element {
         }
         if (update.dateRange) {
             setDateRange(update.dateRange)
+        }
+        if (update.filterTestAccounts !== undefined) {
+            setFilterTestAccounts(update.filterTestAccounts)
         }
 
         // Handle newFilters and removedFilterIndexes - modify first group of existing filter structure

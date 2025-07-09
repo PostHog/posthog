@@ -9405,6 +9405,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
                 "newFilters": {
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"

@@ -36,6 +36,8 @@ export interface ErrorTrackingSceneToolOutput {
     removedFilterIndexes?: integer[] // These are the indexes of the filters to be removed from the existing filter group. This is done before new filters are added
     // REPLACES the existing date range
     dateRange?: DateRange
+    // REPLACES the existing filter internal and test accounts - only set this if a user explicitly asks for it
+    filterTestAccounts?: boolean
 }
 
 // This is how the date range is defined
@@ -50,11 +52,15 @@ export interface DateRange {
 }
 
 export interface AnyPropertyFilter {
-    type: 'event' | 'person' | 'session' | 'error_tracking_issue'
+    type: 'event' | 'person' | 'session'
     key: string
-    value: string | number | bigint
+    value: PropertyFilterValue
     operator: PropertyOperator
 }
+
+export type PropertyFilterBaseValue = string | number | bigint
+// Filter values can be a single value, or an array of values
+export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[]
 
 export enum PropertyOperator {
     Exact = 'exact',
@@ -172,7 +178,7 @@ Choose appropriate operators based on the query intent:
 - `email`: User email address
 - `$initial_referring_domain`: How user arrived
 - `$initial_utm_source`: Marketing source
-- Custom user properties specific to your application
+- Custom user properties specific to the users application
 
 **Session Properties (session type)**:
 - `$session_duration`: Length of session
@@ -224,4 +230,14 @@ PREFER_FILTERS_PROMPT = """
 - Complex quoted strings that span exception messages and stack traces
 - Cross-field text patterns that cannot be achieved with property filters
 - Queries like "show me errors relating to functions called `foo`" or "show me errors relating to files called `example.py`"
+
+Remember that the searchQuery and the filterGroup are both applied during filtering - if you return a response that invalidated an existing search
+query, clear it and return an empty searchQuery, and similarly if you create a new searchQuery, and it invalidates an existing filter, clear the existing
+filter.
+
+Remember to consolidate overlapping filters and search queries. Examples where you need to do this are:
+- A user asks you to look for one email, and then another - clear the old filter, and create a new one for the new email.
+- A user asks you to look for errors impacting a particular email, and then also look for errors for another email - clear the old filter, and create a new one where the value is a list of both user IDs.
+
+Again, always, always strongly prefer filterGroup over searchQuery.
 """

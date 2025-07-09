@@ -7012,6 +7012,7 @@ class ErrorTrackingSceneToolOutput(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
     newFilters: Optional[
         list[
             Union[
