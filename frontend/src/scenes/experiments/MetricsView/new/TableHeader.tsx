@@ -1,4 +1,4 @@
-import { type ExperimentVariantResult, isBayesianResult, getNiceTickValues } from '../shared/utils'
+import { getNiceTickValues } from '../shared/utils'
 import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE } from './constants'
 import { useAxisScale } from './useAxisScale'
@@ -10,14 +10,8 @@ interface TableHeaderProps {
     chartRadius?: number
 }
 
-export function TableHeader({ results, chartRadius }: TableHeaderProps): JSX.Element {
-    // Determine if we should show "P-value" or "Chance to Win" based on the first available result
-    const firstVariantResult = results
-        .map((result) => result?.variant_results?.[0])
-        .find((variant): variant is ExperimentVariantResult => Boolean(variant))
-
-    const isBayesian = firstVariantResult ? isBayesianResult(firstVariantResult) : false
-    const significanceHeader = isBayesian ? 'Chance to Win' : 'P-value'
+export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
+    const significanceHeader = 'Change'
 
     // Set up tick values and scaling for the header
     const tickValues = chartRadius ? getNiceTickValues(chartRadius) : []

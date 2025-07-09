@@ -179,3 +179,17 @@ export function getVariantInterval(result: ExperimentVariantResult): [number, nu
 export function getIntervalLabel(result: ExperimentVariantResult): string {
     return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
 }
+
+export function formatPercentageChange(result: ExperimentVariantResult): string {
+    const interval = getVariantInterval(result)
+    if (!interval) {
+        return '—'
+    }
+
+    // Calculate the point estimate as the middle of the interval
+    const [lower, upper] = interval
+    const pointEstimate = (lower + upper) / 2
+    const pointEstimatePercent = (pointEstimate * 100).toFixed(1)
+
+    return `${pointEstimatePercent}%`
+}
