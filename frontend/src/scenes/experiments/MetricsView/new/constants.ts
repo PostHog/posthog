@@ -13,4 +13,4 @@ export const GRID_LINES_OPACITY = 0.8
 
 // Axis
 export const TICK_PANEL_HEIGHT = 20
-export const TICK_FONT_SIZE = 9
+export const TICK_FONT_SIZE = 11
