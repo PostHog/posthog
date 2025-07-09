@@ -133,6 +133,7 @@ export function SessionRecordingsPlaylistTopSettings({
             ? [
                   {
                       label: 'Add to collection',
+                      active: selectedRecordings.length > 0,
                       items: playlists.results.map((playlist) => ({
                           label: (
                               <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
