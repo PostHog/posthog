@@ -337,29 +337,27 @@ const EditorSidebarOverlay = (): JSX.Element => {
                             noPadding
                             className="ml-1 mr-1"
                             data-attr="copy-icon"
-                            onClick={() => copy()}
+                            onClick={copy}
                         />
                     )}
 
-                    {selectedSchema && 'type' in selectedSchema && selectedSchema.type !== 'managed_view' && (
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: 'Add join',
-                                    onClick: () => {
-                                        if (selectedSchema) {
-                                            selectSourceTable(selectedSchema.name)
-                                            toggleJoinTableModal()
-                                        }
-                                    },
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Add join',
+                                onClick: () => {
+                                    if (selectedSchema) {
+                                        selectSourceTable(selectedSchema.name)
+                                        toggleJoinTableModal()
+                                    }
                                 },
-                            ]}
-                        >
-                            <div>
-                                <LemonButton size="small" noPadding icon={<IconEllipsis />} />
-                            </div>
-                        </LemonMenu>
-                    )}
+                            },
+                        ]}
+                    >
+                        <div>
+                            <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                        </div>
+                    </LemonMenu>
                 </div>
             </header>
             <div className="overflow-y-auto flex-1">
