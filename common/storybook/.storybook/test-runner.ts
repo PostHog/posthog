@@ -71,7 +71,6 @@ const LOADER_SELECTORS = [
 ]
 
 const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshots__')
-console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
@@ -96,10 +95,7 @@ module.exports = {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
 
-        await page.evaluate(
-            ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
-            [ATTEMPT_COUNT_PER_ID[context.id], context.id]
-        )
+        await page.evaluate(([retry, id]) => {}, [ATTEMPT_COUNT_PER_ID[context.id], context.id])
 
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
@@ -118,7 +114,7 @@ module.exports = {
         }
     },
     tags: {
-        skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
+        skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
 
@@ -159,7 +155,7 @@ async function takeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
     // Set the right theme
@@ -183,7 +179,7 @@ async function doTakeSnapshotWithTheme(
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
     storyContext: StoryContext
-) {
+): Promise<void> {
     const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
 
     // Figure out what's the right check function depending on the parameters

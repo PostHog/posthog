@@ -30,7 +30,7 @@ jobs:
                         - 'ee/frontend/**'
                         - '.storybook/**'
                         - 'package.json'
-                        - '.github/workflows/storybook-chromatic.yml'
+                        - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
 
     build-storybook:
