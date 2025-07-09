@@ -1126,6 +1126,7 @@ class ExperimentMetricMathType(StrEnum):
     MIN = "min"
     MAX = "max"
     AVG = "avg"
+    FIRST_TIME_FOR_USER = "first_time_for_user"
 
 
 class ExperimentMetricOutlierHandling(BaseModel):

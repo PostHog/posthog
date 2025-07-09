@@ -10516,7 +10516,7 @@
             "type": "object"
         },
         "ExperimentMetricMathType": {
-            "enum": ["total", "sum", "unique_session", "min", "max", "avg"],
+            "enum": ["total", "sum", "unique_session", "min", "max", "avg", "first_time_for_user"],
             "type": "string"
         },
         "ExperimentMetricOutlierHandling": {
