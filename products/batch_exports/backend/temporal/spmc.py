@@ -1259,6 +1259,13 @@ class ConsumerFromStage:
 
                 self.rows_exported_counter.add(num_records_in_batch)
 
+                self.logger.info(
+                    f"Consuming {num_records_in_batch:,} records, {num_bytes_in_batch / 1024**2:.2f} MiB from record "
+                    f"batch {total_record_batches_count}. Total records so far: {total_records_count:,}, "
+                    f"total MiB so far: {total_record_batch_bytes_count / 1024**2:.2f}, "
+                    f"total file MiB so far: {total_file_bytes_count / 1024**2:.2f}"
+                )
+
                 yield record_batch
 
         self.logger.info("Starting consumer from internal S3 stage")
@@ -1271,13 +1278,6 @@ class ConsumerFromStage:
                 chunk_size = len(chunk)
                 total_file_bytes_count += chunk_size
 
-                self.logger.info(
-                    f"Consuming transformed chunk. Record batch num rows: {num_records_in_batch:,}, "
-                    f"record batch MiB: {num_bytes_in_batch / 1024**2:.2f}, "
-                    f"data chunk MiB: {chunk_size / 1024**2:.2f}. "
-                    f"Total records so far: {total_records_count:,}, "
-                    f"total file MiB so far: {total_file_bytes_count / 1024**2:.2f}"
-                )
                 await self.consume_chunk(data=chunk)
                 self.bytes_exported_counter.add(chunk_size)
 
