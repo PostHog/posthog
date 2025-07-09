@@ -298,9 +298,14 @@ export class IngestionConsumer {
 
         const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
 
+        logger.info('🔁', `${this.name} - flushing persons store messages`, {
+            count: personsStoreMessages.length,
+        })
         if (personsStoreMessages.length > 0 && this.kafkaProducer) {
-            await Promise.all([this.kafkaProducer.queueMessages(personsStoreMessages)])
-
+            logger.info('🔁', `${this.name} - queueing persons store messages`, {
+                count: personsStoreMessages.length,
+            })
+            await this.kafkaProducer.queueMessages(personsStoreMessages)
             await this.kafkaProducer.flush()
         }
 
