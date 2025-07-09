@@ -22,27 +22,23 @@ class ask_user_for_help(BaseModel):
 
 class retrieve_entity_properties(BaseModel):
     """
-    Use this tool to retrieve property names for a property group or entity when you know the entity type but you cannot correctly infer the property name.
-    You get back a list of properties containing their name, value type, and description, or a message that properties have not been found.
-    If you can't find any properties ask for clarification.
-    If you find properties for the entity then infer which one is relevant to the user's question, use the property name in the `retrieve_entity_property_values` tool to get possible values for that property.
+    Retrieves available property names for a specific entity type (e.g., events, users, groups).
+    Use when you know the entity type but need to discover what properties are available.
+    Returns property names, data types, and descriptions.
     """
 
-    entity: str = Field(..., description="The name of the entity that you want to retrieve properties for.")
+    entity: str = Field(..., description="The entity type (e.g. 'person', 'session', 'event')")
 
 
 class retrieve_entity_property_values(BaseModel):
     """
-    Use this tool to retrieve property values for an entity when you know the entity type and the property name.
-    You get back a list of property values, or a message that property values have not been found.
-    If you can't find any values, tell the user that you couldn't find any values and ask for clarification.
-    If you find property values that are relevant to the user's question, use one of the values in the `final_answer` tool to build the filter.
-    If the values are not relevant to the user's question, use the value that the user has provided in the query.
+    Retrieves possible values for a specific property of a given entity type.
+    Use when you know both the entity type and property name but need to see available values.
+    Returns a list of actual property values found in the data or a message that values have not been found.
     """
 
-    # This might fail for other entities, but we don't use this tool for other entities.
-    entity: str = Field(..., description="The name of the entity that you want to retrieve properties for.")
-    property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
+    entity: str = Field(..., description="The entity type (e.g. 'person', 'session', 'event')")
+    property_name: str = Field(..., description="Property name to retrieve values for.")
 
 
 class final_answer(BaseModel):
