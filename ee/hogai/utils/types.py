@@ -150,9 +150,9 @@ class _SharedAssistantState(BaseModel):
     """
     Tracks the number of times the query generation has been retried.
     """
-    filter_options_previous_response_id: Optional[str] = Field(default=None)
+    query_planner_previous_response_id: Optional[str] = Field(default=None)
     """
-    The ID of the previous OpenAI Responses API response made by the filter options node.
+    The ID of the previous OpenAI Responses API response made by the query planner.
     """
     generated_filter_options: Optional[dict] = Field(default=None)
     """
@@ -196,8 +196,8 @@ class PartialAssistantState(_SharedAssistantState):
             root_conversation_start_id="",
             rag_context="",
             query_generation_retry_count=0,
-            filter_options_previous_response_id="",
-            filter_options_dict=None,
+            query_planner_previous_response_id="",
+            generated_filter_options=None,
             change="",
             current_filters=None,
         )

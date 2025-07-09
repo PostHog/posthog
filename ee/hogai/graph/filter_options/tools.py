@@ -47,7 +47,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
 
                     return PartialAssistantState(
                         generated_filter_options=full_response,
-                        filter_options_previous_response_id=state.root_tool_call_id or "",
+                        change=state.change,
                         intermediate_steps=[],
                         messages=[
                             AssistantToolCallMessage(
@@ -63,11 +63,11 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
             # The agent has requested help, so we return a message to the root node
             if input.name == "ask_user_for_help":
                 help_message = input.arguments.request  # type: ignore
-                return self._get_reset_state(str(help_message), input.name)
+                return self._get_reset_state(str(help_message), input.name, state)
 
         # If we're still here, check if we've hit the iteration limit within this cycle
         if len(intermediate_steps) >= self.MAX_ITERATIONS:
-            return self._get_reset_state(FILTER_OPTIONS_ITERATION_LIMIT_PROMPT, "max_iterations")
+            return self._get_reset_state(FILTER_OPTIONS_ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
         if input and not output:
             # Generate progress message before executing tool
@@ -117,7 +117,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         # Continue normal processing - agent should see tool results and make next decision
         return "continue"
 
-    def _get_reset_state(self, output: str, tool_call_id: str):
+    def _get_reset_state(self, output: str, tool_call_id: str, state: AssistantState):
         reset_state = PartialAssistantState.get_reset_state()
         reset_state.messages = [
             AssistantToolCallMessage(
@@ -125,4 +125,6 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                 content=output,
             )
         ]
+        reset_state.change = state.change
+        reset_state.current_filters = state.current_filters
         return reset_state

@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field
-from collections.abc import Iterator
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
@@ -7,6 +6,7 @@ from typing import Any
 from posthog.schema import MaxRecordingUniversalFilters
 from langgraph.config import get_stream_writer
 from ee.hogai.utils.types import AssistantState
+from collections.abc import AsyncIterator
 
 
 class SearchSessionRecordingsArgs(BaseModel):
@@ -22,7 +22,7 @@ class SearchSessionRecordingsTool(MaxTool):
     root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
-    def _run_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
+    async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         if "current_filters" not in self.context:
             raise ValueError("Context `current_filters` is required for the `search_session_recordings` tool")
 
@@ -40,15 +40,17 @@ class SearchSessionRecordingsTool(MaxTool):
 
         writer = get_stream_writer()
 
-        generator: Iterator[Any] = graph.stream(
+        generator: AsyncIterator[Any] = graph.astream(
             graph_input, config=self._config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
         )
 
-        for chunk in generator:
+        async for chunk in generator:
             writer(chunk)
 
+        snapshot = await graph.aget_state(self._config)
+
         # Get the final state after streaming
-        state = AssistantState.model_validate(graph.get_state(self._config).values)
+        state = AssistantState.model_validate(snapshot.values)
 
         # Check if this is a help request (filter_options_dict is None but has messages)
         if not state.generated_filter_options and state.messages:
