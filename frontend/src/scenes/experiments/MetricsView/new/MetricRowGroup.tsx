@@ -111,6 +111,7 @@ export function MetricRowGroup({
                     testVariantResult={isBaseline ? null : (variantResult as ExperimentVariantResult)}
                     isFirstRow={index === 0}
                     isLastMetric={isLastMetric}
+                    isLastRow={index === allRows.length - 1}
                     isBaseline={isBaseline}
                     metric={metric}
                     metricType={metricType}

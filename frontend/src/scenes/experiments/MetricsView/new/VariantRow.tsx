@@ -19,6 +19,7 @@ interface VariantRowProps {
     testVariantResult: ExperimentVariantResult | null // Test variant data for variant column (null for baseline-only)
     isFirstRow: boolean
     isLastMetric: boolean
+    isLastRow: boolean
     isBaseline?: boolean // Whether this row represents the baseline
     metric?: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricType?: InsightType
@@ -36,6 +37,7 @@ export function VariantRow({
     testVariantResult,
     isFirstRow,
     isLastMetric,
+    isLastRow,
     isBaseline = false,
     metric,
     metricType,
@@ -82,7 +84,11 @@ export function VariantRow({
             )}
 
             {/* Variant column - show variant key or "Baseline" */}
-            <td className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+            <td
+                className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                    isLastRow ? 'border-b border-border-bold' : ''
+                }`}
+            >
                 {variantResult ? (
                     <div className="text-sm text-text-primary">{variantResult.key}</div>
                 ) : (
@@ -91,7 +97,11 @@ export function VariantRow({
             </td>
 
             {/* Value column - show conversion rate and raw counts */}
-            <td className={`w-24 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+            <td
+                className={`w-24 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                    isLastRow ? 'border-b border-border-bold' : ''
+                }`}
+            >
                 {isBaseline ? (
                     <div className="text-sm">
                         <div className="text-text-primary">
@@ -114,7 +124,11 @@ export function VariantRow({
             </td>
 
             {/* P-value column - show statistical significance (empty for baseline) */}
-            <td className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
+            <td
+                className={`w-20 p-3 align-top text-left ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} ${
+                    isLastRow ? 'border-b border-border-bold' : ''
+                }`}
+            >
                 {isBaseline ? (
                     <div className="text-xs text-muted" />
                 ) : testVariantResult ? (
@@ -137,7 +151,7 @@ export function VariantRow({
                 <td
                     className={`min-w-[400px] p-0 align-top text-center relative ${
                         isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    }`}
+                    } ${isLastRow ? 'border-b border-border-bold' : ''}`}
                 >
                     {chartRadius && chartRadius > 0 ? (
                         <div className="relative">
@@ -170,6 +184,7 @@ export function VariantRow({
                     chartRadius={chartRadius}
                     metricIndex={metricIndex}
                     isAlternatingRow={isAlternatingRow}
+                    isLastRow={isLastRow}
                 />
             )}
         </tr>
