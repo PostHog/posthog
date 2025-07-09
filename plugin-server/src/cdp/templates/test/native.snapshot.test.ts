@@ -40,18 +40,6 @@ describe(`Testing snapshots for ${template.id} destination:`, () => {
             responses.invocation.id = 'invocation-id'
 
             expect(responses).toMatchSnapshot()
-            //   const request = responses[0].request
-            //   const rawBody = await request.text()
-            //
-            //   try {
-            //     const json = JSON.parse(rawBody)
-            //     expect(json).toMatchSnapshot()
-            //     return
-            //   } catch (err) {
-            //     expect(rawBody).toMatchSnapshot()
-            //   }
-            //
-            //   expect(request.headers).toMatchSnapshot()
         })
     }
 })
