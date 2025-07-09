@@ -820,6 +820,8 @@ describe('Event Pipeline E2E tests', () => {
 
         await ingester.handleKafkaBatch(createKafkaMessages(events))
 
+        await waitForKafkaMessages(hub)
+
         await waitForExpect(async () => {
             const persons = await fetchPersons(hub, team.id)
             expect(persons.length).toEqual(2)
@@ -880,6 +882,8 @@ describe('Event Pipeline E2E tests', () => {
         const event2 = new EventBuilder(team, secondDistinctId).withEvent('custom event 2').withProperties({}).build()
 
         await ingester.handleKafkaBatch(createKafkaMessages([event1, event2]))
+
+        await waitForKafkaMessages(hub)
 
         await waitForExpect(async () => {
             const persons = await fetchPersons(hub, team.id)
@@ -1121,7 +1125,7 @@ describe('Event Pipeline E2E tests', () => {
     const fetchIngestionWarnings = async (hub: Hub, teamId: number) => {
         const queryResult = (await hub.db.clickhouse.querying(`
             SELECT *
-            FROM ingestion_warnings_mv
+            FROM ingestion_warnings
             WHERE team_id = ${teamId}
         `)) as unknown as ClickHouse.ObjectQueryResult<any>
         return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
@@ -1209,7 +1213,18 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const persons = await fetchPostgresPersons(hub.db, team.id)
             expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
             expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            expect(personsClickhouse[0].properties).toMatchObject(
                 expect.objectContaining({
                     name: 'User 1',
                     new_name: 'User 1 - Updated',
@@ -1313,7 +1328,18 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const persons = await fetchPostgresPersons(hub.db, team.id)
             expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
             expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            expect(personsClickhouse[0].properties).toMatchObject(
                 expect.objectContaining({
                     name: 'User 1',
                     new_name: 'User 1 - Updated',
@@ -1418,7 +1444,18 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const persons = await fetchPostgresPersons(hub.db, team.id)
             expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
             expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    new_name: 'User 1 - Updated',
+                    email: `user1-${user1DistinctId}@example.com`,
+                    age: 30,
+                    test_name: testName,
+                })
+            )
+            expect(personsClickhouse[0].properties).toMatchObject(
                 expect.objectContaining({
                     name: 'User 1',
                     new_name: 'User 1 - Updated',
@@ -1530,7 +1567,27 @@ describe('Event Pipeline E2E tests', () => {
             await waitForExpect(async () => {
                 const persons = await fetchPostgresPersons(hub.db, team.id)
                 expect(persons.length).toBe(2)
+                const personsClickhouse = await fetchPersons(hub, team.id)
+                expect(personsClickhouse.length).toBe(2)
                 expect(persons.map((person) => person.properties)).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            name: 'User 1',
+                            new_name: 'User 1 - Updated',
+                            email: `user1-${user1DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                        expect.objectContaining({
+                            name: 'User 2',
+                            new_name: 'User 2 - Updated',
+                            email: `user2-${user2DistinctId}@example.com`,
+                            age: 30,
+                            test_name: testName,
+                        }),
+                    ])
+                )
+                expect(personsClickhouse.map((person) => person.properties)).toEqual(
                     expect.arrayContaining([
                         expect.objectContaining({
                             name: 'User 1',
@@ -1593,7 +1650,15 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const persons = await fetchPostgresPersons(hub.db, team.id)
             expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
             expect(persons[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                    property_to_unset: 'value',
+                })
+            )
+            expect(personsClickhouse[0].properties).toMatchObject(
                 expect.objectContaining({
                     name: 'User 1',
                     property_to_unset: 'value',
@@ -1616,12 +1681,20 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const persons = await fetchPostgresPersons(hub.db, team.id)
             expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
             expect(persons[0].properties).toMatchObject(
                 expect.objectContaining({
                     name: 'User 1',
                 })
             )
             expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+            expect(personsClickhouse[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(personsClickhouse[0].properties).not.toHaveProperty('property_to_unset')
         })
     })
 
@@ -1652,12 +1725,20 @@ describe('Event Pipeline E2E tests', () => {
         await waitForExpect(async () => {
             const persons = await fetchPostgresPersons(hub.db, team.id)
             expect(persons.length).toBe(1)
+            const personsClickhouse = await fetchPersons(hub, team.id)
+            expect(personsClickhouse.length).toBe(1)
             expect(persons[0].properties).toMatchObject(
                 expect.objectContaining({
                     name: 'User 1',
                 })
             )
             expect(persons[0].properties).not.toHaveProperty('property_to_unset')
+            expect(personsClickhouse[0].properties).toMatchObject(
+                expect.objectContaining({
+                    name: 'User 1',
+                })
+            )
+            expect(personsClickhouse[0].properties).not.toHaveProperty('property_to_unset')
         })
     })
 })
