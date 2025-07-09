@@ -21,6 +21,7 @@ interface ChartCellProps {
     metricIndex: number
     showGridLines?: boolean
     isAlternatingRow?: boolean
+    isLastRow?: boolean
 }
 
 export function ChartCell({
@@ -29,6 +30,7 @@ export function ChartCell({
     metricIndex,
     showGridLines = true,
     isAlternatingRow = false,
+    isLastRow = false,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -49,9 +51,9 @@ export function ChartCell({
     if (!hasEnoughData) {
         return (
             <td
-                className={`min-w-[400px] border-b border-border-bold p-0 align-top text-center relative ${
+                className={`min-w-[400px] p-0 align-top text-center relative ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                }`}
+                } ${isLastRow ? 'border-b border-border-bold' : ''}`}
             >
                 <div className="flex items-center justify-center h-full text-muted text-xs">Not enough data yet</div>
             </td>
@@ -62,7 +64,7 @@ export function ChartCell({
         <td
             className={`min-w-[400px] p-0 align-top text-center relative ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-            }`}
+            } ${isLastRow ? 'border-b border-border-bold' : ''}`}
         >
             <ChartCellTooltip variantResult={variantResult}>
                 <svg
