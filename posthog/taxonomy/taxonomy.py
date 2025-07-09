@@ -1933,6 +1933,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_revenue": {
+            "description": "The total revenue for this person.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": True,
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this person in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
+            "virtual": True,
+        },
     },
     "session_properties": {
         "$session_duration": {
