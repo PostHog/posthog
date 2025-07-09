@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union
+from typing import Union, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr, action_to_expr
@@ -47,7 +47,7 @@ class ConversionGoalProcessor:
     index: int
     team: Team
     attribution_window_days: int = MAX_ATTRIBUTION_WINDOW_DAYS
-    attribution_mode: AttributionModeOperator = AttributionModeOperator.LAST_TOUCH.value
+    attribution_mode: str = AttributionModeOperator.LAST_TOUCH.value
 
     def get_cte_name(self) -> str:
         """Get unique CTE name for this conversion goal"""
@@ -120,7 +120,7 @@ class ConversionGoalProcessor:
 
     def get_base_where_conditions(self) -> list[ast.Expr]:
         """Build base WHERE conditions for conversion goal filtering"""
-        conditions = []
+        conditions: list[ast.Expr] = []
 
         if self.goal.kind == "EventsNode":
             event_name = getattr(self.goal, "event", None)
@@ -165,7 +165,7 @@ class ConversionGoalProcessor:
 
     def _generate_funnel_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window"""
-        conversion_event = getattr(self.goal, "event", None) if self.goal.kind == "EventsNode" else None
+        conversion_event: Optional[str] = getattr(self.goal, "event", None) if self.goal.kind == "EventsNode" else None
 
         # Build complete WHERE conditions
         where_conditions = self.get_base_where_conditions()
@@ -181,7 +181,7 @@ class ConversionGoalProcessor:
         return self._build_final_aggregation_query(attribution)
 
     def _build_array_collection_subquery(
-        self, conversion_event: str, where_conditions: list[ast.Expr]
+        self, conversion_event: Optional[str], where_conditions: list[ast.Expr]
     ) -> ast.SelectQuery:
         """Build subquery that collects arrays of conversion and UTM data per person"""
         schema_map = getattr(self.goal, "schema_map", {}) or {}
@@ -194,7 +194,7 @@ class ConversionGoalProcessor:
         )
 
         # Build SELECT columns
-        select_columns = [
+        select_columns: list[ast.Expr] = [
             ast.Field(chain=["events", "person_id"]),
             self._build_conversion_timestamps_array(conversion_event),
             self._build_conversion_math_values_array(conversion_event),
@@ -221,7 +221,11 @@ class ConversionGoalProcessor:
         )
 
     def _build_comprehensive_where_clause(
-        self, conversion_event: str, input_conditions: list[ast.Expr], utm_campaign_field: str, utm_source_field: str
+        self,
+        conversion_event: Optional[str],
+        input_conditions: list[ast.Expr],
+        utm_campaign_field: str,
+        utm_source_field: str,
     ) -> ast.Expr:
         """Build complete WHERE clause with proper condition separation"""
 
@@ -234,6 +238,7 @@ class ConversionGoalProcessor:
         ]
 
         # Build event-specific conditions
+        event_filter: ast.Expr
         if conversion_event:
             # For specific conversion events, we need both conversion and pageview logic
             event_filter = ast.Or(
@@ -252,7 +257,7 @@ class ConversionGoalProcessor:
 
     def _build_conversion_event_filter(self, conversion_event: str, date_conditions: list[ast.Expr]) -> ast.Expr:
         """Build filter for conversion events with their specific date constraints"""
-        conditions = [
+        conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
                 op=ast.CompareOperationOp.Eq,
@@ -323,7 +328,7 @@ class ConversionGoalProcessor:
             return ast.Constant(value=True)
 
         # Apply date conditions directly to all events
-        conditions = [
+        conditions: list[ast.Expr] = [
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=condition.op,
@@ -355,7 +360,7 @@ class ConversionGoalProcessor:
             ],
         )
 
-    def _build_conversion_timestamps_array(self, conversion_event: str) -> ast.Alias:
+    def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
         """Build conversion timestamps array"""
         return ast.Alias(
             alias="conversion_timestamps",
@@ -387,7 +392,7 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_conversion_math_values_array(self, conversion_event: str) -> ast.Alias:
+    def _build_conversion_math_values_array(self, conversion_event: Optional[str]) -> ast.Alias:
         """Build conversion math values array"""
         return ast.Alias(
             alias="conversion_math_values",
@@ -419,7 +424,7 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_conversion_event_condition(self, conversion_event: str) -> ast.Expr:
+    def _build_conversion_event_condition(self, conversion_event: Optional[str]) -> ast.Expr:
         """Build condition for conversion event matching"""
         if not conversion_event:
             return ast.Constant(value=True)
@@ -444,7 +449,7 @@ class ConversionGoalProcessor:
 
         return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
-    def _build_conversion_utm_array(self, alias: str, conversion_event: str, utm_field: str) -> ast.Alias:
+    def _build_conversion_utm_array(self, alias: str, conversion_event: Optional[str], utm_field: str) -> ast.Alias:
         """Build array for conversion event UTM data"""
         return ast.Alias(
             alias=alias,
@@ -498,7 +503,9 @@ class ConversionGoalProcessor:
                 self._build_utm_not_empty_condition(utm_source_field),
             ]
         )
-
+        return_expr: ast.Expr
+        false_value: ast.Expr
+        filter_expr: ast.Expr
         if return_field == "timestamp":
             return_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
             false_value = ast.Constant(value=0)
@@ -541,7 +548,7 @@ class ConversionGoalProcessor:
         self, inner_query: ast.SelectQuery, attribution_window_seconds: int
     ) -> ast.SelectQuery:
         """Build subquery with ARRAY JOIN and attribution window logic"""
-        select_columns = [
+        select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
             ast.Alias(
                 alias="conversion_time",
@@ -661,7 +668,7 @@ class ConversionGoalProcessor:
 
     def _build_attribution_logic_subquery(self, array_join_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build subquery that applies attribution logic"""
-        select_columns = [
+        select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
             ast.Alias(
                 alias="campaign_name",
@@ -713,7 +720,7 @@ class ConversionGoalProcessor:
 
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
-        select_columns = [
+        select_columns: list[ast.Expr] = [
             ast.Alias(
                 alias=MarketingSourceAdapter.campaign_name_field,
                 expr=self._build_organic_default_expr("campaign_name", ORGANIC_CAMPAIGN),
@@ -771,7 +778,7 @@ class ConversionGoalProcessor:
         where_conditions.extend(additional_conditions)
 
         # Build SELECT columns with organic defaults
-        select_columns = [
+        select_columns: list[ast.Expr] = [
             ast.Alias(
                 alias=MarketingSourceAdapter.campaign_name_field,
                 expr=ast.Call(name="coalesce", args=[utm_campaign_expr, ast.Constant(value=ORGANIC_CAMPAIGN)]),
@@ -787,7 +794,7 @@ class ConversionGoalProcessor:
         ]
 
         # Build WHERE clause
-        where_expr = None
+        where_expr: Optional[ast.Expr] = None
         if where_conditions:
             where_expr = ast.And(exprs=where_conditions) if len(where_conditions) > 1 else where_conditions[0]
 
@@ -885,7 +892,7 @@ class ConversionGoalProcessor:
 
         return has_timestamp_field(condition)
 
-    def _is_event_condition(self, condition: ast.Expr, conversion_event: str) -> bool:
+    def _is_event_condition(self, condition: ast.Expr, conversion_event: Optional[str]) -> bool:
         """Check if condition filters on event types that we handle explicitly"""
         if isinstance(condition, ast.CompareOperation):
             if (
