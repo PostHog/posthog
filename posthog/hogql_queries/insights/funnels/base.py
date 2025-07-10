@@ -103,6 +103,16 @@ class FunnelBase(ABC):
                     if is_equal(entity, exclusion) or is_superset(entity, exclusion):
                         raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
 
+        # validate that the first step is not optional
+        if self.context.query.series and getattr(self.context.query.series[0], "optionalInFunnel", False):
+            raise ValidationError("The first step of a funnel cannot be optional.")
+
+        # validate that optional steps are only allowed in STEPS funnels
+        if self.context.funnelsFilter.funnelVizType not in (FunnelVizType.STEPS, None) and any(
+            getattr(step, "optionalInFunnel", False) for step in self.context.query.series
+        ):
+            raise ValidationError("Optional funnel steps are only supported in steps funnels.")
+
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
