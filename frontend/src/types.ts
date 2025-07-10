@@ -4150,6 +4150,7 @@ export type IntegrationKind =
     | 'email'
     | 'linear'
     | 'github'
+    | 'meta-ads'
 
 export interface IntegrationType {
     id: number
