@@ -40,8 +40,8 @@ class SessionBatchEventsQueryRunner(QueryRunner):
     def _create_events_runner(self) -> EventsQueryRunner:
         """
         Use composition instead of inheritance to avoid type issues.
-        - Initial implementation has `SessionBatchEventsQuery` inherit from `EventsQuery`.
-        - As it's auto-generated from the schema, inheritance is not possible, while types are compatible.
+        - In `schema-general.ts` -> `SessionBatchEventsQuery` inherit from `EventsQuery`.
+        - As it's auto-generated from the schema, inheritance doesn't pass through, while types are compatible.
         - To avoid duplicating lots of code and type issues, use EventsQueryRunner methods where's applicable.
         """
         events_query = EventsQuery(
