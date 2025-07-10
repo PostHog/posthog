@@ -123,6 +123,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
+            message_category: z.string().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-hogflow-send-email-native'),
             inputs: z.record(CyclotronInputSchema),
@@ -134,6 +135,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
+            message_category: z.string().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-hogflow-send-sms-twilio'),
             inputs: z.record(CyclotronInputSchema),
