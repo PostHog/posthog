@@ -144,14 +144,23 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 )
             )
 
+        if self._query.session_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["$session_id"]),
+                    right=ast.Constant(value=self._query.session_ids),
+                )
+            )
+
+        exprs_within_operand: list[ast.Expr] = []
         (event_where_exprs, _) = self._event_predicates
         if event_where_exprs:
-            # we OR all events in the where and use hasAll / hasAny in the HAVING clause
-            exprs.append(ast.Or(exprs=event_where_exprs))
+            exprs_within_operand += event_where_exprs
 
         if self.event_properties:
             # we only query positive properties here, since negative properties we need to query over the session
-            exprs.append(
+            exprs_within_operand.append(
                 property_to_expr(
                     [
                         p
@@ -164,20 +173,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
 
         if self.group_properties:
-            exprs.append(property_to_expr(self.group_properties, team=self._team))
+            exprs_within_operand.append(property_to_expr(self.group_properties, team=self._team))
 
         if self._team.person_on_events_mode and self.person_properties:
-            exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
+            exprs_within_operand.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
 
-        if self._query.session_ids:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["$session_id"]),
-                    right=ast.Constant(value=self._query.session_ids),
-                )
-            )
+        if exprs_within_operand:
+            exprs.append(self.wrapped_with_query_operand(exprs=exprs_within_operand))
 
+        # the top level set of exprs are And-ed because the time limits are always applied
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
@@ -220,7 +224,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     )
 
         if exprs:
-            return self.ast_operand(exprs=exprs)
+            return self.wrapped_with_query_operand(exprs=exprs)
         else:
             return ast.Constant(value=True)
 

@@ -2,6 +2,7 @@ from typing import Any, cast, Optional, Union
 from datetime import datetime, timedelta, UTC
 
 from posthog.hogql import ast
+
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
@@ -285,7 +286,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         if optional_exprs:
-            exprs.append(self.ast_operand(exprs=optional_exprs))
+            exprs.append(self.wrapped_with_query_operand(exprs=optional_exprs))
 
         return ast.And(exprs=exprs)
 
