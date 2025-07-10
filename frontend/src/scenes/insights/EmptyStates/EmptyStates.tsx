@@ -51,6 +51,7 @@ import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -528,6 +529,7 @@ export interface InsightErrorStateProps {
     query?: Record<string, any> | Node | null
     queryId?: string | null
     fixWithAIComponent?: JSX.Element
+    allowRetry?: boolean
 }
 
 export function InsightErrorState({
@@ -536,9 +538,12 @@ export function InsightErrorState({
     query,
     queryId,
     fixWithAIComponent,
+    allowRetry = false,
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { loadData } = useActions(insightDataLogic(insightProps))
 
     if (!preflight?.cloud) {
         excludeDetail = true // We don't provide support for self-hosted instances
@@ -585,6 +590,15 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
+                {allowRetry && (
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+                    >
+                        Try again
+                    </LemonButton>
+                )}
                 <QueryDebuggerButton query={query} />
                 {fixWithAIComponent ?? null}
             </div>

@@ -114,7 +114,7 @@ export function InsightVizDisplay({
 
         // Insight agnostic empty states
         if (erroredQueryId) {
-            return <InsightErrorState query={query} queryId={erroredQueryId} />
+            return <InsightErrorState query={query} queryId={erroredQueryId} allowRetry={true} />
         }
         if (timedOutQueryId) {
             return <InsightTimeoutState queryId={timedOutQueryId} />
