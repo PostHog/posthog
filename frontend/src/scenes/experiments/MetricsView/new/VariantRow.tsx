@@ -3,13 +3,8 @@ import { ChartCell } from './ChartCell'
 import { MetricHeader } from '../shared/MetricHeader'
 import { type ExperimentVariantResult, formatPercentageChange, getNiceTickValues } from '../shared/utils'
 import { IconArrowUp, IconTrendingDown } from 'lib/lemon-ui/icons'
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    ExperimentStatsBase,
-} from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
+import { ExperimentMetric, ExperimentStatsBase } from '~/queries/schema/schema-general'
+import { Experiment, InsightType } from '~/types'
 import {
     VIEW_BOX_WIDTH,
     SVG_EDGE_MARGIN,
@@ -20,6 +15,9 @@ import {
 import { useChartColors } from '../shared/colors'
 import { useAxisScale } from './useAxisScale'
 import { GridLines } from './GridLines'
+import { DetailsButton } from './DetailsButton'
+import { DetailsModal } from './DetailsModal'
+import { useState } from 'react'
 
 interface VariantRowProps {
     variantResult: ExperimentVariantResult | ExperimentStatsBase // For chart rendering (current variant) or baseline data
@@ -28,9 +26,10 @@ interface VariantRowProps {
     isLastMetric: boolean
     isLastRow: boolean
     isBaseline?: boolean // Whether this row represents the baseline
-    metric?: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric
     metricType?: InsightType
     metricIndex: number
+    experiment: Experiment
     chartRadius: number
     isSecondary: boolean
     totalVariantRows: number
@@ -49,6 +48,7 @@ export function VariantRow({
     metric,
     metricType,
     metricIndex,
+    experiment,
     chartRadius,
     isSecondary,
     totalVariantRows,
@@ -58,6 +58,7 @@ export function VariantRow({
 }: VariantRowProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const [isModalOpen, setIsModalOpen] = useState(false)
 
     // Helper function to format variant data
     const formatVariantData = (variant: ExperimentStatsBase): { primaryValue: number; formattedValue: string } => {
@@ -67,6 +68,10 @@ export function VariantRow({
                 ? primaryValue.toFixed(2)
                 : `${(primaryValue * 100).toFixed(2)}%`
         return { primaryValue, formattedValue }
+    }
+
+    const result = {
+        variant_results: [variantResult],
     }
 
     return (
@@ -227,6 +232,30 @@ export function VariantRow({
                     isAlternatingRow={isAlternatingRow}
                     isLastRow={isLastRow}
                 />
+            )}
+            {/* Details column - only render for first row with rowspan */}
+            {isFirstRow && (
+                <td
+                    className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative overflow-hidden ${
+                        !isLastMetric ? 'border-b' : ''
+                    } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
+                    rowSpan={totalVariantRows}
+                    style={{
+                        height: `${CELL_HEIGHT * totalVariantRows}px`,
+                        maxHeight: `${CELL_HEIGHT * totalVariantRows}px`,
+                    }}
+                >
+                    <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                    <DetailsModal
+                        isOpen={isModalOpen}
+                        onClose={() => setIsModalOpen(false)}
+                        metric={metric}
+                        result={result}
+                        experiment={experiment}
+                        metricIndex={metricIndex}
+                        isSecondary={isSecondary}
+                    />
+                </td>
             )}
         </tr>
     )

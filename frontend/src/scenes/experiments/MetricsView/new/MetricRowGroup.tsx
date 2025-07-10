@@ -1,16 +1,12 @@
 import { VariantRow } from './VariantRow'
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NewExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
-import { InsightType } from '~/types'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { Experiment, InsightType } from '~/types'
 import { type ExperimentVariantResult } from '../shared/utils'
 
 interface MetricRowGroupProps {
-    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric
     result: NewExperimentQueryResponse
+    experiment: Experiment
     metricType: InsightType
     metricIndex: number
     chartRadius: number
@@ -24,6 +20,7 @@ interface MetricRowGroupProps {
 export function MetricRowGroup({
     metric,
     result,
+    experiment,
     metricType,
     metricIndex,
     chartRadius,
@@ -72,6 +69,7 @@ export function MetricRowGroup({
                     isLastRow={index === allRows.length - 1}
                     isBaseline={isBaseline}
                     metric={metric}
+                    experiment={experiment}
                     metricType={metricType}
                     metricIndex={metricIndex}
                     chartRadius={chartRadius}

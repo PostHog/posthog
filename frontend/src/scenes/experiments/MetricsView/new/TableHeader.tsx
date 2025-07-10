@@ -79,6 +79,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                         <div className="p-3">Chart</div>
                     )}
                 </th>
+                <th className="w-1/15 border-b-2 border-border-bold bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
             </tr>
         </thead>
     )
