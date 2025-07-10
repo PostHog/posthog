@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import cast, Union
+from typing import cast, Union, Optional
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -16,16 +16,15 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from .prompts import (
     FILTER_INITIAL_PROMPT,
     FILTER_FIELDS_TAXONOMY_PROMPT,
-    FILTER_SET_PROMPT,
     HUMAN_IN_THE_LOOP_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
     GROUP_PROPERTY_FILTER_TYPES_PROMPT,
-    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+    RESPONSE_FORMATS_PROMPT,
     FILTER_LOGICAL_OPERATORS_PROMPT,
     DATE_FIELDS_PROMPT,
     TOOL_USAGE_PROMPT,
-    SESSION_REPLAY_EXAMPLES_PROMPT,
+    EXAMPLES_PROMPT,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from pydantic import BaseModel
@@ -47,6 +46,10 @@ class FilterOptionsTool(BaseModel):
 class FilterOptionsNode(AssistantNode):
     """Node for generating filtering options based on user queries."""
 
+    def __init__(self, team, user, injected_prompts: Optional[dict] = None):
+        super().__init__(team, user)
+        self.injected_prompts = injected_prompts or {}
+
     @cached_property
     def _team_group_types(self) -> list[str]:
         return list(
@@ -60,14 +63,6 @@ class FilterOptionsNode(AssistantNode):
             str,
             ChatPromptTemplate.from_template(FILTER_FIELDS_TAXONOMY_PROMPT, template_format="mustache")
             .format_messages(groups=self._team_group_types)[0]
-            .content,
-        )
-
-    def _get_current_set_filters_prompt(self, current_set_filters: str) -> str:
-        return cast(
-            str,
-            ChatPromptTemplate.from_template(FILTER_SET_PROMPT, template_format="mustache")
-            .format_messages(current_set_filters=current_set_filters)[0]
             .content,
         )
 
@@ -92,11 +87,15 @@ class FilterOptionsNode(AssistantNode):
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
         """
+        # Use injected prompts to build dynamic FILTER_INITIAL_PROMPT
+        dynamic_filter_prompt = self._get_filter_generation_prompt(self.injected_prompts)
+
         # Always include the base system and conversation setup
         system_messages = [
-            ("system", FILTER_INITIAL_PROMPT),
             ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
             ("system", HUMAN_IN_THE_LOOP_PROMPT),
+            ("system", dynamic_filter_prompt),  # Use dynamic prompt instead of static
+            ("system", self._get_react_property_filters_prompt()),
         ]
 
         messages = [*system_messages, ("human", USER_FILTER_OPTIONS_PROMPT)]
@@ -118,6 +117,30 @@ class FilterOptionsNode(AssistantNode):
         conversation = ChatPromptTemplate(messages, template_format="mustache")
         return conversation
 
+    def _get_filter_generation_prompt(self, injected_prompts: dict) -> str:
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(FILTER_INITIAL_PROMPT, template_format="mustache")
+            .format_messages(
+                **{
+                    "product_description_prompt": injected_prompts.get(
+                        "product_description_prompt", PRODUCT_DESCRIPTION_PROMPT
+                    ),
+                    "group_property_filter_types_prompt": injected_prompts.get(
+                        "group_property_filter_types_prompt", GROUP_PROPERTY_FILTER_TYPES_PROMPT
+                    ),
+                    "response_formats_prompt": injected_prompts.get("response_formats_prompt", RESPONSE_FORMATS_PROMPT),
+                    "filter_logical_operators_prompt": injected_prompts.get(
+                        "filter_logical_operators_prompt", FILTER_LOGICAL_OPERATORS_PROMPT
+                    ),
+                    "date_fields_prompt": injected_prompts.get("date_fields_prompt", DATE_FIELDS_PROMPT),
+                    "tool_usage_prompt": injected_prompts.get("tool_usage_prompt", TOOL_USAGE_PROMPT),
+                    "examples_prompt": injected_prompts.get("examples_prompt", EXAMPLES_PROMPT),
+                }
+            )[0]
+            .content,
+        )
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return filtering options."""
         conversation = self._construct_messages(state)
@@ -138,11 +161,11 @@ class FilterOptionsNode(AssistantNode):
             *self._team_group_types,
         ]
 
+        # Use injected prompts if available, otherwise fall back to default prompts
         output_message = chain.invoke(
             {
                 "core_memory": self.core_memory.text if self.core_memory else "",
                 "groups": entities,
-                "react_property_filters": self._get_react_property_filters_prompt(),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
@@ -151,13 +174,6 @@ class FilterOptionsNode(AssistantNode):
                 "user_email": self._user.email,
                 "change": change,
                 "current_filters": current_filters,
-                "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
-                "group_property_filter_types_prompt": GROUP_PROPERTY_FILTER_TYPES_PROMPT,
-                "session_replay_response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
-                "filter_logical_operators_prompt": FILTER_LOGICAL_OPERATORS_PROMPT,
-                "date_fields_prompt": DATE_FIELDS_PROMPT,
-                "tool_usage_prompt": TOOL_USAGE_PROMPT,
-                "session_replay_examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
             },
             config,
         )
