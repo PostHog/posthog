@@ -17,12 +17,13 @@ import { GenericSelect } from './components/GenericSelect'
 import { IssueStatus, StatusIndicator } from './components/Indicator'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
 import { ISSUE_STATUS_OPTIONS } from './utils'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
+import { ConnectIssueButton } from './components/ErrorTrackingExternalReference'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -46,8 +47,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         useValues(errorTrackingIssueSceneLogic)
     const { loadIssue } = useActions(errorTrackingIssueSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
-    const tagRenderer = useErrorTagRenderer()
+
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
+    const hasIntegrations = useFeatureFlag('ERROR_TRACKING_INTEGRATIONS')
 
     useEffect(() => {
         loadIssue()
@@ -58,13 +61,16 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => openSidePanel(SidePanelTab.Discussion)}
-                            icon={<SidePanelDiscussionIcon />}
-                        >
-                            Comment
-                        </LemonButton>
+                        {hasIntegrations ? <ConnectIssueButton /> : null}
+                        {hasDiscussions && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => openSidePanel(SidePanelTab.Discussion)}
+                                icon={<SidePanelDiscussionIcon />}
+                            >
+                                Comment
+                            </LemonButton>
+                        )}
                         {!issueLoading && issue?.status === 'active' && (
                             <AssigneeSelect
                                 assignee={issue?.assignee}
@@ -101,7 +107,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     issueLoading={issueLoading}
                     event={selectedEvent ?? undefined}
                     eventLoading={firstSeenEventLoading}
-                    label={tagRenderer(selectedEvent)}
                 />
                 <ErrorFilters.Root>
                     <ErrorFilters.DateRange />

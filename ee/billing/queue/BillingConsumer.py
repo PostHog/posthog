@@ -4,6 +4,7 @@ import logging
 from typing import Any, Optional
 
 from ee.billing.billing_manager import BillingManager
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 from posthog.cloud_utils import get_cached_instance_license
 
@@ -44,17 +45,24 @@ class BillingConsumer(SQSConsumer):
             #     self._process_invoice_created(body)
             else:
                 logger.warning(f"Unknown message type: {message_type} for message {message_id}")
+                capture_exception(
+                    Exception("Unknown message type"), {"message_id": message_id, "message_type": message_type}
+                )
 
             # Delete the message after successful processing
             if self.delete_message(message["ReceiptHandle"]):
                 logger.info(f"Successfully processed and deleted message {message_id}")
             else:
-                logger.error(f"Failed to delete message {message_id}")
+                logger.error(f"Failed to delete message", {"message_id": message_id})
 
         except json.JSONDecodeError as e:
             logger.exception(f"Invalid JSON in message body: {message.get('Body', '')[:100]}... Error: {e}")
+            capture_exception(
+                e, {"message_id": message_id, "message_type": message_type, "body": message.get("Body", "")[:100]}
+            )
         except Exception as e:
             logger.exception(f"Error processing billing message: {e}")
+            capture_exception(e, {"message_id": message_id, "message_type": message_type})
 
     def _decompress_and_parse_message(self, raw_body: str, message_attributes: Optional[dict] = None) -> dict:
         """
@@ -86,6 +94,7 @@ class BillingConsumer(SQSConsumer):
                 return json.loads(decompressed_data.decode("utf-8"))
             except Exception as e:
                 logger.exception(f"Failed to decompress gzipped message: {str(e)}")
+                capture_exception(e)
                 raise
 
         try:
@@ -106,11 +115,21 @@ class BillingConsumer(SQSConsumer):
 
         if not organization_id:
             logger.error("Billing customer update is missing organization_id")
+            capture_exception(Exception("Billing customer update is missing organization_id"))
             return
 
         logger.info(f"Processing billing customer update for {organization_id}")
 
-        organization = Organization.objects.get(id=organization_id)
+        try:
+            organization = Organization.objects.get(id=organization_id)
+        except Organization.DoesNotExist:
+            logger.exception(f"Organization {organization_id} does not exist")
+            capture_exception(
+                Exception(f"Organization being consumed does not exist"),
+                {"organization_id": organization_id},
+            )
+            return
+
         license = get_cached_instance_license()
         billing_manager = BillingManager(license)
         billing_manager.update_org_details(organization, data)

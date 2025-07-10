@@ -244,6 +244,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-revenue-analytics',
         title: 'Revenue analytics',
+        flag: 'REVENUE_ANALYTICS',
         settings: [
             {
                 id: 'revenue-base-currency',
@@ -259,7 +260,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-goals',
                 title: 'Revenue goals',
                 component: <GoalsConfiguration />,
-                flag: 'REVENUE_ANALYTICS',
             },
             {
                 id: 'revenue-analytics-events',
@@ -270,7 +270,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 component: <ExternalDataSourceConfiguration />,
-                flag: 'REVENUE_ANALYTICS',
             },
         ],
     },

@@ -3,8 +3,9 @@ import {
     IntegrationConfigureProps,
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { urls } from 'scenes/urls'
+import { SourceConfig } from '~/queries/schema/schema-general'
 
-import { PipelineStage, SourceConfig } from '~/types'
+import { PipelineStage } from '~/types'
 
 export type DataWarehouseIntegrationChoice = IntegrationConfigureProps & {
     sourceConfig: SourceConfig
