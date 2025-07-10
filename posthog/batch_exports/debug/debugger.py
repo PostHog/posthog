@@ -28,7 +28,7 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     snowflake_default_fields,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
-    _get_s3_staging_folder,
+    get_s3_staging_folder,
 )
 from products.batch_exports.backend.temporal.spmc import (
     BatchExportField,
@@ -309,7 +309,7 @@ class BatchExportsDebugger:
     def iter_run_record_batches_from_s3(
         self, batch_export_run: BatchExportRun
     ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
-        folder = _get_s3_staging_folder(
+        folder = get_s3_staging_folder(
             batch_export_run.batch_export.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
             batch_export_run.data_interval_end.isoformat(),
