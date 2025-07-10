@@ -51,9 +51,9 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                 <th className="w-1/15 border-b-2 border-border-bold bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10">
                     {significanceHeader}
                 </th>
-                <th className="min-w-[400px] border-b-2 border-border-bold bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
+                <th className="min-w-[600px] border-b-2 border-border-bold bg-bg-table p-0 text-center text-xs font-semibold text-text-secondary sticky top-0 z-10">
                     {chartRadius && chartRadius > 0 ? (
-                        <div className="min-w-[780px]">
+                        <div className="min-w-[600px]">
                             <svg
                                 ref={ticksSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT + 10}`}
@@ -79,7 +79,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                         <div className="p-3">Chart</div>
                     )}
                 </th>
-                <th className="w-1/15 border-b-2 border-border-bold bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
+                <th className="w-1/30 border-b-2 border-border-bold bg-bg-table p-3 text-left text-xs font-semibold text-text-secondary sticky top-0 z-10" />
             </tr>
         </thead>
     )
