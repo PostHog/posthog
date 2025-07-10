@@ -21,6 +21,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     DashboardFilter,
     DatabaseSerializedFieldType,
+    ErrorTrackingExternalReference,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
     ExternalDataSourceType,
@@ -921,6 +922,10 @@ export class ApiRequest {
 
     public errorTrackingAssignIssue(into: ErrorTrackingIssue['id']): ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('assign')
+    }
+
+    public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('external_references')
     }
 
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
@@ -2569,6 +2574,16 @@ const api = {
 
         async deleteRule(ruleType: ErrorTrackingRuleType, id: ErrorTrackingRule['id']): Promise<void> {
             return await new ApiRequest().errorTrackingRule(ruleType, id).delete()
+        },
+
+        async createExternalReference(
+            issueId: string,
+            integrationId: number,
+            config: Record<string, string>
+        ): Promise<ErrorTrackingExternalReference> {
+            return await new ApiRequest()
+                .errorTrackingExternalReference()
+                .create({ data: { integration_id: integrationId, issue: issueId, config } })
         },
     },
 
