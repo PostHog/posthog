@@ -87,6 +87,7 @@ export enum NodeKind {
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
     LogsQuery = 'LogsQuery',
+    SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -2085,6 +2086,85 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     limit?: integer
     offset?: integer
     columns?: string[]
+}
+
+export interface SessionEventsItem {
+    /** Session ID these events belong to */
+    session_id: string
+    /** List of events for this session, each event is a list of field values matching the query columns */
+    events: [][]
+}
+
+export interface SessionBatchEventsQuery extends DataNode<SessionBatchEventsQueryResponse> {
+    kind: NodeKind.SessionBatchEventsQuery
+    /** Show events matching a given action */
+    actionId?: integer
+    /** Only fetch events that happened after this timestamp */
+    after?: string
+    /** Only fetch events that happened before this timestamp */
+    before?: string
+    /** Limit to events matching this string */
+    event?: string
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: (PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter)[]
+    /** Whether to group results by session_id in the response */
+    group_by_session?: boolean
+    /** Number of rows to return */
+    limit?: integer
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers
+    /** Number of rows to skip before returning rows */
+    offset?: integer
+    /** Columns to order by */
+    orderBy?: string[]
+    /** Show events for a given person */
+    personId?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    response?: SessionBatchEventsQueryResponse
+    /** Return a limited set of data. Required. */
+    select: string[]
+    /** List of session IDs to fetch events for. Will be translated to $session_id IN filter. */
+    session_ids: string[]
+    /** source for querying events for insights */
+    source?: InsightActorsQuery
+    tags?: QueryLogTags
+    /** version of the node, used for schema migrations */
+    version?: number
+    /** HogQL filters to apply on returned data */
+    where?: string[]
+}
+
+export interface SessionBatchEventsQueryResponse extends AnalyticsQueryResponseBase<any[]> {
+    columns: any[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string
+    hasMore?: boolean
+    /** Generated HogQL query. */
+    hogql: string
+    limit?: integer
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiers
+    offset?: integer
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
+    results: any[][]
+    /** Events grouped by session ID. Only populated when group_by_session=True. */
+    session_events?: SessionEventsItem[]
+    /** List of session IDs that had no matching events */
+    sessions_with_no_events?: string[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+    types: string[]
+}
+
+export type CachedSessionBatchEventsQueryResponse = CachedQueryResponse<SessionBatchEventsQueryResponse> & {
+    /** Events grouped by session ID. Only populated when group_by_session=True. */
+    session_events?: SessionEventsItem[]
+    /** List of session IDs that had no matching events */
+    sessions_with_no_events?: string[]
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
