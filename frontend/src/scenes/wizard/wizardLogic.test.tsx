@@ -83,7 +83,7 @@ describe('wizardLogic', () => {
             })
 
             logic.actions.setWizardHash(MOCK_HASH)
-            logic.actions.setSelectedProject(MOCK_DEFAULT_TEAM.id)
+            logic.actions.setSelectedProjectId(MOCK_DEFAULT_TEAM.id)
             logic.actions.continueToAuthentication()
 
             await expectLogic(logic).toFinishAllListeners()
@@ -103,7 +103,7 @@ describe('wizardLogic', () => {
             })
 
             logic.actions.setWizardHash(MOCK_HASH)
-            logic.actions.setSelectedProject(MOCK_DEFAULT_TEAM.id)
+            logic.actions.setSelectedProjectId(MOCK_DEFAULT_TEAM.id)
             logic.actions.continueToAuthentication()
 
             await expectLogic(logic).toFinishAllListeners()

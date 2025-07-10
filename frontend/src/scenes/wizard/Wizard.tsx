@@ -15,7 +15,7 @@ export const scene: SceneExport = {
 
 export function Wizard(): JSX.Element {
     const { view, selectedProjectId, availableProjects } = useValues(wizardLogic)
-    const { setSelectedProject, continueToAuthentication } = useActions(wizardLogic)
+    const { setSelectedProjectId, continueToAuthentication } = useActions(wizardLogic)
 
     return (
         <div className="flex h-full w-full items-center justify-center">
@@ -34,7 +34,7 @@ export function Wizard(): JSX.Element {
                                 <label className="align-start block text-sm font-medium mb-3">Project</label>
                                 <LemonSelect
                                     value={selectedProjectId ?? undefined}
-                                    onChange={(projectId: number) => setSelectedProject(projectId)}
+                                    onChange={(projectId: number) => setSelectedProjectId(projectId)}
                                     options={availableProjects}
                                     placeholder="Choose a project..."
                                     className="w-full"

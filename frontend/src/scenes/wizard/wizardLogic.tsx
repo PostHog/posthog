@@ -19,7 +19,7 @@ export const wizardLogic = kea<wizardLogicType>([
     actions({
         setWizardHash: (wizardHash: string | null) => ({ wizardHash }),
         setView: (view: 'project' | 'pending' | 'success' | 'invalid') => ({ view }),
-        setSelectedProject: (projectId: number | null) => ({ projectId }),
+        setSelectedProjectId: (projectId: number | null) => ({ projectId }),
         authenticateWizard: (wizardHash: string, projectId: number) => ({ wizardHash, projectId }),
         continueToAuthentication: () => ({}),
         handleWizardRouting: () => ({}),
@@ -62,7 +62,7 @@ export const wizardLogic = kea<wizardLogicType>([
         selectedProjectId: [
             null as number | null,
             {
-                setSelectedProject: (_, { projectId }) => projectId,
+                setSelectedProjectId: (_, { projectId }) => projectId,
             },
         ],
     }),
@@ -111,7 +111,7 @@ export const wizardLogic = kea<wizardLogicType>([
             // If we have a current project, auto-select it
             const currentProjectId = values.currentProject?.id
             if (currentProjectId) {
-                actions.setSelectedProject(currentProjectId)
+                actions.setSelectedProjectId(currentProjectId)
             }
 
             // If there's only one project, skip selection and authenticate
