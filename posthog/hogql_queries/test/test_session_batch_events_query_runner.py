@@ -158,6 +158,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)
             # Should track sessions with no events
+            assert response.sessions_with_no_events is not None
             self.assertEqual(set(response.sessions_with_no_events), {self.session_2_id, self.session_3_id})
             # The one session with events should be session_1
             self.assertEqual(response.session_events[0].session_id, self.session_1_id)
