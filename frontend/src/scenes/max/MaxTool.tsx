@@ -44,7 +44,7 @@ export function MaxTool({
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
 
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
+    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG') && active
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
@@ -66,11 +66,6 @@ export function MaxTool({
         registerTool,
         deregisterTool,
     ])
-
-    // If not active, just render children without MaxTool functionality
-    if (!active) {
-        return typeof Children === 'function' ? <Children toolAvailable={false} /> : Children
-    }
 
     let content: JSX.Element
     if (!isMaxAvailable) {
