@@ -150,6 +150,11 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             return
         }
 
+        if (source) {
+            target.width = source.clientWidth || source.width
+            target.height = source.clientHeight || source.height
+        }
+
         await canvasMutation({
             event: e,
             mutation: data,
@@ -166,6 +171,8 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             target.toBlob(
                 (blob) => {
                     if (blob) {
+                        img.style.width = 'initial'
+                        img.style.height = 'initial'
                         const url = URL.createObjectURL(blob)
                         // no longer need to read the blob so it's revoked
                         img.onload = () => URL.revokeObjectURL(url)
@@ -217,22 +224,11 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 
                 const canvasElement = node as HTMLCanvasElement
 
-                // Copy canvas attributes to wrapper div
-                if (canvasElement.id) {
-                    wrapper.id = canvasElement.id
+                // Copy all attributes from canvas to wrapper div
+                for (let i = 0; i < canvasElement.attributes.length; i++) {
+                    const attr = canvasElement.attributes[i]
+                    wrapper.setAttribute(attr.name, attr.value)
                 }
-                if (canvasElement.className) {
-                    wrapper.className = canvasElement.className
-                }
-
-                // Copy other potentially relevant attributes to wrapper
-                const attributesToCopy = ['data-testid', 'aria-label', 'title']
-                attributesToCopy.forEach((attr) => {
-                    const value = canvasElement.getAttribute(attr)
-                    if (value) {
-                        wrapper.setAttribute(attr, value)
-                    }
-                })
 
                 // Style the img to fill the wrapper
                 img.style.width = '100%'
