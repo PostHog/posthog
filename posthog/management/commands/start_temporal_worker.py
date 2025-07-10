@@ -2,6 +2,7 @@ import asyncio
 import datetime as dt
 import faulthandler
 import functools
+import logging
 import signal
 
 import structlog
@@ -173,17 +174,17 @@ class Command(BaseCommand):
             options["client_key"] = "--SECRET--"
 
         structlog.reset_defaults()
+        logging.basicConfig(level=settings.TEMPORAL_LOG_LEVEL)
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
 
         initialize_otel()
-
         metrics_port = int(options["metrics_port"])
 
-        shutdown_task = None
-
         tag_queries(kind="temporal")
+
+        shutdown_task = None
 
         def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
