@@ -23,8 +23,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
@@ -63,7 +61,6 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, showing, embedded }: EditorFiltersProps): JSX.Element | null {
     const { hasAvailableFeature } = useValues(userLogic)
-    const { activeScene } = useValues(sceneLogic)
 
     const { insightProps } = useValues(insightLogic)
     const {
@@ -88,8 +85,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         return null
     }
 
-    // Only show MaxTool when we're in the main InsightScene, not in notebook contexts
-    const shouldShowMaxTool = activeScene === Scene.Insight
+    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
+    const maxToolActive = !embedded
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -394,56 +391,36 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <>
-                {shouldShowMaxTool ? (
-                    <MaxTool
-                        name="create_and_query_insight"
-                        displayName="Edit insight"
-                        description="Max can tweak and rework the insight you're viewing"
-                        context={{
-                            current_query: querySource,
-                        }}
-                        callback={(
-                            toolOutput:
-                                | AssistantTrendsQuery
-                                | AssistantFunnelsQuery
-                                | AssistantRetentionQuery
-                                | AssistantHogQLQuery
-                        ) => {
-                            const source = castAssistantQuery(toolOutput)
-                            if (isHogQLQuery(source)) {
-                                const node = {
-                                    kind: NodeKind.DataVisualizationNode,
-                                    source,
-                                } satisfies DataVisualizationNode
-                                setQuery(node)
-                            } else {
-                                const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                                setQuery(node)
-                            }
-                        }}
-                        initialMaxPrompt="Show me users who "
-                        className="EditorFiltersWrapper"
-                    >
-                        <div
-                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                                'p-4 rounded border': !embedded,
-                            })}
-                        >
-                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
-                                    {editorFilterGroups.map((editorFilterGroup) => (
-                                        <EditorFilterGroup
-                                            key={editorFilterGroup.title}
-                                            editorFilterGroup={editorFilterGroup}
-                                            insightProps={insightProps}
-                                            query={query}
-                                        />
-                                    ))}
-                                </div>
-                            ))}
-                        </div>
-                    </MaxTool>
-                ) : (
+                <MaxTool
+                    name="create_and_query_insight"
+                    displayName="Edit insight"
+                    description="Max can tweak and rework the insight you're viewing"
+                    context={{
+                        current_query: querySource,
+                    }}
+                    callback={(
+                        toolOutput:
+                            | AssistantTrendsQuery
+                            | AssistantFunnelsQuery
+                            | AssistantRetentionQuery
+                            | AssistantHogQLQuery
+                    ) => {
+                        const source = castAssistantQuery(toolOutput)
+                        if (isHogQLQuery(source)) {
+                            const node = {
+                                kind: NodeKind.DataVisualizationNode,
+                                source,
+                            } satisfies DataVisualizationNode
+                            setQuery(node)
+                        } else {
+                            const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            setQuery(node)
+                        }
+                    }}
+                    initialMaxPrompt="Show me users who "
+                    className="EditorFiltersWrapper"
+                    active={maxToolActive}
+                >
                     <div
                         className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
                             'p-4 rounded border': !embedded,
@@ -462,7 +439,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             </div>
                         ))}
                     </div>
-                )}
+                </MaxTool>
 
                 {shouldShowSessionAnalysisWarning ? (
                     <LemonBanner type="info" className="mt-2">
