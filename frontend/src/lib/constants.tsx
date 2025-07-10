@@ -199,7 +199,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     MESSAGING: 'messaging', // owner @haven #team-messaging
     MESSAGING_EARLY_ACCESS: 'messaging-product', // owner @haven #team-messaging
-    ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen #team-platform
+    ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen #team-platform-features
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
     CUSTOM_CSS_THEMES: 'custom-css-themes', // owner: @daibhin
@@ -233,7 +233,6 @@ export const FEATURE_FLAGS = {
     REVENUE_ANALYTICS: 'revenue-analytics-beta', // owner: @rafaeelaudibert #team-revenue-analytics
     REVENUE_ANALYTICS_MRR: 'revenue-analytics-mrr', // owner: @rafaeelaudibert #team-revenue-analytics
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
-    AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
     CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @danielbachhuber #team-crm
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
@@ -286,6 +285,7 @@ export const FEATURE_FLAGS = {
     NEW_BAYESIAN_STATS_METHOD: 'new-bayesian-stats-method', // owner: @andehen #team-experiments
     AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
+    MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
