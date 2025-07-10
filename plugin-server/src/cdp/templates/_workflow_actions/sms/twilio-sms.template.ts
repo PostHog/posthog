@@ -23,18 +23,33 @@ if (not message) {
     throw Error('SMS message is required')
 }
 
+let encodedTo := encodeURLComponent(toNumber)
+let encodedFrom := encodeURLComponent(fromNumber)
+let encodedSmsBody := encodeURLComponent(message)
+let base64EncodedAuth := base64Encode(f'{twilioConfig.account_sid}:{twilioConfig.auth_token}')
+
+let url := f'https://api.twilio.com/2010-04-01/Accounts/{twilioConfig.account_sid}/Messages.json'
+let body := f'To={encodedTo}&From={encodedFrom}&Body={encodedSmsBody}'
+
 let payload := {
-    'To': toNumber,
-    'Body': message,
-    'From': fromNumber
+    'method': 'POST',
+    'headers': {
+        'Authorization': f'Basic {base64EncodedAuth}',
+        'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    'body': body
 }
 
 if (inputs.debug) {
-    print('Sending SMS', payload)
+    print('Sending SMS', url, payload)
 }
 
 // Use the Twilio config from the integration
-let res := sendTwilioSMS(twilioConfig, payload)
+let res := fetch(url, payload)
+
+if (res.status < 200 or res.status >= 300) {
+    throw Error(f'Failed to send SMS via Twilio: {res.status} {res.body}')
+}
 
 if (inputs.debug) {
     print('SMS sent', res)
