@@ -188,6 +188,7 @@ export enum AvailableFeature {
     ALERTS = 'alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
+    ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -409,6 +410,7 @@ export interface OrganizationBasicType {
     slug: string
     logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
+    members_can_use_personal_api_keys: boolean
 }
 
 interface OrganizationMetadata {
@@ -427,6 +429,7 @@ export interface OrganizationType extends OrganizationBasicType {
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
     members_can_invite?: boolean
+    members_can_use_personal_api_keys: boolean
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
