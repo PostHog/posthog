@@ -331,8 +331,8 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
-
             send_password_changed_email.delay(instance.id)
+
         report_user_updated(instance, updated_attrs)
 
         return instance
