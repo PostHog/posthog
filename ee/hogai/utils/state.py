@@ -59,6 +59,7 @@ def validate_state_update(state_update: dict[Any, Any]) -> AssistantState:
 
 
 GraphTaskStartedUpdateTuple = tuple[Literal["debug"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
+GraphTaskResultUpdateTuple = tuple[Literal["debug"], tuple[Union[AIMessageChunk, Any], LangGraphState]]
 
 
 def is_task_started_update(
@@ -68,3 +69,10 @@ def is_task_started_update(
     Streaming of messages.
     """
     return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
+
+
+def is_task_result_update(update: list[Any]) -> TypeGuard[GraphTaskResultUpdateTuple]:
+    """
+    Streaming of messages.
+    """
+    return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task_result"

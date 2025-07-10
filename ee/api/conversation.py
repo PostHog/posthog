@@ -20,6 +20,7 @@ from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
+from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.schema import HumanMessage
@@ -38,6 +39,7 @@ class MessageSerializer(serializers.Serializer):
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
     ui_context = serializers.JSONField(required=False)
     trace_id = serializers.UUIDField(required=True)
+    deep_research_mode = serializers.BooleanField(required=False, default=False)
 
     def validate(self, data):
         if data["content"] is not None:
@@ -70,7 +72,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return qs
 
         # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
+        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT, internal=False).order_by("-updated_at")
 
     def get_throttles(self):
         if (
@@ -106,6 +108,27 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             conversation = self.get_queryset().create(user=request.user, team=self.team)
         if conversation.is_locked:
             raise Conflict("Conversation is locked.")
+
+        is_deep_research_mode = serializer.validated_data.get("deep_research_mode", False)
+        if is_deep_research_mode and not conversation.notebook:
+            notebook = Notebook.objects.create(
+                team=self.team,
+                created_by=request.user,
+                title="New Deep Research Notebook",
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "heading",
+                            "attrs": {"level": 1},
+                            "content": [{"type": "text", "text": "New Deep Research Notebook"}],
+                        }
+                    ],
+                },
+            )
+            conversation.notebook = notebook
+            conversation.save()
+
         assistant = Assistant(
             self.team,
             conversation,
@@ -114,7 +137,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
-            mode=AssistantMode.ASSISTANT,
+            mode=AssistantMode.DEEP_RESEARCH if is_deep_research_mode else AssistantMode.ASSISTANT,
         )
 
         async def async_handler():

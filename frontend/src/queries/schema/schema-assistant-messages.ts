@@ -14,6 +14,7 @@ export enum AssistantMessageType {
     Reasoning = 'ai/reasoning',
     Visualization = 'ai/viz',
     Failure = 'ai/failure',
+    Notebook = 'ai/notebook',
 }
 
 export interface BaseAssistantMessage {
@@ -72,6 +73,11 @@ export interface VisualizationMessage extends BaseAssistantMessage {
     initiator?: string
 }
 
+export interface NotebookUpdateMessage extends BaseAssistantMessage {
+    type: AssistantMessageType.Notebook
+    notebook_id: string
+}
+
 export interface FailureMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Failure
     content?: string
@@ -83,12 +89,14 @@ export type RootAssistantMessage =
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | NotebookUpdateMessage
     | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
     Status = 'status',
     Message = 'message',
     Conversation = 'conversation',
+    Notebook = 'notebook',
 }
 
 export enum AssistantGenerationStatusType {

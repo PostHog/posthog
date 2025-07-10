@@ -8,6 +8,7 @@ import {
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    NotebookUpdateMessage,
     ReasoningMessage,
     RootAssistantMessage,
     VisualizationMessage,
@@ -45,6 +46,12 @@ export function isAssistantToolCallMessage(
     message: RootAssistantMessage | undefined | null
 ): message is AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>> {
     return message?.type === AssistantMessageType.ToolCall && message.ui_payload !== undefined
+}
+
+export function isNotebookUpdateMessage(
+    message: RootAssistantMessage | undefined | null
+): message is NotebookUpdateMessage {
+    return message?.type === AssistantMessageType.Notebook
 }
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
