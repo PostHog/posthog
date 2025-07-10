@@ -50,7 +50,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                     footer={
                                         editAreaProps.footer || (
                                             <div className="text-secondary inline-flex items-center gap-x-1 text-sm">
-                                                <IconMarkdown className="text-md" />
+                                                <IconMarkdown className="text-lg" />
                                                 <span>Markdown formatting support</span>
                                             </div>
                                         )
