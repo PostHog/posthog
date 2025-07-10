@@ -15,6 +15,7 @@ import { Seekbar } from './Seekbar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -75,18 +76,21 @@ function CinemaMode(): JSX.Element {
     }
 
     return (
-        <LemonButton
-            size="xsmall"
-            onClick={handleCinemaMode}
-            tooltip={
-                <>
-                    <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
-                </>
-            }
-            status={isZenMode ? 'danger' : 'default'}
-            icon={<IconVideoCamera className="text-2xl" />}
-            data-attr={isZenMode ? 'exit-zen-mode' : 'zen-mode'}
-        />
+        <>
+            {isZenMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
+            <LemonButton
+                size="xsmall"
+                onClick={handleCinemaMode}
+                tooltip={
+                    <>
+                        <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
+                    </>
+                }
+                status={isZenMode ? 'danger' : 'default'}
+                icon={<IconVideoCamera className="text-2xl" />}
+                data-attr={isZenMode ? 'exit-zen-mode' : 'zen-mode'}
+            />
+        </>
     )
 }
 
