@@ -329,10 +329,17 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         )
 
         if self.query.dynamicConversionGoal:
-            conversion_goals = (
-                convert_team_conversion_goals_to_objects([self.query.dynamicConversionGoal], self.team.pk)
-                + conversion_goals
-            )
+            # If dynamicConversionGoal is already a validated ConversionGoalFilter object,
+            # use it directly. Otherwise, convert it from dict format.
+            if isinstance(
+                self.query.dynamicConversionGoal, ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
+            ):
+                conversion_goals = [self.query.dynamicConversionGoal, *conversion_goals]
+            else:
+                conversion_goals = (
+                    convert_team_conversion_goals_to_objects([self.query.dynamicConversionGoal], self.team.pk)
+                    + conversion_goals
+                )
         return conversion_goals
 
     def _get_where_conditions(
