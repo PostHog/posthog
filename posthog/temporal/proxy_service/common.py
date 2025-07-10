@@ -85,9 +85,6 @@ class UpdateProxyRecordInputs:
 
 @activity.defn
 async def activity_update_proxy_record(inputs: UpdateProxyRecordInputs):
-    """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
-    record matching the expected value.
-    """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
         "Updating proxy record %s state to %s with message %s",

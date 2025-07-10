@@ -54,9 +54,6 @@ class DeleteManagedProxyInputs:
 
 @activity.defn
 async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
-    """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
-    record matching the expected value.
-    """
     logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
     logger.info(
         "Deleting proxy record %s",
