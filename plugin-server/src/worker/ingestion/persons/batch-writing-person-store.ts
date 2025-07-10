@@ -763,8 +763,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             // Get minimum of existing and new created_at
             if (update.created_at) {
                 if (personUpdate.created_at) {
-                    otherUpdates.created_at = 
-                        personUpdate.created_at.isBefore(update.created_at) ? personUpdate.created_at : update.created_at
+                    otherUpdates.created_at =
+                        personUpdate.created_at < update.created_at ? personUpdate.created_at : update.created_at
                 } else {
                     otherUpdates.created_at = update.created_at
                 }
