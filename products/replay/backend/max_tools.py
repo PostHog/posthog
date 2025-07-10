@@ -2,11 +2,7 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.graph.filter_options.graph import FilterOptionsGraph
-from typing import Any
 from posthog.schema import MaxRecordingUniversalFilters
-from langgraph.config import get_stream_writer
-from ee.hogai.utils.types import AssistantState
-from collections.abc import AsyncIterator
 
 # Import the prompts you want to pass to the graph
 from .prompts import (
@@ -33,9 +29,6 @@ class SearchSessionRecordingsTool(MaxTool):
         if "current_filters" not in self.context:
             raise ValueError("Context `current_filters` is required for the `search_session_recordings` tool")
 
-        if not self._team or not self._user:
-            raise ValueError("Team and User are required for the `search_session_recordings` tool")
-
         # Create graph with injected prompts
         injected_prompts = {
             "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
@@ -54,23 +47,10 @@ class SearchSessionRecordingsTool(MaxTool):
             **self.context,
         }
 
-        writer = get_stream_writer()
+        result = await graph.ainvoke(graph_input)
 
-        generator: AsyncIterator[Any] = graph.astream(
-            graph_input, config=self._config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
-        )
-
-        async for chunk in generator:
-            writer(chunk)
-
-        snapshot = await graph.aget_state(self._config)
-
-        # Get the final state after streaming
-        state = AssistantState.model_validate(snapshot.values)
-
-        # Check if this is a help request (filter_options_dict is None but has messages)
-        if not state.generated_filter_options and state.messages:
-            last_message = state.messages[-1]
+        if "generated_filter_options" not in result and "messages" in result:
+            last_message = result["messages"][-1]
             help_content = "I need more information to proceed."
             tool_call_id = getattr(last_message, "tool_call_id", None)
             content = getattr(last_message, "content", None)
@@ -82,11 +62,11 @@ class SearchSessionRecordingsTool(MaxTool):
             return help_content, current_filters
 
         # Convert to the expected type
-        if not state.generated_filter_options:
+        if "generated_filter_options" not in result:
             raise ValueError("No filter options were generated.")
 
         try:
-            result = MaxRecordingUniversalFilters.model_validate(state.generated_filter_options["data"])
+            result = MaxRecordingUniversalFilters.model_validate(result["generated_filter_options"]["data"])
         except Exception as e:
             raise ValueError(f"Failed to convert filter options to MaxRecordingUniversalFilters: {e}")
 

@@ -66,12 +66,13 @@ TOOL_USAGE_PROMPT = """
 
 4. **Entity Inference**: If user mentions a property, determine which entity/group it belongs to first.
 
-5. **Value Handling**: If found values aren't relevant, use the user's original value from their query.
+5. **Value Handling**: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
-Example: If user mentions "account property 'team size'":
+
+Example: If user mentions "account property 'team size' bigger than 10":
 1. Infer the entity type and the property name from the user's question. In this case the entity type is "account".
 2. Use the `retrieve_entity_properties` with the infered entity type to get possible values for the property similar to "team size. If you cannot find any properties similar to team size then retry with a different entity type.
-3. After you find the property, use the tool `retrieve_entity_property_values` to get possible values of this property.
+3. After you find the property, use the tool `retrieve_entity_property_values` to get possible values of this property. If no values are found then use the user's original value from their query, in this case "10".
 3. If you could generate a filter then use the `final_answer` tool. ONLY USE `final_answer` if you have all the information you need to build the filter, if you don't have all the information you need then use the `ask_user_for_help` tool to clarify.
 </tool_usage_rules>
 """.strip()
