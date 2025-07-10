@@ -168,23 +168,6 @@ class LLMProxyViewSet(viewsets.ViewSet):
                     ),
                     request,
                 )
-            elif mode == "fim" and hasattr(provider, "stream_fim_response"):
-                stream = self._create_stream_generator(
-                    provider.stream_fim_response(
-                        **{
-                            "prompt": serializer.validated_data.get("prompt"),
-                            "suffix": serializer.validated_data.get("suffix"),
-                            "stop": serializer.validated_data.get("stop"),
-                            "temperature": serializer.validated_data.get("temperature"),
-                            "max_tokens": serializer.validated_data.get("max_tokens"),
-                            "distinct_id": distinct_id,
-                            "trace_id": trace_id,
-                            "properties": properties,
-                            "groups": groups,
-                        }
-                    ),
-                    request,
-                )
             else:
                 raise ValueError(f"Invalid mode: {mode} for provider: {provider}")
 

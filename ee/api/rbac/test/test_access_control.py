@@ -10,6 +10,9 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.personal_api_key import hash_key_value, PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal
+from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
 
 
@@ -162,6 +165,325 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control(notebook_id=self.notebook.short_id)
         assert res.status_code == status.HTTP_200_OK, res.json()
+
+
+class TestUsersWithAccessAPI(BaseAccessControlTest):
+    """Test the new users_with_access endpoint"""
+
+    def setUp(self):
+        super().setUp()
+
+        # Create additional users for testing
+        self.user2 = self._create_user("user2@example.com")
+        self.user3 = self._create_user("user3@example.com")
+        self.user4 = self._create_user("user4@example.com")
+
+        # Create a notebook for testing
+        self.notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="0", title="test notebook"
+        )
+
+        # Create a role for testing
+        self.role = Role.objects.create(name="Test Role", organization=self.organization)
+
+    def _get_users_with_access(self, notebook_id=None):
+        return self.client.get(
+            f"/api/projects/@current/notebooks/{notebook_id or self.notebook.short_id}/users_with_access"
+        )
+
+    def _put_notebook_access_control(self, notebook_id: str, data=None):
+        payload = {
+            "access_level": "editor",
+        }
+        if data:
+            payload.update(data)
+        return self.client.put(
+            f"/api/projects/@current/notebooks/{notebook_id}/access_controls",
+            payload,
+        )
+
+    def test_default_access_includes_all_org_members(self):
+        """Test that by default all organization members have access"""
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        assert data["total_count"] == 4  # user, user2, user3, user4
+        assert len(data["users"]) == 4
+        # Check that all users are included with default access
+        user_ids = [user["user_id"] for user in data["users"]]
+        assert str(self.user.uuid) in user_ids
+        assert str(self.user2.uuid) in user_ids
+        assert str(self.user3.uuid) in user_ids
+        assert str(self.user4.uuid) in user_ids
+
+        # Check that creator has highest access level
+        creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
+        assert creator_user["access_level"] == "editor"
+        assert creator_user["access_source"] == AccessSource.CREATOR.value
+
+    def test_org_admin_has_highest_access(self):
+        """Test that org admins get highest access level"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Create a notebook by another user so we can test org admin access
+        other_notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user2, short_id="2", title="other notebook"
+        )
+
+        res = self.client.get(f"/api/projects/@current/notebooks/{other_notebook.short_id}/users_with_access")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        admin_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
+        assert admin_user["access_level"] == "editor"
+        assert admin_user["access_source"] == AccessSource.ORGANIZATION_ADMIN.value
+
+    def test_explicit_access_control_shows_correct_source(self):
+        """Test that explicit access controls are properly identified"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Give user2 explicit access
+        res = self._put_notebook_access_control(
+            self.notebook.short_id,
+            {
+                "organization_member": str(self.user2.organization_memberships.get(organization=self.organization).id),
+                "access_level": "viewer",
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        user2_data = next(user for user in data["users"] if user["user_id"] == str(self.user2.uuid))
+        assert user2_data["access_level"] == "viewer"
+        assert user2_data["access_source"] == AccessSource.EXPLICIT_MEMBER.value
+
+    def test_role_based_access_shows_correct_source(self):
+        """Test that role-based access is properly identified"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Add user2 to role
+        RoleMembership.objects.create(
+            user=self.user2,
+            role=self.role,
+            organization_member=self.user2.organization_memberships.get(organization=self.organization),
+        )
+
+        # Give role access to notebook
+        res = self._put_notebook_access_control(
+            self.notebook.short_id, {"role": str(self.role.id), "access_level": "viewer"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        user2_data = next(user for user in data["users"] if user["user_id"] == str(self.user2.uuid))
+        assert user2_data["access_level"] == "viewer"
+        assert user2_data["access_source"] == AccessSource.EXPLICIT_ROLE.value
+
+    def test_project_level_access_shows_correct_source(self):
+        """Test that project-level access is properly identified"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Give user2 project-level access
+        res = self._put_project_access_control(
+            {
+                "organization_member": str(self.user2.organization_memberships.get(organization=self.organization).id),
+                "access_level": "admin",
+            }
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        user2_data = next(user for user in data["users"] if user["user_id"] == str(self.user2.uuid))
+        assert user2_data["access_level"] == "editor"
+        assert user2_data["access_source"] == AccessSource.PROJECT_ADMIN.value
+
+    def test_no_access_users_excluded(self):
+        """Test that users with no access are excluded"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Set notebook to no access by default
+        res = self._put_notebook_access_control(self.notebook.short_id, {"access_level": "none"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        # Only creator should have access (others have "none" access level)
+        assert data["total_count"] == 4  # All users are included, but with "none" access
+        creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
+        assert creator_user["access_level"] == "editor"
+        assert creator_user["access_source"] == AccessSource.CREATOR.value
+
+        # Other users should have "none" access level
+        other_users = [user for user in data["users"] if user["user_id"] != str(self.user.uuid)]
+        for user in other_users:
+            assert user["access_level"] == "none"
+
+    def test_access_level_prioritization(self):
+        """Test that higher access levels take precedence"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Give user2 explicit viewer access
+        res = self._put_notebook_access_control(
+            self.notebook.short_id,
+            {
+                "organization_member": str(self.user2.organization_memberships.get(organization=self.organization).id),
+                "access_level": "viewer",
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Make user2 org admin (should override explicit access)
+        user2_membership = self.user2.organization_memberships.get(organization=self.organization)
+        user2_membership.level = OrganizationMembership.Level.ADMIN
+        user2_membership.save()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        user2_data = next(user for user in data["users"] if user["user_id"] == str(self.user2.uuid))
+        assert user2_data["access_level"] == "editor"
+        assert user2_data["access_source"] == AccessSource.ORGANIZATION_ADMIN.value
+
+    def test_users_sorted_by_access_level_then_email(self):
+        """Test that users are sorted by access level (highest first) then by email"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Give different access levels to different users
+        res = self._put_notebook_access_control(
+            self.notebook.short_id,
+            {
+                "organization_member": str(self.user2.organization_memberships.get(organization=self.organization).id),
+                "access_level": "viewer",
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._put_notebook_access_control(
+            self.notebook.short_id,
+            {
+                "organization_member": str(self.user3.organization_memberships.get(organization=self.organization).id),
+                "access_level": "editor",
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        # Should be sorted: editor (creator), editor (user3), viewer (user2), editor (user4 default)
+        assert data["users"][0]["access_level"] == "editor"  # creator
+        assert data["users"][1]["access_level"] == "editor"  # user3
+        assert data["users"][2]["access_level"] == "editor"  # user4 (default)
+        assert data["users"][3]["access_level"] == "viewer"  # user2
+
+    def test_endpoint_requires_permission(self):
+        """Test that the endpoint requires appropriate permissions"""
+        # Set project-level access to "none" as admin first
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self._put_project_access_control({"access_level": "none"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        # Switch to member level
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # Try to access another user's notebook
+        other_notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user2, short_id="1", title="other notebook"
+        )
+
+        res = self._get_users_with_access(other_notebook.short_id)
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_endpoint_returns_correct_user_data(self):
+        """Test that the endpoint returns all required user data fields"""
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        user_data = data["users"][0]  # First user
+
+        # Check all required fields are present
+        assert "user_id" in user_data
+        assert "access_level" in user_data
+        assert "access_source" in user_data
+        assert "organization_membership_id" in user_data
+        assert "organization_membership_level" in user_data
+
+        # Check data types
+        assert isinstance(user_data["user_id"], str)
+        assert isinstance(user_data["access_level"], str)
+        assert isinstance(user_data["access_source"], str)
+
+    def test_endpoint_works_with_different_resource_types(self):
+        """Test that the endpoint works with different resource types (notebooks, dashboards, etc.)"""
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # Test with dashboard
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="test dashboard")
+
+        res = self.client.get(f"/api/projects/@current/dashboards/{dashboard.id}/users_with_access")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        assert data["total_count"] >= 1
+        assert any(user["user_id"] == str(self.user.uuid) for user in data["users"])
+
+    def test_endpoint_handles_empty_organization(self):
+        """Test that the endpoint handles organizations with no members gracefully"""
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        # Remove all other users from organization
+        OrganizationMembership.objects.filter(organization=self.organization).exclude(user=self.user).delete()
+
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        assert data["total_count"] == 1
+        assert data["users"][0]["user_id"] == str(self.user.uuid)
+
+    def test_only_active_users_included(self):
+        """Test that only active users are included in the users_with_access endpoint"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Create an inactive user and add them to the organization
+        inactive_user = self._create_user("inactive_user@example.com")
+        inactive_user.is_active = False
+        inactive_user.save()
+
+        # Get users with access
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        user_ids = [user["user_id"] for user in data["users"]]
+
+        # Verify inactive user is not included
+        assert str(inactive_user.uuid) not in user_ids
+
+        # Verify active users are still included
+        assert str(self.user.uuid) in user_ids
+        assert str(self.user2.uuid) in user_ids
+        assert str(self.user3.uuid) in user_ids
+        assert str(self.user4.uuid) in user_ids
 
 
 class TestGlobalAccessControlsPermissions(BaseAccessControlTest):
@@ -602,3 +924,124 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
 
 
 # TODO: Add tests to check that a dashboard can't be edited if the user doesn't have access
+
+
+class TestAccessControlScopeRequirements(BaseAccessControlTest):
+    """
+    Test that access control endpoints require the correct scopes
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+    def test_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to access_controls endpoint require access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_global_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to global_access_controls endpoint require access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get(
+            "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to access_controls endpoint succeed with access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
+        )
+
+        response = self.client.get("/api/projects/@current/access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_global_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to global_access_controls endpoint succeed with access_control:read scope"""
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
+        )
+
+        response = self.client.get(
+            "/api/projects/@current/global_access_controls", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_notebook_access_controls_get_requires_access_control_read_scope(self):
+        """Test that GET requests to notebook access_controls endpoint require access_control:read scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["project:read"],  # Only project:read, no access_control:read
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "access_control:read" in response.json()["detail"]
+
+    def test_notebook_access_controls_get_succeeds_with_access_control_read_scope(self):
+        """Test that GET requests to notebook access_controls endpoint succeed with access_control:read scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="test_key", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
+        )
+
+        response = self.client.get(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_notebook_access_controls_put_fails_with_only_read_scope(self):
+        """Test that PUT requests to notebook access_controls endpoint fail with only access_control:read scope"""
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, short_id="test-scope", title="test notebook"
+        )
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test_key",
+            secure_value=hash_key_value(key_value),
+            scopes=["access_control:read"],  # Only read scope, no write permissions
+        )
+
+        response = self.client.put(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            {"organization_member": str(self.organization_membership.id), "access_level": "viewer"},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN

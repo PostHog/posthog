@@ -42,6 +42,7 @@ from posthog.schema import (
 )
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -301,12 +302,15 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATA_WAREHOUSE_REDIS_HOST="localhost",
+            DATA_WAREHOUSE_REDIS_PORT="6379",
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -2101,7 +2105,11 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     mock_finish_row_tracking.assert_called_once()
 
     assert schema_id is not None
-    row_count_in_redis = get_rows(team.id, schema_id)
+    with override_settings(
+        DATA_WAREHOUSE_REDIS_HOST="localhost",
+        DATA_WAREHOUSE_REDIS_PORT="6379",
+    ):
+        row_count_in_redis = get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 

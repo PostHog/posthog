@@ -115,9 +115,3 @@ pub struct FeatureFlagRow {
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
 }
-
-impl FeatureFlagList {
-    pub fn new(flags: Vec<FeatureFlag>) -> Self {
-        Self { flags }
-    }
-}

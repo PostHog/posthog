@@ -61,7 +61,24 @@ def get_schemas(config: PostgreSQLSourceConfig) -> dict[str, list[tuple[str, str
 
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                """
+                SELECT * FROM (
+                    SELECT table_name, column_name, data_type FROM information_schema.columns
+                    WHERE table_schema = %(schema)s
+                    UNION ALL
+                    SELECT
+                        c.relname AS table_name,
+                        a.attname AS column_name,
+                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+                    FROM pg_class c
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    JOIN pg_attribute a ON a.attrelid = c.oid
+                    WHERE c.relkind = 'm'  -- materialized view
+                    AND n.nspname = %(schema)s
+                    AND a.attnum > 0
+                    AND NOT a.attisdropped
+                ) t
+                ORDER BY table_name ASC""",
                 {"schema": config.schema},
             )
             result = cursor.fetchall()
@@ -390,18 +407,55 @@ class PostgreSQLColumn(Column):
 
 
 def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
-    query = sql.SQL("""
-        SELECT
-            column_name,
-            data_type,
-            is_nullable,
-            numeric_precision,
-            numeric_scale
-        FROM
-            information_schema.columns
-        WHERE
-            table_schema = {schema}
-            AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    is_mat_view_query = sql.SQL(
+        "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
+    ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    is_mat_view_res = cursor.execute(is_mat_view_query).fetchone()
+
+    if is_mat_view_res is not None and is_mat_view_res[0] is True:
+        # Table is a materialised view, column info doesn't exist in information_schema.columns
+        query = sql.SQL("""
+            SELECT
+                a.attname AS column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                NOT a.attnotnull AS is_nullable,
+                CASE
+                    WHEN t.typcategory = 'N' THEN
+                        CASE
+                            WHEN a.atttypmod = -1 THEN NULL
+                            ELSE ((a.atttypmod - 4) >> 16) & 65535
+                        END
+                    ELSE NULL
+                END AS numeric_precision,
+                CASE
+                    WHEN t.typcategory = 'N' THEN
+                        CASE
+                            WHEN a.atttypmod = -1 THEN NULL
+                            ELSE (a.atttypmod - 4) & 65535
+                        END
+                    ELSE NULL
+                END AS numeric_scale
+            FROM pg_attribute a
+            JOIN pg_class c ON a.attrelid = c.oid
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            JOIN pg_type t ON a.atttypid = t.oid
+            WHERE c.relname = {table}
+            AND n.nspname = {schema}
+            AND a.attnum > 0
+            AND NOT a.attisdropped""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    else:
+        query = sql.SQL("""
+            SELECT
+                column_name,
+                data_type,
+                is_nullable,
+                numeric_precision,
+                numeric_scale
+            FROM
+                information_schema.columns
+            WHERE
+                table_schema = {schema}
+                AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
     cursor.execute(query)
 
