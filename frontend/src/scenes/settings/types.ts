@@ -52,6 +52,7 @@ export type SettingSectionId =
     | 'user-notifications'
     | 'user-customization'
     | 'user-danger-zone'
+    | 'user-feature-previews'
 
 export type SettingId =
     | 'replay-triggers'
@@ -112,6 +113,7 @@ export type SettingId =
     | '2fa'
     | 'personal-api-keys'
     | 'notifications'
+    | 'feature-previews'
     | 'optout'
     | 'theme'
     | 'replay-ai-config'

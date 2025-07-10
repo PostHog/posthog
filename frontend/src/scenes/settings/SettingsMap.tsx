@@ -89,6 +89,7 @@ import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
+import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -738,6 +739,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'personal-api-keys',
                 title: 'Personal API keys',
                 component: <PersonalAPIKeys />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-feature-previews',
+        title: 'Feature previews',
+        settings: [
+            {
+                id: 'feature-previews',
+                title: 'Feature previews',
+                component: <FeaturePreviewsSettings />,
             },
         ],
     },

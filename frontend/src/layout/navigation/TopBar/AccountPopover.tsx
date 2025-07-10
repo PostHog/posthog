@@ -29,12 +29,12 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { getTreeItemsGames } from '~/products'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
@@ -217,13 +217,12 @@ function DjangoAdmin(): JSX.Element {
 
 function FeaturePreviewsButton(): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                openSidePanel(SidePanelTab.FeaturePreviews)
+                router.actions.push(urls.settings('user-feature-previews'))
             }}
             icon={<IconFeatures />}
             fullWidth
