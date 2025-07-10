@@ -666,10 +666,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
         handleSelectUnselectAll: ({ checked }: { checked: boolean }) => {
             if (checked) {
-                if (values.sessionRecordings.length > MAX_SELECTED_RECORDINGS) {
-                    lemonToast.error(`Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`)
-                    return
-                }
                 actions.setSelectedRecordingsIds(values.sessionRecordings.map((s) => s.id))
             } else {
                 actions.setSelectedRecordingsIds([])

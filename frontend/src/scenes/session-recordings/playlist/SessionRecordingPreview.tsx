@@ -27,7 +27,6 @@ import {
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
@@ -235,16 +234,15 @@ export function SessionRecordingPreview({
                     checked={selectedRecordingsIds.some((s) => s === recording.id)}
                     dataAttr="select-recording"
                     aria-label="Select recording"
+                    disabledReason={
+                        selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
+                            ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                            : undefined
+                    }
                     onChange={() => {
                         if (selectedRecordingsIds.some((r) => r === recording.id)) {
                             setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
                         } else {
-                            if (selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS) {
-                                lemonToast.error(
-                                    `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                                )
-                                return
-                            }
                             setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
                         }
                     }}

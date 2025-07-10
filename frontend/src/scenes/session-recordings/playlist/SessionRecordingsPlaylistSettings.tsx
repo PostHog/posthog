@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { RecordingUniversalFilters } from '~/types'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { MAX_SELECTED_RECORDINGS, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { ReplayTabs } from '~/types'
 import { LemonBadge, LemonCheckbox } from '@posthog/lemon-ui'
@@ -127,6 +127,11 @@ export function SessionRecordingsPlaylistTopSettings({
         <SettingsBar border="none" className="justify-between">
             <div className="flex items-center">
                 <LemonCheckbox
+                    disabledReason={
+                        sessionRecordings.length >= MAX_SELECTED_RECORDINGS
+                            ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                            : undefined
+                    }
                     checked={sessionRecordings.length > 0 && selectedRecordingsIds.length === sessionRecordings.length}
                     onChange={(checked) => handleSelectUnselectAll(checked)}
                     stopPropagation
