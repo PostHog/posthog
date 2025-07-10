@@ -175,19 +175,21 @@ export function HogFunctionConfiguration({
                     Clear changes
                 </LemonButton>
             ) : null}
-            <LemonButton
-                type="primary"
-                htmlType="submit"
-                onClick={submitConfiguration}
-                loading={isConfigurationSubmitting}
-            >
-                {templateId ? 'Create' : 'Save'}
-                {willReEnableOnSave
-                    ? ' & re-enable'
-                    : willChangeEnabledOnSave
-                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                    : ''}
-            </LemonButton>
+            {templateId !== 'native-dev-center' ? (
+                <LemonButton
+                    type="primary"
+                    htmlType="submit"
+                    onClick={submitConfiguration}
+                    loading={isConfigurationSubmitting}
+                >
+                    {templateId ? 'Create' : 'Save'}
+                    {willReEnableOnSave
+                        ? ' & re-enable'
+                        : willChangeEnabledOnSave
+                        ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                        : ''}
+                </LemonButton>
+            ) : null}
         </>
     )
 

@@ -1,6 +1,7 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
+import { template as devCenterTemplate } from './_destinations/dev-center/dev-center.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as nativeWebhookTemplate } from './_destinations/native-webhook/webhook.template'
@@ -48,36 +49,38 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
-export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [posthogTemplate, nativeWebhookTemplate].map((plugin) => ({
-    ...plugin,
-    hog: 'return event;',
-    inputs_schema: [
-        ...plugin.inputs_schema,
-        {
-            key: 'debug_mode',
-            label: 'Debug Mode',
-            type: 'boolean',
-            description: 'Will log configuration and request details',
-            default: false,
-        },
-    ],
-    mapping_templates: plugin.mapping_templates.map((mapping) => ({
-        ...mapping,
+export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [posthogTemplate, nativeWebhookTemplate, devCenterTemplate].map(
+    (plugin) => ({
+        ...plugin,
+        hog: 'return event;',
         inputs_schema: [
-            ...(mapping.inputs_schema || []),
+            ...plugin.inputs_schema,
             {
-                key: 'internal_associated_mapping',
-                label: 'Associated Mapping',
-                hidden: true,
-                type: 'string',
-                default: mapping.associated_action,
-                description: 'The associated mapping to use',
-                required: true,
-                secret: false,
+                key: 'debug_mode',
+                label: 'Debug Mode',
+                type: 'boolean',
+                description: 'Will log configuration and request details',
+                default: false,
             },
         ],
-    })),
-}))
+        mapping_templates: plugin.mapping_templates.map((mapping) => ({
+            ...mapping,
+            inputs_schema: [
+                ...(mapping.inputs_schema || []),
+                {
+                    key: 'internal_associated_mapping',
+                    label: 'Associated Mapping',
+                    hidden: true,
+                    type: 'string',
+                    default: mapping.associated_action,
+                    description: 'The associated mapping to use',
+                    required: true,
+                    secret: false,
+                },
+            ],
+        })),
+    })
+)
 
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 

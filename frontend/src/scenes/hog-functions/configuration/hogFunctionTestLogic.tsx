@@ -327,11 +327,23 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         : parsedData
 
                 try {
-                    const res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
-                        globals,
-                        mock_async_functions: data.mock_async_functions,
-                        configuration,
-                    })
+                    let res: CyclotronJobTestInvocationResult | null = null
+                    if (props.templateId === 'native-dev-center') {
+                        const response = await fetch('http://localhost:4321/local-hog-function/invoke', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ globals, configuration }),
+                        })
+                        res = (await response.json()) as CyclotronJobTestInvocationResult
+                    } else {
+                        res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
+                            globals,
+                            mock_async_functions: data.mock_async_functions,
+                            configuration,
+                        })
+                    }
 
                     // Modify the result to match better our globals format
                     if (values.type === 'transformation' && res.result) {
