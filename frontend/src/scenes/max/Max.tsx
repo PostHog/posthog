@@ -10,7 +10,7 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -236,7 +236,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 hideIcon={false}
                                 onClose={() => setWasUserAutoEnrolled(false)}
                             >
-                                PostHog AI feature preview{' '}
+                                PostHog AI feature preview{' '}
                                 <Link to={urls.settings('user-feature-previews')}>activated</Link>!
                             </LemonBanner>
                         )}
