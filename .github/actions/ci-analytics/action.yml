@@ -10,6 +10,7 @@ runs:
         # 10% sampling - to avoid us hitting GitHub API limits
         - name: Check if should run analytics
           id: should-run
+          continue-on-error: true
           run: |
               # Generate random number 0-99, run if < 10
               random_num=$((RANDOM % 100))
@@ -23,6 +24,7 @@ runs:
           shell: bash
         - uses: actions/github-script@v6
           if: steps.should-run.outputs.run_analytics == 'true'
+          continue-on-error: true
           with:
               script: |
                   const gh = github                    
