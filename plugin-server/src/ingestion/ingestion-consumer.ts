@@ -38,6 +38,7 @@ import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-b
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { deduplicateEvents } from './deduplication/events'
 import { createDeduplicationRedis, DeduplicationRedis } from './deduplication/redis-client'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -272,7 +273,7 @@ export class IngestionConsumer {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
         // Fire-and-forget deduplication call
-        void this.promiseScheduler.schedule(this.deduplicateEvents(parsedMessages))
+        void this.promiseScheduler.schedule(deduplicateEvents(this.deduplicationRedis, parsedMessages))
 
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
             return this.resolveTeams(parsedMessages)
@@ -423,31 +424,6 @@ export class IngestionConsumer {
                 await this.hogTransformer.fetchAndCacheHogFunctionStates(allHogFunctionIds)
             }
         })
-    }
-
-    private async deduplicateEvents(messages: IncomingEvent[]): Promise<void> {
-        try {
-            if (!messages.length) {
-                return
-            }
-
-            // Extract event UUIDs for deduplication
-            const eventIds = messages
-                .map(({ event }) => event.uuid)
-                .filter((uuid): uuid is string => typeof uuid === 'string')
-
-            if (!eventIds.length) {
-                return
-            }
-
-            // Perform fire-and-forget deduplication
-            await this.deduplicationRedis.deduplicate({
-                keys: eventIds,
-            })
-        } catch (error) {
-            // Log error but don't fail the batch processing
-            logger.warn('Failed to deduplicate events', { error, eventsCount: messages.length })
-        }
     }
 
     private async processEventsForDistinctId(

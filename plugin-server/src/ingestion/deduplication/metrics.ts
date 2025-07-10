@@ -33,7 +33,13 @@ export const deduplicationOperationDurationMs = new Summary({
 export const deduplicationBatchSize = new Histogram({
     name: 'deduplication_batch_size',
     help: 'Distribution of deduplication batch sizes',
-    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000],
+})
+
+export const deduplicationOperationOutcomesCounter = new Counter({
+    name: 'deduplication_operation_outcomes_total',
+    help: 'Total number of deduplication operation outcomes',
+    labelNames: ['operation', 'outcome'],
 })
 
 export function recordDeduplicationOperation(
@@ -59,5 +65,11 @@ export function recordDeduplicationOperation(
         // Record events processed and duplicates found
         eventsProcessedTotal.inc({ operation }, processed)
         duplicatesDetectedTotal.inc({ operation }, duplicateCount)
+
+        deduplicationOperationOutcomesCounter.inc({ operation, outcome: 'success' })
+    } else if (outcome === 'error') {
+        deduplicationOperationOutcomesCounter.inc({ operation, outcome })
+    } else if (outcome === 'disabled') {
+        deduplicationOperationOutcomesCounter.inc({ operation, outcome })
     }
 }

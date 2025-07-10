@@ -206,6 +206,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DEDUPLICATION_REDIS_HOST: string
     DEDUPLICATION_REDIS_PORT: number
     DEDUPLICATION_REDIS_PASSWORD: string
+    DEDUPLICATION_REDIS_PREFIX: string
     DEDUPLICATION_TTL_SECONDS: number
     // Redis params for the core posthog (django+celery) services
     POSTHOG_REDIS_PASSWORD: string

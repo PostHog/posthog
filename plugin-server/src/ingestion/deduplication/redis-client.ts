@@ -34,10 +34,12 @@ export class DeduplicationRedis {
     private isDisabled = false
     private config: PluginsServerConfig
     private initializationPromise: Promise<void> | null = null
+    private prefix: string
 
     constructor(config: PluginsServerConfig) {
         this.defaultTtl = config.DEDUPLICATION_TTL_SECONDS
         this.config = config
+        this.prefix = `dedup:${config.DEDUPLICATION_REDIS_PREFIX}:`
         this.scripts = {
             deduplication: {
                 sha: null,
@@ -241,6 +243,10 @@ export class DeduplicationRedis {
         }
     }
 
+    prefixKeys(keys: string[]): string[] {
+        return keys.map((key) => `${this.prefix}:${key}`)
+    }
+
     private async executeDeduplicationIdsScript(keys: string[], ttl: number): Promise<string[]> {
         if (!this.client) {
             throw new Error('Redis client not initialized')
@@ -259,15 +265,17 @@ export class DeduplicationRedis {
             }
         }
 
+        const prefixedKeys = this.prefixKeys(keys)
+
         try {
-            const result = await this.client.evalsha(script.sha!, keys.length, ...keys, ttl)
+            const result = await this.client.evalsha(script.sha!, prefixedKeys.length, prefixedKeys, ttl)
             return Array.isArray(result) ? result : []
         } catch (error) {
             // Handle NOSCRIPT error by reloading the script
             if (error instanceof Error && error.message.includes('NOSCRIPT')) {
                 logger.warn('DeduplicationIds script not found, reloading...')
                 await this.reloadScript('deduplicationIds')
-                const retryResult = await this.client!.evalsha(script.sha!, keys.length, ...keys, ttl)
+                const retryResult = await this.client!.evalsha(script.sha!, prefixedKeys.length, prefixedKeys, ttl)
                 return Array.isArray(retryResult) ? retryResult : []
             }
             throw error
@@ -292,15 +300,17 @@ export class DeduplicationRedis {
             }
         }
 
+        const prefixedKeys = this.prefixKeys(keys)
+
         try {
-            const result = await this.client.evalsha(script.sha!, keys.length, ...keys, ttl)
+            const result = await this.client.evalsha(script.sha!, prefixedKeys.length, prefixedKeys, ttl)
             return typeof result === 'number' ? result : parseInt(result as string, 10)
         } catch (error) {
             // Handle NOSCRIPT error by reloading the script
             if (error instanceof Error && error.message.includes('NOSCRIPT')) {
                 logger.warn('Deduplication script not found, reloading...')
                 await this.reloadScript('deduplication')
-                const retryResult = await this.client!.evalsha(script.sha!, keys.length, ...keys, ttl)
+                const retryResult = await this.client!.evalsha(script.sha!, prefixedKeys.length, prefixedKeys, ttl)
                 return typeof retryResult === 'number' ? retryResult : parseInt(retryResult as string, 10)
             }
             throw error

@@ -9,6 +9,7 @@ const getConfig = (): PluginsServerConfig =>
         DEDUPLICATION_TTL_SECONDS: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 20,
+        DEDUPLICATION_REDIS_PREFIX: 'test',
     } as PluginsServerConfig)
 
 // Helper function to pre-populate keys in Redis
@@ -116,7 +117,7 @@ describe('DeduplicationRedis Integration Tests', () => {
             try {
                 // Set up some existing keys
                 const existingKeys = [`${testId}:mixed:1`, `${testId}:mixed:2`]
-                await insertKeys(deduplicationRedis, existingKeys, 60)
+                await insertKeys(deduplicationRedis, deduplicationRedis.prefixKeys(existingKeys), 60)
 
                 const testOptions: DeduplicationOptions = {
                     keys: [`${testId}:mixed:1`, `${testId}:mixed:3`],
@@ -357,8 +358,8 @@ describe('DeduplicationRedis Integration Tests', () => {
                 const secondResult = await deduplicationRedis.deduplicate(options)
                 expect(secondResult.duplicates).toBe(1)
 
-                // Wait 1 second for TTL to expire
-                await new Promise((resolve) => setTimeout(resolve, 1000))
+                // Wait 2 second for TTL to expire
+                await new Promise((resolve) => setTimeout(resolve, 2000))
 
                 // Third call after TTL expiration - should be new again
                 const thirdResult = await deduplicationRedis.deduplicate(options)
@@ -369,6 +370,53 @@ describe('DeduplicationRedis Integration Tests', () => {
         },
         5000
     )
+
+    // it.concurrent(
+    //     'should reset TTL when duplicate is found with deduplicate method',
+    //     async () => {
+    //         const testId = `test:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`
+    //         const deduplicationRedis = new DeduplicationRedis(getConfig())
+
+    //         try {
+    //             const keys = [`${testId}:ttl:reset:1`]
+    //             const options: DeduplicationOptions = { keys, ttl: 10 }
+
+    //             // First call - set key with 10 second TTL
+    //             const firstResult = await deduplicationRedis.deduplicate(options)
+    //             expect(firstResult.duplicates).toBe(0)
+
+    //             // Check initial TTL
+    //             const initialTtl = await deduplicationRedis.withClient(async (client) => {
+    //                 return await client.ttl(deduplicationRedis.prefixKeys(keys)[0])
+    //             })
+    //             expect(initialTtl).toBeGreaterThan(0)
+    //             expect(initialTtl).toBeLessThanOrEqual(10)
+
+    //             // Wait a bit to let TTL decrease
+    //             await new Promise(resolve => setTimeout(resolve, 2000))
+
+    //             // Check TTL after waiting
+    //             const ttlAfterWait = await deduplicationRedis.withClient(async (client) => {
+    //                 return await client.ttl(deduplicationRedis.prefixKeys(keys)[0])
+    //             })
+    //             expect(ttlAfterWait).toBeLessThan(initialTtl)
+
+    //             // Second call - should be duplicate and reset TTL
+    //             const secondResult = await deduplicationRedis.deduplicate(options)
+    //             expect(secondResult.duplicates).toBe(1)
+
+    //             // Check TTL after duplicate - should be reset to full TTL
+    //             const ttlAfterDuplicate = await deduplicationRedis.withClient(async (client) => {
+    //                 return await client.ttl(deduplicationRedis.prefixKeys(keys)[0])
+    //             })
+    //             expect(ttlAfterDuplicate).toBeGreaterThan(ttlAfterWait)
+    //             expect(ttlAfterDuplicate).toBeLessThanOrEqual(10)
+    //         } finally {
+    //             await deduplicationRedis.destroy()
+    //         }
+    //     },
+    //     10000
+    // )
 
     it.concurrent(
         'should provide health check via ping',
@@ -494,7 +542,7 @@ describe('DeduplicationRedis Integration Tests', () => {
                     // Second call - should return the duplicate IDs
                     const secondResult = await deduplicationRedis.deduplicateIds(options)
                     expect(secondResult.processed).toBe(2)
-                    expect(secondResult.duplicates).toEqual(keys)
+                    expect(secondResult.duplicates).toEqual(deduplicationRedis.prefixKeys(keys))
                     expect(secondResult.duplicates.length).toBe(2)
                 } finally {
                     await deduplicationRedis.destroy()
@@ -514,12 +562,13 @@ describe('DeduplicationRedis Integration Tests', () => {
                     const mixedKeys = [`${testId}:ids:mixed:1`, `${testId}:ids:mixed:3`]
 
                     // Set up existing keys
-                    await insertKeys(deduplicationRedis, existingKeys, 60)
+                    const prefixedKeys = deduplicationRedis.prefixKeys(existingKeys)
+                    await insertKeys(deduplicationRedis, prefixedKeys, 60)
 
                     // Test with mixed keys
                     const result = await deduplicationRedis.deduplicateIds({ keys: mixedKeys, ttl: 60 })
                     expect(result.processed).toBe(2)
-                    expect(result.duplicates).toEqual([`${testId}:ids:mixed:1`])
+                    expect(result.duplicates).toEqual(deduplicationRedis.prefixKeys([`${testId}:ids:mixed:1`]))
                     expect(result.duplicates.length).toBe(1)
                 } finally {
                     await deduplicationRedis.destroy()
@@ -553,6 +602,7 @@ describe('DeduplicationRedis Integration Tests', () => {
                 try {
                     const keys = [`${testId}:ids:ttl:1`]
                     const options: DeduplicationOptions = { keys, ttl: 1 }
+                    const prefixedKeys = deduplicationRedis.prefixKeys(keys)
 
                     // First call - should be new
                     const firstResult = await deduplicationRedis.deduplicateIds(options)
@@ -560,7 +610,7 @@ describe('DeduplicationRedis Integration Tests', () => {
 
                     // Second call - should be duplicate
                     const secondResult = await deduplicationRedis.deduplicateIds(options)
-                    expect(secondResult.duplicates).toEqual(keys)
+                    expect(secondResult.duplicates).toEqual(prefixedKeys)
 
                     // Wait for TTL to expire
                     await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -574,6 +624,53 @@ describe('DeduplicationRedis Integration Tests', () => {
             },
             5000
         )
+
+        // it.concurrent(
+        //     'should reset TTL when duplicate is found with deduplicateIds method',
+        //     async () => {
+        //         const testId = `test:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`
+        //         const deduplicationRedis = new DeduplicationRedis(getConfig())
+
+        //         try {
+        //             const keys = [`${testId}:ttl:reset:ids:1`]
+        //             const options: DeduplicationOptions = { keys, ttl: 10 }
+
+        //             // First call - set key with 10 second TTL
+        //             const firstResult = await deduplicationRedis.deduplicateIds(options)
+        //             expect(firstResult.duplicates).toEqual([])
+
+        //             // Check initial TTL
+        //             const initialTtl = await deduplicationRedis.withClient(async (client) => {
+        //                 return await client.ttl(deduplicationRedis.prefixKeys(keys)[0])
+        //             })
+        //             expect(initialTtl).toBeGreaterThan(0)
+        //             expect(initialTtl).toBeLessThanOrEqual(10)
+
+        //             // Wait a bit to let TTL decrease
+        //             await new Promise(resolve => setTimeout(resolve, 2000))
+
+        //             // Check TTL after waiting
+        //             const ttlAfterWait = await deduplicationRedis.withClient(async (client) => {
+        //                 return await client.ttl(deduplicationRedis.prefixKeys(keys)[0])
+        //             })
+        //             expect(ttlAfterWait).toBeLessThan(initialTtl)
+
+        //             // Second call - should be duplicate and reset TTL
+        //             const secondResult = await deduplicationRedis.deduplicateIds(options)
+        //             expect(secondResult.duplicates).toEqual(deduplicationRedis.prefixKeys(keys))
+
+        //             // Check TTL after duplicate - should be reset to full TTL
+        //             const ttlAfterDuplicate = await deduplicationRedis.withClient(async (client) => {
+        //                 return await client.ttl(deduplicationRedis.prefixKeys(keys)[0])
+        //             })
+        //             expect(ttlAfterDuplicate).toBeGreaterThan(ttlAfterWait)
+        //             expect(ttlAfterDuplicate).toBeLessThanOrEqual(10)
+        //         } finally {
+        //             await deduplicationRedis.destroy()
+        //         }
+        //     },
+        //     10000
+        // )
     })
 
     describe('High Volume Tests - 500 Keys', () => {
@@ -652,6 +749,7 @@ describe('DeduplicationRedis Integration Tests', () => {
 
                 try {
                     const keys = Array.from({ length: 500 }, (_, i) => `${testId}:ids:volume:dup:${i}`)
+                    const prefixedKeys = deduplicationRedis.prefixKeys(keys)
                     const options: DeduplicationOptions = { keys, ttl: 60 }
 
                     // First call - set up the keys
@@ -662,7 +760,7 @@ describe('DeduplicationRedis Integration Tests', () => {
                     // Second call - should return all 500 keys as duplicates
                     const secondResult = await deduplicationRedis.deduplicateIds(options)
                     expect(secondResult.processed).toBe(500)
-                    expect(secondResult.duplicates).toEqual(keys)
+                    expect(secondResult.duplicates).toEqual(prefixedKeys)
                     expect(secondResult.duplicates.length).toBe(500)
                 } finally {
                     await deduplicationRedis.destroy()
@@ -680,7 +778,7 @@ describe('DeduplicationRedis Integration Tests', () => {
                 try {
                     // Set up 250 keys first using helper method
                     const existingKeys = Array.from({ length: 250 }, (_, i) => `${testId}:mixed:dedupe:${i}`)
-                    await insertKeys(deduplicationRedis, existingKeys, 60)
+                    await insertKeys(deduplicationRedis, deduplicationRedis.prefixKeys(existingKeys), 60)
 
                     // Test with 250 existing + 250 new keys
                     const newKeys = Array.from({ length: 250 }, (_, i) => `${testId}:new:dedupe:${i}`)
@@ -706,7 +804,8 @@ describe('DeduplicationRedis Integration Tests', () => {
                 try {
                     // Set up 250 keys first using helper method
                     const existingKeys = Array.from({ length: 250 }, (_, i) => `${testId}:mixed:ids:${i}`)
-                    await insertKeys(deduplicationRedis, existingKeys, 60)
+                    const prefixedKeys = deduplicationRedis.prefixKeys(existingKeys)
+                    await insertKeys(deduplicationRedis, prefixedKeys, 60)
 
                     // Test with 250 existing + 250 new keys
                     const newKeys = Array.from({ length: 250 }, (_, i) => `${testId}:new:ids:${i}`)
@@ -715,7 +814,7 @@ describe('DeduplicationRedis Integration Tests', () => {
                     // Test with deduplicateIds method
                     const idsResult = await deduplicationRedis.deduplicateIds({ keys: mixedKeys, ttl: 60 })
                     expect(idsResult.processed).toBe(500)
-                    expect(idsResult.duplicates).toEqual(existingKeys)
+                    expect(idsResult.duplicates).toEqual(prefixedKeys)
                     expect(idsResult.duplicates.length).toBe(250)
                 } finally {
                     await deduplicationRedis.destroy()
@@ -763,9 +862,10 @@ describe('DeduplicationRedis Integration Tests', () => {
                 try {
                     const keys = Array.from({ length: 100 }, (_, i) => `${testId}:consistency:${i}`)
                     const options: DeduplicationOptions = { keys, ttl: 60 }
+                    const prefixedKeys = deduplicationRedis.prefixKeys(keys)
 
                     // Set up keys using helper method
-                    await insertKeys(deduplicationRedis, keys, 60)
+                    await insertKeys(deduplicationRedis, prefixedKeys, 60)
 
                     // Test consistency between both methods
                     const [countResult, idsResult] = await Promise.all([
@@ -775,7 +875,7 @@ describe('DeduplicationRedis Integration Tests', () => {
 
                     expect(countResult.processed).toBe(idsResult.processed)
                     expect(countResult.duplicates).toBe(idsResult.duplicates.length)
-                    expect(idsResult.duplicates).toEqual(keys)
+                    expect(idsResult.duplicates).toEqual(prefixedKeys)
                 } finally {
                     await deduplicationRedis.destroy()
                 }
