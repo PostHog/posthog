@@ -20,6 +20,7 @@ runs:
                 echo "run_analytics=false" >> $GITHUB_OUTPUT
                 echo "Skipping analytics (random: $random_num)"
               fi
+          shell: bash
         - uses: actions/github-script@v6
           if: steps.should-run.outputs.run_analytics == 'true'
           with:
