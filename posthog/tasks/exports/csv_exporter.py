@@ -16,6 +16,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
+from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.utils import absolute_uri
 from .ordered_csv_renderer import OrderedCsvRenderer
 from ..exporter import (
@@ -192,10 +193,35 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
                 # Add breakdown column
                 if item.get("breakdown_value") is not None:
-                    if isinstance(item["breakdown_value"], list):
-                        line["breakdown"] = "::".join(str(x) for x in item["breakdown_value"])
+                    breakdown_value = item["breakdown_value"]
+                    if isinstance(breakdown_value, list):
+                        # Handle multiple breakdown values
+                        formatted_values = []
+                        for val in breakdown_value:
+                            try:
+                                # Try to format as cohort first
+                                formatted_val = (
+                                    get_breakdown_cohort_name(int(val))
+                                    if isinstance(val, int | str) and str(val).isdigit()
+                                    else str(val)
+                                )
+                            except (ValueError, Exception):
+                                formatted_val = str(val)
+                            formatted_values.append(formatted_val)
+                        line["breakdown"] = "::".join(formatted_values)
                     else:
-                        line["breakdown"] = str(item["breakdown_value"])
+                        # Handle single breakdown value
+                        try:
+                            # Try to format as cohort if it's a number or "all"
+                            if breakdown_value == "all":
+                                line["breakdown"] = "all users"
+                            elif isinstance(breakdown_value, int | str) and str(breakdown_value).isdigit():
+                                line["breakdown"] = get_breakdown_cohort_name(int(breakdown_value))
+                            else:
+                                line["breakdown"] = str(breakdown_value)
+                        except Exception:
+                            # Fall back to string conversion if cohort lookup fails
+                            line["breakdown"] = str(breakdown_value)
 
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
