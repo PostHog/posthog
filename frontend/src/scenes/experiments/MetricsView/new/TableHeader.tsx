@@ -4,7 +4,7 @@ import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE } fr
 import { useAxisScale } from './useAxisScale'
 import { TickLabels } from './TickLabels'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 
 interface TableHeaderProps {
     results: NewExperimentQueryResponse[]
@@ -16,7 +16,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
     const [svgWidth, setSvgWidth] = useState<number | undefined>(undefined)
 
     // Set up tick values and scaling for the header
-    const tickValues = chartRadius ? getNiceTickValues(chartRadius) : []
+    const tickValues = useMemo(() => (chartRadius ? getNiceTickValues(chartRadius) : []), [chartRadius])
     const scale = useAxisScale(chartRadius || 0, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const { ticksSvgRef } = useSvgResizeObserver([tickValues, chartRadius])
 
