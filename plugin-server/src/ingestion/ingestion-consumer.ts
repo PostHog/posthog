@@ -671,6 +671,8 @@ export class IngestionConsumer {
                 event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY] &&
                 event.properties?.[COOKIELESS_MODE_BASE_HASH_PROPERTY]
             ) {
+                // If the event is in cookieless mode, we use the base hash property to group events rather than distinct_id.
+                // This ensures that if the user sends an anonymous event and then becomes identified, that those events are processed in the same batch and in order.
                 eventKey = `${token}:${event.properties[COOKIELESS_MODE_BASE_HASH_PROPERTY]}`
             } else {
                 eventKey = `${token}:${distinctId}`
