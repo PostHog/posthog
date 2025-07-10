@@ -32,7 +32,50 @@ WithMaxLength.args = { maxLength: 100, value: '1234567890' }
 export const WithMaxLengthExceeded: Story = Template.bind({})
 WithMaxLengthExceeded.args = { maxLength: 5, value: '1234567890' }
 
-export const LemonTextMarkdown = (): JSX.Element => {
+export const WithFooter: Story = Template.bind({})
+WithFooter.args = { footer: <div className="text-xs">I am a custom footer</div> }
+
+export const WithFooterAndMaxLength: Story = Template.bind({})
+WithFooterAndMaxLength.args = {
+    footer: <div className="text-xs">I am a custom footer</div>,
+    maxLength: 5,
+    value: '1234567890',
+}
+
+export const EmptyLemonTextMarkdown = (): JSX.Element => {
+    const [value, setValue] = useState('')
+    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} />
+}
+
+export const LemonTextMarkdownWithText = (): JSX.Element => {
     const [value, setValue] = useState('# Title\n\n**bold** _italic_')
     return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} />
+}
+
+export const LemonTextMarkdownWithMaxLength = (): JSX.Element => {
+    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
+    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} maxLength={12} />
+}
+
+export const LemonTextMarkdownWithFooter = (): JSX.Element => {
+    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
+    return (
+        <_LemonTextMarkdown
+            value={value}
+            onChange={(newValue) => setValue(newValue)}
+            footer={<div className="text-xs">I am a custom footer</div>}
+        />
+    )
+}
+
+export const LemonTextMarkdownWithMaxLengthAndFooter = (): JSX.Element => {
+    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
+    return (
+        <_LemonTextMarkdown
+            value={value}
+            onChange={(newValue) => setValue(newValue)}
+            maxLength={12}
+            footer={<div className="text-xs">I am a custom footer</div>}
+        />
+    )
 }

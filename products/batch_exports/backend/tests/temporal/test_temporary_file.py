@@ -536,3 +536,30 @@ async def test_jsonl_writer_deals_with_nested_user_events():
     assert date_ranges_seen == [
         (record_batch.column("_inserted_at")[0].as_py(), record_batch.column("_inserted_at")[-1].as_py())
     ]
+
+
+@pytest.mark.parametrize(
+    "input_dict, expected_output",
+    [
+        ({"large_integer": 12345678901234567890987654321}, b'{"large_integer": 12345678901234567890987654321}'),
+        (
+            {"large_integer_nested": {"large_integer": 12345678901234567890987654321}},
+            b'{"large_integer_nested": {"large_integer": 12345678901234567890987654321}}',
+        ),
+        (
+            {"large_integer_array": [12345678901234567890987654321]},
+            b'{"large_integer_array": [12345678901234567890987654321]}',
+        ),
+        (
+            {"large_integer_nested": [{"large_integer_array": [12345678901234567890987654321]}]},
+            b'{"large_integer_nested": [{"large_integer_array": [12345678901234567890987654321]}]}',
+        ),
+    ],
+)
+def test_json_dumps_bytes_handles_integers_exceeding_64_bit_range(input_dict, expected_output):
+    """Test json_dumps_bytes handles integers exceeding 64-bit range."""
+    result = json_dumps_bytes(input_dict)
+    assert result == expected_output
+    assert isinstance(result, bytes)
+    # check the reverse direction
+    assert json.loads(result) == input_dict

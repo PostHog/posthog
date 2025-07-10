@@ -10,7 +10,7 @@ const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'satu
 
 export class HogFlowActionRunnerWaitUntilTimeWindow {
     run(action: Action): HogFlowActionResult {
-        const now = DateTime.utc().setZone(action.config.timezone)
+        const now = DateTime.utc().setZone(action.config.timezone || 'UTC')
         const nextTime = this.getNextValidTime(now, action.config)
 
         return {
@@ -22,7 +22,7 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
     private getNextValidTime(now: DateTime, config: Action['config']): DateTime | null {
         // If time is 'any', just find next valid day
         if (config.time === 'any') {
-            return this.getNextValidDay(now, config.date)
+            return this.getNextValidDay(now, config.day)
         }
 
         const [startTime, endTime] = config.time
@@ -34,13 +34,13 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
         const endTimeToday = now.set({ hour: endHours, minute: endMinutes, second: 0, millisecond: 0 })
 
         // If we're within the time window today, execute immediately
-        if (now >= nextTime && now <= endTimeToday && this.isValidDay(now, config.date)) {
+        if (now >= nextTime && now <= endTimeToday && this.isValidDay(now, config.day)) {
             return null
         }
 
         // If time has passed or day doesn't match, find next valid day
-        if (nextTime <= now || !this.isValidDay(nextTime, config.date)) {
-            nextTime = this.getNextValidDay(now, config.date).set({
+        if (nextTime <= now || !this.isValidDay(nextTime, config.day)) {
+            nextTime = this.getNextValidDay(now, config.day).set({
                 hour: startHours,
                 minute: startMinutes,
                 second: 0,
@@ -51,7 +51,7 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
         return nextTime
     }
 
-    private isValidDay(date: DateTime, dateConfig: Action['config']['date']): boolean {
+    private isValidDay(date: DateTime, dateConfig: Action['config']['day']): boolean {
         if (dateConfig === 'any') {
             return true
         }
@@ -71,7 +71,7 @@ export class HogFlowActionRunnerWaitUntilTimeWindow {
         return false
     }
 
-    private getNextValidDay(now: DateTime, dateConfig: Action['config']['date']): DateTime {
+    private getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): DateTime {
         let nextDay = now.plus({ days: 1 }).startOf('day')
 
         while (!this.isValidDay(nextDay, dateConfig)) {
