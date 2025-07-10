@@ -23,11 +23,40 @@ class SurveyCreatorTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
     thinking_message: str = "Creating your survey"
-    root_system_prompt_template: str = (
-        "Total surveys for this team: {existing_surveys_count}. Use the `create_survey` tool to create new surveys."
-    )
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
+
+    def _create_survey_from_instructions(self, instructions: str) -> tuple[str, dict[str, Any]]:
+        """
+        Create a survey from natural language instructions.
+        """
+        # Create the prompt
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", SURVEY_CREATION_SYSTEM_PROMPT),
+                ("human", "Create a survey based on these instructions: {{{instructions}}}"),
+            ],
+            template_format="mustache",
+        )
+
+        # Set up the LLM with structured output
+        model = (
+            ChatOpenAI(model="gpt-4.1-mini", temperature=0.2)
+            .with_structured_output(SurveyCreationOutput, include_raw=False)
+            .with_retry()
+        )
+
+        # Generate the survey configuration
+        chain = prompt | model
+        result = chain.invoke(
+            {
+                "instructions": instructions,
+                "existing_surveys": self._get_existing_surveys_summary(),
+                "team_survey_config": self._get_team_survey_config(self._team),
+            }
+        )
+
+        return result
 
     def _run_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
         """
@@ -49,35 +78,8 @@ class SurveyCreatorTool(MaxTool):
             if not team:
                 return "❌ Failed to create survey: Team not present on the context", {"error": "team_not_present"}
 
-            # Create the prompt
-            prompt = ChatPromptTemplate.from_messages(
-                [
-                    ("system", SURVEY_CREATION_SYSTEM_PROMPT),
-                    ("human", "Create a survey based on these instructions: {{{instructions}}}"),
-                ],
-                template_format="mustache",
-            )
-
-            # Set up the LLM with structured output
-            model = (
-                ChatOpenAI(model="gpt-4.1-mini", temperature=0.2)
-                .with_structured_output(SurveyCreationOutput, include_raw=False)
-                .with_retry()
-            )
-
-            # Generate the survey configuration
-            chain = prompt | model
-            result = chain.invoke(
-                {
-                    "instructions": instructions,
-                    "existing_surveys": self._get_existing_surveys_summary(),
-                    "team_survey_config": self._get_team_survey_config(team),
-                }
-            )
-
-            # Validate the LLM output directly using Pydantic
+            result = self._create_survey_from_instructions(instructions)
             try:
-                # The result is already validated, but let's validate once more to be safe
                 validated_output = SurveyCreationOutput.model_validate(result.model_dump())
 
                 if not validated_output.questions:

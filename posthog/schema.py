@@ -80,6 +80,7 @@ class AssistantContextualTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     NAVIGATE = "navigate"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
+    CREATE_SURVEY = "create_survey"
 
 
 class AssistantDateRange(BaseModel):
