@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -47,7 +46,10 @@ import {
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
+    FunnelsQuery,
+    InsightVizNode,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -80,10 +82,11 @@ import {
     getSignificanceDetails,
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
-} from './experimentCalculations'
+} from './legacyExperimentCalculations'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
 import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
@@ -92,7 +95,6 @@ import {
     featureFlagEligibleForExperiment,
     isLegacyExperiment,
     percentageDistribution,
-    toInsightVizNode,
     transformFiltersForWinningVariant,
 } from './utils'
 
@@ -1137,13 +1139,37 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)
-            try {
-                // 1. Create the dashboard
-                // 2. Create secondary metric insights in reverse order
-                // 3. Create primary metric insights in reverse order
 
+            /**
+             * create a query builder to transform the experiment metric into a query
+             * that can be used to create an insight
+             */
+            const queryBuilder = compose<
+                ExperimentMetric,
+                ExperimentMetric,
+                FunnelsQuery | TrendsQuery | undefined,
+                InsightVizNode | undefined
+            >(
+                addExposureToMetric({
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    custom_name: 'Placeholder for experiment exposure',
+                    properties: [],
+                }),
+                getQuery(),
+                getInsight()
+            )
+
+            try {
+                /**
+                 * get the experiment url for the dashboard description
+                 */
                 const experimentUrl =
                     window.location.origin + addProjectIdIfMissing(urls.experiment(values.experimentId))
+
+                /**
+                 * create a new dashboard
+                 */
                 const dashboard: DashboardType = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
@@ -1161,8 +1187,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     } as Partial<DashboardType>
                 )
 
-                // Reverse order because adding an insight to the dashboard
-                // places it at the beginning of the list
+                /**
+                 * create a new insight for each metric, either primary or secondary
+                 * reverse the order of the metric because adding an insight to the dashboard
+                 * places it at the beginning of the list
+                 */
                 for (const type of ['secondary', 'primary']) {
                     const singleMetrics =
                         type === 'secondary' ? values.experiment.metrics_secondary : values.experiment.metrics
@@ -1174,11 +1203,8 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
                     ].reverse()
 
-                    /**
-                     * TODO: replace with a queryBuilder composed from getQuery
-                     */
                     for (const query of metrics) {
-                        const insightQuery = toInsightVizNode(query)
+                        const insightQuery = queryBuilder(query)
 
                         await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
                             name: query.name || undefined,
@@ -1921,12 +1947,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) {
                     actions.createExperiment(true)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Experiments',
-                        callback: (folder) => {
-                            actions.createExperiment(true, folder)
-                        },
-                    })
+                    actions.createExperiment(true, 'Unfiled/Experiments')
                 }
             },
         },

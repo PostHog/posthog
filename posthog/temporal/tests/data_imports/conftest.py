@@ -103,6 +103,8 @@ async def run_external_data_job_workflow(
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
+        # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
         mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):

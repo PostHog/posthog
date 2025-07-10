@@ -375,8 +375,6 @@ export class KafkaConsumer {
                         promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
                     )
 
-                    logger.debug('🔁', 'messages', { count: messages.length })
-
                     // After successfully pulling a batch, we can update our heartbeat time
                     this.heartbeat()
 

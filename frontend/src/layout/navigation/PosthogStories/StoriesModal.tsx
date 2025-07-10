@@ -12,7 +12,7 @@ import { CloseOverlayAction, StoryType } from './storiesMap'
 import type { story } from './storiesMap'
 import { StoriesPlayer, Story } from './StoriesPlayer'
 
-const IMAGE_STORY_INTERVAL = 4000
+const IMAGE_STORY_INTERVAL = 6000
 const MIN_WIDTH = 320 // Minimum width in pixels
 const MAX_WIDTH = 854 // Maximum width in pixels
 const ASPECT_RATIO = 16 / 9 // 16:9 aspect ratio
@@ -31,6 +31,8 @@ interface StoryEndEventProps extends StoryEndEventPropsExtraProps {
     time_spent_seconds: number
     story_group_id: string
     story_group_title: string
+    story_index: number
+    group_length: number
     story_watched_percentage?: number
 }
 
@@ -112,6 +114,8 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_type: activeGroup?.stories[activeStoryIndex].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
+                story_index: activeStoryIndex,
+                group_length: activeGroup?.stories.length || 0,
                 time_spent_ms: timeSpentMs,
                 time_spent_seconds: Math.round(timeSpentMs / 1000),
                 story_watched_percentage:
@@ -139,6 +143,8 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_type: activeGroup?.stories[activeStoryIndex].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
+                story_index: activeStoryIndex,
+                group_length: activeGroup?.stories.length || 0,
                 time_spent_ms: timeSpentMs,
                 time_spent_seconds: Math.round(timeSpentMs / 1000),
             })
@@ -173,6 +179,8 @@ export const StoriesModal = (): JSX.Element | null => {
                 story_type: activeGroup?.stories[index].type,
                 story_group_id: activeGroup?.id,
                 story_group_title: activeGroup?.title,
+                story_index: index,
+                group_length: activeGroup?.stories.length || 0,
             })
             setActiveStoryIndex(index)
 

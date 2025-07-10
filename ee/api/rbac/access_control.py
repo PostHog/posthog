@@ -11,9 +11,11 @@ from posthog.api.documentation import extend_schema
 from ee.models.rbac.access_control import AccessControl
 from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.models.team.team import Team
+from posthog.models.organization import OrganizationMembership
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     UserAccessControl,
+    AccessSource,
     default_access_level,
     highest_access_level,
     ordered_access_levels,
@@ -24,6 +26,18 @@ if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
+
+
+class UserAccessInfoSerializer(serializers.Serializer):
+    """Serializer for user access information"""
+
+    user_id = serializers.UUIDField()
+    access_level = serializers.CharField()
+    access_source = serializers.CharField(
+        help_text="How the user got access: 'explicit_member', 'explicit_role', 'organization_admin', 'project_admin', 'creator', 'default'"
+    )
+    organization_membership_id = serializers.UUIDField(allow_null=True)
+    organization_membership_level = serializers.CharField(allow_null=True)
 
 
 class AccessControlSerializer(serializers.ModelSerializer):
@@ -135,6 +149,21 @@ class AccessControlViewSetMixin(_GenericViewSet):
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object
 
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        """
+        Dynamically determine required scopes based on HTTP method and action.
+        GET requests to access control endpoints require 'access_control:read' scope.
+        PUT requests have no additional scope requirements.
+        """
+        if request.method == "GET" and self.action in [
+            "access_controls",
+            "global_access_controls",
+            "users_with_access",
+        ]:
+            return ["access_control:read"]
+
+        return None
+
     def _get_access_control_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)
@@ -170,6 +199,57 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "default_access_level": "editor" if is_global else default_access_level(resource),
                 "user_access_level": user_access_level,
                 "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+            }
+        )
+
+    def _get_users_with_access(self, request: Request):
+        """
+        Get all users with access to the resource, including explicit and implicit access.
+        """
+        resource = cast(APIScopeObjectOrNotSupported, getattr(self, "scope_object", None))
+        team = cast(Team, self.team)  # type: ignore
+
+        if not resource or resource == "INTERNAL":
+            raise exceptions.NotFound("User access information is not available for this resource.")
+
+        obj = self.get_object()
+
+        org_memberships = (
+            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
+            .select_related("user")
+            .prefetch_related("role_memberships__role")
+        )
+
+        users_with_access = []
+
+        for membership in org_memberships:
+            user = membership.user
+            user_uac = UserAccessControl(user=user, team=team)
+            access_level = user_uac.access_level_for_object(obj, resource)
+            if access_level is None:
+                continue
+
+            access_source = user_uac.get_access_source_for_object(obj, resource) or AccessSource.DEFAULT
+
+            users_with_access.append(
+                {
+                    "user_id": user.uuid,
+                    "access_level": access_level,
+                    "access_source": access_source.value,
+                    "organization_membership_id": membership.id,
+                    "organization_membership_level": OrganizationMembership.Level(membership.level).name.lower(),
+                }
+            )
+
+        # Sort by access level (highest first) then by email
+        access_levels = ordered_access_levels(resource)
+        users_with_access.sort(key=lambda x: (access_levels.index(x["access_level"]), x["user_id"]), reverse=True)
+
+        serializer = UserAccessInfoSerializer(users_with_access, many=True)
+        return Response(
+            {
+                "users": serializer.data,
+                "total_count": len(users_with_access),
             }
         )
 
@@ -218,6 +298,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
     @extend_schema(exclude=True)
     @action(methods=["GET", "PUT"], detail=True)
     def access_controls(self, request: Request, *args, **kwargs):
+        """
+        Get or update access controls for the resource.
+        """
         if request.method == "PUT":
             return self._update_access_controls(request)
 
@@ -226,7 +309,18 @@ class AccessControlViewSetMixin(_GenericViewSet):
     @extend_schema(exclude=True)
     @action(methods=["GET", "PUT"], detail=True)
     def global_access_controls(self, request: Request, *args, **kwargs):
+        """
+        Get or update global access controls for the project.
+        """
         if request.method == "PUT":
             return self._update_access_controls(request, is_global=True)
 
         return self._get_access_controls(request, is_global=True)
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True)
+    def users_with_access(self, request: Request, *args, **kwargs):
+        """
+        Get all users with access to this resource, including explicit and implicit access.
+        """
+        return self._get_users_with_access(request)

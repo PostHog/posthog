@@ -547,7 +547,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             sent_at=None,
             event={
                 "event": "$set",
-                "properties": {"$set": {"foo": "bar", "bar": "baz"}},
+                "properties": {
+                    "$set": {"foo": "bar", "bar": "baz"},
+                },
                 "distinct_id": "some_distinct_id",
                 "timestamp": mock.ANY,
             },
@@ -589,10 +591,37 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             sent_at=None,
             event={
                 "event": "$set",
-                "properties": {"$set": {"foo": "bar"}},
+                "properties": {
+                    "$set": {"foo": "bar"},
+                },
                 "distinct_id": "some_distinct_id",
                 "timestamp": mock.ANY,
             },
+        )
+
+    @mock.patch("posthog.api.person.new_capture_internal")
+    @mock.patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
+    def test_new_update_single_person_property(self, mock_feature_enabled, mock_new_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
+
+        mock_new_capture.assert_called_once_with(
+            self.team.api_token,
+            "some_distinct_id",
+            {
+                "event": "$set",
+                "properties": {
+                    "$set": {"foo": "bar"},
+                },
+                "timestamp": mock.ANY,
+            },
+            True,
         )
 
     @mock.patch("posthog.api.person.capture_internal")
@@ -616,9 +645,36 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             event={
                 "event": "$delete_person_property",
                 "distinct_id": "some_distinct_id",
-                "properties": {"$unset": ["foo"]},
+                "properties": {
+                    "$unset": ["foo"],
+                },
                 "timestamp": mock.ANY,
             },
+        )
+
+    @mock.patch("posthog.api.person.new_capture_internal")
+    @mock.patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
+    def test_new_delete_person_properties(self, mock_feature_enabled, mock_new_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"$browser": "whatever", "$os": "Mac OS X"},
+            immediate=True,
+        )
+
+        self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": "foo"})
+
+        mock_new_capture.assert_called_once_with(
+            self.team.api_token,
+            "some_distinct_id",
+            {
+                "event": "$delete_person_property",
+                "properties": {
+                    "$unset": ["foo"],
+                },
+                "timestamp": mock.ANY,
+            },
+            True,
         )
 
     def test_return_non_anonymous_name(self) -> None:

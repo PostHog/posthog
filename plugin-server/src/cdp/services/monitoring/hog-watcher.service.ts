@@ -96,7 +96,7 @@ export class HogWatcherService {
                 hog_function_type: hogFunction.type,
                 hog_function_name: hogFunction.name,
                 hog_function_template_id: hogFunction.template_id,
-                state,
+                state: HogWatcherState[state], // Convert numeric state to readable string
             })
         }
         await this.hub.celery.applyAsync(CELERY_TASK_ID, [hogFunction.id, state])

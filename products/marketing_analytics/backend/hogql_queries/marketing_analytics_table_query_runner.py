@@ -1,6 +1,5 @@
 from functools import cached_property
 from datetime import datetime
-from typing import Literal
 import structlog
 
 from posthog.hogql import ast
@@ -17,24 +16,20 @@ from posthog.schema import (
     MarketingAnalyticsTableQueryResponse,
     CachedMarketingAnalyticsTableQueryResponse,
 )
+from typing import cast, Literal
 from .conversion_goal_processor import ConversionGoalProcessor
-from posthog.hogql.errors import BaseHogQLError
 
 from .constants import (
+    BASE_COLUMNS,
     CAMPAIGN_COST_CTE_NAME,
-    CONVERSION_GOAL_PREFIX,
     DEFAULT_LIMIT,
     PAGINATION_EXTRA,
-    FALLBACK_COST_VALUE,
     DEFAULT_MARKETING_ANALYTICS_COLUMNS,
-    CTR_PERCENTAGE_MULTIPLIER,
-    DECIMAL_PRECISION,
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
 )
 from .utils import (
-    get_marketing_analytics_columns_with_conversion_goals,
     convert_team_conversion_goals_to_objects,
 )
 from .adapters.factory import MarketingSourceFactory
@@ -166,6 +161,11 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
         results = response.results or []
         requested_limit = self.query.limit or DEFAULT_LIMIT
+        columns = (
+            [column.alias if isinstance(column, ast.Alias) else column for column in query.select]
+            if isinstance(query, ast.SelectQuery)
+            else []
+        )
 
         # Check if there are more results
         has_more = len(results) > requested_limit
@@ -174,12 +174,9 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         if has_more:
             results = results[:requested_limit]
 
-        # Get conversion goals from team config for column names
-        conversion_goals = self._get_team_conversion_goals()
-
         return MarketingAnalyticsTableQueryResponse(
             results=results,
-            columns=get_marketing_analytics_columns_with_conversion_goals(conversion_goals),
+            columns=columns,
             types=response.types,
             hogql=response.hogql,
             timings=response.timings,
@@ -232,11 +229,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             conversion_joins = []
             conversion_columns = []
 
-        # Build base columns
-        base_columns = self._build_base_columns()
-
         # Combine base and conversion goal columns
-        all_columns = base_columns + conversion_columns
+        all_columns = BASE_COLUMNS + conversion_columns
 
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME]))
@@ -261,93 +255,6 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
             offset=ast.Constant(value=offset),
         )
 
-    def _build_base_columns(self) -> list[ast.Expr]:
-        """Build base columns"""
-        return [
-            # Campaign name
-            ast.Alias(
-                alias="Campaign",
-                expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.campaign_name_field]),
-            ),
-            # Source name
-            ast.Alias(
-                alias="Source", expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingSourceAdapter.source_name_field])
-            ),
-            # Total Cost: round(campaign_costs.total_cost, 2)
-            ast.Alias(
-                alias="Total Cost",
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
-                        ast.Constant(value=DECIMAL_PRECISION),
-                    ],
-                ),
-            ),
-            # Total Clicks: round(campaign_costs.total_clicks, 0)
-            ast.Alias(
-                alias="Total Clicks",
-                expr=ast.Call(
-                    name="round",
-                    args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]), ast.Constant(value=0)],
-                ),
-            ),
-            # Total Impressions: round(campaign_costs.total_impressions, 0)
-            ast.Alias(
-                alias="Total Impressions",
-                expr=ast.Call(
-                    name="round",
-                    args=[ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]), ast.Constant(value=0)],
-                ),
-            ),
-            # Cost per Click: round(total_cost / nullif(total_clicks, 0), 2)
-            ast.Alias(
-                alias="Cost per Click",
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.ArithmeticOperation(
-                            left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD]),
-                            op=ast.ArithmeticOperationOp.Div,
-                            right=ast.Call(
-                                name="nullif",
-                                args=[
-                                    ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
-                                    ast.Constant(value=0),
-                                ],
-                            ),
-                        ),
-                        ast.Constant(value=DECIMAL_PRECISION),
-                    ],
-                ),
-            ),
-            # CTR: round(total_clicks / nullif(total_impressions, 0) * 100, 2)
-            ast.Alias(
-                alias="CTR",
-                expr=ast.Call(
-                    name="round",
-                    args=[
-                        ast.ArithmeticOperation(
-                            left=ast.ArithmeticOperation(
-                                left=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_CLICKS_FIELD]),
-                                op=ast.ArithmeticOperationOp.Div,
-                                right=ast.Call(
-                                    name="nullif",
-                                    args=[
-                                        ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_IMPRESSIONS_FIELD]),
-                                        ast.Constant(value=0),
-                                    ],
-                                ),
-                            ),
-                            op=ast.ArithmeticOperationOp.Mult,
-                            right=ast.Constant(value=CTR_PERCENTAGE_MULTIPLIER),
-                        ),
-                        ast.Constant(value=DECIMAL_PRECISION),
-                    ],
-                ),
-            ),
-        ]
-
     def _append_joins(self, initial_join: ast.JoinExpr, joins: list[ast.JoinExpr]) -> ast.JoinExpr:
         """Recursively append joins to the initial join by using the next_join field"""
         base_join = initial_join
@@ -359,55 +266,17 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
 
     def _build_order_by_exprs(self) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
-        from posthog.hogql.parser import parse_expr
 
         order_by_exprs = []
 
-        if hasattr(self.query, "orderBy") and self.query.orderBy:
+        if hasattr(self.query, "orderBy") and self.query.orderBy and len(self.query.orderBy) > 0:
             for order_expr_str in self.query.orderBy:
-                order_direction: Literal["ASC", "DESC"]
-                # Fix ordering expressions for null handling
-                if "nullif(" in order_expr_str and CONVERSION_GOAL_PREFIX in order_expr_str:
-                    if order_expr_str.strip().endswith(" ASC"):
-                        calc_part = order_expr_str.replace(" ASC", "").strip()
-                        order_direction = "ASC"
-                        fallback_value = FALLBACK_COST_VALUE
-                    elif order_expr_str.strip().endswith(" DESC"):
-                        calc_part = order_expr_str.replace(" DESC", "").strip()
-                        order_direction = "DESC"
-                        fallback_value = -FALLBACK_COST_VALUE
-                    else:
-                        calc_part = order_expr_str.strip()
-                        order_direction = "ASC"
-                        fallback_value = FALLBACK_COST_VALUE
-
-                    # Build: COALESCE(calc_part, fallback_value)
-                    try:
-                        calc_expr = parse_expr(calc_part)
-                    except (SyntaxError, BaseHogQLError):
-                        calc_expr = ast.Field(chain=[calc_part])
-
-                    coalesce_expr = ast.Call(name="COALESCE", args=[calc_expr, ast.Constant(value=fallback_value)])
-
-                    order_by_exprs.append(ast.OrderExpr(expr=coalesce_expr, order=order_direction))
-                else:
-                    # Parse regular order expressions
-                    if order_expr_str.strip().endswith(" ASC"):
-                        expr_part = order_expr_str.replace(" ASC", "").strip()
-                        order_direction = "ASC"
-                    elif order_expr_str.strip().endswith(" DESC"):
-                        expr_part = order_expr_str.replace(" DESC", "").strip()
-                        order_direction = "DESC"
-                    else:
-                        expr_part = order_expr_str.strip()
-                        order_direction = "ASC"
-
-                    try:
-                        field_expr = parse_expr(expr_part)
-                    except (SyntaxError, BaseHogQLError):
-                        field_expr = ast.Field(chain=[expr_part])
-
-                    order_by_exprs.append(ast.OrderExpr(expr=field_expr, order=order_direction))
+                order_index_float, order_by = order_expr_str
+                order_index = int(order_index_float)
+                column_name = ast.Constant(value=order_index)
+                order_by_exprs.append(
+                    ast.OrderExpr(expr=column_name, order=cast(Literal["ASC", "DESC"], str(order_by)))
+                )
         else:
             # Build default order by: campaign_costs.total_cost DESC
             default_field = ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_COST_FIELD])

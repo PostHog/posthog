@@ -2,7 +2,10 @@ from .revenue_analytics_base_view import RevenueAnalyticsBaseView
 from typing import cast
 from posthog.hogql import ast
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaManagedViewTableKind
+from posthog.schema import (
+    DatabaseSchemaManagedViewTableKind,
+    HogQLQueryModifiers,
+)
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -20,8 +23,8 @@ SOURCE_VIEW_SUFFIX = "subscription_revenue_view"
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     "source_label": StringDatabaseField(name="source_label"),
-    "timestamp": DateTimeDatabaseField(name="timestamp"),
     "plan_id": StringDatabaseField(name="plan_id"),
+    "product_id": StringDatabaseField(name="product_id"),
     "customer_id": StringDatabaseField(name="customer_id"),
     "status": StringDatabaseField(name="status"),
     "started_at": DateTimeDatabaseField(name="started_at"),
@@ -32,6 +35,13 @@ FIELDS: dict[str, FieldOrTable] = {
 }
 
 
+def extract_string(json_field: str, key: str) -> ast.Expr:
+    return ast.Call(
+        name="JSONExtractString",
+        args=[ast.Field(chain=[json_field]), ast.Constant(value=key)],
+    )
+
+
 class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
     @classmethod
     def get_database_schema_table_kind(cls) -> DatabaseSchemaManagedViewTableKind:
@@ -39,11 +49,13 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
 
     # No subscription views for events, we only have that for schema sources
     @classmethod
-    def for_events(cls, team: "Team") -> list["RevenueAnalyticsBaseView"]:
+    def for_events(cls, _team: "Team", _modifiers: HogQLQueryModifiers) -> list["RevenueAnalyticsBaseView"]:
         return []
 
     @classmethod
-    def for_schema_source(cls, source: ExternalDataSource) -> list["RevenueAnalyticsBaseView"]:
+    def for_schema_source(
+        cls, source: ExternalDataSource, _modifiers: HogQLQueryModifiers
+    ) -> list["RevenueAnalyticsBaseView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
             return []
@@ -74,14 +86,8 @@ class RevenueAnalyticsSubscriptionView(RevenueAnalyticsBaseView):
             select=[
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
                 ast.Alias(alias="source_label", expr=ast.Constant(value=prefix)),
-                ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
-                ast.Alias(
-                    alias="plan_id",
-                    expr=ast.Call(
-                        name="JSONExtractString",
-                        args=[ast.Field(chain=["plan"]), ast.Constant(value="id")],
-                    ),
-                ),
+                ast.Alias(alias="plan_id", expr=extract_string("plan", "id")),
+                ast.Alias(alias="product_id", expr=extract_string("plan", "product")),
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
                 ast.Alias(alias="status", expr=ast.Field(chain=["status"])),
                 ast.Alias(alias="started_at", expr=ast.Field(chain=["created_at"])),

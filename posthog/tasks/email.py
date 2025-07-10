@@ -201,8 +201,8 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send(send_async=False)
     posthoganalytics.capture(
-        user.distinct_id,
-        "verification email sent",
+        distinct_id=user.distinct_id,
+        event="verification email sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
@@ -266,7 +266,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
 
 
 def send_batch_export_run_failure(
-    batch_export_run_id: UUIDT,
+    batch_export_run_id: str | UUIDT,
 ) -> None:
     logger = structlog.get_logger(__name__)
 

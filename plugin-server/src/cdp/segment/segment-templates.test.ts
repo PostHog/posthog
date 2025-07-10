@@ -36,7 +36,7 @@ describe('segment templates', () => {
 
         const iconId = iconUrl.replace('/static/services/', '')
 
-        const iconExists = existingIcons.has(`${iconId}.png`.toLowerCase())
+        const iconExists = existingIcons.has(`${iconId}`.toLowerCase())
 
         if (!iconExists) {
             throw new Error(`Missing icon: ${iconId} for template ${template.id}`)

@@ -647,9 +647,9 @@
 
     // Elements
     --side-panel-bar-width: 3rem;
-    --project-navbar-width: 250px;
+    --project-navbar-width: 215px;
     --project-navbar-width-collapsed: 45px;
-    --project-panel-width: 320px;
+    --project-panel-width: 245px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
     --resizer-thickness: 8px;
 
@@ -1621,6 +1621,9 @@
     }
 
     .primitive-menu-content-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
         max-height: calc(90vh - 100px);
         padding: var(--spacing);
     }
