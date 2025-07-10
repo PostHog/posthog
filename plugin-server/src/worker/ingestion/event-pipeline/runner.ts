@@ -12,6 +12,7 @@ import { GroupStoreForBatch } from '../groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
+import { behavioralCohortWriterStep } from './behavioral-cohort-writer'
 import { createEventStep } from './createEventStep'
 import { dropOldEventsStep } from './dropOldEventsStep'
 import { emitEventStep } from './emitEventStep'
@@ -298,9 +299,16 @@ export class EventPipelineRunner {
             return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)
         }
 
+        // Add behavioral cohort writer step
+        const behavioralCohortProcessedEvent = await this.runStep(
+            behavioralCohortWriterStep,
+            [transformedEvent, team, this.hub.db.postgres],
+            event.team_id
+        )
+
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [transformedEvent, processPerson],
+            [behavioralCohortProcessedEvent, processPerson],
             event.team_id
         )
 
