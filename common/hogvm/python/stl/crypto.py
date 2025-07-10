@@ -1,5 +1,7 @@
 import hashlib
 import hmac
+import base64
+from typing import Literal
 
 
 def md5Hex(data: str | None) -> str | None:
@@ -14,7 +16,7 @@ def sha256Hex(data: str | None) -> str | None:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
-def sha256HmacChainHex(data: list) -> str:
+def sha256HmacChainHex(data: list, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
     if len(data) < 2:
         raise ValueError("Data array must contain at least two elements.")
 
@@ -22,4 +24,13 @@ def sha256HmacChainHex(data: list) -> str:
     for i in range(2, len(data)):
         hmac_obj = hmac.new(hmac_obj.digest(), data[i].encode(), hashlib.sha256)
 
-    return hmac_obj.hexdigest()
+    digest = hmac_obj.digest()
+
+    if encoding == "hex":
+        return digest.hex()
+    elif encoding == "base64":
+        return base64.b64encode(digest).decode()
+    elif encoding == "base64url":
+        return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    elif encoding == "binary":
+        return digest.decode("latin1")
