@@ -439,8 +439,6 @@ class APIScopePermission(ScopeBasePermission):
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
-        self._check_organization_personal_api_key_restrictions(request, view)
-
         scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
         scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
 
@@ -462,31 +460,6 @@ class APIScopePermission(ScopeBasePermission):
             except ValueError:
                 # Indicates this is not an organization scoped view
                 pass
-
-    def _check_organization_personal_api_key_restrictions(self, request, view) -> None:
-        """
-        Check if the organization being accessed allows personal API keys.
-        Admins can always use personal API keys regardless of the organization setting.
-        """
-        try:
-            org = get_organization_from_view(view)
-        except ValueError:
-            # Indicates this is not an organization scoped view
-            return
-
-        if not org.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
-            return
-
-        try:
-            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=org)
-
-            if not org.members_can_use_personal_api_keys and membership.level < OrganizationMembership.Level.ADMIN:
-                raise PermissionDenied(
-                    f"Organization '{org.name}' does not allow using personal API keys. "
-                    f"Contact an admin to enable personal API keys for this organization."
-                )
-        except OrganizationMembership.DoesNotExist:
-            return
 
 
 class AccessControlPermission(ScopeBasePermission):
