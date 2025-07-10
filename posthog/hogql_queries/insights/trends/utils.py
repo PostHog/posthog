@@ -1,5 +1,14 @@
 from typing import Optional, Union
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, BreakdownType, MultipleBreakdownType
+
+from posthog.constants import UNIQUE_GROUPS
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    BreakdownType,
+    MultipleBreakdownType,
+    BaseMathType,
+)
 
 
 def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
@@ -40,6 +49,6 @@ def get_properties_chain(
 
 def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> bool:
     return (
-        series.math in {"unique_group", "weekly_active", "monthly_active", "dau"}
+        series.math in {BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE}
         and series.math_group_type_index is not None
     )
