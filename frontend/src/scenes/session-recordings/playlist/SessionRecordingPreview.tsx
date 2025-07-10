@@ -1,6 +1,6 @@
 import './SessionRecordingPreview.scss'
 
-import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues, useActions } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
@@ -32,7 +32,6 @@ export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
     isActive?: boolean
     onClick?: () => void
-    pinned?: boolean
 }
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
@@ -138,14 +137,6 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     )
 }
 
-function PinnedIndicator(): JSX.Element | null {
-    return (
-        <Tooltip placement="top-end" title={<>This recording is pinned to this list.</>}>
-            <IconPinFilled className="text-sm text-orange shrink-0" />
-        </Tooltip>
-    )
-}
-
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
@@ -202,12 +193,7 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
         : recording.recording_duration
 }
 
-export function SessionRecordingPreview({
-    recording,
-    isActive,
-    onClick,
-    pinned,
-}: SessionRecordingPreviewProps): JSX.Element {
+export function SessionRecordingPreview({ recording, isActive, onClick }: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
     const { filters, selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
@@ -311,11 +297,10 @@ export function SessionRecordingPreview({
                     className={clsx(
                         'min-w-6 flex flex-col gap-x-0.5 items-center',
                         // need different margin if the first item is an icon
-                        recording.ongoing || pinned ? 'mt-1' : 'mt-2'
+                        recording.ongoing ? 'mt-1' : 'mt-2'
                     )}
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
-                    {pinned ? <PinnedIndicator /> : null}
                     {!recording.viewed ? (
                         <UnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
                     ) : null}

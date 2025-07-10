@@ -7,6 +7,7 @@ import { MAX_SELECTED_RECORDINGS, sessionRecordingsPlaylistLogic } from './sessi
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { ReplayTabs } from '~/types'
 import { LemonBadge, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -96,44 +97,62 @@ function SortedBy({
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
+    type = 'filters',
+    shortId,
 }: {
     filters?: RecordingUniversalFilters
     setFilters?: (filters: Partial<RecordingUniversalFilters>) => void
+    type?: 'filters' | 'collection'
+    shortId?: string
 }): JSX.Element {
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
     const { playlists, playlistsLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     )
-    const { selectedRecordingsIds, sessionRecordings } = useValues(sessionRecordingsPlaylistLogic)
-    const { handleAddToPlaylist, handleSelectUnselectAll } = useActions(sessionRecordingsPlaylistLogic)
+    const { selectedRecordingsIds, sessionRecordings, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { handleBulkAddToPlaylist, handleBulkDeleteFromPlaylist, handleSelectUnselectAll } =
+        useActions(sessionRecordingsPlaylistLogic)
 
-    const actionsMenuItems =
-        !playlistsLoading && playlists.results.length > 0
-            ? [
-                  {
-                      label: 'Add to collection',
-                      items: playlists.results.map((playlist) => ({
-                          label: (
-                              <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
-                          ),
-                          onClick: () => handleAddToPlaylist(playlist.short_id),
-                      })),
-                  },
-              ]
-            : []
+    const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
+    const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
+
+    const getActionsMenuItems = (): LemonMenuItem[] => {
+        if (type === 'collection' && shortId) {
+            return [
+                {
+                    label: 'Remove from collection',
+                    onClick: () => handleBulkDeleteFromPlaylist(shortId),
+                },
+            ]
+        }
+
+        if (!playlistsLoading && playlists.results.length > 0) {
+            return [
+                {
+                    label: 'Add to collection',
+                    items: playlists.results.map((playlist) => ({
+                        label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
+                        onClick: () => handleBulkAddToPlaylist(playlist.short_id),
+                    })),
+                },
+            ]
+        }
+
+        return []
+    }
 
     return (
         <SettingsBar border="none" className="justify-between">
             <div className="flex items-center">
                 <LemonCheckbox
                     disabledReason={
-                        sessionRecordings.length >= MAX_SELECTED_RECORDINGS
+                        recordings.length >= MAX_SELECTED_RECORDINGS
                             ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
                             : undefined
                     }
-                    checked={sessionRecordings.length > 0 && selectedRecordingsIds.length === sessionRecordings.length}
-                    onChange={(checked) => handleSelectUnselectAll(checked)}
+                    checked={checked}
+                    onChange={(checked) => handleSelectUnselectAll(checked, type)}
                     stopPropagation
                     className="ml-2"
                     dataAttr="select-all-recordings"
@@ -148,7 +167,7 @@ export function SessionRecordingsPlaylistTopSettings({
             <div className="flex items-center">
                 {selectedRecordingsIds.length > 0 && (
                     <SettingsMenu
-                        items={actionsMenuItems}
+                        items={getActionsMenuItems()}
                         label={<LemonBadge.Number count={selectedRecordingsIds.length} size="small" />}
                     />
                 )}
