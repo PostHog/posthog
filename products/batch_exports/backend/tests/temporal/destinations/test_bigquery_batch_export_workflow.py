@@ -42,7 +42,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     finish_batch_export_run,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.bigquery_batch_export import (
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryBatchExportWorkflow,
     BigQueryHeartbeatDetails,
     BigQueryInsertInputs,
@@ -694,7 +694,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
     with (
         override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1),
         unittest.mock.patch(
-            "products.batch_exports.backend.temporal.bigquery_batch_export.BigQueryClient.acheck_for_query_permissions_on_table",
+            "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.BigQueryClient.acheck_for_query_permissions_on_table",
             return_value=False,
         ) as mocked_check,
     ):

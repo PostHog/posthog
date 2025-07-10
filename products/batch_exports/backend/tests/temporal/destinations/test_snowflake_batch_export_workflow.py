@@ -49,7 +49,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     finish_batch_export_run,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.snowflake_batch_export import (
+from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     InvalidPrivateKeyError,
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
@@ -482,7 +482,7 @@ async def test_snowflake_export_workflow_exports_events(
         ):
             with (
                 unittest.mock.patch(
-                    "products.batch_exports.backend.temporal.snowflake_batch_export.snowflake.connector.connect",
+                    "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
                 ) as mock,
                 override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1),
             ):
@@ -643,7 +643,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
                     super().__init__(*args, failure_mode="put", **kwargs)
 
             with unittest.mock.patch(
-                "products.batch_exports.backend.temporal.snowflake_batch_export.snowflake.connector.connect",
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
                 side_effect=FakeSnowflakeConnectionFailOnPut,
             ):
                 with pytest.raises(WorkflowFailureError) as exc_info:
@@ -709,7 +709,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
                     super().__init__(*args, failure_mode="copy", **kwargs)
 
             with unittest.mock.patch(
-                "products.batch_exports.backend.temporal.snowflake_batch_export.snowflake.connector.connect",
+                "products.batch_exports.backend.temporal.destinations.snowflake_batch_export.snowflake.connector.connect",
                 side_effect=FakeSnowflakeConnectionFailOnCopy,
             ):
                 with pytest.raises(WorkflowFailureError) as exc_info:

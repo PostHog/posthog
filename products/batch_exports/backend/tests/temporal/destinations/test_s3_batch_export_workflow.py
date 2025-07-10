@@ -49,11 +49,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     finish_batch_export_run,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.pre_export_stage import (
-    BatchExportInsertIntoS3StageInputs,
-    insert_into_s3_stage_activity,
-)
-from products.batch_exports.backend.temporal.s3_batch_export import (
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
@@ -68,6 +64,10 @@ from products.batch_exports.backend.temporal.s3_batch_export import (
     insert_into_s3_activity,
     insert_into_s3_activity_from_stage,
     s3_default_fields,
+)
+from products.batch_exports.backend.temporal.pre_export_stage import (
+    BatchExportInsertIntoS3StageInputs,
+    insert_into_s3_stage_activity,
 )
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
@@ -2014,7 +2014,9 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
 
     with (
         override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=1, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=1),
-        mock.patch("products.batch_exports.backend.temporal.s3_batch_export.aioboto3.Session", FakeSession),
+        mock.patch(
+            "products.batch_exports.backend.temporal.destinations.s3_batch_export.aioboto3.Session", FakeSession
+        ),
     ):
         with pytest.raises(IntermittentUploadPartTimeoutError):
             # we expect this to raise an exception
@@ -2211,7 +2213,9 @@ async def test_s3_export_workflow_with_request_timeouts(
         ),
     ):
         with (
-            mock.patch("products.batch_exports.backend.temporal.s3_batch_export.aioboto3.Session", FakeSession),
+            mock.patch(
+                "products.batch_exports.backend.temporal.destinations.s3_batch_export.aioboto3.Session", FakeSession
+            ),
             mock.patch("products.batch_exports.backend.temporal.batch_exports.RetryPolicy", DoNotRetryPolicy),
             override_settings(
                 BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS=[str(ateam.pk)] if use_internal_s3_stage else []

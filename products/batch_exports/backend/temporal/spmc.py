@@ -37,6 +37,9 @@ from products.batch_exports.backend.temporal.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from products.batch_exports.backend.temporal.pipeline.transformer import (
+    get_stream_transformer,
+)
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
@@ -55,7 +58,6 @@ from products.batch_exports.backend.temporal.temporary_file import (
     WriterFormat,
     get_batch_export_writer,
 )
-from products.batch_exports.backend.temporal.transformer import get_stream_transformer
 from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
@@ -1377,5 +1379,7 @@ async def run_consumer_from_stage(
         json_columns=json_columns,
     )
 
+    await raise_on_task_failure(producer_task)
+    return records_completed
     await raise_on_task_failure(producer_task)
     return records_completed
