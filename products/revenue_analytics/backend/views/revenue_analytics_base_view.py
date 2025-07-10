@@ -88,7 +88,7 @@ class RevenueAnalyticsBaseView(SavedQuery):
 
     @classmethod
     def get_view_prefix_for_event(cls, event: str) -> str:
-        return f"revenue_analytics.{re.sub(r'[^a-zA-Z0-9]', '_', event)}"
+        return f"revenue_analytics.events.{re.sub(r'[^a-zA-Z0-9]', '_', event)}"
 
     # These are generic ways to know how to call/use these views
     @classmethod
