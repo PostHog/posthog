@@ -12,7 +12,7 @@ from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxContextShape
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
 from posthog.sync import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
@@ -126,7 +126,7 @@ class AssistantNode(ABC):
             raise ValueError("Contextual tools must be a dictionary of tool names to tool context")
         return contextual_tools
 
-    def _get_ui_context(self, state: AssistantState) -> MaxContextShape | None:
+    def _get_ui_context(self, state: AssistantState) -> MaxUIContext | None:
         """
         Extracts the UI context from the latest human message.
         """

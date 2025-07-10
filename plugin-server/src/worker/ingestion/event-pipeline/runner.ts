@@ -13,6 +13,7 @@ import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { dropOldEventsStep } from './dropOldEventsStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
@@ -273,11 +274,18 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        const dropOldEventsResult = await this.runStep(dropOldEventsStep, [this, event, team], event.team_id)
+
+        if (dropOldEventsResult == null) {
+            // Event was dropped because it's too old.
+            return this.registerLastStep('dropOldEventsStep', [event], kafkaAcks)
+        }
+
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, dropOldEventsResult], event.team_id)
 
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
+            return this.registerLastStep('pluginsProcessEventStep', [dropOldEventsResult], kafkaAcks)
         }
 
         const { event: transformedEvent } = await this.runStep(

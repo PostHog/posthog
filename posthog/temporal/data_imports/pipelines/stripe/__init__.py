@@ -6,6 +6,7 @@ from stripe import ListObject, StripeClient
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.stripe.custom import InvoiceListWithAllLines
 from posthog.warehouse.models.external_table_definitions import (
     get_dlt_mapping_for_external_table,
 )
@@ -54,7 +55,9 @@ def stripe_source(
             CUSTOMER_RESOURCE_NAME: StripeResource(method=client.customers.list),
             DISPUTE_RESOURCE_NAME: StripeResource(method=client.disputes.list),
             INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
-            INVOICE_RESOURCE_NAME: StripeResource(method=client.invoices.list),
+            INVOICE_RESOURCE_NAME: StripeResource(
+                method=lambda params: InvoiceListWithAllLines(client, params, logger)  # type: ignore
+            ),
             PAYOUT_RESOURCE_NAME: StripeResource(method=client.payouts.list),
             PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
             PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
