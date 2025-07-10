@@ -41,6 +41,7 @@ def json_dumps_bytes(d) -> bytes:
         return orjson.dumps(d, default=str)
     except orjson.JSONEncodeError as e:
         if str(e) == "Integer exceeds 64-bit range":
+            logger.warning("Failed to encode with orjson: Integer exceeds 64-bit range: %s", d)
             # orjson doesn't support integers exceeding 64-bit range, so we fall back to json.dumps
             # see https://github.com/ijl/orjson/issues/301
             return json.dumps(d, default=str).encode("utf-8")

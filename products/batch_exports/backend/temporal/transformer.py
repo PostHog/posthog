@@ -317,6 +317,7 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
                 logger.exception("Orjson detected a deeply nested dict: %s", d)
                 dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
         elif str(err) == "Integer exceeds 64-bit range":
+            logger.warning("Failed to encode with orjson: Integer exceeds 64-bit range: %s", d)
             # Orjson doesn't support integers exceeding 64-bit range, so we fall back to json.dumps
             # see https://github.com/ijl/orjson/issues/301
             dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
