@@ -44,7 +44,6 @@ export function Wizard(): JSX.Element {
                             <div className="pt-4 flex items-center justify-center">
                                 <LemonButton
                                     type="primary"
-                                    fullWidth
                                     onClick={continueToAuthentication}
                                     disabledReason={
                                         !selectedProjectId ? 'Please select a project to continue.' : undefined
