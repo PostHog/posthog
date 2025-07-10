@@ -43,7 +43,7 @@ def join_with_persons_revenue_analytics_table(
     )
 
 
-def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery:
+def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
     columns = ["person_id", "revenue", "revenue_last_30_days"]
 
     if not context.database:
@@ -71,7 +71,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
 
         # If we're working with event views, we can use the person_id field directly
         # Otherwise, we need to join with the persons table by checking whether it exists
-        person_id_chain: list[str] | None = None
+        person_id_chain: list[str | int] | None = None
         if customer_view.is_event_view():
             person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
         else:
@@ -147,7 +147,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
     elif len(queries) == 1:
         return queries[0]
     else:
-        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+        ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
 
 class RawPersonsRevenueAnalyticsTable(LazyTable):
