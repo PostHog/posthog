@@ -78,6 +78,7 @@ function NewSurveyButton(): JSX.Element {
     return (
         <MaxTool
             name="create_survey"
+            description="Max can create surveys to collect qualitative feedback from your users on new or existing features."
             displayName="AI Survey Creator"
             initialMaxPrompt="Create a survey to collect "
             suggestions={[
