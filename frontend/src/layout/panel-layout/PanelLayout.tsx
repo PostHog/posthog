@@ -170,6 +170,9 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     {activePanelIdentifier === 'People' && (
                         <ProjectTree root="persons://" searchPlaceholder="Search people tools" />
                     )}
+                    {activePanelIdentifier === 'Settings' && (
+                        <ProjectTree root="settings://" searchPlaceholder="Search settings" />
+                    )}
                 </PanelLayoutNavBar>
             </div>
 

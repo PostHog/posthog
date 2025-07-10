@@ -441,15 +441,12 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 {!isLayoutNavCollapsed && 'Toolbar'}
                             </Link>
 
-                            <Link
-                                buttonProps={{
-                                    menuItem: !isLayoutNavCollapsed,
-                                    className: 'group',
-                                    iconOnly: isLayoutNavCollapsed,
-                                }}
-                                to={urls.settings('project')}
+                            <ButtonPrimitive
+                                menuItem={!isLayoutNavCollapsed}
+                                className="group"
+                                iconOnly={isLayoutNavCollapsed}
                                 onClick={() => {
-                                    handleStaticNavbarItemClick(urls.settings('project'), true)
+                                    handlePanelTriggerClick('Settings')
                                 }}
                                 tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
                                 tooltipPlacement="right"
@@ -463,7 +460,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     <IconGear />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Settings'}
-                            </Link>
+                            </ButtonPrimitive>
 
                             <Popover
                                 overlay={<AccountPopoverOverlay />}

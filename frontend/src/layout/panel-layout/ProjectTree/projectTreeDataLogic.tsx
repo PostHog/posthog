@@ -18,6 +18,7 @@ import {
     getDefaultTreePersons,
     getDefaultTreeProducts,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
 import { projectTreeLogic, RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
@@ -678,11 +679,84 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             : undefined,
                     })
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
+                    // Build settings tree from SETTINGS_MAP
+                    const getDefaultTreeSettings = (): FileSystemImport[] => {
+                        const settingsTree: FileSystemImport[] = []
+
+                        // Group sections by level
+                        const levelGroups = SETTINGS_MAP.reduce((acc, section) => {
+                            if (!acc[section.level]) {
+                                acc[section.level] = []
+                            }
+                            acc[section.level].push(section)
+                            return acc
+                        }, {} as Record<string, typeof SETTINGS_MAP>)
+
+                        // Convert each level to FileSystemImport
+                        Object.entries(levelGroups).forEach(([level, sections]) => {
+                            const levelName = level.charAt(0).toUpperCase() + level.slice(1)
+
+                            sections.forEach((section) => {
+                                const sectionPath = `${levelName}/${section.title}`
+
+                                // Convert section flag to simple string format
+                                let sectionFlag: string | undefined = undefined
+                                if (section.flag) {
+                                    if (typeof section.flag === 'string') {
+                                        sectionFlag = section.flag.startsWith('!')
+                                            ? section.flag.slice(1)
+                                            : section.flag
+                                    } else if (Array.isArray(section.flag) && section.flag.length > 0) {
+                                        const firstValidFlag = section.flag.find((f) => !f.startsWith('!'))
+                                        sectionFlag = firstValidFlag || section.flag[0].slice(1)
+                                    }
+                                }
+
+                                // Add section as folder
+                                settingsTree.push({
+                                    path: sectionPath,
+                                    category: levelName,
+                                    type: 'settings_section',
+                                    href: section.to || urls.settings(section.id),
+                                    flag: sectionFlag,
+                                })
+
+                                // Add individual settings
+                                section.settings.forEach((setting) => {
+                                    // Convert flag to simple string format that FileSystemImport expects
+                                    let flag: string | undefined = undefined
+                                    if (setting.flag) {
+                                        if (typeof setting.flag === 'string') {
+                                            flag = setting.flag.startsWith('!') ? setting.flag.slice(1) : setting.flag
+                                        } else if (Array.isArray(setting.flag) && setting.flag.length > 0) {
+                                            // Use first non-inverted flag from array
+                                            const firstValidFlag = setting.flag.find((f) => !f.startsWith('!'))
+                                            flag = firstValidFlag || setting.flag[0].slice(1)
+                                        }
+                                    }
+
+                                    settingsTree.push({
+                                        path: `${sectionPath}/${
+                                            typeof setting.title === 'string' ? setting.title : setting.id
+                                        }`,
+                                        category: levelName,
+                                        type: 'settings_item',
+                                        href: urls.settings(section.id, setting.id),
+                                        flag,
+                                    })
+                                })
+                            })
+                        })
+
+                        return settingsTree
+                    }
+
                     const data: [string, FileSystemImport[]][] = [
                         ['products://', getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],
+                        ['settings://', getDefaultTreeSettings()],
                     ]
                     const staticItems = data.map(([protocol, files]) => ({
                         id: protocol,

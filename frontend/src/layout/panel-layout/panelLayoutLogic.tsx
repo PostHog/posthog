@@ -12,6 +12,7 @@ export type PanelLayoutNavIdentifier =
     | 'Shortcuts'
     | 'DataManagement'
     | 'Database'
+    | 'Settings'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
