@@ -131,8 +131,8 @@ def activity_capture_event(inputs: CaptureEventInputs):
     org = Organization.objects.get(id=inputs.organization_id)
 
     posthoganalytics.capture(
-        distinct_id=f"managed_proxy_temporal_for_org_{record.organization_id}",
-        event=f"managed reverse proxy temporal {inputs.event_type}",
+        event=f"managed reverse proxy {inputs.event_type}",
+        distinct_id=f"org-{record.organization_id}",
         properties={
             "proxy_record_id": inputs.proxy_record_id,
             "domain": record.domain if record else None,
