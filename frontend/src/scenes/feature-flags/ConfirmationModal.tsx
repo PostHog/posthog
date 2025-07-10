@@ -68,7 +68,7 @@ export function openConfirmationModal({
         case 'multi-changes': {
             title = `Confirm changes to feature flag "${featureFlag.key}"?`
             const defaultMessage =
-                'These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'
+                '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'
 
             description = (
                 <>

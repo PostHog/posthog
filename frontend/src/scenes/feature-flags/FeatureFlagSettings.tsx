@@ -21,6 +21,20 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
     return (
         <div className="space-y-8">
             <div className="space-y-2">
+                <h3 className="min-w-[25rem]">Flag Persistence</h3>
+
+                <p>
+                    When enabled, all new feature flags will have persistence enabled by default. This ensures
+                    consistent user experiences across authentication steps. Learn more in our{' '}
+                    <Link
+                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                        target="_blank"
+                    >
+                        documentation
+                    </Link>
+                    .
+                </p>
+
                 <LemonSwitch
                     data-attr="default-flag-persistence-switch"
                     onChange={(checked) => {
@@ -34,21 +48,17 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     labelClassName={inModal ? 'text-base font-semibold' : ''}
                     checked={!!currentTeam?.flags_persistence_default}
                 />
-
-                <p>
-                    When enabled, all new feature flags will have persistence enabled by default. This ensures
-                    consistent user experiences across authentication steps. Learn more in our{' '}
-                    <Link
-                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                        target="_blank"
-                    >
-                        documentation
-                    </Link>
-                    .
-                </p>
             </div>
 
             <div className="space-y-2">
+                <h3 className="min-w-[25rem]">Flag Change Confirmation</h3>
+
+                <p>
+                    When enabled, editing existing feature flags will show a confirmation modal before saving changes.
+                    This helps prevent accidental changes to flag release conditions that could impact your users'
+                    experience.
+                </p>
+
                 <LemonSwitch
                     data-attr="feature-flag-confirmation-switch"
                     onChange={(checked) => {
@@ -63,27 +73,21 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     checked={!!currentTeam?.feature_flag_confirmation_enabled}
                 />
 
-                <p>
-                    When enabled, editing existing feature flags will show a confirmation modal before saving changes.
-                    This helps prevent accidental changes to flag release conditions that could impact your users'
-                    experience.
-                </p>
-
                 {currentTeam?.feature_flag_confirmation_enabled && (
                     <div className="mt-4">
                         <Form
                             logic={featureFlagConfirmationSettingsLogic}
                             formKey="confirmationMessageForm"
                             enableFormOnSubmit
-                            className="w-full space-y-4"
+                            className="w-full"
                         >
                             <LemonField
                                 name="message"
                                 label="Custom confirmation message"
-                                help="Optional custom message to show in the confirmation modal. If empty, the default message will be: 'These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'"
+                                // help="Enter an optional custom message to show in the confirmation modal. If empty, the default message will be: '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'"
                             >
                                 <LemonTextArea
-                                    placeholder="Enter a custom message for your team (optional)"
+                                    placeholder="Optional custom message. Default: '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'"
                                     maxLength={500}
                                     maxRows={3}
                                 />
@@ -156,6 +160,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
             <h2 id="secret-api-key" className="min-w-[25rem]">
                 Feature Flags Secure API key
             </h2>
+
             <p>
                 Use this key to retrieve feature flag definitions for{' '}
                 <Link to="https://posthog.com/docs/feature-flags/local-evaluation">local evaluation</Link> or{' '}
