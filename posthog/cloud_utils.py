@@ -24,7 +24,7 @@ def is_dev_mode() -> bool:
 
 
 def is_ci() -> bool:
-    return os.environ.get("GITHUB_ACTIONS") is not None
+    return os.environ.get("CI") == "true"
 
 
 def get_cached_instance_license() -> Optional["License"]:
