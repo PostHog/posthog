@@ -22,12 +22,12 @@ def test_get_view_name_for_source(source_type, prefix, view_name, expected):
 @pytest.mark.parametrize(
     "event,view_name,expected",
     [
-        ("charge_succeeded", "charges", "revenue_analytics.charge_succeeded.charges"),
-        ("charge.succeeded", "charges", "revenue_analytics.charge_succeeded.charges"),
-        ("charge-succeeded", "charges", "revenue_analytics.charge_succeeded.charges"),
-        ("charge$succeeded", "charges", "revenue_analytics.charge_succeeded.charges"),
-        ("charge123succeeded", "charges", "revenue_analytics.charge123succeeded.charges"),
-        ("charge*!@#%^#$succeeded", "charges", "revenue_analytics.charge________succeeded.charges"),
+        ("charge_succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
+        ("charge.succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
+        ("charge-succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
+        ("charge$succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
+        ("charge123succeeded", "charges", "revenue_analytics.events.charge123succeeded.charges"),
+        ("charge*!@#%^#$succeeded", "charges", "revenue_analytics.events.charge________succeeded.charges"),
     ],
 )
 def test_get_view_name_for_event(event, view_name, expected):
