@@ -13,6 +13,7 @@ from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
+from posthog.helpers.email_utils import EmailNormalizer
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -54,7 +55,7 @@ class OrganizationInviteManager:
     ) -> QuerySet:
         filters: dict[str, Any] = {
             "organization_id": organization_id,
-            "target_email": target_email,
+            "target_email__iexact": target_email,
         }
 
         if not include_expired:
@@ -127,8 +128,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
     def validate_target_email(self, email: str):
-        local_part, domain = email.split("@")
-        return f"{local_part}@{domain.lower()}"
+        return EmailNormalizer.normalize(email)
 
     def validate_level(self, level: int) -> int:
         # Validate that the user can't invite someone with a higher permission level than their own
@@ -233,7 +233,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
-            user__email=validated_data["target_email"],
+            user__email__iexact=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
 
@@ -308,13 +308,6 @@ class OrganizationInviteViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
-
-    def lowercase_email_domain(self, email: str):
-        # According to the email RFC https://www.rfc-editor.org/rfc/rfc1035, anything before the @ can be
-        # case-sensitive but the domain should not be. There have been a small number of customers who type in their emails
-        # with a capitalized domain. We shouldn't prevent them from inviting teammates because of this.
-        local_part, domain = email.split("@")
-        return f"{local_part}@{domain.lower()}"
 
     def create(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data.copy())
