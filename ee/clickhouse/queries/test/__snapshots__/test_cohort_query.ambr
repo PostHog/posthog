@@ -1151,7 +1151,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0)
+    AND (((coalesce(performed_event_condition_None_level_level_0_level_0_0, false))
           OR (has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, '$sample_field'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1,
                                                                                                                                   join_algorithm = 'auto'
   '''
@@ -1244,7 +1244,7 @@
         GROUP BY id
         HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0)
+    AND (((coalesce(performed_event_condition_None_level_level_0_level_0_0, false))
           OR (has(['test@posthog.com'], "pmat_$sample_field")))) SETTINGS optimize_aggregation_in_order = 1,
                                                                           join_algorithm = 'auto'
   '''
@@ -1418,11 +1418,11 @@
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
-    AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
-           OR (performed_event_condition_None_level_level_0_level_0_level_1_0)
+    AND ((((coalesce(performed_event_condition_None_level_level_0_level_0_level_0_0, false))
+           OR (coalesce(performed_event_condition_None_level_level_0_level_0_level_1_0, false))
            OR (has(['special'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
-          AND ((first_time_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                       join_algorithm = 'auto'
+          AND ((coalesce(first_time_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                        join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_person_props_only
@@ -1773,8 +1773,8 @@
               FROM person_static_cohort
               WHERE cohort_id = 99999
                 AND team_id = 99999))
-          AND (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                  join_algorithm = 'auto'
+          AND (coalesce(performed_event_condition_None_level_level_0_level_1_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                   join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.3
@@ -1858,8 +1858,8 @@
                FROM person_static_cohort
                WHERE cohort_id = 99999
                  AND team_id = 99999)))
-          OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                           join_algorithm = 'auto'
+          OR ((coalesce(performed_event_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                            join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
@@ -1967,7 +1967,7 @@
               FROM cohortpeople
               WHERE cohort_id = 99999
                 AND team_id = 99999 ))
-          OR (performed_event_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                 join_algorithm = 'auto'
+          OR (coalesce(performed_event_condition_None_level_level_0_level_1_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                  join_algorithm = 'auto'
   '''
 # ---
