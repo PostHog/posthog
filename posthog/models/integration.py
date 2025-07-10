@@ -772,8 +772,15 @@ class GoogleCloudIntegration:
         """
         Refresh the access token for the integration if necessary
         """
+        if self.integration.kind == "google-pubsub":
+            scope = "https://www.googleapis.com/auth/pubsub"
+        elif self.integration.kind == "google-cloud-storage":
+            scope = "https://www.googleapis.com/auth/devstorage.read_write"
+        else:
+            raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
+
         credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=["https://www.googleapis.com/auth/pubsub"]
+            self.integration.sensitive_config, scopes=[scope]
         )
 
         try:
