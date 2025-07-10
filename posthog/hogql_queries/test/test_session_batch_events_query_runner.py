@@ -378,10 +378,10 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 offset=0,
             )
             runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-            response = runner.calculate()
+            response = runner.run()
 
             # Verify first page response
-            self.assertIsInstance(response, SessionBatchEventsQueryResponse)
+            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
             self.assertEqual(len(response.session_events), 1)  # One session with 2 events
             session_events = response.session_events[0]
@@ -403,10 +403,10 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 offset=2,
             )
             runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-            response = runner.calculate()
+            response = runner.run()
 
             # Verify second page response
-            self.assertIsInstance(response, SessionBatchEventsQueryResponse)
+            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
             self.assertEqual(len(response.session_events), 1)
             session_events = response.session_events[0]
@@ -428,10 +428,10 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 offset=4,
             )
             runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-            response = runner.calculate()
+            response = runner.run()
 
             # Verify third page response
-            self.assertIsInstance(response, SessionBatchEventsQueryResponse)
+            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
             self.assertEqual(len(response.session_events), 1)
             session_events = response.session_events[0]
