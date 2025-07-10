@@ -288,7 +288,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
             response = runner.run()
             # Validate response
-            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
+            assert isinstance(response, CachedSessionBatchEventsQueryResponse)
             # Should have all the caching fields
             self.assertIsNotNone(response.cache_key)
             self.assertIsNotNone(response.is_cached)
@@ -326,8 +326,8 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             calculate_response = runner.calculate()
             cached_response = runner.run()
             # Verify both are the correct types
-            self.assertIsInstance(calculate_response, SessionBatchEventsQueryResponse)
-            self.assertIsInstance(cached_response, CachedSessionBatchEventsQueryResponse)
+            assert isinstance(calculate_response, SessionBatchEventsQueryResponse)
+            assert isinstance(cached_response, CachedSessionBatchEventsQueryResponse)
             # Session-specific data should be identical
             assert calculate_response.session_events is not None
             assert cached_response.session_events is not None
@@ -357,7 +357,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
             response = runner.run()
             # Should be cached response
-            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
+            assert isinstance(response, CachedSessionBatchEventsQueryResponse)
             # Should not have session_events populated
             self.assertIsNone(response.session_events)
             # Should have regular results
@@ -391,7 +391,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
             # Verify first page response
-            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
+            assert isinstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
             assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)  # One session with 2 events
@@ -417,7 +417,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
             # Verify second page response
-            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
+            assert isinstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
             assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)
@@ -443,7 +443,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = runner.run()
 
             # Verify third page response
-            self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
+            assert isinstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
             assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)
@@ -473,7 +473,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Get the runner via get_query_runner
         runner = get_query_runner(query=query, team=self.team)
         # Verify it returns the correct runner
-        self.assertIsInstance(runner, SessionBatchEventsQueryRunner)
+        assert isinstance(runner, SessionBatchEventsQueryRunner)
         self.assertEqual(runner.query.kind, "SessionBatchEventsQuery")
         self.assertEqual(runner.query.session_ids, [self.session_1_id])
         self.assertEqual(runner.query.limit, 10)
