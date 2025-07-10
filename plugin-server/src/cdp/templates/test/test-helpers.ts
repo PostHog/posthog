@@ -1,5 +1,6 @@
 import Chance from 'chance'
 import merge from 'deepmerge'
+import { DateTime, Settings } from 'luxon'
 
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'
@@ -297,6 +298,34 @@ export class DestinationTester {
         return createGlobals(globals)
     }
 
+    mockFetchResponse(response?: { status?: number; body?: Record<string, any>; headers?: Record<string, string> }) {
+        const defaultResponse = {
+            status: 200,
+            body: { status: 'OK' },
+            headers: { 'content-type': 'application/json' },
+        }
+
+        const finalResponse = { ...defaultResponse, ...response }
+
+        this.mockFetch.mockResolvedValue({
+            status: finalResponse.status,
+            json: () => Promise.resolve(finalResponse.body),
+            text: () => Promise.resolve(JSON.stringify(finalResponse.body)),
+            headers: finalResponse.headers,
+        })
+    }
+
+    beforeEach() {
+        Settings.defaultZone = 'UTC'
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
+    }
+
+    afterEach() {
+        Settings.defaultZone = 'system'
+        jest.useRealTimers()
+    }
+
     async invokeMapping(
         mapping_name: string,
         globals: HogFunctionInvocationGlobals,
@@ -360,7 +389,16 @@ export class DestinationTester {
             is_addon_required: false,
         })
 
-        return this.executor.execute(invocation)
+        const result = await this.executor.execute(invocation)
+
+        result.logs.forEach((x) => {
+            if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
+                x.message = 'Function completed in [REPLACED]'
+            }
+        })
+        result.invocation.id = 'invocation-id'
+
+        return result
     }
 }
 
@@ -402,7 +440,7 @@ export const createAdDestinationPayload = (
 export const generateTestData = (
     seedName: string,
     input_schema: HogFunctionInputSchemaType[],
-    required: boolean
+    requiredFieldsOnly: boolean = false
 ): Record<string, any> => {
     const generateValue = (input: HogFunctionInputSchemaType): any => {
         const chance = new Chance(seedName)
@@ -468,7 +506,7 @@ export const generateTestData = (
     }
 
     const inputs = input_schema.reduce((acc, input) => {
-        if (input.required || required === false) {
+        if (input.required || requiredFieldsOnly === false) {
             acc[input.key] = input.default ?? generateValue(input)
         }
         return acc

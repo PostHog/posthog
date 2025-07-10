@@ -37,13 +37,6 @@ for (const template of NATIVE_HOG_FUNCTIONS) {
                     mappingInputs
                 )
 
-                responses.logs.forEach((x) => {
-                    if (typeof x.message === 'string' && x.message.includes('Function completed in')) {
-                        x.message = 'Function completed in [REPLACED]'
-                    }
-                })
-                responses.invocation.id = 'invocation-id'
-
                 expect(responses).toMatchSnapshot()
             })
         }
