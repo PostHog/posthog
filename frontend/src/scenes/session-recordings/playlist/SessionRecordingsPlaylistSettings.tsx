@@ -105,7 +105,7 @@ export function SessionRecordingsPlaylistTopSettings({
     const { playlists, playlistsLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     )
-    const { selectedRecordings, sessionRecordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { selectedRecordingsIds, sessionRecordings } = useValues(sessionRecordingsPlaylistLogic)
     const { handleAddToPlaylist, handleSelectUnselectAll } = useActions(sessionRecordingsPlaylistLogic)
 
     const actionsMenuItems =
@@ -127,7 +127,7 @@ export function SessionRecordingsPlaylistTopSettings({
         <SettingsBar border="none" className="justify-between">
             <div className="flex items-center">
                 <LemonCheckbox
-                    checked={sessionRecordings.length > 0 && selectedRecordings.length === sessionRecordings.length}
+                    checked={sessionRecordings.length > 0 && selectedRecordingsIds.length === sessionRecordings.length}
                     onChange={(checked) => handleSelectUnselectAll(checked)}
                     stopPropagation
                     className="ml-2"
@@ -141,10 +141,10 @@ export function SessionRecordingsPlaylistTopSettings({
                 ) : null}
             </div>
             <div className="flex items-center">
-                {selectedRecordings.length > 0 && (
+                {selectedRecordingsIds.length > 0 && (
                     <SettingsMenu
                         items={actionsMenuItems}
-                        label={<LemonBadge.Number count={selectedRecordings.length} size="small" />}
+                        label={<LemonBadge.Number count={selectedRecordingsIds.length} size="small" />}
                     />
                 )}
                 <SettingsMenu

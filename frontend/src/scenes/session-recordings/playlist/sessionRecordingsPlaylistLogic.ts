@@ -363,7 +363,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
-        setSelectedRecordings: (recordings: SessionRecordingType[]) => ({ recordings }),
+        setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
         handleAddToPlaylist: (short_id: string) => ({ short_id }),
         handleSelectUnselectAll: (checked: boolean) => ({ checked }),
     }),
@@ -589,10 +589,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
-        selectedRecordings: [
-            [] as SessionRecordingType[],
+        selectedRecordingsIds: [
+            [] as string[],
             {
-                setSelectedRecordings: (_, { recordings }) => recordings,
+                setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
             },
         ],
     })),
@@ -645,29 +645,31 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         handleAddToPlaylist: async ({ short_id }: { short_id: string }) => {
             await lemonToast.promise(
                 (async () => {
-                    for (const recording of values.selectedRecordings) {
+                    for (const recordingId of values.selectedRecordingsIds) {
                         try {
-                            await addRecordingToPlaylist(short_id, recording.id, true)
+                            await addRecordingToPlaylist(short_id, recordingId, true)
                         } catch (e) {
                             posthog.captureException(e)
                         }
                     }
-                    actions.setSelectedRecordings([])
+                    actions.setSelectedRecordingsIds([])
                 })(),
                 {
-                    success: 'Added to collection!',
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } added to collection!`,
                     error: 'Failed to add to collection!',
-                    pending: `Adding ${values.selectedRecordings.length} recording${
-                        values.selectedRecordings.length > 1 ? 's' : ''
+                    pending: `Adding ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
                     } to the collection...`,
                 }
             )
         },
         handleSelectUnselectAll: ({ checked }: { checked: boolean }) => {
             if (checked) {
-                actions.setSelectedRecordings(values.sessionRecordings)
+                actions.setSelectedRecordingsIds(values.sessionRecordings.map((s) => s.id))
             } else {
-                actions.setSelectedRecordings([])
+                actions.setSelectedRecordingsIds([])
             }
         },
     })),

@@ -206,9 +206,9 @@ export function SessionRecordingPreview({
 }: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
-    const { filters, selectedRecordings } = useValues(sessionRecordingsPlaylistLogic)
+    const { filters, selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-    const { setSelectedRecordings } = useActions(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
@@ -227,14 +227,14 @@ export function SessionRecordingPreview({
                 onClick={() => onClick?.()}
             >
                 <LemonCheckbox
-                    checked={selectedRecordings.some((s) => s.id === recording.id)}
+                    checked={selectedRecordingsIds.some((s) => s === recording.id)}
                     dataAttr="select-recording"
                     aria-label="Select recording"
                     onChange={() => {
-                        if (selectedRecordings.some((r) => r.id === recording.id)) {
-                            setSelectedRecordings(selectedRecordings.filter((r) => r.id !== recording.id))
+                        if (selectedRecordingsIds.some((r) => r === recording.id)) {
+                            setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
                         } else {
-                            setSelectedRecordings([...selectedRecordings, recording])
+                            setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
                         }
                     }}
                     stopPropagation
