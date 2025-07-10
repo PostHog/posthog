@@ -1,6 +1,5 @@
 import pytest
 import dagster
-import structlog
 
 from datetime import datetime, UTC
 from unittest.mock import patch
@@ -24,8 +23,6 @@ from posthog.models.web_preaggregated.sql import (
 from posthog.models.utils import uuid7
 from ee.clickhouse.materialized_columns.columns import materialize
 from dags.web_preaggregated_daily import pre_aggregate_web_analytics_data
-
-logger = structlog.get_logger(__name__)
 
 
 @pytest.mark.django_db
@@ -56,16 +53,12 @@ class TestWebPreAggregatedDagsterIntegration(ClickhouseTestMixin, APIBaseTest):
         super().tearDown()
 
     def _materialize_required_columns(self):
-        logger.info("Materializing required columns for web analytics")
         for column in self.MATERIALIZED_COLUMNS:
             materialize("events", column)
 
     def _create_test_tables(self):
-        logger.info("Creating test tables for web analytics pre-aggregation")
         sync_execute(WEB_STATS_DAILY_SQL(table_name="test_web_stats_daily", on_cluster=False))
         sync_execute(WEB_BOUNCES_DAILY_SQL(table_name="test_web_bounces_daily", on_cluster=False))
-
-        logger.info("Test tables created successfully")
 
     def _create_test_events_across_periods(self):
         _create_person(team_id=self.team.pk, distinct_ids=["user1"])
