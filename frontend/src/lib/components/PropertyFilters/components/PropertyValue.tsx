@@ -21,7 +21,14 @@ import {
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import {
+    GroupTypeIndex,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyFilterBaseValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -144,6 +151,15 @@ export function PropertyValue({
         (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
 
+    // For flag dependencies, we need to preserve the original typed values
+    const typedValues = isFlagDependencyProperty
+        ? value === null || value === undefined
+            ? []
+            : Array.isArray(value)
+            ? value
+            : [value]
+        : formattedValues
+
     if (!editable) {
         return <>{formattedValues.join(' or ')}</>
     }
@@ -212,7 +228,41 @@ export function PropertyValue({
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
-    return (
+    return isFlagDependencyProperty ? (
+        <LemonInputSelect<PropertyFilterBaseValue>
+            className={inputClassName}
+            data-attr="prop-val"
+            loading={propertyOptions?.status === 'loading'}
+            value={typedValues}
+            mode={isMultiSelect ? 'multiple' : 'single'}
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+            onInputChange={onSearchTextChange}
+            placeholder={placeholder}
+            size={size}
+            title={
+                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+                    ? 'Suggested values (last 7 days)'
+                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+                    ? 'Suggested values'
+                    : undefined
+            }
+            popoverClassName="max-w-200"
+            options={displayOptions.map(({ name: value }, index) => {
+                const name = toString(value)
+                return {
+                    key: name,
+                    label: name,
+                    labelComponent: (
+                        <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
+                            {formatLabelContent(value)}
+                        </span>
+                    ),
+                    value,
+                }
+            })}
+        />
+    ) : (
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
