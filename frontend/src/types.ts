@@ -4173,11 +4173,6 @@ export interface LinearTeamType {
     name: string
 }
 
-export interface GitHubRepoType {
-    id: string
-    name: string
-}
-
 export interface SharingConfigurationType {
     enabled: boolean
     access_token: string

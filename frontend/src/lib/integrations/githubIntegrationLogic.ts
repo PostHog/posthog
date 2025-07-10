@@ -2,8 +2,6 @@ import { actions, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { GitHubRepoType } from '~/types'
-
 import type { githubIntegrationLogicType } from './githubIntegrationLogicType'
 
 export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
@@ -11,16 +9,16 @@ export const githubIntegrationLogic = kea<githubIntegrationLogicType>([
     key((props) => props.id),
     path((key) => ['lib', 'integrations', 'githubIntegrationLogic', key]),
     actions({
-        loadAllGitHubRepos: () => ({}),
+        loadRepositories: () => ({}),
     }),
 
     loaders(({ props }) => ({
-        githubRepos: [
-            [] as GitHubRepoType[],
+        repositories: [
+            [] as string[],
             {
-                loadAllGitHubRepos: async () => {
-                    const res = await api.integrations.githubRepos(props.id)
-                    return res.teams
+                loadRepositories: async () => {
+                    const repsonse = await api.integrations.githubRepositories(props.id)
+                    return repsonse.repositories
                 },
             },
         ],
