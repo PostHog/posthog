@@ -690,6 +690,7 @@ export interface Team {
     timezone: string
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
+    drop_events_older_than_seconds: number | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
