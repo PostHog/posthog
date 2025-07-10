@@ -112,6 +112,21 @@ describe('getFormattedDate', () => {
             expect(getFormattedDate(timestamp, { timezone: 'America/New_York' })).toEqual('28 Apr 2024')
             expect(getFormattedDate(timestamp, { timezone: 'Asia/Tokyo' })).toEqual('29 Apr 2024')
         })
+
+        it('returns the correct week range with provided timezone', () => {
+            // Test that the week range is correct in a specific timezone
+            const timestamp = '2025-06-15T23:59:59-07:00' // PDT
+            expect(
+                getFormattedDate(timestamp, {
+                    timezone: 'America/Los_Angeles',
+                    interval: 'week',
+                    dateRange: {
+                        date_from: '2025-06-11T00:00:00.000000-07:00',
+                        date_to: '2025-06-18T23:59:59.999999-07:00',
+                    },
+                })
+            ).toEqual('15-18 Jun 2025')
+        })
     })
 
     describe('with invalid inputs', () => {
