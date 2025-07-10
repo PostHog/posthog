@@ -1,10 +1,12 @@
 import { Monaco } from '@monaco-editor/react'
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
 import { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +17,7 @@ import {
     DatabaseSerializedFieldType,
     HogQLQuery,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'

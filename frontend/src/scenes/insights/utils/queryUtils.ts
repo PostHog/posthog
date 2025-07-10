@@ -1,6 +1,5 @@
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 
-import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -14,6 +13,7 @@ import {
     isInsightVizNode,
     isTrendsQuery,
 } from '~/queries/utils'
+import { DataNode, InsightQueryNode, Node } from '~/schema'
 import { BaseMathType, ChartDisplayType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }

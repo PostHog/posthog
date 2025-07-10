@@ -1,8 +1,10 @@
-import { LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useState } from 'react'
+
+import { LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 
 import { Query } from '~/queries/Query/Query'
 

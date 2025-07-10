@@ -5,7 +5,7 @@ import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { TIME_INTERVAL_BOUNDS } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMetric } from '~/schema'
 import { FunnelConversionWindowTimeUnit } from '~/types'
 
 export function ExperimentMetricConversionWindowFilter({

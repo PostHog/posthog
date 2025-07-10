@@ -1,7 +1,10 @@
 .SelectableElement {
     border: 1px solid transparent;
     border-radius: var(--radius);
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
+    transition:
+        background-color 200ms ease,
+        color 200ms ease,
+        border 200ms ease;
 
     &.SelectableElement--selected {
         color: var(--text-primary);

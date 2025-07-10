@@ -1,7 +1,7 @@
 import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { ErrorTrackingIssue } from '~/schema'
 
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingDataNodeLogicType } from './errorTrackingDataNodeLogicType'

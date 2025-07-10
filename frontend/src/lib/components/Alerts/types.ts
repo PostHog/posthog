@@ -1,10 +1,4 @@
-import {
-    AlertCalculationInterval,
-    AlertCondition,
-    AlertState,
-    InsightThreshold,
-    TrendsAlertConfig,
-} from '~/queries/schema/schema-general'
+import { AlertCalculationInterval, AlertCondition, AlertState, InsightThreshold, TrendsAlertConfig } from '~/schema'
 import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 export type AlertConfig = TrendsAlertConfig

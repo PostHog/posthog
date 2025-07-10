@@ -1,5 +1,7 @@
-import { IconMessage } from '@posthog/icons'
 import { Node } from '@xyflow/react'
+
+import { IconMessage } from '@posthog/icons'
+
 import { NEW_TEMPLATE } from 'products/messaging/frontend/TemplateLibrary/constants'
 
 import { HogFlowAction } from '../types'

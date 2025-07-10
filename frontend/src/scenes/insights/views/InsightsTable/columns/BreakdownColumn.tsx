@@ -1,11 +1,12 @@
 import { Link } from '@posthog/lemon-ui'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter } from '~/schema'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter

@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
 
-import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { Node, NodeKind } from '~/schema'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
 
 function GroupDetailDashboard({

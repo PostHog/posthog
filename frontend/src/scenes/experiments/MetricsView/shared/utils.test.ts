@@ -1,5 +1,5 @@
-import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/schema'
+import { ExperimentMetricType, NodeKind } from '~/schema'
 import { ExperimentMetricMathType } from '~/types'
 
 import { getDefaultMetricTitle, getMetricTag } from './utils'

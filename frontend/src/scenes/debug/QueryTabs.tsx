@@ -1,15 +1,16 @@
+import { useState } from 'react'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Query } from '~/queries/Query/Query'
-import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
+import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/schema'
 
 function toLineColumn(hogql: string, position: number): { line: number; column: number } {
     const lines = hogql.split('\n')

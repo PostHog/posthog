@@ -1,9 +1,10 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '~/schema'
 import type { OrganizationMemberType, RoleType } from '~/types'
 
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'
@@ -73,7 +74,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         filteredRoles: [
             (s) => [s.roles, s.rolesFuse, s.search],
             (roles, rolesFuse, search): RoleType[] =>
-                search ? rolesFuse.search(search).map((result) => result.item) : roles ?? [],
+                search ? rolesFuse.search(search).map((result) => result.item) : (roles ?? []),
         ],
 
         resolveAssignee: [

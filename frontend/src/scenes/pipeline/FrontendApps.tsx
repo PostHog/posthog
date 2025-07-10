@@ -1,5 +1,7 @@
-import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -8,8 +10,8 @@ import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUti
 
 import { PipelineStage, ProductKey } from '~/types'
 
-import { frontendAppsLogic } from './frontendAppsLogic'
 import { NewButton } from './NewButton'
+import { frontendAppsLogic } from './frontendAppsLogic'
 import { SiteApp } from './types'
 import { appColumn, nameColumn, usePipelinePluginBackedNodeMenuCommonItems } from './utils'
 

@@ -40,8 +40,8 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                                                     {step.text_matching === 'regex'
                                                         ? 'matches regex'
                                                         : step.url_matching === 'exact'
-                                                        ? 'equals'
-                                                        : 'contains'}{' '}
+                                                          ? 'equals'
+                                                          : 'contains'}{' '}
                                                     <b>{step.text}</b>
                                                 </span>
                                             </li>
@@ -53,8 +53,8 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                                                     {step.href_matching === 'regex'
                                                         ? 'matches regex'
                                                         : step.url_matching === 'exact'
-                                                        ? 'equals'
-                                                        : 'contains'}
+                                                          ? 'equals'
+                                                          : 'contains'}
                                                     <b>{step.href}</b>
                                                 </span>
                                             </li>
@@ -66,8 +66,8 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                                                     {step.url_matching === 'regex'
                                                         ? 'matches regex'
                                                         : step.url_matching === 'exact'
-                                                        ? 'equals'
-                                                        : 'contains'}{' '}
+                                                          ? 'equals'
+                                                          : 'contains'}{' '}
                                                     <b>{step.url}</b>
                                                 </span>
                                             </li>

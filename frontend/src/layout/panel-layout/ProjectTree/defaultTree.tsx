@@ -1,3 +1,5 @@
+import React, { CSSProperties } from 'react'
+
 import {
     IconAI,
     IconApp,
@@ -24,9 +26,9 @@ import {
     IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import React, { CSSProperties } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
@@ -36,7 +38,7 @@ import {
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/schema'
 import { FileSystemIconColor, PipelineStage, PipelineTab } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {

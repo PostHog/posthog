@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'

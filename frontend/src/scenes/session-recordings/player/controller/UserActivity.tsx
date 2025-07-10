@@ -1,7 +1,8 @@
 import useSize from '@react-hook/size'
 import { useValues } from 'kea'
-import { cn } from 'lib/utils/css-classes'
 import { MutableRefObject, useMemo, useRef } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 import useIsHovering from '~/lib/hooks/useIsHovering'
 

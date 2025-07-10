@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
+
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
+import { CalendarHeatmapQuery } from '~/schema'
 import { FilterType } from '~/types'
 
-import { actionsAndEventsToSeries, FilterTypeActionsAndEvents } from '../InsightQuery/utils/filtersToQueryNode'
+import { FilterTypeActionsAndEvents, actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function CalendarHeatmapFilters(): JSX.Element | null {

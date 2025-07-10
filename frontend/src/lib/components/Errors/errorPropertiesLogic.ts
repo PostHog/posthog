@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import {
     ErrorEventId,
     ErrorEventProperties,
@@ -15,8 +16,8 @@ import {
 } from 'lib/components/Errors/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
 import { mightHaveRecording } from '../ViewRecordingButton/ViewRecordingButton'
+import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties

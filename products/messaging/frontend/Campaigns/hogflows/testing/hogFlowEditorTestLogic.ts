@@ -1,15 +1,17 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 
 import { performQuery } from '~/queries/query'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
+import { EventsQuery, NodeKind } from '~/schema'
 import {
     AnyPropertyFilter,
     CyclotronJobInvocationGlobals,
@@ -19,10 +21,10 @@ import {
 } from '~/types'
 import { PropertyGroupFilter } from '~/types'
 
-import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 import { CampaignLogicProps } from '../../campaignLogic'
 import { campaignLogic } from '../../campaignLogic'
 import { HogFlow } from '../types'
+import type { hogFlowEditorTestLogicType } from './hogFlowEditorTestLogicType'
 
 export interface HogflowTestInvocation {
     globals: string

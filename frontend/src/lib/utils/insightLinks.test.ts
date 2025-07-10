@@ -1,6 +1,6 @@
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 
 describe('getInsightDefinitionUrl', () => {
     it('generates a template link for an unsaved insight (raw query)', () => {

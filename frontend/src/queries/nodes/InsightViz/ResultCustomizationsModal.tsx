@@ -1,5 +1,7 @@
-import { LemonButton, LemonColorButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonColorButton, LemonModal } from '@posthog/lemon-ui'
+
 import { DataColorToken } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -10,7 +12,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ResultCustomizationBy } from '~/queries/schema/schema-general'
+import { ResultCustomizationBy } from '~/schema'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'

@@ -1,6 +1,7 @@
-import { IconClock } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
+
+import { IconClock } from '@posthog/icons'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction } from '../types'

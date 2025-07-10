@@ -1,9 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { LLMTrace, LLMTraceEvent } from '~/schema'
 
 import type { SpanAggregation } from './llmObservabilityTraceDataLogic'
-
 import {
     AnthropicInputMessage,
     AnthropicTextMessage,

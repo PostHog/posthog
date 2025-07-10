@@ -1,5 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'

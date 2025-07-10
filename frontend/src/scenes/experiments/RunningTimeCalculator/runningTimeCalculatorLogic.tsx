@@ -1,18 +1,27 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
+
 import { performQuery } from '~/queries/query'
+import {
+    addExposureToQuery,
+    compose,
+    getDefaultDateRange,
+    getEventNode,
+    getQuery,
+} from '~/scenes/experiments/metricQueryUtils'
 import {
     ExperimentMetric,
     ExperimentMetricType,
     FunnelsQuery,
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
     TrendsQuery,
     TrendsQueryResponse,
-} from '~/queries/schema/schema-general'
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+} from '~/schema'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -24,14 +33,6 @@ import {
 
 import { calculateRecommendedSampleSize, calculateVariance } from './experimentStatisticsUtils'
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
-
-import {
-    addExposureToQuery,
-    compose,
-    getDefaultDateRange,
-    getEventNode,
-    getQuery,
-} from '~/scenes/experiments/metricQueryUtils'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
 export const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2

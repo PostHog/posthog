@@ -1,8 +1,9 @@
-import { LemonDropdown } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { LemonDropdown } from '@posthog/lemon-ui'
+
+import { ErrorTrackingIssue } from '~/schema'
 
 import { AssigneeResolver } from './AssigneeDisplay'
 import { AssigneeDropdown } from './AssigneeDropdown'

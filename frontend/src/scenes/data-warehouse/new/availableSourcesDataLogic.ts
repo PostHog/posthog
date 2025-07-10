@@ -1,8 +1,9 @@
 import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
-import { SourceConfig } from '~/queries/schema/schema-general'
+import { SourceConfig } from '~/schema'
 
 import type { availableSourcesDataLogicType } from './availableSourcesDataLogicType'
 

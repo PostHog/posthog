@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { DataColorToken } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,7 +11,7 @@ import { getFunnelDatasetKey, getTrendResultCustomizationKey } from 'scenes/insi
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ResultCustomizationBy, TrendsFilter } from '~/queries/schema/schema-general'
+import { ResultCustomizationBy, TrendsFilter } from '~/schema'
 import { FlattenedFunnelStepByBreakdown, InsightLogicProps } from '~/types'
 
 import type { resultCustomizationsModalLogicType } from './resultCustomizationsModalLogicType'

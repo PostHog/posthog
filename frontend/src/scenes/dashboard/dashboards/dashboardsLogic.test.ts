@@ -1,4 +1,5 @@
 import { expectLogic, truth } from 'kea-test-utils'
+
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
 import { useMocks } from '~/mocks/jest'

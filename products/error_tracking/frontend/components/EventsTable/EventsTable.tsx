@@ -1,12 +1,14 @@
-import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { getExceptionAttributes, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
+import { asDisplay } from 'scenes/persons/person-utils'
 
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { cancelEvent } from '../../utils'

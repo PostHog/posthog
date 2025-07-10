@@ -1,8 +1,10 @@
 import './RetentionTable.scss'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
@@ -14,7 +16,7 @@ import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { MAX_SELECT_RETURNED_ROWS, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '~/schema'
 import { ExporterFormat } from '~/types'
 
 import { retentionLogic } from './retentionLogic'

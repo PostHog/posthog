@@ -1,11 +1,13 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
+
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { QueryContext } from '~/queries/types'
 import {
     AnyResponseType,
     CalendarHeatmapResponse,
@@ -13,17 +15,16 @@ import {
     EventsHeatMapDataResult,
     EventsHeatMapRowAggregationResult,
     EventsHeatMapStructuredResult,
-} from '~/queries/schema/schema-general'
-import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+} from '~/schema'
+import { CalendarHeatmapQuery } from '~/schema'
 
 import {
     AggregationLabel,
+    HoursAbbreviated,
     getColumnAggregationTooltip,
     getDataTooltip,
     getOverallAggregationTooltip,
     getRowAggregationTooltip,
-    HoursAbbreviated,
     rowLabels,
     thresholdFontSize,
 } from './utils'

@@ -1,7 +1,7 @@
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { ExperimentFunnelMetric, ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentFunnelMetric, ExperimentMetric } from '~/schema'
 import { StepOrderValue } from '~/types'
 
 const funnelOrderOptions = [

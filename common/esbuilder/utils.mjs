@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises'
-
 import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
 import cors from 'cors'
@@ -10,6 +8,7 @@ import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
+import fs from 'node:fs/promises'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
@@ -310,12 +309,12 @@ export async function buildOrWatch(config) {
                     ? 'Building'
                     : 'Rebuilding'
                 : logOpts.success
-                ? buildCount === 1
-                    ? 'Built'
-                    : 'Rebuilt'
-                : buildCount === 1
-                ? 'Building failed'
-                : 'Rebuilding failed '
+                  ? buildCount === 1
+                      ? 'Built'
+                      : 'Rebuilt'
+                  : buildCount === 1
+                    ? 'Building failed'
+                    : 'Rebuilding failed '
 
         console.info(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }

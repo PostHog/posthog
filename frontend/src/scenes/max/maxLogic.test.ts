@@ -5,7 +5,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
+import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxMocks, mockStream } from './testUtils'
 
 describe('maxLogic', () => {

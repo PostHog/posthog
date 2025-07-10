@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -7,7 +8,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { TrendsFilter } from '~/queries/schema/schema-general'
+import { TrendsFilter } from '~/schema'
 import { IntervalType, TrendsFilterType } from '~/types'
 
 type ValueColumnTitleProps = {

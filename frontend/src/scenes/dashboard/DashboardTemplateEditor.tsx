@@ -1,5 +1,7 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'

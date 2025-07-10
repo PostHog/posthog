@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconEllipsis } from '@posthog/icons'
 import { IconSort } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 
 import { RecordingUniversalFilters } from '~/types'

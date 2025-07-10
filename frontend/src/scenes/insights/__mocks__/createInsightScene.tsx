@@ -1,11 +1,12 @@
 import { StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { InsightVizNode, Node } from '~/schema'
 import { QueryBasedInsightModel } from '~/types'
 
 function setLegendFilter(query: Node | null | undefined, showLegend: boolean): Node | null | undefined {

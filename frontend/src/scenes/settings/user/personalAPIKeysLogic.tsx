@@ -1,8 +1,10 @@
-import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -186,10 +188,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     access_type: key?.scoped_organizations?.length
                         ? 'organizations'
                         : key?.scoped_teams?.length
-                        ? 'teams'
-                        : id !== 'new'
-                        ? 'all'
-                        : undefined,
+                          ? 'teams'
+                          : id !== 'new'
+                            ? 'all'
+                            : undefined,
                 }
 
                 actions.resetEditingKey(formValues)

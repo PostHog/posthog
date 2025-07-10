@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
+
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataNode, EventsQuery, HogQLQuery, TracesQuery } from '~/queries/schema/schema-general'
 import { isEventsQuery, isHogQLQuery, isTracesQuery } from '~/queries/utils'
+import { DataNode, EventsQuery, HogQLQuery, TracesQuery } from '~/schema'
 
 interface TestAccountFiltersProps {
     query: DataNode
@@ -22,8 +23,8 @@ export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps)
         ? !!(isHogQLQuery(query)
               ? query.filters?.filterTestAccounts
               : isEventsQuery(query) || isTracesQuery(query)
-              ? query.filterTestAccounts
-              : false)
+                ? query.filterTestAccounts
+                : false)
         : false
     const onChange = isHogQLQuery(query)
         ? (checked: boolean) => {
@@ -37,14 +38,14 @@ export function TestAccountFilters({ query, setQuery }: TestAccountFiltersProps)
               setQuery?.(newQuery)
           }
         : isEventsQuery(query) || isTracesQuery(query)
-        ? (checked: boolean) => {
-              const newQuery: EventsQuery | TracesQuery = {
-                  ...query,
-                  filterTestAccounts: checked,
-              }
-              setQuery?.(newQuery)
-          }
-        : undefined
+          ? (checked: boolean) => {
+                const newQuery: EventsQuery | TracesQuery = {
+                    ...query,
+                    filterTestAccounts: checked,
+                }
+                setQuery?.(newQuery)
+            }
+          : undefined
 
     return (
         <TestAccountFilterSwitch

@@ -1,8 +1,10 @@
-import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FunnelsFilter } from '~/queries/schema/schema-general'
+import { FunnelsFilter } from '~/schema'
 import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
 
 import { FUNNEL_STEP_COUNT_LIMIT } from './FunnelsQuerySteps'
@@ -18,8 +20,8 @@ export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
         !breakdownAttributionType
             ? BreakdownAttributionType.FirstTouch
             : breakdownAttributionType === BreakdownAttributionType.Step
-            ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-            : breakdownAttributionType
+              ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+              : breakdownAttributionType
 
     return (
         <LemonSelect

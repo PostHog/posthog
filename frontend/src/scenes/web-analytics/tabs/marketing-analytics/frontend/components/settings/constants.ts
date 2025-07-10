@@ -1,4 +1,4 @@
-import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter, NodeKind } from '~/schema'
 import { BaseMathType } from '~/types'
 
 export const defaultConversionGoalFilter: ConversionGoalFilter = {

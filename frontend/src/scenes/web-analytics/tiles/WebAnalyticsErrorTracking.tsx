@@ -1,19 +1,20 @@
 import clsx from 'clsx'
 import { useActions } from 'kea'
+
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
+import { ErrorTrackingIssue } from '~/schema'
 import { ProductKey } from '~/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {

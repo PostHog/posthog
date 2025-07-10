@@ -1,4 +1,3 @@
-import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
@@ -17,6 +16,7 @@ import {
     isWebOverviewQuery,
     isWebStatsTableQuery,
 } from '~/queries/utils'
+import { Node } from '~/schema'
 
 export enum QueryFeature {
     columnsInResponse,

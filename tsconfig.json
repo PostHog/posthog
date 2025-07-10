@@ -8,6 +8,8 @@
             "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
             "storybook/*": ["../.storybook/*"],
             "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
+            "~/schema/*": ["src/queries/schema/*"],
+            "~/schema": ["src/queries/schema/schema-general"],
             "~/*": ["src/*"],
             "public/*": ["public/*"],
             "products/*": ["../products/*"]

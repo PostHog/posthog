@@ -1,6 +1,8 @@
-import { IconExternal } from '@posthog/icons'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+
+import { IconExternal } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,25 +14,6 @@ import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import {
-    ActionsNode,
-    DataWarehouseNode,
-    EventsNode,
-    FunnelsFilter,
-    FunnelsQuery,
-    InsightQueryNode,
-    InsightVizNode,
-    LifecycleFilter,
-    LifecycleQuery,
-    PathsFilter,
-    PathsQuery,
-    RetentionFilter,
-    RetentionQuery,
-    StickinessFilter,
-    StickinessQuery,
-    TrendsFilter,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     filterKeyForQuery,
@@ -50,6 +33,25 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import {
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    InsightQueryNode,
+    InsightVizNode,
+    LifecycleFilter,
+    LifecycleQuery,
+    PathsFilter,
+    PathsQuery,
+    RetentionFilter,
+    RetentionQuery,
+    StickinessFilter,
+    StickinessQuery,
+    TrendsFilter,
+    TrendsQuery,
+} from '~/schema'
 import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -323,8 +325,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                      ? MathAvailability.ActorsOnly
+                      : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }

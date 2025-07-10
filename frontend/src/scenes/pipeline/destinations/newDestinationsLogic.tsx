@@ -2,6 +2,7 @@ import FuseClass from 'fuse.js'
 import { actions, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router } from 'kea-router'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -56,10 +57,13 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
                     const templates = await api.hogFunctions.listTemplates({
                         types: destinationTypes,
                     })
-                    return templates.results.reduce((acc, template) => {
-                        acc[template.id] = template
-                        return acc
-                    }, {} as Record<string, HogFunctionTemplateType>)
+                    return templates.results.reduce(
+                        (acc, template) => {
+                            acc[template.id] = template
+                            return acc
+                        },
+                        {} as Record<string, HogFunctionTemplateType>
+                    )
                 },
             },
         ],

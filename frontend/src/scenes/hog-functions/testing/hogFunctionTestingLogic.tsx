@@ -1,15 +1,17 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
+import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/schema'
 import {
     BaseMathType,
     ChartDisplayType,

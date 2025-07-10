@@ -1,11 +1,12 @@
 // eslint-disable-next-line eslint-comments/disable-enable-pair
 /* eslint-disable no-useless-escape */
 import { Monaco } from '@monaco-editor/react'
-import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
-import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 import { languages } from 'monaco-editor'
 
-import { HogLanguage } from '~/queries/schema/schema-general'
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
+import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
+
+import { HogLanguage } from '~/schema'
 
 import { conf as _conf, language as _language } from './hog'
 

@@ -7,7 +7,7 @@ import {
     ExperimentMetricType,
     ExperimentSignificanceCode,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import {
     CountPerActorMathType,
     FunnelExperimentVariant,

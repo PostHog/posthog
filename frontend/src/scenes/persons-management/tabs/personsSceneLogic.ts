@@ -1,9 +1,11 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, reducers } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '~/schema'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 

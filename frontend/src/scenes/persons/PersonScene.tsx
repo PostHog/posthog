@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
@@ -25,14 +27,14 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/schema'
 import {
     ActivityScope,
     NotebookNodeType,
-    PersonsTabType,
     PersonType,
+    PersonsTabType,
     ProductKey,
     PropertyDefinitionType,
 } from '~/types'
@@ -40,8 +42,8 @@ import {
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
-import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { personsLogic } from './personsLogic'
 
 export const scene: SceneExport = {
     component: PersonScene,

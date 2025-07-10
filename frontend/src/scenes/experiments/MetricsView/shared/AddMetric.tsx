@@ -1,9 +1,10 @@
-import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
+import { IconPlus } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 
 export function AddPrimaryMetric(): JSX.Element {

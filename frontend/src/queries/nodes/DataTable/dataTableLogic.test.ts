@@ -1,11 +1,12 @@
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { performQuery } from '~/queries/query'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { DataTableNode, NodeKind } from '~/schema'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query')

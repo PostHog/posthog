@@ -1,11 +1,12 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 
-import { WebVitalsMetric } from '~/queries/schema/schema-general'
+import { IconInfo } from '@posthog/icons'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { getThresholdColor, getValueWithUnit, LONG_METRIC_NAME, METRIC_DESCRIPTION } from './definitions'
+import { WebVitalsMetric } from '~/schema'
+
 import { WebVitalsProgressBar } from './WebVitalsProgressBar'
+import { LONG_METRIC_NAME, METRIC_DESCRIPTION, getThresholdColor, getValueWithUnit } from './definitions'
 
 type WebVitalsTabProps = {
     value: number | undefined

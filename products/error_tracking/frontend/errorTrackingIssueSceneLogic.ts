@@ -1,6 +1,7 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -8,12 +9,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import {
-    DateRange,
-    ErrorTrackingIssue,
-    ErrorTrackingIssueAggregations,
-    ErrorTrackingRelationalIssue,
-} from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssue, ErrorTrackingIssueAggregations, ErrorTrackingRelationalIssue } from '~/schema'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'

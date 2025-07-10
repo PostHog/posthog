@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 
 import { Query } from '~/queries/Query/Query'
-import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { CurrencyCode } from '~/schema'
 
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const queryContext: QueryContext = {
     showOpenEditorButton: true,

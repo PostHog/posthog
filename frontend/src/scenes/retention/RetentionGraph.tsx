@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { TrendsFilter } from '~/queries/schema/schema-general'
+import { TrendsFilter } from '~/schema'
 import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../insights/EmptyStates'

@@ -1,8 +1,8 @@
 import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import type { Node } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import type { Node } from '~/schema'
+import { NodeKind } from '~/schema'
 import type { QueryBasedInsightModel } from '~/types'
 import { InsightType } from '~/types'
 

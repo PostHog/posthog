@@ -1,7 +1,8 @@
-import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
+
+import { ErrorTrackingIssue } from '~/schema'
 
 export type IssueStatus = ErrorTrackingIssue['status']
 

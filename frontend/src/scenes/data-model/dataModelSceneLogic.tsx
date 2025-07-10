@@ -1,9 +1,10 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaTable } from '~/schema'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataModelSceneLogicType } from './dataModelSceneLogicType'

@@ -1,17 +1,19 @@
 import './NotebookScene.scss'
 
+import { useActions } from 'kea'
+import { useMemo } from 'react'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
-import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Notebook } from './Notebook/Notebook'
-import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export const scene: SceneExport = {
     component: NotebookCanvas,

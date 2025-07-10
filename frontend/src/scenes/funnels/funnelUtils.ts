@@ -5,8 +5,8 @@ import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { AnyEntityNode, FunnelExclusionSteps, FunnelsFilter } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
+import { AnyEntityNode, FunnelExclusionSteps, FunnelsFilter } from '~/schema'
 import {
     AnyPropertyFilter,
     Breakdown,

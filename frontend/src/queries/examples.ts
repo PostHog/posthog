@@ -26,7 +26,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsPercentile,
     WebVitalsQuery,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import {
     BaseMathType,
     ChartDisplayType,

@@ -1,10 +1,12 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { getDefaultInterval, objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     DataTableNode,
     NodeKind,
@@ -12,8 +14,7 @@ import {
     RevenueAnalyticsGroupBy,
     RevenueAnalyticsPropertyFilters,
     RevenueAnalyticsTopCustomersGroupBy,
-} from '~/queries/schema/schema-general'
-import { isRevenueAnalyticsPropertyFilters } from '~/queries/schema-guards'
+} from '~/schema'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'

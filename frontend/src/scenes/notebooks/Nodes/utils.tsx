@@ -1,10 +1,12 @@
 import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
-import posthog from 'posthog-js'
-import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
-import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
+import { NodeType } from '@tiptap/pm/model'
+import posthog from 'posthog-js'
 import { useCallback, useMemo, useRef } from 'react'
+
 import { tryJsonParse, uuid } from 'lib/utils'
+
+import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
 
 export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
 export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'
@@ -101,10 +103,13 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
     const updateAttributes = useCallback(
         (attrs: Partial<NotebookNodeAttributes<T>>): void => {
             // We call the update whilst json stringifying
-            const stringifiedAttrs = Object.keys(attrs).reduce((acc, x) => {
-                acc[x] = attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x]
-                return acc
-            }, {} as Record<string, any>)
+            const stringifiedAttrs = Object.keys(attrs).reduce(
+                (acc, x) => {
+                    acc[x] = attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x]
+                    return acc
+                },
+                {} as Record<string, any>
+            )
 
             const hasChanges = Object.keys(stringifiedAttrs).some(
                 (key) => previousNodeAttrs.current?.[key] !== stringifiedAttrs[key]

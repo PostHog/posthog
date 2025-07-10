@@ -34,7 +34,9 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation-3000);
     opacity: 0;
-    transition: opacity 50ms ease, transform 50ms ease;
+    transition:
+        opacity 50ms ease,
+        transform 50ms ease;
     transform-origin: top;
 
     // We set the offset below instead of using floating-ui's offset(), because we need there to be no gap between

@@ -1,13 +1,15 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
+import { ActionLogicProps, actionLogic } from 'scenes/actions/actionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { NodeKind } from '~/schema'
 import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'

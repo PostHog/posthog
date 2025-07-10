@@ -1,9 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 
 import {
     errorTrackingEventsQueryResponse,

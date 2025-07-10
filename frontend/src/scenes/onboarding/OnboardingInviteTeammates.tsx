@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
-import { ProductKey, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
-import { onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
+import { onboardingLogic } from './onboardingLogic'
 
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     const { preflight } = useValues(preflightLogic)

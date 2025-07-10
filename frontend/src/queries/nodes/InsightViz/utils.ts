@@ -1,7 +1,9 @@
 import equal from 'fast-deep-equal'
+
 import { getEventNamesForAction } from 'lib/utils'
 
 import { examples } from '~/queries/examples'
+import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -11,8 +13,7 @@ import {
     InsightVizNode,
     Node,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
+} from '~/schema'
 import {
     ActionType,
     DashboardTile,
@@ -83,8 +84,8 @@ type InputInsightModel = InsightModel | Partial<InsightModel>
 type ReturnInsightModel<T> = T extends InsightModel
     ? QueryBasedInsightModel
     : T extends Partial<InsightModel>
-    ? Partial<QueryBasedInsightModel>
-    : never
+      ? Partial<QueryBasedInsightModel>
+      : never
 
 /** Get an insight with `query` only. Eventual `filters` will be converted.  */
 export function getQueryBasedInsightModel<T extends InputInsightModel>(insight: T): ReturnInsightModel<T> {
@@ -168,7 +169,7 @@ export const getQueryBasedDashboard = (
                 ({
                     ...tile,
                     ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
-                } as DashboardTile<QueryBasedInsightModel>)
+                }) as DashboardTile<QueryBasedInsightModel>
         ),
     }
 }

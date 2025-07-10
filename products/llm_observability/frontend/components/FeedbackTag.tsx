@@ -1,4 +1,5 @@
 import { LemonTag } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 interface FeedbackTagProps {

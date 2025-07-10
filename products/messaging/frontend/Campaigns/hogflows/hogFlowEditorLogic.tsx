@@ -1,28 +1,30 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import {
-    applyEdgeChanges,
-    applyNodeChanges,
     EdgeChange,
-    getOutgoers,
-    getSmoothStepPath,
     MarkerType,
     NodeChange,
     Position,
     ReactFlowInstance,
+    applyEdgeChanges,
+    applyNodeChanges,
+    getOutgoers,
+    getSmoothStepPath,
 } from '@xyflow/react'
 import { Edge, Node } from '@xyflow/react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import type { DragEvent } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { uuid } from 'lib/utils'
 
-import { campaignLogic, CampaignLogicProps } from '../campaignLogic'
+import { CampaignLogicProps, campaignLogic } from '../campaignLogic'
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './constants'
 import type { hogFlowEditorLogicType } from './hogFlowEditorLogicType'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
-import type { DragEvent } from 'react'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
 
@@ -116,10 +118,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         nodesById: [
             (s) => [s.nodes],
             (nodes): Record<string, HogFlowActionNode> => {
-                return nodes.reduce((acc, node) => {
-                    acc[node.id] = node
-                    return acc
-                }, {} as Record<string, HogFlowActionNode>)
+                return nodes.reduce(
+                    (acc, node) => {
+                        acc[node.id] = node
+                        return acc
+                    },
+                    {} as Record<string, HogFlowActionNode>
+                )
             },
         ],
         selectedNode: [

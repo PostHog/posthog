@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { createNewDefinition, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { urls } from 'scenes/urls'
 

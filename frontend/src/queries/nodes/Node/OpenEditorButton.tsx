@@ -1,8 +1,8 @@
-import { IconPreview } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
+import { IconPreview } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { Node } from '~/queries/schema/schema-general'
+import { Node } from '~/schema'
 
 export interface OpenEditorButtonProps extends LemonButtonWithoutSideActionProps {
     query: Node | null

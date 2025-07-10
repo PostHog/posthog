@@ -1,9 +1,10 @@
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
+
+import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
-import { WebStatsBreakdown } from '~/queries/schema/schema-general'
+import { WebStatsBreakdown } from '~/schema'
 import { FilterLogicalOperator, ProductKey, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
 
 /**

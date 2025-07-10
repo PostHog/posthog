@@ -1,19 +1,21 @@
+import { JSONContent } from '@tiptap/core'
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import {
     LemonBanner,
     LemonButton,
     LemonSkeleton,
-    lemonToast,
     LemonWidget,
     PaginationControl,
     ProfilePicture,
+    lemonToast,
     usePagination,
 } from '@posthog/lemon-ui'
-import { JSONContent } from '@tiptap/core'
-import { useActions, useValues } from 'kea'
+
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useMemo } from 'react'
 
 import { ActivityScope } from '~/types'
 

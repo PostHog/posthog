@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
@@ -8,7 +9,7 @@ import {
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -16,13 +17,6 @@ import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import {
-    Breakdown,
-    BreakdownFilter,
-    InsightQueryNode,
-    MultipleBreakdownType,
-    Node,
-} from '~/queries/schema/schema-general'
 import {
     isCalendarHeatmapQuery,
     isDataTableNode,
@@ -37,6 +31,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { Breakdown, BreakdownFilter, InsightQueryNode, MultipleBreakdownType, Node } from '~/schema'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
@@ -92,8 +87,8 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
                     (cohortId === 'all'
                         ? 'all users'
                         : cohortId in context.cohortsById
-                        ? context.cohortsById[cohortId]?.name
-                        : `ID ${cohortId}`)
+                          ? context.cohortsById[cohortId]?.name
+                          : `ID ${cohortId}`)
             )
             .join(', ')}`
     }
@@ -121,16 +116,16 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
                         mathDefinition
                             ? mathDefinition.shortName
                             : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
+                              ? 'unique groups'
+                              : mathType
                     }`
                 } else {
                     series = `${getDisplayNameFromEntityNode(s)} ${
                         mathDefinition
                             ? mathDefinition.shortName
                             : s.math === 'unique_group'
-                            ? 'unique groups'
-                            : mathType
+                              ? 'unique groups'
+                              : mathType
                     }`
                 }
                 if (query.trendsFilter?.formula) {
@@ -157,8 +152,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             query.funnelsFilter?.funnelOrderType === StepOrderValue.STRICT
                 ? '⇉'
                 : query.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED
-                ? '&'
-                : '→'
+                  ? '&'
+                  : '→'
         summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         } conversion`
@@ -265,8 +260,8 @@ export function summarizeInsight(query: Node | undefined | null, context: Summar
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
-        ? summarizeQuery(query)
-        : ''
+          ? summarizeQuery(query)
+          : ''
 }
 
 export function useSummarizeInsight(): (query: Node | undefined | null) => string {

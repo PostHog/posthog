@@ -1,5 +1,7 @@
-import { EventType, IncrementalSource, mutationData, NodeType } from '@posthog/rrweb-types'
 import { expectLogic } from 'kea-test-utils'
+
+import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
+
 import { api } from 'lib/api.mock'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
@@ -16,7 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse } from '~/schema'
 import { initKeaTests } from '~/test/init'
 import {
     AvailableFeature,
@@ -465,7 +467,7 @@ describe('sessionRecordingDataLogic', () => {
                     attributes: [{ id: 4, attributes: { class: 'test' } }],
                 },
                 windowId: '1',
-            } as RecordingSnapshot)
+            }) as RecordingSnapshot
 
         it('does not chunk snapshots with adds below chunk size', () => {
             const snapshot = createMutationSnapshot(100)

@@ -1,8 +1,10 @@
 import './SessionRecordingPreview.scss'
 
-import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
+import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
+
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,10 +16,10 @@ import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToN
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { RecordingsQuery } from '~/schema'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
@@ -174,15 +176,15 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
                     isExcludedFromHideRecordingsMenu
                         ? 'UnwatchedIndicator--primary'
                         : otherViewersCount
-                        ? 'UnwatchedIndicator--secondary'
-                        : 'UnwatchedIndicator--primary'
+                          ? 'UnwatchedIndicator--secondary'
+                          : 'UnwatchedIndicator--primary'
                 )}
                 aria-label={
                     isExcludedFromHideRecordingsMenu
                         ? 'unwatched-recording-by-you-label'
                         : otherViewersCount
-                        ? 'unwatched-recording-by-you-label'
-                        : 'unwatched-recording-by-everyone-label'
+                          ? 'unwatched-recording-by-you-label'
+                          : 'unwatched-recording-by-everyone-label'
                 }
             />
         </Tooltip>
@@ -193,8 +195,8 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
     return order === 'active_seconds'
         ? recording.active_seconds
         : order === 'inactive_seconds'
-        ? recording.inactive_seconds
-        : recording.recording_duration
+          ? recording.inactive_seconds
+          : recording.recording_duration
 }
 
 export function SessionRecordingPreview({

@@ -1,10 +1,10 @@
 import { IconFlask } from '@posthog/icons'
+
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
-
-import { ProductManifest } from '../../frontend/src/types'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/schema'
+import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',

@@ -1,4 +1,4 @@
-import { CurrencyCode, DataWarehouseNode, NodeKind } from '~/queries/schema/schema-general'
+import { CurrencyCode, DataWarehouseNode, NodeKind } from '~/schema'
 import { PropertyMathType } from '~/types'
 
 import { ExternalTable, NativeSource } from './marketingAnalyticsLogic'

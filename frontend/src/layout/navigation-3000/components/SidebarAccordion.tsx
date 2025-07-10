@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { navigation3000Logic } from '../navigationLogic'

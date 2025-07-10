@@ -1,13 +1,13 @@
 import './Tooltip.scss'
 
 import {
+    FloatingArrow,
+    FloatingPortal,
+    Placement,
     arrow,
     autoUpdate,
     flip,
-    FloatingArrow,
-    FloatingPortal,
     offset as offsetFunc,
-    Placement,
     shift,
     useDismiss,
     useFloating,
@@ -19,8 +19,9 @@ import {
     useTransitionStyles,
 } from '@floating-ui/react'
 import clsx from 'clsx'
-import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import React, { useRef, useState } from 'react'
+
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 
 import { Link } from '../Link'
 

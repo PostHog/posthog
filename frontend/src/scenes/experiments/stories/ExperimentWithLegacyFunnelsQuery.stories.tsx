@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+
+import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -6,8 +8,7 @@ import { mswDecorator } from '~/mocks/browser'
 import EXPERIMENT_WITH_FUNNELS_QUERY from '~/mocks/fixtures/api/experiments/experiment_with_funnels_query.json'
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import FUNNELS_QUERY_RESULT from '~/mocks/fixtures/api/experiments/funnels_query_result.json'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { makeDelay } from 'lib/utils'
+import { NodeKind } from '~/schema'
 
 const meta: Meta = {
     component: App,

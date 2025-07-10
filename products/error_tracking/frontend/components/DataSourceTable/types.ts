@@ -1,6 +1,6 @@
 import { KeyType, Logic } from 'kea'
 
-import { DataNode } from '~/queries/schema/schema-general'
+import { DataNode } from '~/schema'
 
 export interface DataSourceLogic<T> extends Logic {
     values: {

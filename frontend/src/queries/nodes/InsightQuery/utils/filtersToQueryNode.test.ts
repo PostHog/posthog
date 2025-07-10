@@ -10,7 +10,7 @@ import {
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import {
     ActionFilter,
     BaseMathType,
@@ -20,14 +20,14 @@ import {
     FilterType,
     FunnelConversionWindowTimeUnit,
     FunnelPathType,
-    FunnelsFilterType,
     FunnelStepReference,
     FunnelVizType,
+    FunnelsFilterType,
     GroupMathType,
     InsightType,
     LifecycleFilterType,
-    PathsFilterType,
     PathType,
+    PathsFilterType,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,

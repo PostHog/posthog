@@ -4,11 +4,11 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import { ExperimentIdType } from '~/types'
 
-import { getHighestProbabilityVariant, getIndexForVariant } from '../legacyExperimentCalculations'
 import { experimentLogic } from '../experimentLogic'
+import { getHighestProbabilityVariant, getIndexForVariant } from '../legacyExperimentCalculations'
 import { VariantTag } from './components'
 
 export function WinningVariantText({

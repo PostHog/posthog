@@ -1,12 +1,14 @@
-import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { humanFriendlyLargeNumber } from 'lib/utils'
 import { useState } from 'react'
 import { match } from 'ts-pattern'
 
-import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { humanFriendlyLargeNumber } from 'lib/utils'
+
+import { ErrorTrackingIssueAggregations } from '~/schema'
 
 import { EventsTable } from '../components/EventsTable/EventsTable'
 import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'

@@ -1,4 +1,4 @@
-import { DataWarehouseNode, ExternalDataSourceType } from '~/queries/schema/schema-general'
+import { DataWarehouseNode, ExternalDataSourceType } from '~/schema'
 import { ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'

@@ -1,4 +1,7 @@
+import { Fragment, forwardRef, useEffect, useRef, useState } from 'react'
+
 import { IconInfo, IconMinusSmall, IconSearch, IconX } from '@posthog/icons'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox } from 'lib/ui/ListBox/ListBox'
@@ -7,7 +10,6 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
-import { forwardRef, Fragment, useEffect, useRef, useState } from 'react'
 
 type Category = { label: string; value: string; hint?: string; icon?: React.ReactNode }
 type Suggestion = { label: string; value: string; hint?: string; icon?: React.ReactNode }

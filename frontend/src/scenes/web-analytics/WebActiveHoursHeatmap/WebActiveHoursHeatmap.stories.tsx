@@ -1,11 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { NodeKind } from '~/schema'
+import { CalendarHeatmapQuery } from '~/schema'
 import { BaseMathType } from '~/types'
 
 import { WebActiveHoursHeatmap } from './WebActiveHoursHeatmap'
+
 const meta: Meta<typeof WebActiveHoursHeatmap> = {
     title: 'Scenes/Web Analytics/WebActiveHoursHeatmap',
     component: WebActiveHoursHeatmap,

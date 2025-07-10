@@ -1,4 +1,5 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import {
     breakdownFilterToTaxonomicFilterType,
     propertyFilterTypeToPropertyDefinitionType,
@@ -14,7 +15,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { Breakdown, BreakdownFilter } from '~/queries/schema/schema-general'
+import { Breakdown, BreakdownFilter } from '~/schema'
 import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
@@ -414,7 +415,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                                 histogram_bin_count: isHistogramable
                                     ? savedBreakdown.histogram_bin_count || 10
                                     : undefined,
-                                normalize_url: isNormalizeable ? savedBreakdown.normalize_url ?? true : undefined,
+                                normalize_url: isNormalizeable ? (savedBreakdown.normalize_url ?? true) : undefined,
                             }
                         }
 

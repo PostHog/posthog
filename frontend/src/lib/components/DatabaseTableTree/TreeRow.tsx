@@ -1,11 +1,13 @@
-import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useState } from 'react'
 
-import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { DatabaseSchemaTable } from '~/schema'
 
 import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf, TreeTableItemLeaf } from './DatabaseTableTree'
 

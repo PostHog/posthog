@@ -1,13 +1,7 @@
 import { ComponentType, HTMLProps } from 'react'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import {
-    DataTableNode,
-    DataVisualizationNode,
-    InsightActorsQuery,
-    QuerySchema,
-    RefreshType,
-} from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, InsightActorsQuery, QuerySchema, RefreshType } from '~/schema'
 import { InsightLogicProps, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */

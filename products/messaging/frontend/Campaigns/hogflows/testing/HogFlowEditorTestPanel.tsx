@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import { IconInfo, IconPlay, IconRedo, IconTestTube, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,17 +13,16 @@ import {
     ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
 
-import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 import { campaignLogic } from '../../campaignLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getHogFlowStep } from '../steps/HogFlowSteps'
+import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
@@ -116,15 +118,15 @@ export function HogFlowEditorTestPanel(): JSX.Element | null {
                                 testResult.status === 'success'
                                     ? 'success'
                                     : testResult.status === 'skipped'
-                                    ? 'warning'
-                                    : 'error'
+                                      ? 'warning'
+                                      : 'error'
                             }
                         >
                             {testResult.status === 'success'
                                 ? 'Success'
                                 : testResult.status === 'skipped'
-                                ? 'Workflow was skipped because the event did not match the filter criteria'
-                                : 'Error'}
+                                  ? 'Workflow was skipped because the event did not match the filter criteria'
+                                  : 'Error'}
                         </LemonBanner>
 
                         <div className="flex flex-col gap-2">

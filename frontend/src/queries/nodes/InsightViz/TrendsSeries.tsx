@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
@@ -10,8 +11,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
+import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/schema'
 import { FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
@@ -48,8 +49,8 @@ export function TrendsSeries(): JSX.Element | null {
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
-        ? MathAvailability.ActorsOnly
-        : MathAvailability.All
+          ? MathAvailability.ActorsOnly
+          : MathAvailability.All
 
     return (
         <>

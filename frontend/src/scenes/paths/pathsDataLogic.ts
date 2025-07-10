@@ -1,21 +1,22 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { router } from 'kea-router'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
+import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/schema'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { pathsDataLogicType } from './pathsDataLogicType'
 import { PathNodeData } from './pathUtils'
+import type { pathsDataLogicType } from './pathsDataLogicType'
 import { Paths, PathsNode } from './types'
 
 export const DEFAULT_STEP_LIMIT = 5
@@ -57,7 +58,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         results: [
             (s) => [s.insightQuery, s.insightData],
             (insightQuery, insightData): PathsLink[] => {
-                return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
+                return isPathsQuery(insightQuery) ? (insightData?.result ?? []) : []
             },
         ],
         paths: [

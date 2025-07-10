@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
@@ -14,7 +15,7 @@ import {
     RevenueAnalyticsEventItem,
     RevenueAnalyticsGoal,
     RevenueCurrencyPropertyConfig,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import { ExternalDataSource } from '~/types'
 
 import type { revenueAnalyticsSettingsLogicType } from './revenueAnalyticsSettingsLogicType'

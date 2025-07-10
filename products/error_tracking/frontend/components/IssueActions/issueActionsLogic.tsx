@@ -1,8 +1,9 @@
 import { actions, kea, listeners, path } from 'kea'
-import api from 'lib/api'
 import posthog from 'posthog-js'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import api from 'lib/api'
+
+import { ErrorTrackingIssue } from '~/schema'
 
 import type { issueActionsLogicType } from './issueActionsLogicType'
 

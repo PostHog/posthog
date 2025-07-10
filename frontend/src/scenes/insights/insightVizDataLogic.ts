@@ -1,5 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import {
     DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
     DISPLAY_TYPES_WITHOUT_LEGEND,
@@ -9,7 +12,6 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
-import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
@@ -22,23 +24,6 @@ import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
-import {
-    BreakdownFilter,
-    CompareFilter,
-    DatabaseSchemaField,
-    DataWarehouseNode,
-    DateRange,
-    FunnelExclusionSteps,
-    FunnelsFilter,
-    FunnelsQuery,
-    InsightFilter,
-    InsightQueryNode,
-    Node,
-    NodeKind,
-    TrendsFilter,
-    TrendsFormulaNode,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -75,6 +60,23 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
+import {
+    BreakdownFilter,
+    CompareFilter,
+    DataWarehouseNode,
+    DatabaseSchemaField,
+    DateRange,
+    FunnelExclusionSteps,
+    FunnelsFilter,
+    FunnelsQuery,
+    InsightFilter,
+    InsightQueryNode,
+    Node,
+    NodeKind,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+} from '~/schema'
 import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'

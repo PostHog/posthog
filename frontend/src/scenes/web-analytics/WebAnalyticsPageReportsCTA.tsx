@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import posthog from 'posthog-js'
+
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
 

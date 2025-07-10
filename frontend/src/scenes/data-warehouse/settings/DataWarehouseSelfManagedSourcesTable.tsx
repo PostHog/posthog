@@ -1,10 +1,12 @@
-import { LemonButton, LemonDialog, LemonInput, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog, LemonInput, LemonTable } from '@posthog/lemon-ui'
+
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import { DatabaseSchemaDataWarehouseTable } from '~/schema'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 

@@ -1,18 +1,20 @@
 import { offset } from '@floating-ui/react'
-import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
-import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 import React from 'react'
+
+import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
+import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
+import { ContextDisplay } from '../Context'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { ContextDisplay } from '../Context'
 
 interface QuestionInputProps {
     isFloating?: boolean

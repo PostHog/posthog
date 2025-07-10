@@ -180,7 +180,7 @@
         "pmtiles": "^2.11.0",
         "posthog-js": "^1.257.0",
         "posthog-js-lite": "catalog:",
-        "prettier": "^2.8.8",
+        "prettier": "^3.6.2",
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",
         "query-selector-shadow-dom": "^1.0.0",

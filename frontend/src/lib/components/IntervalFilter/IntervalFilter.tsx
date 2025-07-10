@@ -1,10 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPin } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { InsightQueryNode } from '~/schema'
 import { IntervalType } from '~/types'
 
 interface IntervalFilterProps {

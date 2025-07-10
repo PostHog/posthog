@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds } from 'lib/utils'
 import { performanceEventDataLogic } from 'scenes/session-recordings/apm/performanceEventDataLogic'
 import { percentagesWithinEventRange } from 'scenes/session-recordings/apm/waterfall/TimingBar'
 import {
-    sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { PerformanceEvent } from '~/types'

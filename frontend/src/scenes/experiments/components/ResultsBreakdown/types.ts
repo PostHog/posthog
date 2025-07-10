@@ -1,4 +1,4 @@
-import type { InsightVizNode } from '~/queries/schema/schema-general'
+import type { InsightVizNode } from '~/schema'
 import type { FunnelStep, TrendResult } from '~/types'
 
 export type ResultBreakdownRenderProps = {

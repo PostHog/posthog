@@ -1,4 +1,4 @@
-import { ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Persons',

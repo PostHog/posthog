@@ -1,11 +1,12 @@
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { featureFlagLogic, NEW_FLAG } from './featureFlagLogic'
+import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,

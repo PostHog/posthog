@@ -1,21 +1,23 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { P, match } from 'ts-pattern'
+
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { errorPropertiesLogic, ErrorPropertiesLogicProps } from 'lib/components/Errors/errorPropertiesLogic'
+
+import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingTrigger from 'lib/components/ViewRecordingButton/ViewRecordingTrigger'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { useEffect } from 'react'
 
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingRelationalIssue } from '~/schema'
 
-import { exceptionCardLogic } from './exceptionCardLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
-import ViewRecordingTrigger from 'lib/components/ViewRecordingButton/ViewRecordingTrigger'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { match, P } from 'ts-pattern'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { exceptionCardLogic } from './exceptionCardLogic'
 
 interface ExceptionCardContentProps {
     issue?: ErrorTrackingRelationalIssue

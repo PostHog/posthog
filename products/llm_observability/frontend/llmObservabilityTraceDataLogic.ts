@@ -1,14 +1,8 @@
 import { connect, kea, path, props, selectors } from 'kea'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import {
-    AnyResponseType,
-    DataTableNode,
-    LLMTrace,
-    LLMTraceEvent,
-    TracesQueryResponse,
-} from '~/queries/schema/schema-general'
+import { AnyResponseType, DataTableNode, LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'
@@ -199,7 +193,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
             (metricEvents, feedbackEvents): { metric: string; value: any }[] =>
                 [...(metricEvents ?? []), ...(feedbackEvents ?? [])].map((event) => ({
                     metric:
-                        event.event === '$ai_metric' ? event.properties.$ai_metric_name ?? 'Metric' : 'User feedback',
+                        event.event === '$ai_metric' ? (event.properties.$ai_metric_name ?? 'Metric') : 'User feedback',
                     value: event.properties.$ai_metric_value ?? event.properties.$ai_feedback_text,
                 })),
         ],

@@ -1,15 +1,17 @@
-import { IconDatabase, IconDocument } from '@posthog/icons'
-import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { IconDatabase, IconDocument } from '@posthog/icons'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -20,11 +22,7 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import {
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaTable,
-} from '~/queries/schema/schema-general'
+import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaManagedViewTable, DatabaseSchemaTable } from '~/schema'
 import { DataWarehouseSavedQuery, PipelineStage, ProductKey } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -256,10 +254,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       key: `hogQLQueryEditor/${router.values.location.pathname}`,
                                   }).actions.createTab(`SELECT * FROM ${view.name}`)
                                 : isSavedQuery
-                                ? multitabEditorLogic({
-                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                  }).actions.editView(view.query.query, view)
-                                : null
+                                  ? multitabEditorLogic({
+                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                    }).actions.editView(view.query.query, view)
+                                  : null
                         }
 
                         const savedViewMenuItems = isSavedQuery
@@ -504,7 +502,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                 (result) =>
                                     [result.item, result.matches] as [
                                         DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable,
-                                        FuseSearchMatch[]
+                                        FuseSearchMatch[],
                                     ]
                             )
                     )

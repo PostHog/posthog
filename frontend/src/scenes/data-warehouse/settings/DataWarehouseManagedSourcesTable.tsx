@@ -1,5 +1,7 @@
-import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -8,8 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { ExternalDataJobStatus } from '~/types'
 
-import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
+import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const StatusTagSetting: Record<ExternalDataJobStatus, 'primary' | 'success' | 'danger'> = {
     [ExternalDataJobStatus.Running]: 'primary',

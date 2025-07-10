@@ -1,19 +1,14 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
-import {
-    ActorsQuery,
-    DataTableNode,
-    InsightActorsQuery,
-    NodeKind,
-    RetentionQuery,
-} from '~/queries/schema/schema-general'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
+import { ActorsQuery, DataTableNode, InsightActorsQuery, NodeKind, RetentionQuery } from '~/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'

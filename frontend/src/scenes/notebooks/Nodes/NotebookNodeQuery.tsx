@@ -1,19 +1,22 @@
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
+import { JSONContent } from '@tiptap/core'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
+
 import { LemonButton } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
+import { Query } from '~/queries/Query/Query'
+import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
+import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/schema'
+import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
+
+import { NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
+import { notebookNodeLogic } from './notebookNodeLogic'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
 const DEFAULT_QUERY: QuerySchema = {
@@ -239,8 +242,8 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         query.kind === NodeKind.SavedInsightNode
             ? urls.insightView(query.shortId)
             : isInsightVizNode(query)
-            ? urls.insightNew({ query })
-            : undefined,
+              ? urls.insightNew({ query })
+              : undefined,
     Settings,
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),

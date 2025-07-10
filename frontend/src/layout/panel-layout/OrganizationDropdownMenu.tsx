@@ -1,8 +1,10 @@
-import { IconCheck, IconChevronRight, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCheck, IconChevronRight, IconPlusSmall } from '@posthog/icons'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
@@ -11,13 +13,13 @@ import {
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/OrganizationSwitcher'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AvailableFeature } from '~/types'
 
 import { panelLayoutLogic } from './panelLayoutLogic'

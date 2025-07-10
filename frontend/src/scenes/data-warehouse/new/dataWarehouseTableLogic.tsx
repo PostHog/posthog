@@ -1,13 +1,15 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/schema'
 import { AnyPropertyFilter, DataWarehouseTable, PipelineTab } from '~/types'
 
 import { dataWarehouseSourceSceneLogic } from '../settings/DataWarehouseSourceScene'

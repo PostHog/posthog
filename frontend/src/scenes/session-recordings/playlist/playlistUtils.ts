@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

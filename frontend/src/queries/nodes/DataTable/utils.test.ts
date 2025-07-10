@@ -5,7 +5,7 @@ import {
     getColumnsForQuery,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 
 describe('DataTable utils', () => {
     it('extractExpressionComment', () => {

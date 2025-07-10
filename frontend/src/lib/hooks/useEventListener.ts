@@ -50,7 +50,7 @@ export function useEventListener(
             if (!element?.addEventListener) {
                 console.warn(
                     `Could not start listening to ${eventName} on ${
-                        !element ? element : (element as Element)?.localName ?? 'window'
+                        !element ? element : ((element as Element)?.localName ?? 'window')
                     }!`
                 )
                 return

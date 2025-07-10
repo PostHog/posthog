@@ -4,6 +4,9 @@ import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
 
+import { IconBolt, IconLeave, IconPlusSmall, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonTag, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -12,10 +15,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
-import { campaignLogic, CampaignLogicProps } from './campaignLogic'
+import { CampaignLogicProps, campaignLogic } from './campaignLogic'
 import { HogFlowFilters } from './hogflows/filters/HogFlowFilters'
-import { IconBolt, IconLeave, IconPlusSmall, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonTag, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 export function CampaignOverview(props: CampaignLogicProps): JSX.Element {
     return (

@@ -1,9 +1,11 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { CSSTransition } from 'react-transition-group'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
@@ -32,8 +34,8 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
-import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
+import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/schema'
 import {
     AvailableFeature,
     ChartDisplayType,

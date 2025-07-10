@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+
 import { teamLogic } from 'scenes/teamLogic'
 
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode } from '~/schema'
 
 import { CurrencyDropdown } from './CurrencyDropdown'
 

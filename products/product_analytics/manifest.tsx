@@ -1,13 +1,14 @@
-import { IconGraph } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+
+import { IconGraph } from '@posthog/icons'
+
 import { AlertType } from 'lib/components/Alerts/types'
 import { INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-
-import { DashboardType, InsightShortId, InsightType, ProductManifest } from '../../frontend/src/types'
+import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/schema'
+import { DashboardType, InsightShortId, InsightType, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Product Analytics',

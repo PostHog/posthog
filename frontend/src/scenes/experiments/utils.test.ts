@@ -11,7 +11,7 @@ import {
     ExperimentMetricType,
     ExperimentTrendsQuery,
     NodeKind,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import {
     AccessControlLevel,
     Experiment,

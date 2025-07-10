@@ -1,12 +1,5 @@
-import {
-    DataTableNode,
-    DateRange,
-    ErrorTrackingQuery,
-    EventsQuery,
-    InsightVizNode,
-    NodeKind,
-} from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { DataTableNode, DateRange, ErrorTrackingQuery, EventsQuery, InsightVizNode, NodeKind } from '~/schema'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -16,7 +9,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
+import { SEARCHABLE_EXCEPTION_PROPERTIES, resolveDateRange } from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,

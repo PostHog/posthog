@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -93,7 +94,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                                 ...member,
                                 explicit_team_level: null,
                                 organization_level: member.level,
-                            } as FusedTeamMemberType)
+                            }) as FusedTeamMemberType
                     )
                 }
                 return (organizationMembers ?? [])
@@ -104,7 +105,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                                 ...member,
                                 explicit_team_level: null,
                                 organization_level: member.level,
-                            } as FusedTeamMemberType)
+                            }) as FusedTeamMemberType
                     )
                     .concat(
                         explicitMembers
@@ -116,7 +117,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                                         level: member.effective_level,
                                         explicit_team_level: member.level,
                                         organization_level: member.parent_level,
-                                    } as FusedTeamMemberType)
+                                    }) as FusedTeamMemberType
                             )
                     )
             },

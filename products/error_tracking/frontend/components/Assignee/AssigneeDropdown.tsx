@@ -1,9 +1,11 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/schema'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
 import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'

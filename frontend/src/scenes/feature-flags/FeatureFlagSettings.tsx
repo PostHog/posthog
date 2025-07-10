@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'

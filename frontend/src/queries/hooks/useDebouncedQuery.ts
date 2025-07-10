@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { Node } from '~/queries/schema/schema-general'
+import { Node } from '~/schema'
 
 export function useDebouncedQuery<T extends Node = Node, V extends string = string>(
     query: T,

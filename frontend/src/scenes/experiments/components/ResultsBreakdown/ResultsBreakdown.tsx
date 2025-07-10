@@ -1,6 +1,6 @@
 import { BindLogic } from 'kea'
 
-import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import type { CachedExperimentQueryResponse } from '~/schema'
 import type { Experiment } from '~/types'
 
 import { ResultsBreakdownContent } from './ResultsBreakdownContent'

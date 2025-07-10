@@ -1,5 +1,5 @@
-import type { ExperimentMetric } from '~/queries/schema/schema-general'
-import { ExperimentMetricType } from '~/queries/schema/schema-general'
+import type { ExperimentMetric } from '~/schema'
+import { ExperimentMetricType } from '~/schema'
 import { ExperimentMetricMathType } from '~/types'
 
 import { ConversionRateInputType } from './runningTimeCalculatorLogic'

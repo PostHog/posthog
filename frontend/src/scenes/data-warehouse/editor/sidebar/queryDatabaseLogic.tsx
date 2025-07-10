@@ -1,9 +1,11 @@
-import { IconDatabase, IconDocument, IconPlug } from '@posthog/icons'
-import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
-import { Spinner } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
+import { IconDatabase, IconDocument, IconPlug } from '@posthog/icons'
+import { LemonMenuItem, lemonToast } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -17,7 +19,7 @@ import {
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import { DataWarehouseSavedQuery, DataWarehouseViewLink } from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
@@ -557,12 +559,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         joinsByFieldName: [
             (s) => [s.joins],
             (joins: DataWarehouseViewLink[]): Record<string, DataWarehouseViewLink> => {
-                return joins.reduce((acc, join) => {
-                    if (join.field_name) {
-                        acc[join.field_name] = join
-                    }
-                    return acc
-                }, {} as Record<string, DataWarehouseViewLink>)
+                return joins.reduce(
+                    (acc, join) => {
+                        if (join.field_name) {
+                            acc[join.field_name] = join
+                        }
+                        return acc
+                    },
+                    {} as Record<string, DataWarehouseViewLink>
+                )
             },
         ],
         sidebarOverlayTreeItems: [
@@ -602,12 +607,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 }
 
                 const relevantJoins = joins.filter((join) => join.source_table_name === table!.name)
-                const joinsByFieldName = relevantJoins.reduce((acc, join) => {
-                    if (join.field_name) {
-                        acc[join.field_name] = join
-                    }
-                    return acc
-                }, {} as Record<string, DataWarehouseViewLink>)
+                const joinsByFieldName = relevantJoins.reduce(
+                    (acc, join) => {
+                        if (join.field_name) {
+                            acc[join.field_name] = join
+                        }
+                        return acc
+                    },
+                    {} as Record<string, DataWarehouseViewLink>
+                )
 
                 const menuItems = (field: DatabaseSchemaField): LemonMenuItem[] => {
                     return isJoined(field) && joinsByFieldName[field.name]

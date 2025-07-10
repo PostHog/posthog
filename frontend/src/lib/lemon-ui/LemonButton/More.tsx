@@ -1,7 +1,7 @@
 import { IconEllipsis } from '@posthog/icons'
 
-import { PopoverProps } from '../Popover/Popover'
 import { LemonButtonWithDropdown } from '.'
+import { PopoverProps } from '../Popover/Popover'
 import { LemonButtonDropdown, LemonButtonProps } from './LemonButton'
 
 export type MoreProps = Partial<Pick<PopoverProps, 'overlay' | 'placement'>> &

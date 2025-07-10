@@ -1,4 +1,4 @@
-import { isIPAddressInRange } from '../stl/ip' // Adjust the import path as needed
+import { isIPAddressInRange } from '../stl/ip'
 
 describe('isIPAddressInRange', () => {
     // IPv4 Tests

@@ -1,10 +1,11 @@
 import { combineUrl, router } from 'kea-router'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -17,12 +18,6 @@ import { urls } from 'scenes/urls'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
-import {
-    DataTableNode,
-    EventsQueryPersonColumn,
-    HasPropertiesNode,
-    LLMTracePerson,
-} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,
@@ -34,6 +29,7 @@ import {
     isTracesQuery,
     trimQuotes,
 } from '~/queries/utils'
+import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, LLMTracePerson } from '~/schema'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function renderColumn(

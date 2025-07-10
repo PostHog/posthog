@@ -1,8 +1,10 @@
 import './AggregationColumn.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -10,7 +12,7 @@ import { formatAggregationValue } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { TrendsFilter } from '~/queries/schema/schema-general'
+import { TrendsFilter } from '~/schema'
 import { TrendsFilterType } from '~/types'
 
 import { CalcColumnState } from '../InsightsTable'

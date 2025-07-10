@@ -1,4 +1,5 @@
 import { JSONContent } from '@tiptap/core'
+
 import api from 'lib/api'
 import { isEmptyObject } from 'lib/utils'
 import { NotebookNodePlaylistAttributes } from 'scenes/notebooks/Nodes/NotebookNodePlaylist'
@@ -25,6 +26,7 @@ import {
     isLegacyStickinessFilter,
     isLegacyTrendsFilter,
 } from '~/queries/nodes/InsightQuery/utils/legacy'
+import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import {
     InsightVizNode,
     NodeKind,
@@ -34,8 +36,7 @@ import {
     TRENDS_FILTER_PROPERTIES,
     TrendsFilter,
     TrendsFilterLegacy,
-} from '~/queries/schema/schema-general'
-import { checkLatestVersionsOnQuery } from '~/queries/utils'
+} from '~/schema'
 import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration

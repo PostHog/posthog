@@ -1,13 +1,14 @@
 import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
+import { MouseEvent } from 'react'
+
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, isStringDateRegex } from 'lib/utils'
-import { MouseEvent } from 'react'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssue } from '~/schema'
 
 export const ERROR_TRACKING_LOGIC_KEY = 'errorTracking'
 export const ERROR_TRACKING_LISTING_RESOLUTION = 20

@@ -1,3 +1,6 @@
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
@@ -9,7 +12,7 @@ import {
     LemonSelectProps,
     LemonTable,
 } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
@@ -17,7 +20,6 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -30,7 +32,7 @@ import {
     OrganizationMemberType,
 } from '~/types'
 
-import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
+import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource } = useValues(accessControlLogic(props))
@@ -455,8 +457,8 @@ function AddItemsControlsModal(props: {
                             !canEditAccessControls
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please choose what you want to add and at what level'
-                                : undefined
+                                  ? 'Please choose what you want to add and at what level'
+                                  : undefined
                         }
                     >
                         Add

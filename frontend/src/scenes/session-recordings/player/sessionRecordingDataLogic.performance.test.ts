@@ -1,7 +1,8 @@
 import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
-import { uuid } from 'lib/utils'
 import { join } from 'path'
+
+import { uuid } from 'lib/utils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'

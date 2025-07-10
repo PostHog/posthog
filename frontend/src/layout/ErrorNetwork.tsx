@@ -1,5 +1,5 @@
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 export function ErrorNetwork(): JSX.Element {
     return (

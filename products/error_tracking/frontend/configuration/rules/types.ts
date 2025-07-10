@@ -1,4 +1,4 @@
-import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueAssignee } from '~/schema'
 import { UniversalFiltersGroup } from '~/types'
 
 type ErrorTrackingBaseRule = {

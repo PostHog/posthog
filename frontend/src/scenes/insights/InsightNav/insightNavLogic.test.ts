@@ -1,12 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/schema'
 import { initKeaTests } from '~/test/init'
 import {
     FunnelVizType,

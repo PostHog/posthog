@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+
 import { api } from 'lib/api.mock'
 
 import { initKeaTests } from '~/test/init'

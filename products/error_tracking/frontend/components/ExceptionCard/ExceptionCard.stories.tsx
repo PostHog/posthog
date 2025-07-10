@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingRelationalIssue } from '~/schema'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
 import { ExceptionCard } from './ExceptionCard'

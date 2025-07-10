@@ -1,15 +1,18 @@
-import { LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonLabel, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+
 import { Sparkline } from 'lib/components/Sparkline'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/schema'
 import { InsightType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+
 const EVENT_THRESHOLD_ALERT_LEVEL = 8000
 
 export function HogFunctionEventEstimates(): JSX.Element | null {

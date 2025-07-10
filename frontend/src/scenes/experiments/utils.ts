@@ -1,10 +1,11 @@
+import merge from 'lodash.merge'
+
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-
-import merge from 'lodash.merge'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ActionsNode,
     AnyEntityNode,
@@ -21,8 +22,7 @@ import {
     type FunnelsQuery,
     NodeKind,
     type TrendsQuery,
-} from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
+} from '~/schema'
 import {
     ChartDisplayType,
     Experiment,
@@ -519,7 +519,7 @@ export function filterToMetricConfig(
                         event: event.id,
                         properties: event.properties,
                         order: event.order,
-                    } as EventsNode & { order: number })
+                    }) as EventsNode & { order: number }
             ) || []
 
         const actionSteps =
@@ -531,7 +531,7 @@ export function filterToMetricConfig(
                         name: action.name,
                         properties: action.properties,
                         order: action.order,
-                    } as ActionsNode & { order: number })
+                    }) as ActionsNode & { order: number }
             ) || []
 
         const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)

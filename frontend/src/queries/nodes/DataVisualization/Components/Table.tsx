@@ -1,17 +1,19 @@
-import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+
 import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/schema'
 
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
-import { convertTableValue, dataVisualizationLogic, TableDataCell } from '../dataVisualizationLogic'
+import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -114,8 +116,8 @@ export const Table = (props: TableProps): JSX.Element => {
                             queryCancelled
                                 ? 'The query was cancelled'
                                 : response && 'error' in response
-                                ? (response as any).error
-                                : responseError
+                                  ? (response as any).error
+                                  : responseError
                         }
                     />
                 ) : (

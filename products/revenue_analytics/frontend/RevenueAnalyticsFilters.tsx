@@ -1,5 +1,7 @@
-import { LemonInputSelect, LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInputSelect, LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -11,7 +13,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsGroupBy } from '~/schema'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { DateMappingOption } from '~/types'
 

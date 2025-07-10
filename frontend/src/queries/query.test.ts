@@ -1,9 +1,10 @@
-import { ApiError } from 'lib/api'
 import posthog from 'posthog-js'
+
+import { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, queryExportContext } from '~/queries/query'
-import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { EventsQuery, HogQLQuery, NodeKind } from '~/schema'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 

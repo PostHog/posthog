@@ -1,9 +1,9 @@
 import { createParser } from 'eventsource-parser'
 import {
+    BuiltLogic,
     actions,
     afterMount,
     beforeUnmount,
-    BuiltLogic,
     connect,
     kea,
     key,
@@ -14,13 +14,15 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import posthog from 'posthog-js'
+
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -37,7 +39,6 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -126,7 +127,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     reducers(({ props }) => ({
         conversation: [
-            props.conversation ? removeConversationMessages(props.conversation) ?? null : null,
+            props.conversation ? (removeConversationMessages(props.conversation) ?? null) : null,
             {
                 setConversation: (_, { conversation }) => conversation,
             },

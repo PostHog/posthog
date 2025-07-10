@@ -1,8 +1,10 @@
 import { IconCursor } from '@posthog/icons'
+
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '~/types'
+
 import type { MessagingSceneTab } from './frontend/MessagingScene'
 
 export const manifest: ProductManifest = {

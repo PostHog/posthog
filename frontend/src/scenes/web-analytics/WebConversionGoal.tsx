@@ -1,9 +1,11 @@
-import { IconCursor } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconCursor } from '@posthog/icons'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { useState } from 'react'
 import { ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'

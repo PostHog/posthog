@@ -1,5 +1,7 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -9,8 +11,8 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
+import { FunnelsQuery } from '~/schema'
 import { EditorFilterProps, FilterType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'

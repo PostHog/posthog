@@ -97,7 +97,7 @@
                     },
                     {
                         "name": "~/queries/schema",
-                        "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                        "message": "Import from '~/schema' or '~/queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
                     }
                 ]
             }

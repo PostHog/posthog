@@ -1,6 +1,6 @@
 import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode } from '~/schema'
 
 import { OPTIONS_FOR_IMPORTANT_CURRENCIES, OPTIONS_FOR_OTHER_CURRENCIES } from './utils'
 

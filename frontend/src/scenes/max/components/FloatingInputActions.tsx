@@ -1,6 +1,7 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconLightBulb, IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'

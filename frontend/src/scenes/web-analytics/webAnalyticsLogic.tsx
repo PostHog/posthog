@@ -1,21 +1,24 @@
-import { IconGear } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
-import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
-import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { BreakPointFunction, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
+import posthog from 'posthog-js'
+
+import { IconGear } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
+import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
+
 import api from 'lib/api'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
+import { UnexpectedNeverError, getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +27,8 @@ import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marke
 
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS } from '~/queries/nodes/WebVitals/definitions'
 import { hogqlQuery } from '~/queries/query'
+import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
+import { hogql } from '~/queries/utils'
 import {
     ActionConversionGoal,
     ActionsNode,
@@ -50,9 +55,7 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebVitalsMetric,
-} from '~/queries/schema/schema-general'
-import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
-import { hogql } from '~/queries/utils'
+} from '~/schema'
 import {
     AvailableFeature,
     BaseMathType,
@@ -78,7 +81,6 @@ import {
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
-import posthog from 'posthog-js'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -1008,20 +1010,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal
                     ? undefined
                     : 'actionId' in conversionGoal
-                    ? {
-                          kind: NodeKind.ActionsNode,
-                          id: conversionGoal.actionId,
-                          math: BaseMathType.UniqueUsers,
-                          name: 'Unique conversions',
-                          custom_name: 'Unique conversions',
-                      }
-                    : {
-                          kind: NodeKind.EventsNode,
-                          event: conversionGoal.customEventName,
-                          math: BaseMathType.UniqueUsers,
-                          name: 'Unique conversions',
-                          custom_name: 'Unique conversions',
-                      }
+                      ? {
+                            kind: NodeKind.ActionsNode,
+                            id: conversionGoal.actionId,
+                            math: BaseMathType.UniqueUsers,
+                            name: 'Unique conversions',
+                            custom_name: 'Unique conversions',
+                        }
+                      : {
+                            kind: NodeKind.EventsNode,
+                            event: conversionGoal.customEventName,
+                            math: BaseMathType.UniqueUsers,
+                            name: 'Unique conversions',
+                            custom_name: 'Unique conversions',
+                        }
                 const totalConversionSeries = uniqueConversionsSeries
                     ? {
                           ...uniqueConversionsSeries,

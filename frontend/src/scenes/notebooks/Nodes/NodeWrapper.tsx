@@ -1,39 +1,44 @@
+import './NodeWrapper.scss'
+
 import {
     Node,
-    NodeViewWrapper,
-    mergeAttributes,
-    ReactNodeViewRenderer,
     NodeViewProps,
+    NodeViewWrapper,
+    ReactNodeViewRenderer,
     getExtensionField,
+    mergeAttributes,
 } from '@tiptap/react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
-import './NodeWrapper.scss'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { notebookLogic } from '../Notebook/notebookLogic'
-import { useInView } from 'react-intersection-observer'
-import { NotebookNodeResource } from '~/types'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodePasteRule, useSyncedAttributes } from './utils'
-import {
-    KNOWN_NODES,
-    NotebookNodeProps,
-    CustomNotebookNodeAttributes,
-    CreatePostHogWidgetNodeOptions,
-    NodeWrapperProps,
-} from '../Notebook/utils'
-import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
-import { NotebookNodeTitle } from './components/NotebookNodeTitle'
-import { notebookNodeLogicType } from './notebookNodeLogicType'
-import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
-import { NotebookNodeContext } from './NotebookNodeContext'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
+
 import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { NotebookNodeResource } from '~/types'
+
+import { SlashCommandsPopover } from '../Notebook/SlashCommands'
+import { notebookLogic } from '../Notebook/notebookLogic'
+import {
+    CreatePostHogWidgetNodeOptions,
+    CustomNotebookNodeAttributes,
+    KNOWN_NODES,
+    NodeWrapperProps,
+    NotebookNodeProps,
+} from '../Notebook/utils'
+import { NotebookNodeContext } from './NotebookNodeContext'
+import { NotebookNodeTitle } from './components/NotebookNodeTitle'
+import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { notebookNodeLogicType } from './notebookNodeLogicType'
+import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -240,7 +245,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                             <IconFilter />
                                                                         )
                                                                     ) : (
-                                                                        settingsIcon ?? <IconFilter />
+                                                                        (settingsIcon ?? <IconFilter />)
                                                                     )
                                                                 }
                                                                 active={editingNodeId === nodeId}

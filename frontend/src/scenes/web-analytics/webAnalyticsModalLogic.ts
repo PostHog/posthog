@@ -1,11 +1,11 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { NodeKind, QuerySchema } from '~/schema'
 import { InsightLogicProps } from '~/types'
 
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { pageReportsLogic } from './pageReportsLogic'
-import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, webAnalyticsLogic, WebAnalyticsTile } from './webAnalyticsLogic'
+import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, WebAnalyticsTile, webAnalyticsLogic } from './webAnalyticsLogic'
 import type { webAnalyticsModalLogicType } from './webAnalyticsModalLogicType'
 
 export interface WebAnalyticsModalQuery {

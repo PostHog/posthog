@@ -1,17 +1,14 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    FunnelCorrelationQuery,
-    FunnelCorrelationResultsType,
-    FunnelsActorsQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { FunnelCorrelationQuery, FunnelCorrelationResultsType, FunnelsActorsQuery, NodeKind } from '~/schema'
 import { FunnelCorrelation, FunnelCorrelationType, InsightLogicProps } from '~/types'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'

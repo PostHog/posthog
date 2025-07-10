@@ -1,12 +1,12 @@
 import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
+
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
-import { SidePanelSceneContext } from '../types'
-import { SIDE_PANEL_CONTEXT_KEY } from '../types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '../types'
 import type { sidePanelContextLogicType } from './sidePanelContextLogicType'
 
 export const activityFiltersForScene = (sceneConfig: SceneConfig | null): SidePanelSceneContext | null => {

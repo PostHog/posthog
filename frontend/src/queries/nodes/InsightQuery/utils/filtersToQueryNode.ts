@@ -1,5 +1,6 @@
-import { objectCleanWithEmpty } from 'lib/utils'
 import posthog from 'posthog-js'
+
+import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -12,6 +13,19 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 
+import {
+    isCalendarHeatmapQuery,
+    isFunnelsQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithCompare,
+    isInsightQueryWithSeries,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+    setLatestVersionsOnQuery,
+} from '~/queries/utils'
 import {
     ActionsNode,
     AnalyticsQueryResponseBase,
@@ -35,20 +49,7 @@ import {
     RetentionFilter,
     StickinessFilter,
     TrendsFilter,
-} from '~/queries/schema/schema-general'
-import {
-    isCalendarHeatmapQuery,
-    isFunnelsQuery,
-    isInsightQueryWithBreakdown,
-    isInsightQueryWithCompare,
-    isInsightQueryWithSeries,
-    isLifecycleQuery,
-    isPathsQuery,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-    setLatestVersionsOnQuery,
-} from '~/queries/utils'
+} from '~/schema'
 import {
     ActionFilter,
     BaseMathType,
@@ -62,11 +63,11 @@ import {
     GroupMathType,
     HogQLMathType,
     InsightType,
-    isDataWarehouseFilter,
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
     TrendsFilterType,
+    isDataWarehouseFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'

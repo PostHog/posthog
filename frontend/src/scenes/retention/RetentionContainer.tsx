@@ -1,15 +1,17 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { VizSpecificOptions } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { VizSpecificOptions } from '~/schema'
 import { InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { RetentionGraph } from './RetentionGraph'
-import { retentionLogic } from './retentionLogic'
 import { RetentionModal } from './RetentionModal'
 import { RetentionTable } from './RetentionTable'
+import { retentionLogic } from './retentionLogic'
 
 export function RetentionContainer({
     inCardView,

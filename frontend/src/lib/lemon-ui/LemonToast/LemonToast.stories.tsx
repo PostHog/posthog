@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { lemonToast, ToastCloseButton, ToastContent, ToastContentProps } from './LemonToast'
+import { ToastCloseButton, ToastContent, ToastContentProps, lemonToast } from './LemonToast'
 
 const meta: Meta<typeof ToastContent> = {
     title: 'Lemon UI/Lemon Toast',

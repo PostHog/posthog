@@ -1,6 +1,9 @@
-import { IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,7 +11,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect } from 'react'
 import { BatchExportConfiguration } from 'scenes/data-pipelines/batch-exports/BatchExportConfiguration'
 import { NewSourceWizardScene } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
@@ -17,12 +19,12 @@ import { urls } from 'scenes/urls'
 
 import { AvailableFeature, PipelineStage, PluginType } from '~/types'
 
-import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
-import { NewDestinations } from './destinations/NewDestinations'
-import { frontendAppsLogic } from './frontendAppsLogic'
 import { PIPELINE_TAB_TO_NODE_STAGE } from './PipelineNode'
-import { pipelineNodeNewLogic, PipelineNodeNewLogicProps } from './pipelineNodeNewLogic'
 import { PipelinePluginConfiguration } from './PipelinePluginConfiguration'
+import { NewDestinations } from './destinations/NewDestinations'
+import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
+import { frontendAppsLogic } from './frontendAppsLogic'
+import { PipelineNodeNewLogicProps, pipelineNodeNewLogic } from './pipelineNodeNewLogic'
 import { PipelineBackend } from './types'
 import { RenderApp } from './utils'
 
@@ -36,7 +38,7 @@ const paramsToProps = ({
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
     const pluginId = numericId && !isNaN(numericId) ? numericId : null
     const hogFunctionId = pluginId ? null : id?.startsWith('hog-') ? id.slice(4) : null
-    const batchExportDestination = hogFunctionId ? null : id ?? null
+    const batchExportDestination = hogFunctionId ? null : (id ?? null)
 
     return {
         stage: PIPELINE_TAB_TO_NODE_STAGE[stage + 's'] || null, // pipeline tab has stage plural here we have singular

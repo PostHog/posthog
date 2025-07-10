@@ -1,14 +1,9 @@
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
-import type {
-    ActionsNode,
-    EventsNode,
-    ExperimentDataWarehouseNode,
-    ExperimentMetric,
-} from '~/queries/schema/schema-general'
-import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import type { ActionsNode, EventsNode, ExperimentDataWarehouseNode, ExperimentMetric } from '~/schema'
+import { ExperimentMetricType, NodeKind } from '~/schema'
 import {
     ChartDisplayType,
     ExperimentMetricMathType,

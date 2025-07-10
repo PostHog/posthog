@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { ResultDescription, ResultName } from 'lib/components/CommandBar/SearchResult'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'

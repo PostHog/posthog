@@ -1,10 +1,11 @@
-import { exec as hogExec, execAsync as hogExecAsync, ExecOptions, ExecResult, VMState } from '@posthog/hogvm'
 import * as crypto from 'crypto'
 import { RE2JS } from 're2js'
 
+import { ExecOptions, ExecResult, VMState, exec as hogExec, execAsync as hogExecAsync } from '@posthog/hogvm'
+
 import { performQuery } from '~/queries/query'
-import { HogQLASTQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLASTQuery, HogQLQuery, NodeKind } from '~/schema'
 
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side

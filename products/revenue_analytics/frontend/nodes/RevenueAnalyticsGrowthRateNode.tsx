@@ -1,19 +1,17 @@
 import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
+
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import {
-    AnyResponseType,
-    RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsGrowthRateQueryResponse,
-} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { AnyResponseType, RevenueAnalyticsGrowthRateQuery, RevenueAnalyticsGrowthRateQueryResponse } from '~/schema'
 import { GraphDataset, GraphType } from '~/types'
+
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 let uniqueNode = 0

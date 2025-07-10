@@ -1,6 +1,6 @@
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
-import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { InsightQueryNode, InsightVizNode, NodeKind } from '~/schema'
 import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { extractBreakdownValues } from './dashboardInsightColorsModalLogic'

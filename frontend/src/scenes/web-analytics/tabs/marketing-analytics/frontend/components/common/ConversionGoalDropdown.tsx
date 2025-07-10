@@ -3,7 +3,7 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+import { ConversionGoalFilter } from '~/schema'
 import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
 import { BaseMathType, EntityTypes, FilterType, PropertyMathType } from '~/types'
 

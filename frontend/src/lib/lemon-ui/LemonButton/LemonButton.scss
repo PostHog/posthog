@@ -327,7 +327,8 @@
                 transform: translateY(var(--lemon-button-depth));
 
                 &::after {
-                    box-shadow: 0 calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 -1px var(--lemon-button-frame-bg-color);
+                    box-shadow: 0 calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 -1px
+                        var(--lemon-button-frame-bg-color);
                 }
 
                 &::before {
@@ -400,8 +401,10 @@
     & .LemonButtonWithSideAction__spacer {
         box-sizing: content-box;
         width: calc(
-            var(--lemon-button-side-action-width) -
-                var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
+            var(--lemon-button-side-action-width) - var(
+                    --lemon-button-padding-right,
+                    var(--lemon-button-padding-horizontal)
+                )
         );
         height: calc(var(--lemon-button-height) - 1.0625rem);
         color: var(--text-secondary);

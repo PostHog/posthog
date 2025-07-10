@@ -1,9 +1,10 @@
 import equal from 'fast-deep-equal'
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '~/schema'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
@@ -83,7 +84,7 @@ export const errorFiltersLogic = kea<errorFiltersLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'filterTestAccounts', values.filterTestAccounts, DEFAULT_TEST_ACCOUNT)

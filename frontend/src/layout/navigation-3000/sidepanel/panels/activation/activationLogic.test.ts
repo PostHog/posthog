@@ -1,11 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { activationLogic, ActivationTask } from './activationLogic'
+import { ActivationTask, activationLogic } from './activationLogic'
 
 describe('activationLogic', () => {
     let logic: ReturnType<typeof activationLogic.build>

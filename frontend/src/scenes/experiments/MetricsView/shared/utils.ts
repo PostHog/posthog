@@ -6,8 +6,8 @@ import type {
     ExperimentTrendsQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
-} from '~/queries/schema/schema-general'
-import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+} from '~/schema'
+import { ExperimentDataWarehouseNode, ExperimentMetricType, NodeKind } from '~/schema'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 

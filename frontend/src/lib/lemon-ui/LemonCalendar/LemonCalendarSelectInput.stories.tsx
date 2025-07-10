@@ -1,7 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { useState } from 'react'
 
 type Story = StoryObj<typeof LemonCalendarSelectInput>
 const meta: Meta<typeof LemonCalendarSelectInput> = {

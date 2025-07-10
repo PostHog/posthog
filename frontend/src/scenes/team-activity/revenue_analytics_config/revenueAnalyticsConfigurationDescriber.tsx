@@ -1,10 +1,7 @@
 import { ActivityChange, ChangeMapping } from 'lib/components/ActivityLog/humanizeActivity'
 import { objectsEqual } from 'lib/utils'
-import {
-    RevenueAnalyticsConfig,
-    RevenueAnalyticsEventItem,
-    RevenueAnalyticsGoal,
-} from '~/queries/schema/schema-general'
+
+import { RevenueAnalyticsConfig, RevenueAnalyticsEventItem, RevenueAnalyticsGoal } from '~/schema'
 
 export const revenueAnalyticsConfigurationDescriber = (change?: ActivityChange): ChangeMapping | null => {
     if (!change) {

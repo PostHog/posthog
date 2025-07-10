@@ -1,6 +1,6 @@
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, EventsQuery } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
+import { DataTableNode, EventsQuery } from '~/schema'
 
 const PERSON_COLUMN = 'person'
 const PERSON_EMAIL_COLUMN = 'person.properties.email'

@@ -1,7 +1,8 @@
-import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+
+import { ErrorTrackingIssue } from '~/schema'
 import { FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../../errorTrackingSceneLogic'

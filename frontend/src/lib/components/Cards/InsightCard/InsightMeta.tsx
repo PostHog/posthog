@@ -1,5 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import React from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -15,7 +18,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -89,8 +91,8 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
             : loading || !refreshEnabled
-            ? 'Refreshing...'
-            : undefined
+              ? 'Refreshing...'
+              : undefined
 
     return (
         <CardMeta

@@ -1,5 +1,5 @@
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 import type { InsightShortId } from '~/types'
 
 import type { ResultBreakdownRenderProps } from './types'

@@ -1,10 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconTableChart } from 'lib/lemon-ui/icons'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/schema'
 
 import { dataTableLogic } from './dataTableLogic'
 

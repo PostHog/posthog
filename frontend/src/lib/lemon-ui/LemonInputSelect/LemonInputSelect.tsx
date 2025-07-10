@@ -1,11 +1,13 @@
-import { IconPencil } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
+import { MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconPencil } from '@posthog/icons'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
-import { MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -435,8 +437,8 @@ export function LemonInputSelect({
                                                 values.length === allOptionsMap.size
                                                     ? true
                                                     : values.length
-                                                    ? 'indeterminate'
-                                                    : false
+                                                      ? 'indeterminate'
+                                                      : false
                                             }
                                             className="pointer-events-none"
                                         />
@@ -515,10 +517,10 @@ export function LemonInputSelect({
                                 >
                                     <span className="whitespace-nowrap ph-no-capture truncate">
                                         {!option.__isInput
-                                            ? option.labelComponent ?? option.label // Regular option
+                                            ? (option.labelComponent ?? option.label) // Regular option
                                             : mode === 'multiple'
-                                            ? `Add "${option.key}"` // Input-based option
-                                            : option.key}
+                                              ? `Add "${option.key}"` // Input-based option
+                                              : option.key}
                                     </span>
                                 </LemonButton>
                             )
@@ -555,14 +557,14 @@ export function LemonInputSelect({
                     displayMode === 'count'
                         ? undefined
                         : values.length === 0
-                        ? placeholder
-                        : mode === 'single'
-                        ? allOptionsMap.get(values[0])?.label ?? values[0]
-                        : allowCustomValues
-                        ? 'Add value'
-                        : disablePrompting
-                        ? undefined
-                        : 'Pick value'
+                          ? placeholder
+                          : mode === 'single'
+                            ? (allOptionsMap.get(values[0])?.label ?? values[0])
+                            : allowCustomValues
+                              ? 'Add value'
+                              : disablePrompting
+                                ? undefined
+                                : 'Pick value'
                 }
                 autoWidth={autoWidth}
                 fullWidth={fullWidth}

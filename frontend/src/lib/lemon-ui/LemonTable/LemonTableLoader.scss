@@ -8,7 +8,9 @@
     overflow: hidden;
     background: var(--accent-highlight-secondary);
     border: none !important;
-    transition: height 200ms ease, top 200ms ease;
+    transition:
+        height 200ms ease,
+        top 200ms ease;
 
     &::after {
         position: absolute;

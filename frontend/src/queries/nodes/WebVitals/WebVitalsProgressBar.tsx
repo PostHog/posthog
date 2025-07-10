@@ -1,11 +1,11 @@
-import { WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
+import { WebVitalsMetric, WebVitalsMetricBand } from '~/schema'
 
 import {
+    WEB_VITALS_COLORS,
+    WEB_VITALS_THRESHOLDS,
     computePositionInBand,
     getMetricBand,
     getThresholdColor,
-    WEB_VITALS_COLORS,
-    WEB_VITALS_THRESHOLDS,
 } from './definitions'
 
 interface WebVitalsProgressBarProps {

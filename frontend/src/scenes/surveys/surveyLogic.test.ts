@@ -1,11 +1,12 @@
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { dayjs } from 'lib/dayjs'
 import {
     ChoiceQuestionProcessedResponses,
     OpenQuestionProcessedResponses,
+    SurveyRawResults,
     processResultsForSurveyQuestions,
     surveyLogic,
-    SurveyRawResults,
 } from 'scenes/surveys/surveyLogic'
 
 import { initKeaTests } from '~/test/init'

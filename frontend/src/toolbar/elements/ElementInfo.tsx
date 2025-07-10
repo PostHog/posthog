@@ -1,9 +1,10 @@
-import { IconCalendar, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ActionsListView } from '~/toolbar/actions/ActionsListView'
+import { IconCalendar, IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { ActionStep } from '~/toolbar/actions/ActionStep'
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 

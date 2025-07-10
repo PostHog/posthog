@@ -1,9 +1,9 @@
 import { type ExperimentVariantResult } from '../shared/utils'
-import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
 import { GridLines } from './GridLines'
-import { useTooltipHover } from './useTooltipHover'
 import { VariantBar } from './VariantBar'
 import { VariantTooltip } from './VariantTooltip'
+import { BAR_HEIGHT, BAR_SPACING, VIEW_BOX_WIDTH } from './constants'
+import { useTooltipHover } from './useTooltipHover'
 
 export function Chart({
     chartSvgRef,

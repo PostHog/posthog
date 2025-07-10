@@ -1,14 +1,16 @@
-import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 import equal from 'fast-deep-equal'
 import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
+
 import api from 'lib/api'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { Params } from 'scenes/sceneTypes'
 
-import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
+import { DateRange, LogsQuery } from '~/schema'
 import { PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import type { logsLogicType } from './logsLogicType'
@@ -50,7 +52,7 @@ export const logsLogic = kea<logsLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'searchTerm', values.searchTerm, '')

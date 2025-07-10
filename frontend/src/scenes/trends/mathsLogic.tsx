@@ -1,9 +1,10 @@
 import { connect, kea, path, selectors } from 'kea'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { MathType } from '~/queries/schema/schema-general'
+import { MathType } from '~/schema'
 import {
     BaseMathType,
     CalendarHeatmapMathType,

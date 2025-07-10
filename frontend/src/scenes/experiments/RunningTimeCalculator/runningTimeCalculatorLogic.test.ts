@@ -1,7 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/schema'
 import { initKeaTests } from '~/test/init'
 import { ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 

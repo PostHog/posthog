@@ -1,11 +1,8 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import {
-    ExperimentFunnelsQuery,
-    ExperimentMetric,
-    ExperimentTrendsQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
+import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
+import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
 import {
     ExploreAsInsightButton,
     ResultsBreakdown,
@@ -13,9 +10,7 @@ import {
     ResultsInsightInfoBanner,
     ResultsQuery,
 } from '~/scenes/experiments/components/ResultsBreakdown'
-import { LegacyExploreButton, LegacyResultsQuery } from '~/scenes/experiments/ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '~/scenes/experiments/ExperimentView/Overview'
-import { SummaryTable } from '~/scenes/experiments/ExperimentView/SummaryTable'
+import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery, NodeKind } from '~/schema'
 import type { Experiment, ExperimentIdType } from '~/types'
 
 interface ChartModalProps {

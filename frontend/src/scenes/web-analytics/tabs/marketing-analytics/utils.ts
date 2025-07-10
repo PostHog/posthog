@@ -1,4 +1,4 @@
-import { MarketingAnalyticsSchemaField } from '~/queries/schema/schema-general'
+import { MarketingAnalyticsSchemaField } from '~/schema'
 
 export const UTM_CAMPAIGN_NAME_SCHEMA_FIELD = 'utm_campaign_name'
 export const UTM_SOURCE_NAME_SCHEMA_FIELD = 'utm_source_name'

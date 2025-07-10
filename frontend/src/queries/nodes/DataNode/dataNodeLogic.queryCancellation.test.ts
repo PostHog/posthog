@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import * as libUtils from 'lib/utils'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 import { initKeaTests } from '~/test/init'
 
 const testUniqueKey = 'testUniqueKey'

@@ -1,8 +1,9 @@
 import { LemonCheckbox } from '@posthog/lemon-ui'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { ExperimentMeanMetric, ExperimentMetric } from '~/queries/schema/schema-general'
+import { ExperimentMeanMetric, ExperimentMetric } from '~/schema'
 
 export function ExperimentMetricOutlierHandling({
     metric,

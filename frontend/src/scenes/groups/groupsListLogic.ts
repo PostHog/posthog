@@ -1,11 +1,12 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
+import { DataTableNode } from '~/schema'
 import { GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
@@ -46,7 +47,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     showEventFilter: false,
                     showPersistentColumnConfigurator: true,
                     propertiesViaUrl: true,
-                } as DataTableNode),
+                }) as DataTableNode,
             { setQuery: (_, { query }) => query },
         ],
         queryWasModified: [

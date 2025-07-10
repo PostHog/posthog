@@ -17,8 +17,8 @@ import {
     toUnixTimestamp,
     toUnixTimestampMilli,
 } from './date'
-import { printHogStringOutput } from './print'
 import { isIPAddressInRange } from './ip'
+import { printHogStringOutput } from './print'
 
 // TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
 
@@ -645,7 +645,9 @@ export const STL: Record<string, STLFunction> = {
     },
     lower: {
         fn: (args) => {
-            if (args[0] === null || args[0] === undefined) return null
+            if (args[0] === null || args[0] === undefined) {
+                return null
+            }
             return args[0].toLowerCase()
         },
         description: 'Converts a string to lowercase',
@@ -772,7 +774,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof current === 'string') {
                     try {
                         currentParsed = JSON.parse(current)
-                    } catch (e) {
+                    } catch {
                         return false
                     }
                 }
@@ -819,7 +821,7 @@ export const STL: Record<string, STLFunction> = {
             try {
                 JSON.parse(str)
                 return true
-            } catch (e) {
+            } catch {
                 return false
             }
         },
@@ -834,7 +836,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof obj === 'string') {
                     obj = JSON.parse(obj)
                 }
-            } catch (e) {
+            } catch {
                 return 0
             }
             if (typeof obj === 'object') {
@@ -859,7 +861,7 @@ export const STL: Record<string, STLFunction> = {
                 if (typeof obj === 'string') {
                     obj = JSON.parse(obj)
                 }
-            } catch (e) {
+            } catch {
                 return false
             }
             if (path.length > 0) {
@@ -896,7 +898,7 @@ export const STL: Record<string, STLFunction> = {
         fn: (args) => {
             try {
                 return Buffer.from(args[0], 'base64').toString()
-            } catch (e) {
+            } catch {
                 return ''
             }
         },

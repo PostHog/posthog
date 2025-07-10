@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { EventsNode } from '~/queries/schema/schema-general'
+import { EventsNode } from '~/schema'
 import {
     FunnelConversionWindowTimeUnit,
     FunnelCorrelation,

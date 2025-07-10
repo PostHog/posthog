@@ -2,11 +2,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 import { FilterType } from '~/types'
 
-import { ExposureEstimateConfig } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
+import { ExposureEstimateConfig } from './runningTimeCalculatorLogic'
 
 /**
  * Converts an ExposureEstimateConfig to a FilterType

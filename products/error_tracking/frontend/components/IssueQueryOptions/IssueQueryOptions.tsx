@@ -1,8 +1,9 @@
-import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+
+import { ErrorTrackingIssue } from '~/schema'
 
 import { errorTrackingDataNodeLogic } from '../../errorTrackingDataNodeLogic'
 import { AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'

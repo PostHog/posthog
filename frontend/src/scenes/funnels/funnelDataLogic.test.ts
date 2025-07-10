@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
-import { teamLogic } from 'scenes/teamLogic'
 import timekeeper from 'timekeeper'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataNode, FunnelsQuery, NodeKind } from '~/schema'
 import { initKeaTests } from '~/test/init'
 import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
 

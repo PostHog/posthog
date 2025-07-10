@@ -1,10 +1,11 @@
 import { useMountedLogic, useValues } from 'kea'
+
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { cleanedInsightActorsQueryOptions } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightActorsQueryOptionsLogic } from '~/queries/nodes/DataTable/insightActorsQueryOptionsLogic'
-import { InsightActorsQuery } from '~/queries/schema/schema-general'
+import { InsightActorsQuery } from '~/schema'
 
 interface InsightActorsQueryOptionsProps {
     query: InsightActorsQuery

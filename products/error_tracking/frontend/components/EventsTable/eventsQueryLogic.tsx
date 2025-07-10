@@ -1,7 +1,8 @@
-import { connect, kea, key, LogicWrapper, path, props, selectors } from 'kea'
+import { LogicWrapper, connect, kea, key, path, props, selectors } from 'kea'
+
 import { uuid } from 'lib/utils'
 
-import { ErrorTrackingRelationalIssue, EventsQuery } from '~/queries/schema/schema-general'
+import { ErrorTrackingRelationalIssue, EventsQuery } from '~/schema'
 
 import { errorTrackingIssueEventsQuery } from '../../queries'
 import { DataQueryLogic } from '../DataSourceTable'

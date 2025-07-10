@@ -82,8 +82,10 @@
                 )
                 0.25rem
                 calc(
-                    var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal)) -
-                        var(--lemon-button-chrome-depth) * 0.5
+                    var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal)) - var(
+                            --lemon-button-chrome-depth
+                        ) *
+                        0.5
                 ) !important;
 
             &::after {
@@ -98,7 +100,8 @@
                 transform: translateX(var(--lemon-button-depth)) !important;
 
                 &::after {
-                    box-shadow: calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 0 -1px var(--lemon-button-frame-bg-color) !important;
+                    box-shadow: calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 0 -1px
+                        var(--lemon-button-frame-bg-color) !important;
                 }
 
                 &::before {

@@ -1,10 +1,11 @@
 import { actions, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
+
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/schema'
 
 import type { itemSelectModalLogicType } from './itemSelectModalLogicType'
 

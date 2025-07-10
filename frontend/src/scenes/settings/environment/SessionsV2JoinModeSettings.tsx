@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
+import { HogQLQueryModifiers } from '~/schema'
 
 type SessionsV2JoinMode = NonNullable<HogQLQueryModifiers['sessionsV2JoinMode']>
 

@@ -1,12 +1,18 @@
 import './ErrorTracking.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { ErrorTrackingIssue } from '~/schema'
+import { SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
@@ -19,10 +25,6 @@ import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { Metadata } from './issue/Metadata'
 import { ISSUE_STATUS_OPTIONS } from './utils'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { SidePanelTab } from '~/types'
-import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,

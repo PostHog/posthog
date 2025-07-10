@@ -1,17 +1,18 @@
 // Helpers for Kea issue with double importing
-import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
     Attribute,
     ChainedCommands as EditorCommands,
-    Editor as TTEditor,
-    ExtendedRegExpMatchArray,
     FocusPosition as EditorFocusPosition,
-    getText,
-    JSONContent as TTJSONContent,
     Range as EditorRange,
+    ExtendedRegExpMatchArray,
+    Editor as TTEditor,
+    JSONContent as TTJSONContent,
     TextSerializer,
+    getText,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
+
+import { LemonButtonProps } from '@posthog/lemon-ui'
 
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
 

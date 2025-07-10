@@ -1,10 +1,12 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { useCallback, useState } from 'react'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -12,6 +14,8 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { QueryContext } from '~/queries/types'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import {
     AnyResponseType,
     DataVisualizationNode,
@@ -19,24 +23,22 @@ import {
     HogQLQueryResponse,
     HogQLVariable,
     NodeKind,
-} from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
-import { shouldQueryBeAsync } from '~/queries/utils'
+} from '~/schema'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
-import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { LineGraph } from './Components/Charts/LineGraph'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
-import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesForInsight } from './Components/Variables/Variables'
+import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { variablesLogic } from './Components/Variables/variablesLogic'
-import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
+import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 
 export interface DataTableVisualizationProps {
@@ -272,8 +274,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                         queryCancelled
                                             ? 'The query was cancelled'
                                             : response && 'error' in response
-                                            ? (response as any).error
-                                            : responseError
+                                              ? (response as any).error
+                                              : responseError
                                     }
                                 />
                             </div>

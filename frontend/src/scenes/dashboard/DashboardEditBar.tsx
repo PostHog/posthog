@@ -1,7 +1,9 @@
-import { IconCalendar } from '@posthog/icons'
-import { LemonButton, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { IconCalendar } from '@posthog/icons'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -12,7 +14,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
+import { BreakdownFilter, NodeKind } from '~/schema'
 import { DashboardMode, InsightLogicProps } from '~/types'
 
 export function DashboardEditBar(): JSX.Element {

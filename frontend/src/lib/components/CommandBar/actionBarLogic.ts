@@ -1,5 +1,6 @@
 import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'

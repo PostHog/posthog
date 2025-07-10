@@ -1,8 +1,10 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSelect, Spinner } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
-import { useEffect } from 'react'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 

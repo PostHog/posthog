@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { DataNode } from '~/schema'
 
 import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 
@@ -78,7 +79,7 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
         return <div />
     }
 
-    const resultCount = response && 'results' in response ? response?.results?.length ?? 0 : 0
+    const resultCount = response && 'results' in response ? (response?.results?.length ?? 0) : 0
     const isSingleEntry = resultCount === 1
     const showFirstPrefix = hasMoreData && resultCount > 1
 

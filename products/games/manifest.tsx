@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Games',

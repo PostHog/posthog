@@ -1,7 +1,7 @@
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode } from '~/schema'
 import {
     AccessControlLevel,
     ActivationTaskStatus,

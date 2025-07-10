@@ -1,6 +1,6 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { RefreshType } from '~/queries/schema/schema-general'
+import { RefreshType } from '~/schema'
 
 import type { dataNodeCollectionLogicType } from './dataNodeCollectionLogicType'
 

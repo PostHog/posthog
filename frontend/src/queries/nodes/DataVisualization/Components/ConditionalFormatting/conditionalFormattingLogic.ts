@@ -1,9 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 
-import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
+import { ConditionalFormattingRule } from '~/schema'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES, FormattingTemplate } from '../../types'

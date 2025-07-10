@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 

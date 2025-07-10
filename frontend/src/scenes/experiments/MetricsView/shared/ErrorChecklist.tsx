@@ -1,11 +1,13 @@
-import { IconCheck, IconX } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router/lib/utils'
+
+import { IconCheck, IconX } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
+
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/schema'
 import { ActivityTab, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
@@ -63,8 +65,8 @@ export function ErrorChecklist({ error, metric }: { error: any; metric: any }): 
                         value: hasMissingExposure
                             ? variants.map((variant) => variant.key)
                             : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
-                            ? ['control']
-                            : variants.slice(1).map((variant) => variant.key),
+                              ? ['control']
+                              : variants.slice(1).map((variant) => variant.key),
                         operator: 'exact',
                         type: 'event',
                     },

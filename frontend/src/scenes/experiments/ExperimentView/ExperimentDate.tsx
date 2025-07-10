@@ -1,9 +1,11 @@
+import clsx from 'clsx'
+import { useState } from 'react'
+
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCalendarSelectInput } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { useState } from 'react'
 
 const ExperimentDate = ({
     label,

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, ActivityLogItem, PersonMerge, Trigger } from 'lib/components/ActivityLog/humanizeActivity'
 

@@ -1,11 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
+
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
+import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/schema'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'

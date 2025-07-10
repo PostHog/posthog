@@ -1,22 +1,25 @@
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { PostHogErrorBoundary } from 'posthog-js/react'
+import { useEffect, useMemo } from 'react'
+
+import { IconComment } from 'lib/lemon-ui/icons'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
     DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
     convertLegacyFiltersToUniversalFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
+
+import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+
+import { JSONContent, NotebookNodeAttributeProperties, NotebookNodeProps } from '../Notebook/utils'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
-import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
-import { PostHogErrorBoundary } from 'posthog-js/react'
 
 const Component = ({
     attributes,

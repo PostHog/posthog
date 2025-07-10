@@ -1,13 +1,15 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { JSInstallSnippet } from './js-web'
 import { SDK_DEFAULTS_DATE } from './constants'
+import { JSInstallSnippet } from './js-web'
 
 function SvelteAppClientCodeSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

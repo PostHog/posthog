@@ -1,6 +1,7 @@
+import posthog from 'posthog-js'
+
 import api, { ApiMethodOptions } from 'lib/api'
 import { delay } from 'lib/utils'
-import posthog from 'posthog-js'
 
 import {
     DashboardFilter,
@@ -12,7 +13,7 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {

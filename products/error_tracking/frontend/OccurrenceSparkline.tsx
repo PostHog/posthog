@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
-import { dayjs } from 'lib/dayjs'
 import { useCallback, useMemo } from 'react'
 
+import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { dayjs } from 'lib/dayjs'
+
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '~/schema'
 
 import { SparklineData, SparklineOptions } from './components/SparklineChart/SparklineChart'
 import { useDefaultSparklineColorVars, useSparklineOptions } from './hooks/use-sparkline-options'

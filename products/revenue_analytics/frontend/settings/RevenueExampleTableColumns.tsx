@@ -2,7 +2,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP } from 'lib/utils/geography/currency'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode } from '~/schema'
 
 export const Revenue = ({ value, currency }: { value: number; currency: string }): JSX.Element => {
     const { symbol, isPrefix } = getCurrencySymbol(currency ?? CurrencyCode.USD)

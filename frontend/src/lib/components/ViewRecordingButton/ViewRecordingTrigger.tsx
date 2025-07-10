@@ -1,7 +1,9 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Dayjs, dayjs } from 'lib/dayjs'
 import { ReactNode, useEffect } from 'react'
+
+import { Spinner } from '@posthog/lemon-ui'
+
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'

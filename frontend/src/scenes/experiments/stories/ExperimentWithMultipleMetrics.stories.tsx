@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+
+import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -7,8 +9,7 @@ import EXPERIMENT_WITH_MULTIPLE_METRICS from '~/mocks/fixtures/api/experiments/e
 import EXPOSURE_QUERY_RESULT from '~/mocks/fixtures/api/experiments/exposure_query_result.json'
 import FUNNEL_METRIC_RESULT from '~/mocks/fixtures/api/experiments/funnel_metric_result.json'
 import MEAN_METRIC_RESULT from '~/mocks/fixtures/api/experiments/mean_metric_result.json'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { makeDelay } from 'lib/utils'
+import { NodeKind } from '~/schema'
 
 const meta: Meta = {
     component: App,

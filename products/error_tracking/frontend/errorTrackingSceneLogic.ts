@@ -1,7 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode } from '~/schema'
 
 import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'

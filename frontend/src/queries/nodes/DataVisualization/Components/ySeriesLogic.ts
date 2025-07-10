@@ -1,12 +1,13 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+
 import { getSeriesColor } from 'lib/colors'
 
 import {
     AxisSeries,
-    dataVisualizationLogic,
     DataVisualizationLogicProps,
     EmptyYAxisSeries,
+    dataVisualizationLogic,
 } from '../dataVisualizationLogic'
 import type { ySeriesLogicType } from './ySeriesLogicType'
 

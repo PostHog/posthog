@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { NodeKind, QuerySchema } from '~/schema'
 
 import { TileId, WebAnalyticsTile } from './webAnalyticsLogic'
 

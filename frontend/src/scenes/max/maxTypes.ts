@@ -1,5 +1,5 @@
-import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
+import { DashboardFilter, HogQLVariable, QuerySchema } from '~/schema'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 export enum MaxContextType {

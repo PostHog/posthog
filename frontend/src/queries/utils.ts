@@ -8,10 +8,10 @@ import {
     BreakdownFilter,
     CalendarHeatmapQuery,
     CompareFilter,
-    DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    DatabaseSchemaQuery,
     DateRange,
     ErrorTrackingQuery,
     EventsNode,
@@ -58,7 +58,7 @@ import {
     WebStatsTableQuery,
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
-} from '~/queries/schema/schema-general'
+} from '~/schema'
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'

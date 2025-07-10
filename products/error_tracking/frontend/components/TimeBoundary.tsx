@@ -1,11 +1,13 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { MouseEvent, useCallback } from 'react'
+import { P, match } from 'ts-pattern'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs } from 'lib/dayjs'
-import { MouseEvent, useCallback } from 'react'
-import { match, P } from 'ts-pattern'
 
-import { DateRange } from '~/queries/schema/schema-general'
+import { DateRange } from '~/schema'
 
 import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
 

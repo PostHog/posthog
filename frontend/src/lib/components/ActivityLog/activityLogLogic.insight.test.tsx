@@ -1,10 +1,10 @@
 import '@testing-library/jest-dom'
-
 import { render } from '@testing-library/react'
+
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter } from '~/schema'
 import { ActivityScope } from '~/types'
 
 jest.mock('lib/colors')

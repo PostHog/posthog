@@ -1,5 +1,6 @@
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -89,7 +90,7 @@ export function renderHogQLX(value: any): JSX.Element {
             return (
                 <ErrorBoundary>
                     <Link to={href} target={target ?? undefined}>
-                        {children ?? source ? renderHogQLX(children ?? source) : href}
+                        {(children ?? source) ? renderHogQLX(children ?? source) : href}
                     </Link>
                 </ErrorBoundary>
             )

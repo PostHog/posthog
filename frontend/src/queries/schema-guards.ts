@@ -1,9 +1,10 @@
 import Ajv from 'ajv'
 
-import { RevenueAnalyticsPropertyFilters, WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsPropertyFilters, WebAnalyticsPropertyFilters } from '~/schema'
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import schema from './schema.json'
+
 const ajv = new Ajv({
     allowUnionTypes: true,
 })

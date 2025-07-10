@@ -1,5 +1,6 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { expectLogic, truth } from 'kea-test-utils'
+
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { now } from 'lib/dayjs'
@@ -13,7 +14,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/schema'
 import { initKeaTests } from '~/test/init'
 import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 

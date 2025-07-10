@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconInfo, IconTrash } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -9,7 +11,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsEventItem } from '~/schema'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 

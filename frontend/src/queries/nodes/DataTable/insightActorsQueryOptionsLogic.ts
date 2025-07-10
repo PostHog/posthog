@@ -2,13 +2,8 @@ import { actions, afterMount, kea, path, props, propsChanged } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { performQuery } from '~/queries/query'
-import {
-    InsightActorsQuery,
-    InsightActorsQueryOptions,
-    InsightActorsQueryOptionsResponse,
-    NodeKind,
-} from '~/queries/schema/schema-general'
 import { isInsightActorsQuery, setLatestVersionsOnQuery } from '~/queries/utils'
+import { InsightActorsQuery, InsightActorsQueryOptions, InsightActorsQueryOptionsResponse, NodeKind } from '~/schema'
 
 import type { insightActorsQueryOptionsLogicType } from './insightActorsQueryOptionsLogicType'
 

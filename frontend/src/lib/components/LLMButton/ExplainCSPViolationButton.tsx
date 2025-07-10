@@ -1,14 +1,16 @@
-import { IconWarning } from '@posthog/icons'
-import { Link, Popover, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useState } from 'react'
+
+import { IconWarning } from '@posthog/icons'
+import { Link, Popover, Spinner } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { useState } from 'react'
 
 import { SidePanelTab } from '~/types'
 
