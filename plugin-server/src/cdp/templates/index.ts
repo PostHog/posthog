@@ -1,5 +1,6 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
+import { HogFunctionTemplate } from '../types'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
@@ -23,7 +24,6 @@ import { template as nativeEmailTemplate } from './_workflow_actions/email/nativ
 import { template as slackMessageTemplate } from './_workflow_actions/message/slack-message.template'
 import { template as twilioSmsTemplate } from './_workflow_actions/sms/twilio-sms.template'
 import { template as nativeWebhookTemplate } from './_workflow_actions/webhook/native-webhook.template'
-import { HogFunctionTemplate } from './types'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 

@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
@@ -10,7 +10,6 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `
-let webhookConfig := inputs.webhook_config
 let url := inputs.url
 let method := inputs.method or 'POST'
 let headers := inputs.headers or {}
@@ -33,13 +32,7 @@ if (inputs.debug) {
     print('Sending webhook', url, payload)
 }
 
-// Use the webhook config from the integration if provided, otherwise direct fetch
-let res
-if (webhookConfig) {
-    res := sendWebhook(webhookConfig, url, payload)
-} else {
-    res := fetch(url, payload)
-}
+let res := fetch(url, payload)
 
 if (res.status >= 400) {
     throw Error(f'Webhook failed with status {res.status}: {res.body}')
@@ -50,15 +43,6 @@ if (inputs.debug) {
 }
 `,
     inputs_schema: [
-        {
-            key: 'webhook_config',
-            type: 'integration',
-            integration: 'webhook',
-            label: 'Webhook Configuration',
-            secret: false,
-            required: false,
-            description: 'Optional webhook configuration for authentication and additional settings.',
-        },
         {
             key: 'url',
             type: 'string',

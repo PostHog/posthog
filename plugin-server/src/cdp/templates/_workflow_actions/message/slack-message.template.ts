@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
@@ -44,7 +44,18 @@ if (inputs.debug) {
 }
 
 // Use the Slack config from the integration
-let res := sendSlackMessage(slackConfig, payload)
+let res := fetch('https://slack.com/api/chat.postMessage', {
+    'method': 'POST',
+    'headers': {
+        'Authorization': f'Bearer {slackConfig.access_token}',
+        'Content-Type': 'application/json'
+    },
+    'body': payload
+});
+
+if (res.status != 200 or res.body.ok == false) {
+  throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
+}
 
 if (inputs.debug) {
     print('Slack message sent', res)

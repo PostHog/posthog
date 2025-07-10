@@ -19,6 +19,7 @@ describe('mergeIssues', () => {
             },
             library: 'web',
             status: 'active',
+            external_issues: [],
         }
 
         const mergingIssues: ErrorTrackingIssue[] = [
@@ -37,6 +38,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
             {
                 id: 'thirdId',
@@ -53,6 +55,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
             {
                 id: 'fourthId',
@@ -69,6 +72,7 @@ describe('mergeIssues', () => {
                 },
                 library: 'web',
                 status: 'active',
+                external_issues: [],
             },
         ]
 
@@ -85,6 +89,7 @@ describe('mergeIssues', () => {
             first_seen: '2023-07-22T13:15:07.074Z',
             // latest last_seen
             last_seen: '2024-07-22T13:15:50.186Z',
+            external_issues: [],
             library: 'web',
             aggregations: {
                 // sums counts
@@ -93,7 +98,7 @@ describe('mergeIssues', () => {
                 users: 102,
                 volumeRange: [0, 500, 1510, 1026, 1406],
             },
-        })
+        } satisfies ErrorTrackingIssue)
     })
 })
 

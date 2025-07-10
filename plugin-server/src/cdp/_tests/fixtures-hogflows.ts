@@ -27,6 +27,7 @@ export const createHogFlowInvocationContext = (
             ...createHogExecutionGlobals().event,
             ...data.event,
         },
+        actionStepCount: 0,
         ...data,
     }
 }
@@ -49,5 +50,8 @@ export const createExampleHogFlowInvocation = (
         hogFlow,
         queue: 'hogflow',
         queuePriority: 0,
+        getPerson: () => {
+            return Promise.resolve({ id: 'person_id', properties: { foo: 'bar' } }) // Mocked person
+        },
     }
 }
