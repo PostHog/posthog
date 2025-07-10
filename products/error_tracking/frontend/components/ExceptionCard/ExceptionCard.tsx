@@ -14,7 +14,7 @@ import { PropertiesTab } from './Tabs/PropertiesTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
 import ViewRecordingTrigger from 'lib/components/ViewRecordingButton/ViewRecordingTrigger'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { match, P } from 'ts-pattern'
+import {} from 'ts-pattern'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 
 interface ExceptionCardContentProps {
@@ -52,7 +52,7 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading }: Exce
 }
 
 function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardContentProps): JSX.Element {
-    const { sessionId, mightHaveRecording } = useValues(errorPropertiesLogic)
+    const { sessionId, recordingStatus } = useValues(errorPropertiesLogic)
 
     return (
         <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
@@ -75,17 +75,19 @@ function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardC
                         </div>
                         <div className="w-full flex gap-1 justify-end items-center">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
-                            <ViewRecordingTrigger sessionId={sessionId} inModal={true} timestamp={timestamp}>
+                            <ViewRecordingTrigger
+                                sessionId={sessionId}
+                                recordingStatus={recordingStatus}
+                                inModal={true}
+                                timestamp={timestamp}
+                            >
                                 {(onClick, _, disabledReason, maybeSpinner) => {
                                     return (
                                         <ButtonPrimitive
-                                            disabled={disabledReason != null || !mightHaveRecording}
+                                            disabled={disabledReason != null}
                                             onClick={onClick}
                                             className="px-2 h-[1.4rem] whitespace-nowrap"
-                                            tooltip={match([disabledReason != null, mightHaveRecording])
-                                                .with([true, P.any], () => 'No recording available')
-                                                .with([false, false], () => 'Recording not ready')
-                                                .otherwise(() => 'View Recording')}
+                                            tooltip={disabledReason ?? 'View Recording'}
                                         >
                                             <IconPlayCircle />
                                             Recording

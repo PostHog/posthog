@@ -9,14 +9,16 @@ import ViewRecordingTrigger from './ViewRecordingTrigger'
 
 export default function ViewRecordingButton({
     sessionId,
+    recordingStatus,
     timestamp,
     label,
     inModal = false,
     checkIfViewed = false,
     matchingEvents,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason' | 'loading'> & {
+}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> & {
     sessionId: string | undefined
+    recordingStatus?: string
     timestamp?: string | Dayjs
     // whether to open in a modal or navigate to the replay page
     inModal?: boolean
@@ -27,6 +29,7 @@ export default function ViewRecordingButton({
     return (
         <ViewRecordingTrigger
             sessionId={sessionId}
+            recordingStatus={recordingStatus}
             timestamp={timestamp}
             inModal={inModal}
             checkIfViewed={checkIfViewed}
@@ -50,10 +53,21 @@ export default function ViewRecordingButton({
     )
 }
 
-export const mightHaveRecording = (properties: { $session_id?: string; $recording_status?: string }): boolean => {
-    return properties.$session_id
-        ? properties.$recording_status
-            ? ['active', 'sampled', 'buffering'].includes(properties.$recording_status)
-            : true
-        : false
+export const recordingDisabledReason = (
+    properties: {
+        $session_id?: string
+        $recording_status?: string
+    },
+    eventType: string = 'event'
+): JSX.Element | string | null => {
+    if (!properties.$session_id) {
+        return 'There is no `$session_id`'
+    } else if (
+        properties.$recording_status &&
+        !['active', 'sampled', 'buffering'].includes(properties.$recording_status)
+    ) {
+        return `Replay was not active when capturing this ${eventType}`
+    }
+
+    return null
 }

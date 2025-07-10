@@ -9,9 +9,11 @@ import { urls } from 'scenes/urls'
 import { MatchedRecording } from '~/types'
 
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
+import { recordingDisabledReason } from './ViewRecordingButton'
 
 export default function ViewRecordingTrigger({
     sessionId,
+    recordingStatus,
     timestamp,
     inModal = false,
     checkIfViewed = false,
@@ -19,6 +21,7 @@ export default function ViewRecordingTrigger({
     children,
 }: {
     sessionId: string | undefined
+    recordingStatus: string | undefined
     timestamp?: string | Dayjs
     // whether to open in a modal or navigate to the replay page
     inModal?: boolean
@@ -28,7 +31,7 @@ export default function ViewRecordingTrigger({
     children: (
         onClick: () => void,
         link: string | undefined,
-        disabledReason: string | undefined,
+        disabledReason: JSX.Element | string | null,
         maybeUnwatchedIndicator?: JSX.Element | null
     ) => JSX.Element
 }): JSX.Element {
@@ -64,7 +67,7 @@ export default function ViewRecordingTrigger({
             )
         }
     }
-    const disabledReason = sessionId ? undefined : 'No session ID provided'
+    const disabledReason = recordingDisabledReason({ $session_id: sessionId, $recording_status: recordingStatus })
     const link = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
     return children(onClick, link, disabledReason, maybeUnwatchedIndicator)
