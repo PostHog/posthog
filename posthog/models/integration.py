@@ -434,7 +434,6 @@ class OauthIntegration:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
 
-        # For Salesforce, if we don't have expires_in info, assume 2 hour expiry (default Salesforce behavior)
         if not refresh_token:
             return False
 
