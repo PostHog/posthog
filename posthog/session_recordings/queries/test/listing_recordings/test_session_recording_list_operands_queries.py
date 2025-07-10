@@ -23,7 +23,7 @@ from posthog.test.base import (
 
 
 @freeze_time("2021-01-01T13:46:23")
-class TestSessionRecordingsListFromExperimentsQuery(ClickhouseTestMixin, APIBaseTest):
+class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -132,3 +132,41 @@ class TestSessionRecordingsListFromExperimentsQuery(ClickhouseTestMixin, APIBase
             },
             [target_vip_session, target_non_vip_session, non_target_vip_session],
         )
+
+        @snapshot_clickhouse_queries
+        def test_positive_and_negative_anded(self):
+            target_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-target-page", "vip": True}
+            )
+            _target_non_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-target-page", "vip": False}
+            )
+            _non_target_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-other-page", "vip": True}
+            )
+            _non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-other-page", "vip": False}
+            )
+
+            self._assert_query_matches_session_ids(
+                {
+                    "operand": "AND",
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "exact"}],
+                        },
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "properties": [
+                                {"key": "$pathname", "type": "event", "value": "target", "operator": "icontains"}
+                            ],
+                        },
+                    ],
+                },
+                [target_vip_session],
+            )
