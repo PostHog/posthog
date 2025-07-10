@@ -33,7 +33,7 @@ describe('wizardLogic', () => {
             window.POSTHOG_APP_CONTEXT = {
                 current_user: {
                     organization: {
-                        teams: [MOCK_DEFAULT_TEAM, MOCK_DEFAULT_TEAM],
+                        teams: [MOCK_DEFAULT_TEAM, { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 }],
                     },
                 },
             } as unknown as AppContext
