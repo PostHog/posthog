@@ -594,7 +594,11 @@ export function InsightErrorState({
                     <LemonButton
                         size="small"
                         type="secondary"
-                        onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+                        onClick={() =>
+                            loadData(
+                                query?.kind && shouldQueryBeAsync(query as Node) ? 'force_async' : 'force_blocking'
+                            )
+                        }
                     >
                         Try again
                     </LemonButton>
