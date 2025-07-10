@@ -36,7 +36,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
     const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
     const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
 
-    let metrics = isSecondary ? experiment.metrics_secondary : experiment.metrics
+    // we know this will be new metric format only, thus the casting
+    let metrics = (isSecondary ? experiment.metrics_secondary : experiment.metrics) as ExperimentMetric[]
+
     const sharedMetrics = experiment.saved_metrics
         .filter((sharedMetric) => sharedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary'))
         .map((sharedMetric) => ({
@@ -44,7 +46,7 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
             name: sharedMetric.name,
             sharedMetricId: sharedMetric.saved_metric,
             isSharedMetric: true,
-        }))
+        })) as ExperimentMetric[]
 
     if (sharedMetrics) {
         metrics = [...metrics, ...sharedMetrics]

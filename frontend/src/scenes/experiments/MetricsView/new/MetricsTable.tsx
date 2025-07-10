@@ -16,7 +16,7 @@ import { InsightType } from '~/types'
 import { CELL_HEIGHT } from './constants'
 
 interface MetricsTableProps {
-    metrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[]
+    metrics: ExperimentMetric[]
     results: NewExperimentQueryResponse[]
     errors: any[]
     isSecondary: boolean
@@ -95,7 +95,7 @@ export function MetricsTable({
                                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                 >
                                     <td
-                                        colSpan={5}
+                                        colSpan={6}
                                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                         className="overflow-hidden"
                                     >
@@ -112,7 +112,7 @@ export function MetricsTable({
                                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                 >
                                     <td
-                                        colSpan={5}
+                                        colSpan={6}
                                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                                         className="overflow-hidden"
                                     >
@@ -133,6 +133,7 @@ export function MetricsTable({
                                 key={metricIndex}
                                 metric={metric}
                                 result={result}
+                                experiment={experiment}
                                 metricType={getInsightType(metric)}
                                 metricIndex={metricIndex}
                                 chartRadius={chartRadius}
