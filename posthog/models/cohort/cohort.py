@@ -276,76 +276,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             "deleted": self.deleted,
         }
 
-    def _is_behavioral_cohort(self) -> bool:
-        """Check if this cohort has behavioral properties."""
-        for prop in self.properties.flat:
-            if prop.type == "behavioral":
-                return True
-        return False
-
-    def _create_or_update_behavioral_counter_hog_function(self, is_new: bool):
-        """Create or update a Hog function for behavioral cohort counting."""
-        if not self._is_behavioral_cohort():
-            return
-
-        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
-        from posthog.cdp.filters import compile_filters_bytecode
-
-        # Create Hog function name
-        hog_function_name = f"behavioral_cohort_counter_{self.id}"
-        
-        # Try to find existing Hog function
-        existing_hog_function = None
-        if not is_new:
-            try:
-                existing_hog_function = HogFunction.objects.get(
-                    team=self.team,
-                    name=hog_function_name,
-                    type=HogFunctionType.BEHAVIORAL_COHORT_COUNTER,
-                    deleted=False,
-                )
-            except HogFunction.DoesNotExist:
-                pass
-
-        # Compile filters to bytecode for the Hog function
-        compiled_filters = compile_filters_bytecode(self.filters, self.team)
-        
-        # Generate Hog code for counter increment
-        hog_code = f"""
-export function onEvent(inputs, globals) {{
-    const eventDate = new Date(globals.event.timestamp || Date.now());
-    const dateStr = eventDate.toISOString().split('T')[0]; // YYYY-MM-DD format
-    const counterKey = `behavioral_counter:${{globals.project.id}}:${{inputs.filter_hash}}:${{globals.person_id}}:${{dateStr}}`;
-    
-    redis.incr(counterKey);
-    redis.expire(counterKey, 7776000); // 90 days
-    
-    return globals.event; // Pass through unchanged
-}}
-"""
-
-        if existing_hog_function:
-            # Update existing Hog function
-            existing_hog_function.filters = compiled_filters
-            existing_hog_function.hog = hog_code
-            existing_hog_function.enabled = True
-            existing_hog_function.save()
-        else:
-            # Create new Hog function
-            HogFunction.objects.create(
-                team=self.team,
-                name=hog_function_name,
-                description=f"Behavioral cohort counter for '{self.name}'",
-                type=HogFunctionType.BEHAVIORAL_COHORT_COUNTER,
-                filters=compiled_filters,
-                hog=hog_code,
-                enabled=True,
-                inputs={
-                    "cohort_id": self.id,
-                    "filter_hash": compiled_filters.get("bytecode_hash", ""),
-                }
-            )
-
     def save(self, *args, **kwargs):
         is_new = self.pk is None
         super().save(*args, **kwargs)
@@ -564,6 +494,76 @@ export function onEvent(inputs, globals) {{
             capture_exception(err, additional_properties={"batch_index": current_batch_index})
 
             return current_batch_index + 1
+
+    def _is_behavioral_cohort(self) -> bool:
+        """Check if this cohort has behavioral properties."""
+        for prop in self.properties.flat:
+            if prop.type == "behavioral":
+                return True
+        return False
+
+    def _create_or_update_behavioral_counter_hog_function(self, is_new: bool):
+        """Create or update a Hog function for behavioral cohort counting."""
+        if not self._is_behavioral_cohort():
+            return
+
+        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+        from posthog.cdp.filters import compile_filters_bytecode
+
+        # Create Hog function name
+        hog_function_name = f"behavioral_cohort_counter_{self.id}"
+        
+        # Try to find existing Hog function
+        existing_hog_function = None
+        if not is_new:
+            try:
+                existing_hog_function = HogFunction.objects.get(
+                    team=self.team,
+                    name=hog_function_name,
+                    type=HogFunctionType.BEHAVIORAL_COHORT_COUNTER,
+                    deleted=False,
+                )
+            except HogFunction.DoesNotExist:
+                pass
+
+        # Compile filters to bytecode for the Hog function
+        compiled_filters = compile_filters_bytecode(self.filters, self.team)
+        
+        # Generate Hog code for counter increment
+        hog_code = f"""
+export function onEvent(inputs, globals) {{
+    const eventDate = new Date(globals.event.timestamp || Date.now());
+    const dateStr = eventDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    const counterKey = `behavioral_counter:${{globals.project.id}}:${{inputs.filter_hash}}:${{globals.person_id}}:${{dateStr}}`;
+  
+    redis.incr(counterKey);
+    redis.expire(counterKey, 7776000); // 90 days
+
+    return globals.event; // Pass through unchanged
+}}
+"""
+
+        if existing_hog_function:
+            # Update existing Hog function
+            existing_hog_function.filters = compiled_filters
+            existing_hog_function.hog = hog_code
+            existing_hog_function.enabled = True
+            existing_hog_function.save()
+        else:
+            # Create new Hog function
+            HogFunction.objects.create(
+                team=self.team,
+                name=hog_function_name,
+                description=f"Behavioral cohort counter for '{self.name}'",
+                type=HogFunctionType.BEHAVIORAL_COHORT_COUNTER,
+                filters=compiled_filters,
+                hog=hog_code,
+                enabled=True,
+                inputs={
+                    "cohort_id": self.id,
+                    "filter_hash": compiled_filters.get("bytecode_hash", ""),
+                }
+            )
 
     def to_dict(self) -> dict:
         people_data = [
