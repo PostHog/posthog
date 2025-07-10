@@ -52,6 +52,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
+        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
     }))
 
     return {
