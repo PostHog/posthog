@@ -2399,7 +2399,7 @@ class TestCapture(BaseTest):
             f"/report/?token={self.team.api_token}", data=json.dumps(payload), content_type="application/csp-report"
         )
         assert resp.status_code == status.HTTP_204_NO_CONTENT
-        mock_new_capture.assert_called_count(1)
+        assert mock_new_capture.call_count == 1
 
     @patch("posthog.api.capture.new_capture_internal")
     @patch("posthog.api.capture.posthoganalytics.feature_enabled", return_value=True)
@@ -2457,7 +2457,7 @@ class TestCapture(BaseTest):
             content_type="application/reports+json",
         )
         assert resp.status_code == status.HTTP_204_NO_CONTENT
-        mock_new_capture.assert_called_count(3)
+        assert mock_new_capture.call_count == 3
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_csp_violation(self, kafka_produce):
