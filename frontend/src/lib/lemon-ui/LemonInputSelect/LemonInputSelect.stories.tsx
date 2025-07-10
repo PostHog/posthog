@@ -3,7 +3,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 
 import { ProfilePicture } from '../ProfilePicture'
-import { LemonInputSelect, LemonInputSelectProps } from './LemonInputSelect'
+import { LemonInputSelect } from './LemonInputSelect'
 
 const names = [
     'ben',
@@ -52,142 +52,148 @@ const meta: Meta<typeof LemonInputSelect> = {
 }
 export default meta
 
-const Template = (props: LemonInputSelectProps): JSX.Element => {
-    const [value, setValue] = useState(props.value || [])
-    const handleChange = (newValue: any): void => {
-        setValue(newValue)
-        props.onChange?.(newValue)
-    }
-    return <LemonInputSelect {...props} value={value} onChange={handleChange} className="w-140" />
-}
-
-export const Default: Story = Template.bind({})
-Default.args = {
-    placeholder: 'Pick one email',
-    mode: 'single',
-}
-
-export const MultipleSelect: Story = Template.bind({})
-MultipleSelect.args = {
-    placeholder: 'Pick email addresses',
-    mode: 'multiple',
-}
-
-export const MultipleSelectWithCustom: Story = Template.bind({})
-MultipleSelectWithCustom.args = {
-    placeholder: 'Enter URLs',
-    mode: 'multiple',
-    allowCustomValues: true,
-    options: [
-        {
-            key: 'http://posthog.com/docs',
-            label: 'http://posthog.com/docs',
-        },
-        {
-            key: 'http://posthog.com/pricing',
-            label: 'http://posthog.com/pricing',
-        },
-
-        {
-            key: 'http://posthog.com/products',
-            label: 'http://posthog.com/products',
-        },
-    ],
-}
-
-export const Disabled: Story = Template.bind({})
-Disabled.args = {
-    mode: 'single',
-    placeholder: 'Disabled...',
-    disabled: true,
-}
-
-export const Loading: Story = Template.bind({})
-Loading.args = {
-    mode: 'single',
-    placeholder: 'Loading with options...',
-    loading: true,
-}
-Loading.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
+export const Default: Story = {
+    args: {
+        placeholder: 'Pick one email',
+        mode: 'single',
     },
 }
 
-export const EmptyLoading: Story = Template.bind({})
-EmptyLoading.args = {
-    mode: 'single',
-    placeholder: 'Loading without options...',
-    options: [],
-    loading: true,
-}
-EmptyLoading.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
+export const MultipleSelect: Story = {
+    args: {
+        placeholder: 'Pick email addresses',
+        mode: 'multiple',
     },
 }
 
-export const NoOptions: Story = Template.bind({})
-NoOptions.args = {
-    mode: 'multiple',
-    allowCustomValues: true,
-    placeholder: 'No options...',
-    options: [],
+export const MultipleSelectWithCustom: Story = {
+    args: {
+        placeholder: 'Enter URLs',
+        mode: 'multiple',
+        allowCustomValues: true,
+        options: [
+            {
+                key: 'http://posthog.com/docs',
+                label: 'http://posthog.com/docs',
+            },
+            {
+                key: 'http://posthog.com/pricing',
+                label: 'http://posthog.com/pricing',
+            },
+
+            {
+                key: 'http://posthog.com/products',
+                label: 'http://posthog.com/products',
+            },
+        ],
+    },
 }
 
-export const SingleOptionWithCustom: Story = Template.bind({})
-SingleOptionWithCustom.args = {
-    mode: 'single',
-    allowCustomValues: true,
-    placeholder: 'Only one option allowed but can be custom',
+export const Disabled: Story = {
+    args: {
+        mode: 'single',
+        placeholder: 'Disabled...',
+        disabled: true,
+    },
 }
 
-export const PrefilledManyValues: Story = Template.bind({})
-PrefilledManyValues.args = {
-    mode: 'multiple',
-    allowCustomValues: true,
-    value: names.map((_, i) => `user-${i}`),
+export const Loading: Story = {
+    args: {
+        mode: 'single',
+        placeholder: 'Loading with options...',
+        loading: true,
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 
-export const WithSelectAllAndClear: Story = Template.bind({})
-WithSelectAllAndClear.args = {
-    mode: 'multiple',
-    bulkActions: 'select-and-clear-all',
+export const EmptyLoading: Story = {
+    args: {
+        mode: 'single',
+        placeholder: 'Loading without options...',
+        options: [],
+        loading: true,
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 
-export const WithClearOnly: Story = Template.bind({})
-WithClearOnly.args = {
-    mode: 'multiple',
-    bulkActions: 'clear-all',
+export const NoOptions: Story = {
+    args: {
+        mode: 'multiple',
+        allowCustomValues: true,
+        placeholder: 'No options...',
+        options: [],
+    },
 }
 
-export const CountModeAllSelected: Story = Template.bind({})
-CountModeAllSelected.args = {
-    mode: 'multiple',
-    displayMode: 'count',
-    value: names.map((_, i) => `user-${i}`),
+export const SingleOptionWithCustom: Story = {
+    args: {
+        mode: 'single',
+        allowCustomValues: true,
+        placeholder: 'Only one option allowed but can be custom',
+    },
 }
 
-export const CountModePartiallySelected: Story = Template.bind({})
-CountModePartiallySelected.args = {
-    mode: 'multiple',
-    displayMode: 'count',
-    value: names.slice(0, 10).map((_, i) => `user-${i}`),
+export const PrefilledManyValues: Story = {
+    args: {
+        mode: 'multiple',
+        allowCustomValues: true,
+        value: names.map((_, i) => `user-${i}`),
+    },
 }
 
-export const CountModeNoneSelected: Story = Template.bind({})
-CountModeNoneSelected.args = {
-    mode: 'multiple',
-    displayMode: 'count',
-    value: [],
+export const WithSelectAllAndClear: Story = {
+    args: {
+        mode: 'multiple',
+        bulkActions: 'select-and-clear-all',
+    },
 }
 
-export const CountModeWithSelectClear: Story = Template.bind({})
-CountModeWithSelectClear.args = {
-    mode: 'multiple',
-    displayMode: 'count',
-    bulkActions: 'select-and-clear-all',
-    value: names.slice(0, 5).map((_, i) => `user-${i}`),
+export const WithClearOnly: Story = {
+    args: {
+        mode: 'multiple',
+        bulkActions: 'clear-all',
+    },
+}
+
+export const CountModeAllSelected: Story = {
+    args: {
+        mode: 'multiple',
+        displayMode: 'count',
+        value: names.map((_, i) => `user-${i}`),
+    },
+}
+
+export const CountModePartiallySelected: Story = {
+    args: {
+        mode: 'multiple',
+        displayMode: 'count',
+        value: names.slice(0, 10).map((_, i) => `user-${i}`),
+    },
+}
+
+export const CountModeNoneSelected: Story = {
+    args: {
+        mode: 'multiple',
+        displayMode: 'count',
+        value: [],
+    },
+}
+
+export const CountModeWithSelectClear: Story = {
+    args: {
+        mode: 'multiple',
+        displayMode: 'count',
+        bulkActions: 'select-and-clear-all',
+        value: names.slice(0, 5).map((_, i) => `user-${i}`),
+    },
 }
 
 // New stories showcasing typed values support
