@@ -90,49 +90,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         [inViewRef]
     )
 
-    // Auto-detect MaxTool and add fallback classes for browser compatibility
-    useEffect(() => {
-        const nodeElement = contentRef.current?.closest('.NotebookNode')
-        if (!nodeElement) {
-            return
-        }
-
-        const checkForMaxTool = (): void => {
-            const hasMaxTool = nodeElement.querySelector('.EditorFiltersWrapper')
-            const boxElement = nodeElement.querySelector('.NotebookNode__box')
-            const contentElement = nodeElement.querySelector('.NotebookNode__content')
-            const notebookEditor = nodeElement.closest('.NotebookEditor')
-
-            if (hasMaxTool) {
-                boxElement?.classList.add('NotebookNode__box--with-max-tool')
-                contentElement?.classList.add('NotebookNode__content--with-max-tool')
-                notebookEditor?.classList.add('NotebookEditor--with-max-tool')
-            } else {
-                boxElement?.classList.remove('NotebookNode__box--with-max-tool')
-                contentElement?.classList.remove('NotebookNode__content--with-max-tool')
-                // Only remove from notebook editor if no other nodes have MaxTool
-                if (!notebookEditor?.querySelector('.EditorFiltersWrapper')) {
-                    notebookEditor?.classList.remove('NotebookEditor--with-max-tool')
-                }
-            }
-        }
-
-        // Check immediately and set up a mutation observer to handle dynamic changes
-        checkForMaxTool()
-        
-        const observer = new MutationObserver(checkForMaxTool)
-        observer.observe(nodeElement, { 
-            childList: true, 
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class']
-        })
-
-        return () => {
-            observer.disconnect()
-        }
-    }, [inView]) // Re-run when the node comes into view
-
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
         return () => unregisterNodeLogic(nodeId)

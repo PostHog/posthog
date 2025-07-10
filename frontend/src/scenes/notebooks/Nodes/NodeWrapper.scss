@@ -13,16 +13,6 @@
         transition: border 150ms linear, margin-bottom 150ms linear;
         transform: translate3d(0, 0, 0);
 
-        // Allow MaxTool buttons to be visible when MaxTool is used
-        &:has(.EditorFiltersWrapper) {
-            overflow: visible;
-        }
-        
-        // Fallback for browsers that don't support :has()
-        &.NotebookNode__box--with-max-tool {
-            overflow: visible;
-        }
-
         .NotebookNode__meta {
             display: flex;
             align-items: center;
@@ -43,27 +33,6 @@
         .NotebookNode__content {
             z-index: 1;
             transition: box-shadow 150ms ease-out;
-            
-            // Ensure content with MaxTool has space for the button
-            &:has(.EditorFiltersWrapper) {
-                position: relative;
-                // Add padding to prevent content from being hidden behind MaxTool button
-                padding-top: 0.5rem;
-                padding-right: 0.5rem;
-            }
-            
-            // Fallback for browsers that don't support :has()
-            &.NotebookNode__content--with-max-tool {
-                position: relative;
-                padding-top: 0.5rem;
-                padding-right: 0.5rem;
-            }
-            
-            // Ensure MaxTool button appears above notebook content
-            .EditorFiltersWrapper {
-                position: relative;
-                z-index: 10;
-            }
         }
     }
 
