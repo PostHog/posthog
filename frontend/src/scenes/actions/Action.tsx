@@ -26,14 +26,14 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
     if (actionLoading) {
         return (
             <div className="deprecated-space-y-2">
-                <LemonSkeleton className="w-1/4 h-6" />
+                <LemonSkeleton className="h-6 w-1/4" />
 
-                <LemonSkeleton className="w-1/3 h-10" />
-                <LemonSkeleton className="w-1/2 h-6" />
+                <LemonSkeleton className="h-10 w-1/3" />
+                <LemonSkeleton className="h-6 w-1/2" />
 
                 <div className="flex gap-2">
-                    <LemonSkeleton className="w-1/2 h-120" />
-                    <LemonSkeleton className="w-1/2 h-120" />
+                    <LemonSkeleton className="h-120 w-1/2" />
+                    <LemonSkeleton className="h-120 w-1/2" />
                 </div>
             </div>
         )
@@ -54,7 +54,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             <p>
                                 This is the list of <strong>recent</strong> events that match this action.
                             </p>
-                            <div className="pt-4 border-t" />
+                            <div className="border-t pt-4" />
                             <Query
                                 query={{
                                     kind: NodeKind.DataTableNode,

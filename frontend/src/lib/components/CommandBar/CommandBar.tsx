@@ -21,13 +21,13 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
     ref
 ): JSX.Element {
     return (
-        <div className="CommandBar__overlay fixed group/colorful-product-icons colorful-product-icons-true">
+        <div className="CommandBar__overlay group/colorful-product-icons colorful-product-icons-true fixed">
             <div className="CommandBar__overlay-content">
                 <div
                     data-attr="command-bar"
                     className={`w-full ${
                         barStatus === BarStatus.SHOW_SEARCH && 'h-full'
-                    } w-full bg-primary rounded overflow-hidden border border-primary`}
+                    } bg-primary border-primary w-full overflow-hidden rounded border`}
                     ref={ref}
                 >
                     {children}

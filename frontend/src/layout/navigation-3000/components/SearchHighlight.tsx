@@ -15,7 +15,7 @@ interface Props {
 export function SearchHighlight({ string, substring, className }: Props): JSX.Element {
     const parts = string.split(new RegExp(`(${substring})`, 'gi'))
     return (
-        <div className={clsx('truncate flex-1', className)}>
+        <div className={clsx('flex-1 truncate', className)}>
             {parts.map((part, index) => (
                 <span
                     key={index}

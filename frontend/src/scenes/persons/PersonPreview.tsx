@@ -45,14 +45,14 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
         ])
         const eventsUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
         return (
-            <div className="p-2 max-w-160">
+            <div className="max-w-160 p-2">
                 <h4>No profile associated with this ID</h4>
                 <p>
                     Person profiles allow you to see a detailed view of a Person's user properties, track users across
                     devices, and more. To create person profiles, see{' '}
                     <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">here.</Link>
                 </p>
-                <div className="flex justify-center mt-2 w-fit">
+                <div className="mt-2 flex w-fit justify-center">
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -70,9 +70,9 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
     const url = urls.personByDistinctId(person?.distinct_ids[0])
 
     return (
-        <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
-            <div className="flex items-center justify-between min-h-10 px-2">
-                <Link to={url} className="flex gap-2 items-center flex-1">
+        <div className="max-w-160 flex max-h-80 flex-col gap-2 overflow-hidden">
+            <div className="flex min-h-10 items-center justify-between px-2">
+                <Link to={url} className="flex flex-1 items-center gap-2">
                     <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
                 </Link>
 

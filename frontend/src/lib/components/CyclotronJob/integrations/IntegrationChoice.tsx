@@ -77,7 +77,7 @@ export function IntegrationChoice({
                     ? {
                           items: [
                               ...(integrationsOfKind?.map((integration) => ({
-                                  icon: <img src={integration.icon_url} className="w-6 h-6 rounded" />,
+                                  icon: <img src={integration.icon_url} className="h-6 w-6 rounded" />,
                                   onClick: () => onChange?.(integration.id),
                                   active: integration.id === value,
                                   label: integration.display_name,

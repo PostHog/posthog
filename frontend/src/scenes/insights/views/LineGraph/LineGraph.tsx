@@ -1036,7 +1036,7 @@ export function LineGraph_({
     ])
 
     return (
-        <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
+        <div className={clsx('LineGraph relative w-full grow overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {showAnnotations && lineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay

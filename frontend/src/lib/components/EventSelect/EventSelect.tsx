@@ -59,7 +59,7 @@ export const EventSelect = ({
     const addElementWithToggle = React.cloneElement(addElement, { onClick: () => setOpen(!open) })
 
     return (
-        <div className="flex items-center flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             {selectedEvents.map((name) => (
                 <LemonSnack key={name} onClose={() => handleRemove(name)}>
                     <div className="flex items-center gap-1">

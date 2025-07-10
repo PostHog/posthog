@@ -103,7 +103,7 @@ export function InstanceConfigTab(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center gap-2 mb-4">
+            <div className="mb-4 flex items-center gap-2">
                 <div className="flex-1">
                     <h3>Instance configuration</h3>
                     <div>

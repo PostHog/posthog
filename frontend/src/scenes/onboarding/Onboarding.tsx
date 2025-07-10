@@ -123,8 +123,8 @@ const OnboardingWrapper = ({
 
     if (!currentOnboardingStep) {
         return (
-            <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-secondary w-10 h-10" />
+            <div className="my-20 flex items-center justify-center">
+                <Spinner className="text-secondary h-10 w-10 text-2xl" />
             </div>
         )
     }
@@ -457,7 +457,7 @@ export function Onboarding(): JSX.Element | null {
     const OnboardingView = onboardingViews[productKey as keyof typeof onboardingViews]
 
     return (
-        <div className="pt-4 pb-10">
+        <div className="pb-10 pt-4">
             <OnboardingView />
         </div>
     )

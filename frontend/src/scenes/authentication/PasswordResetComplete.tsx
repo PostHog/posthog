@@ -28,7 +28,7 @@ export function PasswordResetComplete(): JSX.Element {
     return (
         <BridgePage view="password-reset-complete">
             {invalidLink && (
-                <div className="text-center mb-2">
+                <div className="mb-2 text-center">
                     <IconErrorOutline className="text-secondary text-4xl" />
                 </div>
             )}
@@ -49,7 +49,7 @@ function NewPasswordForm(): JSX.Element {
 
     return (
         <>
-            <div className="text-center mb-4">Please enter a new password for your account.</div>
+            <div className="mb-4 text-center">Please enter a new password for your account.</div>
             {!isPasswordResetSubmitting && passwordResetManualErrors.generic && (
                 <LemonBanner type="error">
                     {passwordResetManualErrors.generic?.detail ||

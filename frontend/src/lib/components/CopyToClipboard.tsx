@@ -67,7 +67,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
         content = (
             <span
                 className={clsx(
-                    'relative truncate inline-flex items-center flex-nowrap w-fit break-all',
+                    'relative inline-flex w-fit flex-nowrap items-center truncate break-all',
                     selectable ? 'cursor-text' : 'cursor-pointer',
                     iconPosition === 'end' ? 'flex-row' : 'flex-row-reverse',
                     isValueSensitive && 'ph-no-capture',

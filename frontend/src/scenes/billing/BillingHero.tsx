@@ -174,7 +174,7 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
 
     return (
         <div className={`relative rounded-lg ${copyVariation.backgroundColor}`}>
-            <div className="@container p-4 relative">
+            <div className="@container relative p-4">
                 <img
                     src={planBadge}
                     alt={
@@ -182,7 +182,7 @@ export const BillingHero = ({ product }: { product: BillingProductV2Type }): JSX
                             ? `${startupProgramLabelCurrent} plan badge`
                             : `${billingPlan} plan badge`
                     }
-                    className="float-right w-[33cqw] min-w-32 max-w-48 ml-6 mb-4"
+                    className="float-right mb-4 ml-6 w-[33cqw] min-w-32 max-w-48"
                 />
                 {copyVariation.title && <h1 className="mb-0">{copyVariation.title}</h1>}
                 {copyVariation.subtitle && <h1 className="text-danger leading-tight">{copyVariation.subtitle}</h1>}

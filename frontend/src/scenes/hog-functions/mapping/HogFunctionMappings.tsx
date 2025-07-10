@@ -55,7 +55,7 @@ const MappingSummary = memo(function MappingSummary({
     const firstInputValue = (firstInput?.key ? mapping.inputs?.[firstInput.key]?.value : null) ?? '(custom value)'
 
     return (
-        <span className="flex flex-1 gap-4 items-center">
+        <span className="flex flex-1 items-center gap-4">
             <span>
                 {eventSummary ? humanize(eventSummary) : <span className="text-secondary">All events</span>}{' '}
                 {propertyFiltersCount ? (
@@ -96,7 +96,7 @@ export function HogFunctionMapping({
 
     return (
         <>
-            <div className="p-3 pl-10 deprecated-space-y-2">
+            <div className="deprecated-space-y-2 p-3 pl-10">
                 {mapping.disabled ? (
                     <LemonBanner
                         type="warning"
@@ -292,11 +292,11 @@ export function HogFunctionMappings(): JSX.Element | null {
                 ) : null
 
                 return (
-                    <div className="p-3 rounded border bg-surface-primary">
-                        <div className="flex justify-between items-start">
+                    <div className="bg-surface-primary rounded border p-3">
+                        <div className="flex items-start justify-between">
                             <div className="flex-1">
                                 <LemonLabel>Mappings</LemonLabel>
-                                <p className="text-sm text-secondary">
+                                <p className="text-secondary text-sm">
                                     Configure which events should act as triggers including filters and custom
                                     transformations
                                 </p>
@@ -306,7 +306,7 @@ export function HogFunctionMappings(): JSX.Element | null {
 
                         <div className="deprecated-space-y-2">
                             {value.length ? (
-                                <div className="-mx-3 border-t border-b">
+                                <div className="-mx-3 border-b border-t">
                                     <LemonCollapse
                                         multiple
                                         embedded

@@ -37,7 +37,7 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
 }
 
 const ContentWrapper = ({ children }: { children: JSX.Element }): JSX.Element => {
-    return <div className="SideBar bg-surface-primary border p-4 rounded-t-none">{children}</div>
+    return <div className="SideBar bg-surface-primary rounded-t-none border p-4">{children}</div>
 }
 
 export const SideBar = (): JSX.Element => {

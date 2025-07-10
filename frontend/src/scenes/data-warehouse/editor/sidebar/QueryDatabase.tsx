@@ -316,12 +316,12 @@ const EditorSidebarOverlay = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col h-full">
-            <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-1">
+        <div className="flex h-full flex-col">
+            <header className="flex h-10 shrink-0 flex-row items-center gap-1 border-b p-1">
                 <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
                 <Tooltip title="Click to copy">
                     <span
-                        className="font-mono cursor-pointer flex-1 whitespace-nowrap overflow-hidden text-ellipsis"
+                        className="flex-1 cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap font-mono"
                         onClick={() => copy()}
                     >
                         {selectedSchema?.name}
@@ -360,7 +360,7 @@ const EditorSidebarOverlay = (): JSX.Element => {
                     )}
                 </div>
             </header>
-            <div className="overflow-y-auto flex-1">
+            <div className="flex-1 overflow-y-auto">
                 <DatabaseTableTree items={sidebarOverlayTreeItems} />
             </div>
         </div>

@@ -80,7 +80,7 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     // so if something goes wrong with flag evaluation, you don't break your app.
 }`}
             </CodeSnippet>
-            <div className="mt-4 mb-1">
+            <div className="mb-1 mt-4">
                 <b>Test that it works</b>
             </div>
             <CodeSnippet language={Language.JavaScript} wrap>

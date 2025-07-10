@@ -59,7 +59,7 @@ export function TextColored(): JSX.Element {
 
 export function InButtons(): JSX.Element {
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
             <LemonButton type="primary" loading>
                 Primary
             </LemonButton>

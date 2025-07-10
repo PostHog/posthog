@@ -26,11 +26,11 @@ export function WebExperimentTransformHeader({
     const { experimentForm } = useValues(experimentsTabLogic)
 
     return (
-        <div className="flex w-full gap-4 items-center">
+        <div className="flex w-full items-center gap-4">
             <div className="flex-1 overflow-hidden">
                 {transform.selector ? (
                     <Tooltip title={transform.selector}>
-                        <span className="max-w-[290px] truncate inline-block">{transform.selector}</span>
+                        <span className="inline-block max-w-[290px] truncate">{transform.selector}</span>
                     </Tooltip>
                 ) : (
                     <span className="text-muted italic">No element selected</span>

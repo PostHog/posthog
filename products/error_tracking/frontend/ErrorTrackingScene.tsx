@@ -104,7 +104,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
     return (
-        <div className="flex justify-between items-center min-w-64">
+        <div className="flex min-w-64 items-center justify-between">
             <div>{columnName}</div>
         </div>
     )
@@ -117,7 +117,7 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
     const allSelected = results.length == selectedIssueIds.length && selectedIssueIds.length > 0
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
             <LemonCheckbox
                 checked={allSelected}
                 onChange={() => (allSelected ? setSelectedIssueIds([]) : setSelectedIssueIds(results.map((r) => r.id)))}
@@ -160,7 +160,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     }
 
     return (
-        <div className="flex items-start gap-x-2 group my-1">
+        <div className="group my-1 flex items-start gap-x-2">
             <LemonCheckbox className="h-[1.2rem]" checked={checked} onChange={onChange} />
 
             <div className="flex flex-col gap-[2px]">
@@ -173,13 +173,13 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         issueLogic.actions.setIssue(record)
                     }}
                 >
-                    <div className="flex items-center h-[1.2rem] gap-2">
+                    <div className="flex h-[1.2rem] items-center gap-2">
                         <RuntimeIcon runtime={runtime} fontSize="0.8rem" />
-                        <span className="font-semibold text-[1.2em]">{record.name || 'Unknown Type'}</span>
+                        <span className="text-[1.2em] font-semibold">{record.name || 'Unknown Type'}</span>
                     </div>
                 </Link>
-                <div className="line-clamp-1 text-secondary">{record.description}</div>
-                <div className="flex items-center text-secondary">
+                <div className="text-secondary line-clamp-1">{record.description}</div>
+                <div className="text-secondary flex items-center">
                     <IssueStatusSelect
                         status={record.status}
                         onChange={(status) => updateIssueStatus(record.id, status)}
@@ -191,13 +191,13 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     >
                         {(anyAssignee) => (
                             <div
-                                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                                className="hover:bg-fill-button-tertiary-hover flex cursor-pointer items-center rounded p-[0.1rem]"
                                 role="button"
                             >
                                 <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
                                 <AssigneeLabelDisplay
                                     assignee={anyAssignee}
-                                    className="ml-1 text-xs text-secondary"
+                                    className="text-secondary ml-1 text-xs"
                                     size="xsmall"
                                 />
                                 <IconChevronDown />
@@ -205,10 +205,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         )}
                     </AssigneeSelect>
                     <CustomGroupSeparator />
-                    <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
+                    <TZLabel time={record.first_seen} className="ml-1 border-b border-dotted text-xs" delayMs={750} />
                     <IconChevronRight className="text-quaternary mx-1" />
                     {record.last_seen ? (
-                        <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                        <TZLabel time={record.last_seen} className="border-b border-dotted text-xs" delayMs={750} />
                     ) : (
                         <LemonSkeleton />
                     )}

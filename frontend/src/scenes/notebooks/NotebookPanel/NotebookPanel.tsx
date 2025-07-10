@@ -60,7 +60,7 @@ export function NotebookPanel(): JSX.Element | null {
                         />
                     </SidePanelPaneHeader>
 
-                    <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">
+                    <div className="flex flex-1 flex-col overflow-y-auto px-4 py-2">
                         <Notebook
                             key={selectedNotebook}
                             shortId={selectedNotebook}

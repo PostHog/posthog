@@ -94,7 +94,7 @@ export function SharedMetricModal({
             width={500}
             title={mode === 'create' ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
-                <div className="flex justify-between w-full">
+                <div className="flex w-full justify-between">
                     <div>
                         {editingSharedMetricId && (
                             <LemonButton
@@ -223,7 +223,7 @@ export function SharedMetricModal({
                                     },
                                 ]}
                                 footer={
-                                    <div className="flex items-center justify-center m-2">
+                                    <div className="m-2 flex items-center justify-center">
                                         <LemonButton to={urls.experimentsSharedMetrics()} size="xsmall" type="tertiary">
                                             See all shared metrics
                                         </LemonButton>
@@ -259,10 +259,10 @@ export function SharedMetricModal({
                         return (
                             <div className="deprecated-space-y-2">
                                 <div className="flex items-center gap-2">
-                                    <h3 className="font-semibold m-0 flex items-center">{metric.name}</h3>
+                                    <h3 className="m-0 flex items-center font-semibold">{metric.name}</h3>
                                     <Link
                                         target="_blank"
-                                        className="font-semibold flex items-center"
+                                        className="flex items-center font-semibold"
                                         to={urls.experimentsSharedMetric(metric.id)}
                                     >
                                         <IconOpenInNew fontSize="18" />

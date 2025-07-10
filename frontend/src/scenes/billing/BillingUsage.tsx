@@ -59,8 +59,8 @@ export function BillingUsage(): JSX.Element {
     return (
         <div className="space-y-4">
             <BillingEarlyAccessBanner />
-            <div className="border rounded p-4 bg-bg-light space-y-4">
-                <div className="flex gap-4 items-start flex-wrap">
+            <div className="bg-bg-light space-y-4 rounded border p-4">
+                <div className="flex flex-wrap items-start gap-4">
                     {/* Usage Types */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Products</LemonLabel>
@@ -97,7 +97,7 @@ export function BillingUsage(): JSX.Element {
                     {/* Breakdowns */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Break down by</LemonLabel>
-                        <div className="flex gap-2 items-center min-h-10">
+                        <div className="flex min-h-10 items-center gap-2">
                             <span className="opacity-70">
                                 <LemonCheckbox
                                     label="Product"
@@ -118,7 +118,7 @@ export function BillingUsage(): JSX.Element {
                         <LemonLabel>Date range (UTC)</LemonLabel>
                         <div className="bg-bg-light rounded-md">
                             <DateFilter
-                                className="h-8 flex items-center"
+                                className="flex h-8 items-center"
                                 dateFrom={dateFrom}
                                 dateTo={dateTo}
                                 onChange={(fromDate, toDate) => setDateRange(fromDate, toDate)}
@@ -148,7 +148,7 @@ export function BillingUsage(): JSX.Element {
                     {/* Exclude Empty Series */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Options</LemonLabel>
-                        <div className="flex items-center min-h-10">
+                        <div className="flex min-h-10 items-center">
                             <LemonCheckbox
                                 label="Hide results with no usage"
                                 checked={excludeEmptySeries}
@@ -189,10 +189,10 @@ export function BillingUsage(): JSX.Element {
             {showSeries ? (
                 <div className="mt-4 flex flex-col gap-2">
                     <div className="flex items-center gap-1">
-                        <h3 className="text-lg font-semibold mb-0">{heading}</h3>
+                        <h3 className="mb-0 text-lg font-semibold">{heading}</h3>
                         {headingTooltip && (
                             <Tooltip title={headingTooltip}>
-                                <IconInfo className="text-lg text-secondary shrink-0" />
+                                <IconInfo className="text-secondary shrink-0 text-lg" />
                             </Tooltip>
                         )}
                     </div>

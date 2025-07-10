@@ -27,7 +27,7 @@ export function MetricsTab(): JSX.Element {
         <div>
             <br />
 
-            <div className="mb-4 float-right">
+            <div className="float-right mb-4">
                 <LemonButton
                     icon={deadLetterQueueMetricsLoading ? <Spinner /> : <IconRefresh />}
                     onClick={loadDeadLetterQueueMetrics}
@@ -38,7 +38,7 @@ export function MetricsTab(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <div className="flex deprecated-space-x-8 mb-4">
+            <div className="deprecated-space-x-8 mb-4 flex">
                 {singleValueMetrics.map((row) => (
                     <div key={row.key} className="deprecated-space-y-1">
                         <div>{row.metric}</div>
@@ -69,7 +69,7 @@ export function MetricsTab(): JSX.Element {
                         }}
                         embedded
                     />
-                    <div className="flex justify-center m-4 text-center">
+                    <div className="m-4 flex justify-center text-center">
                         <LemonButton
                             disabledReason={rowsPerMetric[row.key].length % ROWS_LIMIT !== 0 && 'No more values'}
                             onClick={() => loadMoreRows(row.key)}

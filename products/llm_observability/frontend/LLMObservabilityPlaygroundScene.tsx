@@ -47,9 +47,9 @@ export function LLMObservabilityPlaygroundScene(): JSX.Element {
 
 function PlaygroundLayout(): JSX.Element {
     return (
-        <div className="flex flex-col min-h-[calc(100vh-120px)] relative">
+        <div className="relative flex min-h-[calc(100vh-120px)] flex-col">
             {/* Main conversation area - full width */}
-            <div className="flex flex-col border rounded overflow-hidden flex-1">
+            <div className="flex flex-1 flex-col overflow-hidden rounded border">
                 <ConversationPanel />
             </div>
 
@@ -73,7 +73,7 @@ function ConversationPanel(): JSX.Element {
             {/* Messages area */}
             <div className="flex-1 p-4">
                 <div ref={messagesStartRef} data-attr="messages-start" />
-                <div className="flex items-center justify-between mb-4">
+                <div className="mb-4 flex items-center justify-between">
                     <h3 className="text-lg font-semibold">Messages</h3>
                     <LemonSwitch
                         bordered
@@ -90,8 +90,8 @@ function ConversationPanel(): JSX.Element {
                         <MessageDisplay key={index} index={index} message={message} expandTextAreas={expandTextAreas} />
                     ))}
                     {messages.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 text-muted">
-                            <IconMessage className="text-3xl mb-2" />
+                        <div className="text-muted flex flex-col items-center justify-center py-12">
+                            <IconMessage className="mb-2 text-3xl" />
                             <p>Add messages to start the conversation.</p>
                         </div>
                     )}
@@ -112,8 +112,8 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
 
     return (
         <>
-            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--bg-surface-primary)] border-l-4 border-l-[var(--color-purple-500)]">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="group relative rounded border border-l-4 border-l-[var(--color-purple-500)] bg-white p-3 dark:bg-[var(--bg-surface-primary)]">
+                <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
                     <LemonButton
                         size="small"
                         icon={<IconPencil />}
@@ -123,12 +123,12 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
                     />
                 </div>
 
-                <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs font-medium px-2 py-1 rounded">System</span>
+                <div className="mb-2 flex items-center gap-2">
+                    <span className="rounded px-2 py-1 text-xs font-medium">System</span>
                 </div>
 
                 <LemonTextArea
-                    className="text-sm w-full"
+                    className="w-full text-sm"
                     placeholder="System instructions for the AI assistant..."
                     value={systemPrompt}
                     onChange={setSystemPrompt}
@@ -146,9 +146,9 @@ function SystemMessageDisplay({ expandTextAreas }: { expandTextAreas: boolean })
             >
                 <div className="space-y-4">
                     <div>
-                        <label className="font-semibold mb-1 block text-sm">System Instructions</label>
+                        <label className="mb-1 block text-sm font-semibold">System Instructions</label>
                         <LemonTextArea
-                            className="text-sm w-full"
+                            className="w-full text-sm"
                             placeholder="System instructions for the AI assistant..."
                             value={systemPrompt}
                             onChange={setSystemPrompt}
@@ -211,11 +211,11 @@ function MessageDisplay({
     return (
         <>
             <div
-                className={`border rounded p-3 relative group bg-white dark:bg-[var(--bg-surface-primary)] hover:shadow-sm transition-shadow ${getRoleBorderClass(
+                className={`group relative rounded border bg-white p-3 transition-shadow hover:shadow-sm dark:bg-[var(--bg-surface-primary)] ${getRoleBorderClass(
                     message.role
                 )}`}
             >
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                     <LemonButton
                         size="small"
                         icon={<IconPencil />}
@@ -233,7 +233,7 @@ function MessageDisplay({
                     />
                 </div>
 
-                <div className="flex items-center gap-2 mb-2">
+                <div className="mb-2 flex items-center gap-2">
                     <LemonSelect<MessageRole>
                         size="small"
                         options={roleOptions}
@@ -244,7 +244,7 @@ function MessageDisplay({
                 </div>
 
                 <LemonTextArea
-                    className="text-sm w-full"
+                    className="w-full text-sm"
                     placeholder={`Enter ${message.role} message here...`}
                     value={message.content}
                     onChange={handleContentChange}
@@ -262,7 +262,7 @@ function MessageDisplay({
             >
                 <div className="space-y-4">
                     <div>
-                        <label className="font-semibold mb-1 block text-sm">Role</label>
+                        <label className="mb-1 block text-sm font-semibold">Role</label>
                         <LemonSelect<MessageRole>
                             options={roleOptions}
                             value={message.role}
@@ -271,9 +271,9 @@ function MessageDisplay({
                         />
                     </div>
                     <div>
-                        <label className="font-semibold mb-1 block text-sm">Content</label>
+                        <label className="mb-1 block text-sm font-semibold">Content</label>
                         <LemonTextArea
-                            className="text-sm w-full"
+                            className="w-full text-sm"
                             placeholder={`Enter ${message.role} message here...`}
                             value={message.content}
                             onChange={handleContentChange}
@@ -297,7 +297,7 @@ function OutputSection(): JSX.Element {
 
     return (
         <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3 flex items-center justify-between">
                 <h3 className="text-lg font-semibold">AI Response</h3>
                 <div className="flex gap-2">
                     {!submitting && currentResponse && currentResponse.trim() && !responseHasError && (
@@ -323,9 +323,9 @@ function OutputSection(): JSX.Element {
             </div>
 
             <div
-                className={`border rounded p-4 min-h-32 ${
+                className={`min-h-32 rounded border p-4 ${
                     responseHasError
-                        ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800'
+                        ? 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20'
                         : 'bg-bg-light dark:bg-[var(--bg-surface-primary)]'
                 }`}
             >
@@ -334,7 +334,7 @@ function OutputSection(): JSX.Element {
                 )}
                 {currentResponse ? (
                     <pre
-                        className={`whitespace-pre-wrap text-sm break-words ${
+                        className={`whitespace-pre-wrap break-words text-sm ${
                             responseHasError ? 'text-red-800 dark:text-red-200' : ''
                         }`}
                     >
@@ -342,7 +342,7 @@ function OutputSection(): JSX.Element {
                         {submitting && <span className="text-muted italic"> (streaming...)</span>}
                     </pre>
                 ) : (
-                    <div className="flex items-center justify-center h-24 text-muted">
+                    <div className="text-muted flex h-24 items-center justify-center">
                         <p>AI response will appear here after running your prompt</p>
                     </div>
                 )}
@@ -366,7 +366,7 @@ function ConfigurationPanel(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <label className="font-semibold mb-1 block text-sm">Model</label>
+                <label className="mb-1 block text-sm font-semibold">Model</label>
                 {modelOptionsLoading && !options.length ? (
                     <LemonSkeleton className="h-10" />
                 ) : (
@@ -385,29 +385,29 @@ function ConfigurationPanel(): JSX.Element {
                     />
                 )}
                 {options.length === 0 && !modelOptionsLoading && (
-                    <p className="text-xs text-danger mt-1">No models available. Check proxy status.</p>
+                    <p className="text-danger mt-1 text-xs">No models available. Check proxy status.</p>
                 )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
                 <div>
-                    <label className="font-semibold mb-1 block text-sm">Temperature: {temperature.toFixed(1)}</label>
+                    <label className="mb-1 block text-sm font-semibold">Temperature: {temperature.toFixed(1)}</label>
                     <input
                         type="range"
-                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+                        className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200 dark:bg-gray-700"
                         min={0.0}
                         max={1.0}
                         step={0.1}
                         value={temperature}
                         onChange={(e) => setTemperature(Number(e.target.value))}
                     />
-                    <div className="text-xs text-muted mt-1 flex justify-between">
+                    <div className="text-muted mt-1 flex justify-between text-xs">
                         <span>Precise</span>
                         <span>Creative</span>
                     </div>
                 </div>
                 <div>
-                    <label className="font-semibold mb-1 block text-sm">Max tokens</label>
+                    <label className="mb-1 block text-sm font-semibold">Max tokens</label>
                     <LemonInput
                         type="number"
                         value={maxTokens}
@@ -423,7 +423,7 @@ function ConfigurationPanel(): JSX.Element {
                 <input
                     id="thinkingToggle"
                     type="checkbox"
-                    className="rounded text-primary focus:ring-primary"
+                    className="text-primary focus:ring-primary rounded"
                     checked={thinking}
                     onChange={handleThinkingToggle}
                 />
@@ -450,7 +450,7 @@ function ComparisonTablePanel(): JSX.Element {
             title: 'Response',
             dataIndex: 'response',
             render: (response) => (
-                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs break-words p-1 border rounded bg-bg-light dark:bg-[var(--bg-surface-primary)]">
+                <div className="bg-bg-light max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border p-1 text-xs dark:bg-[var(--bg-surface-primary)]">
                     {typeof response === 'string' ? response : '-'}
                 </div>
             ),
@@ -479,8 +479,8 @@ function ComparisonTablePanel(): JSX.Element {
     }
 
     return (
-        <div className="border rounded p-4 min-h-0 flex flex-col">
-            <div className="flex justify-between items-center mb-4 shrink-0">
+        <div className="flex min-h-0 flex-col rounded border p-4">
+            <div className="mb-4 flex shrink-0 items-center justify-between">
                 <h3 className="text-lg font-semibold">Comparison</h3>
                 <LemonButton
                     type="secondary"
@@ -522,9 +522,9 @@ function StickyActionBar(): JSX.Element {
 
     return (
         <>
-            <div className="sticky bottom-0 bg-bg-light dark:bg-[var(--bg-surface-primary)] border-t border-border z-10 ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] mb-[calc(var(--scene-padding-bottom)*-1)]">
-                <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-                    <div className="flex gap-2 items-center">
+            <div className="bg-bg-light border-border sticky bottom-0 z-10 mb-[calc(var(--scene-padding-bottom)*-1)] ml-[calc(var(--scene-padding)*-1)] mr-[calc(var(--scene-padding)*-1)] border-t dark:bg-[var(--bg-surface-primary)]">
+                <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3">
+                    <div className="flex items-center gap-2">
                         <LemonButton
                             type="secondary"
                             icon={<IconPlus />}
@@ -548,7 +548,7 @@ function StickyActionBar(): JSX.Element {
                         </LemonButton>
                         {messages.length > 3 && (
                             <>
-                                <div className="border-l border-border mx-2 h-6" />
+                                <div className="border-border mx-2 h-6 border-l" />
                                 <LemonButton
                                     size="small"
                                     type="secondary"
@@ -569,7 +569,7 @@ function StickyActionBar(): JSX.Element {
 
                     <div className="flex items-center gap-3">
                         {/* Model and params summary */}
-                        <div className="flex items-center gap-2 text-xs text-muted bg-bg-dark dark:bg-bg-light px-2 py-1 rounded">
+                        <div className="text-muted bg-bg-dark dark:bg-bg-light flex items-center gap-2 rounded px-2 py-1 text-xs">
                             <span className="font-medium">{model || 'No model'}</span>
                             <span>•</span>
                             <span>T:{temperature}</span>
@@ -606,7 +606,7 @@ function StickyActionBar(): JSX.Element {
                 width="large"
             >
                 <ConfigurationPanel />
-                <div className="flex justify-end gap-2 mt-4">
+                <div className="mt-4 flex justify-end gap-2">
                     <LemonButton type="secondary" onClick={() => setShowConfigModal(false)}>
                         Close
                     </LemonButton>

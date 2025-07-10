@@ -30,11 +30,11 @@ export const ProductPricingModal = ({
 
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
-            <div className="flex items-center w-full h-full justify-center p-8">
-                <div className="text-left bg-surface-primary rounded relative w-full">
+            <div className="flex h-full w-full items-center justify-center p-8">
+                <div className="bg-surface-primary relative w-full rounded text-left">
                     <h5 className="text-gray mb-1">{capitalizeFirstLetter(product.name)} pricing, starting at</h5>
                     <p className="mb-1">
-                        <span className="font-bold text-base">
+                        <span className="text-base font-bold">
                             $
                             {parseFloat(
                                 isFirstTierFree && tiers?.[1]?.unit_amount_usd
@@ -55,12 +55,12 @@ export const ProductPricingModal = ({
                                 return (
                                     <div
                                         key={`tiers-modal-${product.name}-tier-${i}`}
-                                        className="flex justify-between border-b border-primary border-dashed py-1 gap-x-8"
+                                        className="border-primary flex justify-between gap-x-8 border-b border-dashed py-1"
                                     >
                                         <p className="col-span-1 mb-0">
                                             {getTierDescription(tiers, i, product, 'month')}
                                         </p>
-                                        <p className="font-bold mb-0 ">
+                                        <p className="mb-0 font-bold">
                                             {isFirstTierFree && i === 0
                                                 ? 'Free'
                                                 : `$${parseFloat(tier.unit_amount_usd).toFixed(numberOfSigFigs)}`}

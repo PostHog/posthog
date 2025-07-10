@@ -11,7 +11,7 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
     return (
         <div
             data-attr="item-summary-item"
-            className="font-light text-xs w-full flex items-center justify-end gap-2 py-1"
+            className="flex w-full items-center justify-end gap-2 py-1 text-xs font-light"
         >
             <div className="flex items-center justify-end">
                 <IconCursor className="mr-1" />
@@ -23,7 +23,7 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
             </div>
             <div
                 className={clsx(
-                    'flex text-danger items-center justify-end',
+                    'text-danger flex items-center justify-end',
                     (item.errorCount || 0) > 0 ? 'text-danger' : 'text-success'
                 )}
             >

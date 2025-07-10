@@ -38,7 +38,7 @@ export function ContextDisplay({
         <>
             {match(loading)
                 .with(true, () => (
-                    <div className="flex justify-center w-full h-32 items-center">
+                    <div className="flex h-32 w-full items-center justify-center">
                         <Spinner />
                     </div>
                 ))
@@ -70,7 +70,7 @@ function ContextTable({ entries }: ContextTableProps): JSX.Element {
                     width: 0,
                     className: 'font-medium bg-inherit',
                     render: (dataValue, record) => (
-                        <div className="flex gap-x-2 justify-between items-center">
+                        <div className="flex items-center justify-between gap-x-2">
                             <div>{dataValue}</div>
                             <LemonButton
                                 size="xsmall"

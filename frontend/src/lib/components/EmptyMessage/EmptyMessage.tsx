@@ -21,7 +21,7 @@ export function EmptyMessage({
 }: EmptyMessageProps): JSX.Element {
     return (
         <div className="empty-message">
-            <div className="flex flex-col h-full items-center justify-center m-5">
+            <div className="m-5 flex h-full flex-col items-center justify-center">
                 <h3 className="title">{title}</h3>
 
                 <p className="text-secondary description">{description}</p>

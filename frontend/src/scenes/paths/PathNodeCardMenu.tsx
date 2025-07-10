@@ -43,7 +43,7 @@ export function PathNodeCardMenu({
         >
             {!isPathEnd && (
                 <CardItem
-                    icon={<IconTrendingFlat className="text-xl shrink-0 text-success" />}
+                    icon={<IconTrendingFlat className="text-success shrink-0 text-xl" />}
                     text="Continuing"
                     count={
                         <CountButton
@@ -57,7 +57,7 @@ export function PathNodeCardMenu({
             )}
             {dropOffCount > 0 && (
                 <CardItem
-                    icon={<IconTrendingFlatDown className="text-xl shrink-0 text-danger" />}
+                    icon={<IconTrendingFlatDown className="text-danger shrink-0 text-xl" />}
                     text="Dropping off"
                     count={
                         <CountButton
@@ -70,7 +70,7 @@ export function PathNodeCardMenu({
             )}
             {!isPathStart && (
                 <CardItem
-                    icon={<IconClock className="text-xl shrink-0 text-secondary" />}
+                    icon={<IconClock className="text-secondary shrink-0 text-xl" />}
                     text="Average time from previous step"
                     count={<b className="pr-2">{humanFriendlyDuration(averageConversionTime)}</b>}
                 />
@@ -105,7 +105,7 @@ type CardItemProps = {
 
 function CardItem({ icon, text, count, border = true }: CardItemProps): JSX.Element {
     return (
-        <div className={`text-xs flex items-center justify-between p-2 gap-2 ${border && 'border-t border-dashed'}`}>
+        <div className={`flex items-center justify-between gap-2 p-2 text-xs ${border && 'border-t border-dashed'}`}>
             <div className="flex items-center gap-2">
                 {icon}
                 <span>{text}</span>

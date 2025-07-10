@@ -125,22 +125,22 @@ export function Exposures(): JSX.Element {
 
     return (
         <div>
-            <div className="flex items-center deprecated-space-x-2 mb-2">
-                <h2 className="mb-0 font-semibold text-lg leading-6.5">Exposures</h2>
+            <div className="deprecated-space-x-2 mb-2 flex items-center">
+                <h2 className="leading-6.5 mb-0 text-lg font-semibold">Exposures</h2>
                 <Tooltip title="Shows the daily cumulative count of unique users exposed to each variant throughout the experiment duration.">
                     <IconInfo className="text-secondary text-lg" />
                 </Tooltip>
             </div>
             {exposuresLoading ? (
-                <div className={clsx(chartWrapperClasses, 'flex justify-center items-center')}>
+                <div className={clsx(chartWrapperClasses, 'flex items-center justify-center')}>
                     <Spinner className="text-5xl" />
                 </div>
             ) : !exposures?.timeseries?.length ? (
-                <div className={clsx(chartWrapperClasses, 'flex justify-center items-center')}>
+                <div className={clsx(chartWrapperClasses, 'flex items-center justify-center')}>
                     <div className="text-center">
-                        <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
-                        <div className="text-md font-semibold leading-tight mb-2">No exposures yet</div>
-                        <p className="text-sm text-center text-balance text-tertiary">
+                        <IconCorrelationAnalysis className="text-tertiary mb-2 text-3xl" />
+                        <div className="text-md mb-2 font-semibold leading-tight">No exposures yet</div>
+                        <p className="text-tertiary text-balance text-center text-sm">
                             Exposures will appear here once the first participant has been exposed.
                         </p>
                         <div className="flex justify-center">
@@ -161,8 +161,8 @@ export function Exposures(): JSX.Element {
                     <div className={clsx(chartWrapperClasses, 'w-full md:w-2/3')}>
                         <canvas id="exposuresChart" />
                     </div>
-                    <div className={clsx(chartWrapperClasses, 'border rounded bg-surface-primary p-4')}>
-                        <div className="flex justify-between mb-4">
+                    <div className={clsx(chartWrapperClasses, 'bg-surface-primary rounded border p-4')}>
+                        <div className="mb-4 flex justify-between">
                             <div>
                                 <h3 className="card-secondary">Exposure criteria</h3>
                                 <div className="flex items-center gap-2">
@@ -182,7 +182,7 @@ export function Exposures(): JSX.Element {
                         {exposures?.timeseries.length > 0 && (
                             <div>
                                 <h3 className="card-secondary">Total exposures</h3>
-                                <div className="overflow-auto max-h-[150px]">
+                                <div className="max-h-[150px] overflow-auto">
                                     <LemonTable
                                         dataSource={exposures?.timeseries || []}
                                         columns={[

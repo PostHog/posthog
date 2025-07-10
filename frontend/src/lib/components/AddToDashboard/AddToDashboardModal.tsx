@@ -45,7 +45,7 @@ const DashboardRelationRow = ({
             data-attr="dashboard-list-item"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
-            className={clsx('flex items-center deprecated-space-x-2', isHighlighted && 'highlighted')}
+            className={clsx('deprecated-space-x-2 flex items-center', isHighlighted && 'highlighted')}
         >
             <Link
                 to={urls.dashboard(dashboard.id)}

@@ -12,11 +12,11 @@ type SearchTabsProps = {
 export const SearchTabs = ({ inputRef }: SearchTabsProps): JSX.Element | null => {
     const { tabsGrouped } = useValues(searchBarLogic)
     return (
-        <div className="flex flex-col border-r bg-surface-primary overflow-y-auto">
+        <div className="bg-surface-primary flex flex-col overflow-y-auto border-r">
             {Object.entries(tabsGrouped).map(([group, tabs]) => (
                 <div key={group} className={group !== 'all' ? 'pt-1.5' : ''}>
                     {group !== 'all' && (
-                        <span className="ml-4 text-xxs text-secondary uppercase">
+                        <span className="text-xxs text-secondary ml-4 uppercase">
                             {groupToName[group as keyof typeof groupToName]}
                         </span>
                     )}

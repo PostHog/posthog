@@ -144,7 +144,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
     return (
         <div className="flex">
             <div className="w-full">
-                <div className="mb-4 experiment-preview-row">
+                <div className="experiment-preview-row mb-4">
                     <div className="flex items-center">
                         <b>Minimum detectable effect</b>
                         <Tooltip
@@ -168,7 +168,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                             }
                             closeDelayMs={200}
                         >
-                            <IconInfo className="text-secondary text-base ml-1" />
+                            <IconInfo className="text-secondary ml-1 text-base" />
                         </Tooltip>
                     </div>
                     <div className="flex gap-4">
@@ -209,7 +209,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         />
                     </div>
                 </div>
-                <div className="flex flex-col experiment-preview-row">
+                <div className="experiment-preview-row flex flex-col">
                     <LemonBanner type="info" className="mb-4">
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.

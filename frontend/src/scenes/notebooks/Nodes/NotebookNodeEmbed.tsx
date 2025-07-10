@@ -63,7 +63,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
             {validUrl ? (
                 <>
                     <iframe
-                        className="w-full h-full"
+                        className="h-full w-full"
                         src={validUrl.toString()}
                         allowFullScreen
                         onLoad={() => {
@@ -73,7 +73,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEmbedAttributes
                     {!loaded ? <SpinnerOverlay /> : null}
                 </>
             ) : (
-                <div className="flex-1 flex flex-col justify-center items-center">
+                <div className="flex flex-1 flex-col items-center justify-center">
                     {src ? <p>The given URL is not valid.</p> : <p>No URL configured</p>}
                     <LemonButton type="primary" onClick={() => toggleEditing(true)}>
                         Configure
@@ -108,7 +108,7 @@ const Settings = ({
     const hasChanges = localUrl !== attributes.src
 
     return (
-        <div className="p-3 flex items-center flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2 p-3">
             <LemonInput
                 value={localUrl}
                 onChange={setLocalUrl}

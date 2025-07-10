@@ -55,7 +55,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                'xxl:grid-cols-3 mt-4 grid grid-cols-1 md:grid-cols-2',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
             )}
         >
@@ -126,7 +126,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && (
-                <div className="flex flex-row items-center mb-3">
+                <div className="mb-3 flex flex-row items-center">
                     <h2>{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
                 </div>
@@ -141,7 +141,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             />
 
             {buttonsRow.length > 0 ? (
-                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
+                <div className="deprecated-space-x-2 my-2 flex justify-end">{buttonsRow}</div>
             ) : null}
         </div>
     )
@@ -191,7 +191,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
 export const SectionTileItem = ({ tile, separator }: { tile: SectionTile; separator?: boolean }): JSX.Element => {
     return (
         <div className="col-span-full">
-            {tile.title && <h2 className="text-lg font-semibold mb-4">{tile.title}</h2>}
+            {tile.title && <h2 className="mb-4 text-lg font-semibold">{tile.title}</h2>}
             <div className={tile.layout.className ? `grid ${tile.layout.className} mb-4` : 'mb-4'}>
                 {tile.tiles.map((subTile, i) => {
                     if (subTile.kind === 'query') {
@@ -277,8 +277,8 @@ export const WebTabs = ({
 
     return (
         <div className={clsx(className, 'flex flex-col')}>
-            <div className="flex flex-row items-center self-stretch mb-3">
-                <h2 className="flex-1 m-0 flex flex-row ml-1">
+            <div className="mb-3 flex flex-row items-center self-stretch">
+                <h2 className="m-0 ml-1 flex flex-1 flex-row">
                     {activeTab?.title}
                     {activeTab?.docs && (
                         <LearnMorePopover
@@ -318,9 +318,9 @@ export const WebTabs = ({
                     options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
                 />
             </div>
-            <div className="flex-1 flex flex-col">{activeTab?.content}</div>
+            <div className="flex flex-1 flex-col">{activeTab?.content}</div>
             {buttonsRow.length > 0 ? (
-                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
+                <div className="deprecated-space-x-2 my-2 flex justify-end">{buttonsRow}</div>
             ) : null}
         </div>
     )
@@ -340,8 +340,8 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
             visible={isOpen}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <div className="p-4 max-w-160 max-h-160 overflow-auto">
-                    <div className="flex flex-row w-full">
+                <div className="max-w-160 max-h-160 overflow-auto p-4">
+                    <div className="flex w-full flex-row">
                         <h2 className="flex-1">{title}</h2>
                         <LemonButton
                             targetBlank
@@ -353,7 +353,7 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
                     </div>
                     <div className="text-sm text-gray-700 dark:text-white">{description}</div>
                     {url && (
-                        <div className="flex justify-end mt-4">
+                        <div className="mt-4 flex justify-end">
                             <LemonButton
                                 to={url}
                                 onClick={() => setIsOpen(false)}
@@ -367,7 +367,7 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
                 </div>
             }
         >
-            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} className="ml-1 mb-1" />
+            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} className="mb-1 ml-1" />
         </Popover>
     )
 }
@@ -447,10 +447,10 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <div className="WebAnalyticsDashboard w-full flex flex-col">
+                <div className="WebAnalyticsDashboard flex w-full flex-col">
                     <div
                         className={clsx(
-                            'sticky z-20 bg-primary border-b pb-2',
+                            'bg-primary sticky z-20 border-b pb-2',
                             mobileLayout
                                 ? 'top-[var(--breadcrumbs-height-full)]'
                                 : 'top-[var(--breadcrumbs-height-compact)]'

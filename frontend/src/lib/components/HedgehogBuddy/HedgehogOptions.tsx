@@ -19,7 +19,7 @@ export function HedgehogOptions(): JSX.Element {
 
     return (
         <div>
-            <div className="flex gap-2 items-start">
+            <div className="flex items-start gap-2">
                 <HedgehogBuddyProfile {...hedgehogConfig} size={100} />
                 <div className="flex-1">
                     <h3>Hi, I'm Max!</h3>
@@ -47,7 +47,7 @@ export function HedgehogOptions(): JSX.Element {
 
             <div className="deprecated-space-y-2">
                 <h4>Options</h4>
-                <div className="flex flex-wrap gap-2 items-center">
+                <div className="flex flex-wrap items-center gap-2">
                     <LemonSwitch
                         bordered
                         label="Walk around freely"
@@ -129,7 +129,7 @@ function HedgehogAccessories(): JSX.Element {
                 <React.Fragment key={group}>
                     <h4>{capitalizeFirstLetter(group)}</h4>
 
-                    <div className="flex overflow-y-auto flex-wrap gap-2 pt-px pb-2">
+                    <div className="flex flex-wrap gap-2 overflow-y-auto pb-2 pt-px">
                         {Object.keys(standardAccessories)
                             .filter((acc) => standardAccessories[acc].group === group)
                             .map((acc) => (
@@ -168,7 +168,7 @@ function HedgehogColor(): JSX.Element {
         <>
             <h4>Skins and colors</h4>
 
-            <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap items-center gap-2">
                 {skins.map((option) => (
                     <LemonButton
                         key={option}

@@ -98,7 +98,7 @@ const ContextMenuCheckboxItem = React.forwardRef<
         <ContextMenuPrimitive.CheckboxItem
             ref={ref}
             className={cn(
-                'relative flex cursor-default select-none items-center rounded-xs py-1.5 pl-8 pr-2 text-sm outline-hidden focus:bg-accent-highlight focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+                'rounded-xs outline-hidden focus:bg-accent-highlight focus:text-accent-foreground relative flex cursor-default select-none items-center py-1.5 pl-8 pr-2 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
                 className
             )}
             checked={checked}
@@ -123,14 +123,14 @@ const ContextMenuRadioItem = React.forwardRef<
         <ContextMenuPrimitive.RadioItem
             ref={ref}
             className={cn(
-                'relative flex cursor-default select-none items-center rounded-xs py-1.5 pl-8 pr-2 text-sm outline-hidden focus:bg-accent-highlight focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+                'rounded-xs outline-hidden focus:bg-accent-highlight focus:text-accent-foreground relative flex cursor-default select-none items-center py-1.5 pl-8 pr-2 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
                 className
             )}
             {...props}
         >
             <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
                 <ContextMenuPrimitive.ItemIndicator>
-                    <div className="h-4 w-4 fill-current aspect-square" />
+                    <div className="aspect-square h-4 w-4 fill-current" />
                 </ContextMenuPrimitive.ItemIndicator>
             </span>
             {children}
@@ -148,7 +148,7 @@ const ContextMenuLabel = React.forwardRef<
     ({ className, inset, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Label
             ref={ref}
-            className={cn('px-2 py-1.5 text-sm font-semibold text-foreground', inset && 'pl-7', className)}
+            className={cn('text-foreground px-2 py-1.5 text-sm font-semibold', inset && 'pl-7', className)}
             {...props}
         />
     )
@@ -162,7 +162,7 @@ const ContextMenuSeparator = React.forwardRef<
     ({ className, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Separator
             ref={ref}
-            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
+            className={cn('bg-border-primary -mx-1 my-1 h-px', className)}
             {...props}
         />
     )
@@ -170,7 +170,7 @@ const ContextMenuSeparator = React.forwardRef<
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName
 
 const ContextMenuShortcut = ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>): JSX.Element => {
-    return <span className={cn('ml-auto text-xs tracking-widest text-muted-foreground', className)} {...props} />
+    return <span className={cn('text-muted-foreground ml-auto text-xs tracking-widest', className)} {...props} />
 }
 ContextMenuShortcut.displayName = 'ContextMenuShortcut'
 

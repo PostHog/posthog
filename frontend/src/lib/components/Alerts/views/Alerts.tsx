@@ -48,7 +48,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                             to={urls.alert(alert.id)}
                             className={alert.enabled ? '' : 'text-muted'}
                             title={
-                                <div className="flex flex-row gap-3 items-center">
+                                <div className="flex flex-row items-center gap-3">
                                     <div>{name}</div>
                                 </div>
                             }

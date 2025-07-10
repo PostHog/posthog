@@ -93,7 +93,7 @@ const ProgressBar = ({
     }, [isCurrentStory, isPaused, isCompletedStory])
 
     return (
-        <div className="flex-1 h-0.75 bg-white/[0.45] rounded-full overflow-hidden">
+        <div className="h-0.75 flex-1 overflow-hidden rounded-full bg-white/[0.45]">
             <div
                 ref={progressRef}
                 key={isCurrentStory ? `${animationKey}-progress-${currentDuration}` : 'progress'}
@@ -197,13 +197,13 @@ export const StoriesPlayer = ({
     return (
         <div
             ref={containerRef}
-            className="relative rounded overflow-hidden select-none"
+            className="relative select-none overflow-hidden rounded"
             style={{ width, height }} // eslint-disable-line react/forbid-dom-props
         >
             {/* header wrapper with gradient */}
-            <div className="absolute top-0 left-0 right-0 z-10 pt-3 px-3 pb-4 bg-gradient-to-b from-black/25 to-transparent">
+            <div className="absolute left-0 right-0 top-0 z-10 bg-gradient-to-b from-black/25 to-transparent px-3 pb-4 pt-3">
                 {/* Progress bars */}
-                <div className="flex gap-1 mb-2">
+                <div className="mb-2 flex gap-1">
                     {stories.map((story, index) => {
                         const isCurrentStory = index === currentIndex
                         const isCompletedStory = index < currentIndex
@@ -227,37 +227,37 @@ export const StoriesPlayer = ({
                 {/* Header section with relative positioning for buttons */}
                 <div className="relative rounded-lg px-1">
                     {/* Play/pause and close buttons - positioned in top right of header */}
-                    <div className="absolute top-1 right-1 flex gap-2 z-10">
+                    <div className="absolute right-1 top-1 z-10 flex gap-2">
                         <button
                             onClick={(e) => {
                                 e.stopPropagation()
                                 e.preventDefault()
                                 onClose()
                             }}
-                            className="text-white hover:text-gray-200 w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                            className="flex h-8 w-8 cursor-pointer items-center justify-center text-white transition-all duration-200 hover:text-gray-200"
                             title="Close stories"
                         >
-                            <IconX className="w-5 h-5 [&>*]:fill-white" />
+                            <IconX className="h-5 w-5 [&>*]:fill-white" />
                         </button>
                     </div>
 
                     {/* Header content */}
                     <div className="flex items-center gap-3 pr-20">
                         {currentStory.header ? (
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
                                 {currentStory.header.profileImage && (
                                     <img
                                         src={currentStory.header.profileImage}
                                         alt="Profile"
-                                        className="w-10 h-10 rounded-full object-cover"
+                                        className="h-10 w-10 rounded-full object-cover"
                                     />
                                 )}
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-white text-sm font-semibold truncate drop-shadow-lg">
+                                <div className="min-w-0 flex-1">
+                                    <div className="truncate text-sm font-semibold text-white drop-shadow-lg">
                                         {currentStory.header.heading}
                                     </div>
                                     {currentStory.header.subheading && (
-                                        <div className="text-white text-xs truncate drop-shadow-md">
+                                        <div className="truncate text-xs text-white drop-shadow-md">
                                             {currentStory.header.subheading}
                                         </div>
                                     )}
@@ -271,12 +271,12 @@ export const StoriesPlayer = ({
             </div>
 
             {/* Media content */}
-            <div className="w-full h-full flex items-center justify-center">
+            <div className="flex h-full w-full items-center justify-center">
                 {currentStory.type === StoryType.Overlay ? null : currentStory.type === StoryType.Video ? (
                     <video
                         ref={videoRef}
                         src={currentStory.url}
-                        className="w-full h-full object-contain rounded"
+                        className="h-full w-full rounded object-contain"
                         autoPlay
                         muted={muted}
                         playsInline
@@ -286,28 +286,28 @@ export const StoriesPlayer = ({
                         controls={false}
                     />
                 ) : (
-                    <img src={currentStory.url} alt="Story content" className="w-full h-full object-cover" />
+                    <img src={currentStory.url} alt="Story content" className="h-full w-full object-cover" />
                 )}
             </div>
 
             {/* Pause icon overlay */}
             {isPaused && (
-                <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                    <div className="bg-black/50 rounded-full w-12 h-12 flex items-center justify-center backdrop-blur-sm">
-                        <IconPauseFilled className="w-4 h-4 text-white flex-shrink-0 aspect-square" />
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+                        <IconPauseFilled className="aspect-square h-4 w-4 flex-shrink-0 text-white" />
                     </div>
                 </div>
             )}
 
             {/* See More button */}
             {currentStory.seeMore && (
-                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10">
+                <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 transform">
                     <button
                         onClick={(e) => {
                             e.stopPropagation()
                             currentStory.seeMore?.()
                         }}
-                        className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer ${
+                        className={`flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
                             currentStory.seeMoreOptions?.textColor === 'black'
                                 ? 'text-black/70 hover:text-black'
                                 : 'text-white/70 hover:text-white'
@@ -323,9 +323,9 @@ export const StoriesPlayer = ({
                     >
                         <span>{currentStory.seeMoreOptions?.text || currentStory.seeMoreText || 'See more'}</span>
                         {currentStory.seeMoreOptions?.arrowIcon === ArrowIcon.Up ? (
-                            <IconChevronRight className="w-3 h-3 transform -rotate-90" />
+                            <IconChevronRight className="h-3 w-3 -rotate-90 transform" />
                         ) : (
-                            <IconArrowRight className="w-3 h-3" />
+                            <IconArrowRight className="h-3 w-3" />
                         )}
                     </button>
                 </div>
@@ -336,7 +336,7 @@ export const StoriesPlayer = ({
                 {/* LEFT NAVIGATION ZONE */}
                 {/* Only shows navigation if there's a previous story to go to */}
                 <div
-                    className={`w-1/5 h-full relative flex items-center justify-start pl-4 ${
+                    className={`relative flex h-full w-1/5 items-center justify-start pl-4 ${
                         currentIndex > 0 ? 'cursor-pointer' : ''
                     }`}
                     onMouseEnter={() => setHoveredZone(HoverZone.Left)}
@@ -352,12 +352,12 @@ export const StoriesPlayer = ({
                     {currentIndex > 0 && (
                         <button
                             onMouseDown={(e) => e.preventDefault()}
-                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer select-none ${
+                            className={`z-10 flex h-8 w-8 cursor-pointer select-none items-center justify-center rounded-full bg-black/30 text-white transition-all duration-200 ${
                                 hoveredZone === 'left' ? 'opacity-100' : 'opacity-0'
                             }`}
                             title="Previous story"
                         >
-                            <IconChevronLeft className="w-5 h-5" />
+                            <IconChevronLeft className="h-5 w-5" />
                         </button>
                     )}
                 </div>
@@ -365,7 +365,7 @@ export const StoriesPlayer = ({
                 {/* MIDDLE ZONE - Clears hover state and allows pause/play functionality */}
                 {/* When user hovers over middle, it clears hoveredZone so navigation arrows hide */}
                 <div
-                    className="w-3/5 h-full"
+                    className="h-full w-3/5"
                     onMouseEnter={() => setHoveredZone(null)}
                     onClick={(e) => {
                         e.stopPropagation()
@@ -376,7 +376,7 @@ export const StoriesPlayer = ({
                 {/* RIGHT NAVIGATION ZONE */}
                 {/* Only shows navigation if there's a next story to go to */}
                 <div
-                    className={`w-1/5 h-full relative flex items-center justify-end pr-4 ${
+                    className={`relative flex h-full w-1/5 items-center justify-end pr-4 ${
                         currentIndex < stories.length - 1 ? 'cursor-pointer' : ''
                     }`}
                     onMouseEnter={() => setHoveredZone(HoverZone.Right)}
@@ -392,12 +392,12 @@ export const StoriesPlayer = ({
                     {currentIndex < stories.length - 1 && (
                         <button
                             onMouseDown={(e) => e.preventDefault()}
-                            className={`text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 z-10 bg-black/30 cursor-pointer select-none ${
+                            className={`z-10 flex h-8 w-8 cursor-pointer select-none items-center justify-center rounded-full bg-black/30 text-white transition-all duration-200 ${
                                 hoveredZone === 'right' ? 'opacity-100' : 'opacity-0'
                             }`}
                             title="Next story"
                         >
-                            <IconChevronRight className="w-5 h-5" />
+                            <IconChevronRight className="h-5 w-5" />
                         </button>
                     )}
                 </div>

@@ -13,7 +13,7 @@ type LabelProps = {
     title: string
 }
 const Label = ({ icon, title }: LabelProps): JSX.Element => (
-    <div className="flex items-center text-sm font-medium gap-1">
+    <div className="flex items-center gap-1 text-sm font-medium">
         {icon} {title}
     </div>
 )
@@ -25,10 +25,10 @@ type LabelInMenuProps = {
 }
 const LabelInMenu = ({ icon, title, description }: LabelInMenuProps): JSX.Element => (
     <div>
-        <div className="flex items-center text-sm font-medium gap-1">
+        <div className="flex items-center gap-1 text-sm font-medium">
             {icon} {title}
         </div>
-        <div className="text-secondary text-xs mt-1">{description}</div>
+        <div className="text-secondary mt-1 text-xs">{description}</div>
     </div>
 )
 

@@ -252,7 +252,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 size="small"
                                 data-attr="tree-search-autocomplete-input"
                                 prefix={
-                                    <div className="flex items-center justify-center size-4 ml-[2px] mr-px">
+                                    <div className="ml-[2px] mr-px flex size-4 items-center justify-center">
                                         <IconSearch className="size-4" />
                                     </div>
                                 }
@@ -267,7 +267,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                                 onClear()
                                             }}
                                             data-attr="tree-search-autocomplete-clear-button"
-                                            className="bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100 -mr-px"
+                                            className="-mr-px bg-transparent [&_svg]:opacity-50 hover:[&_svg]:opacity-100 focus-visible:[&_svg]:opacity-100"
                                             tooltip="Clear search"
                                         >
                                             <IconX className="size-4" />
@@ -311,7 +311,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 {suggestions.map((item) => (
                                     <Fragment key={item.value}>
                                         {item.value === '!__placeholder__' ? (
-                                            <div className="-mx-1 my-1 h-px bg-border-primary" />
+                                            <div className="bg-border-primary -mx-1 my-1 h-px" />
                                         ) : null}
                                         <ListBox.Item asChild>
                                             <ButtonPrimitive
@@ -319,12 +319,12 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                                 menuItem
                                                 data-attr={`tree-search-autocomplete-suggestion-${item.value}-button`}
                                             >
-                                                <div className="flex items-center justify-center size-4 text-tertiary">
+                                                <div className="text-tertiary flex size-4 items-center justify-center">
                                                     {item.icon}
                                                 </div>
                                                 {item.label}
                                                 {item.hint ? (
-                                                    <span className="text-xxs text-tertiary italic pt-1">
+                                                    <span className="text-xxs text-tertiary pt-1 italic">
                                                         {item.hint}
                                                     </span>
                                                 ) : null}
@@ -335,7 +335,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 {currentHint && (
                                     <ButtonPrimitive
                                         menuItem
-                                        className="px-2 py-1 text-sm text-tertiary"
+                                        className="text-tertiary px-2 py-1 text-sm"
                                         disabled
                                         data-attr="tree-search-autocomplete-hint-disabled-button"
                                     >

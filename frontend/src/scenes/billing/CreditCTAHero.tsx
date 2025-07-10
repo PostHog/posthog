@@ -26,14 +26,14 @@ export const CreditCTAHero = (): JSX.Element | null => {
 
     if (isCreditCTAHeroDismissed) {
         return (
-            <div className="absolute top-0 right-0 z-10">
+            <div className="absolute right-0 top-0 z-10">
                 <div
-                    className="cursor-pointer border border-accent rounded-lg pr-3 pl-2 py-1 hover:bg-accent-highlight-secondary transition-colors group"
+                    className="border-accent hover:bg-accent-highlight-secondary group cursor-pointer rounded-lg border py-1 pl-2 pr-3 transition-colors"
                     onClick={() => toggleCreditCTAHeroDismissed(false)}
                 >
                     <span className="flex items-center gap-1.5">
                         <BurningMoneyHog
-                            className="w-8 h-8 group-hover:animate-bounce"
+                            className="h-8 w-8 group-hover:animate-bounce"
                             style={{ animationDuration: '0.75s' }}
                         />
                         <span>Get {computedDiscount * 100}% off</span>
@@ -46,22 +46,22 @@ export const CreditCTAHero = (): JSX.Element | null => {
     const estimatedMonthlyCreditAmountUsd =
         creditOverview?.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
-        <div className="relative rounded-lg bg-surface-primary border mb-2">
-            <div className="absolute top-2 right-2 z-10">
+        <div className="bg-surface-primary relative mb-2 rounded-lg border">
+            <div className="absolute right-2 top-2 z-10">
                 <LemonButton
-                    icon={<IconX className="w-4 h-4" />}
+                    icon={<IconX className="h-4 w-4" />}
                     size="small"
                     onClick={() => toggleCreditCTAHeroDismissed(true)}
                     aria-label="Close"
                 />
             </div>
-            <div className="@container p-4 relative">
-                <div className="flex gap-6 mb-4">
+            <div className="@container relative p-4">
+                <div className="mb-4 flex gap-6">
                     <div className="flex-1">
                         {creditOverview.status === 'pending' && (
                             <>
                                 <h1 className="mb-0">We're applying your credits</h1>
-                                <p className="mt-2 mb-0">
+                                <p className="mb-0 mt-2">
                                     Your credits will be ready within 24 hours of payment.{' '}
                                     {creditOverview.collection_method === 'send_invoice' ? (
                                         <>
@@ -86,12 +86,12 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                     </span>{' '}
                                     over the next 12 months.
                                 </h2>
-                                <p className="mt-2 mb-0">
+                                <p className="mb-0 mt-2">
                                     Based on your usage, your monthly bill is forecasted to be an average of{' '}
                                     <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong> over the next
                                     year.
                                 </p>
-                                <p className="mt-2 mb-0">
+                                <p className="mb-0 mt-2">
                                     This qualifies you for a <strong>{computedDiscount * 100}% discount</strong> by
                                     pre-purchasing usage credits. Which gives you a net savings of{' '}
                                     <strong>
@@ -105,12 +105,12 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                     </strong>{' '}
                                     over the next year.
                                 </p>
-                                <p className="mt-2 mb-0">Ready to save money on your PostHog usage?</p>
+                                <p className="mb-0 mt-2">Ready to save money on your PostHog usage?</p>
                             </>
                         )}
                     </div>
-                    <div className="flex flex-col justify-center items-end w-30">
-                        <BurningMoneyHog className="w-full h-auto" />
+                    <div className="w-30 flex flex-col items-end justify-center">
+                        <BurningMoneyHog className="h-auto w-full" />
                         {creditOverview.status === 'pending' && creditOverview.invoice_url && (
                             <LemonButton
                                 type="primary"

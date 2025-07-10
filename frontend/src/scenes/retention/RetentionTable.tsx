@@ -74,7 +74,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         !isSingleBreakdown && !isDarkModeOn && expandedBreakdowns[breakdownValue],
                                 })}
                             >
-                                <td className="pr-2 whitespace-nowrap">
+                                <td className="whitespace-nowrap pr-2">
                                     <div className="flex items-center gap-2">
                                         {expandedBreakdowns[breakdownValue] ? (
                                             <IconChevronDown />
@@ -128,7 +128,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
                                         })}
                                     >
-                                        <td className={clsx('pl-2 whitespace-nowrap', { 'pl-6': !isSingleBreakdown })}>
+                                        <td className={clsx('whitespace-nowrap pl-2', { 'pl-6': !isSingleBreakdown })}>
                                             {row.label}
                                         </td>
                                         {!hideSizeColumn && (

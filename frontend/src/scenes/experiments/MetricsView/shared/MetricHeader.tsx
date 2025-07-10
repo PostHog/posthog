@@ -47,7 +47,7 @@ export const MetricHeader = ({
         <div className="text-xs font-semibold">
             <div className="deprecated-space-y-1">
                 <div className="flex items-center gap-2">
-                    <div className="text-xs font-semibold flex-grow flex items-start min-w-0">
+                    <div className="flex min-w-0 flex-grow items-start text-xs font-semibold">
                         <span className="mr-1 flex-shrink-0">{metricIndex + 1}.</span>
                         <MetricTitle metric={metric} metricType={metricType} />
                     </div>
@@ -94,7 +94,7 @@ export const MetricHeader = ({
                                     LemonDialog.open({
                                         title: 'Duplicate this shared metric?',
                                         content: (
-                                            <div className="text-sm text-secondary max-w-lg">
+                                            <div className="text-secondary max-w-lg text-sm">
                                                 <p>
                                                     We'll take you to the form to customize and save this metric. Your
                                                     new version will appear in your shared metrics, ready to add to your

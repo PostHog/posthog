@@ -107,7 +107,7 @@ export function SessionRecordingsPlaylistTopSettings({
     return (
         <SettingsBar border="none" className="justify-between">
             {filters && setFilters ? (
-                <span className="text-xs font-normal inline-flex items-center ml-2">
+                <span className="ml-2 inline-flex items-center text-xs font-normal">
                     Sort by: <SortedBy filters={filters} setFilters={setFilters} />
                 </span>
             ) : null}

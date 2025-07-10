@@ -40,7 +40,7 @@ const ExportsContent = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-2">
                 <div className="flex justify-end">
                     <LemonButton onClick={loadExports} type="tertiary" size="small" icon={<IconRefresh />}>
@@ -61,33 +61,33 @@ const ExportsContent = (): JSX.Element => {
 
                     return (
                         <div
-                            className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center"
+                            className="bg-fill-primary mt-2 flex items-center justify-between gap-2 rounded border"
                             key={asset.id}
                         >
-                            <div className="flex items-center justify-between flex-auto p-2">
+                            <div className="flex flex-auto items-center justify-between p-2">
                                 <div>
-                                    <span className="text-link font-medium block">{asset.filename}</span>
+                                    <span className="text-link block font-medium">{asset.filename}</span>
                                     {asset.created_at && (
-                                        <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>
+                                        <span className="mt-1 text-xs">{dayjs(asset.created_at).fromNow()}</span>
                                     )}
                                     {asset.expires_after && (
-                                        <span className="text-xs text-secondary mt-1">
+                                        <span className="text-secondary mt-1 text-xs">
                                             {' '}
                                             · expires {dayjs(asset.expires_after).fromNow()}
                                         </span>
                                     )}
                                     {isNotDownloaded && (
-                                        <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>
+                                        <span className="text-secondary mt-1 text-xs"> · not downloaded yet</span>
                                     )}
                                     {asset.export_format === ExporterFormat.CSV && (
-                                        <span className="text-xs text-secondary mt-1">
+                                        <span className="text-secondary mt-1 text-xs">
                                             {' '}
                                             · {ROW_LIMIT_IN_THOUSANDS}k row limit
                                         </span>
                                     )}
                                 </div>
                             </div>
-                            <div className="flex gap-2 mr-2">
+                            <div className="mr-2 flex gap-2">
                                 {asset.export_format === ExporterFormat.PNG && (
                                     <LemonButton
                                         tooltip="Edit"
@@ -131,10 +131,10 @@ const ExportsContent = (): JSX.Element => {
 
 export const SidePanelExports = (): JSX.Element => {
     return (
-        <div className="flex flex-col overflow-hidden flex-1">
+        <div className="flex flex-1 flex-col overflow-hidden">
             <SidePanelPaneHeader
                 title={
-                    <div className="flex deprecated-space-x-2">
+                    <div className="deprecated-space-x-2 flex">
                         <span>Exports</span>
                     </div>
                 }

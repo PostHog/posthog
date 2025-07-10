@@ -158,7 +158,7 @@ export function FolderSelect({
                     }
                 }}
             />
-            <ScrollableShadows direction="vertical" className={cn('bg-surface-primary border rounded', className)}>
+            <ScrollableShadows direction="vertical" className={cn('bg-surface-primary rounded border', className)}>
                 <LemonTree
                     ref={treeRef}
                     selectMode="folder-only"
@@ -227,7 +227,7 @@ export function FolderSelect({
                                 >
                                     {item.displayName}{' '}
                                     {isNew ? (
-                                        <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                        <LemonTag type="highlight" size="small" className="relative top-[-1px] ml-1">
                                             New
                                         </LemonTag>
                                     ) : null}

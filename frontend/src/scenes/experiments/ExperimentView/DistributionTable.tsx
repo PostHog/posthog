@@ -86,8 +86,8 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                 </LemonBanner>
 
                 <div>
-                    <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-semibold mb-0">Variant distribution</h3>
+                    <div className="mb-2 flex items-center justify-between">
+                        <h3 className="mb-0 font-semibold">Variant distribution</h3>
                         <LemonButton
                             size="small"
                             onClick={distributeVariantsEqually}
@@ -245,11 +245,11 @@ export function DistributionTable(): JSX.Element {
         <div>
             <div className="flex">
                 <div className="w-1/2">
-                    <h2 className="font-semibold text-lg">Distribution</h2>
+                    <h2 className="text-lg font-semibold">Distribution</h2>
                 </div>
 
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="ml-auto mb-2">
+                <div className="flex w-1/2 flex-col justify-end">
+                    <div className="mb-2 ml-auto">
                         <LemonButton
                             icon={<IconFlag />}
                             onClick={() => {

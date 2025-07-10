@@ -48,7 +48,7 @@ function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): J
     const { loadBackfills } = useActions(logic)
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
             <LemonButton onClick={loadBackfills} loading={loading} type="secondary" icon={<IconRefresh />} size="small">
                 Refresh
             </LemonButton>
@@ -75,7 +75,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                 loadingSkeletonRows={5}
                 footer={
                     hasMoreBackfillsToLoad && (
-                        <div className="flex items-center m-2">
+                        <div className="m-2 flex items-center">
                             <LemonButton center fullWidth onClick={loadOlderBackfills} loading={loading}>
                                 Load more rows
                             </LemonButton>
@@ -100,7 +100,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             return (
                                 <span
                                     className={clsx(
-                                        'flex justify-center items-center p-2 h-6 text-xs font-semibold rounded-full border-2 select-none',
+                                        'flex h-6 select-none items-center justify-center rounded-full border-2 p-2 text-xs font-semibold',
                                         statusStyles[color]
                                     )}
                                 >
@@ -128,7 +128,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                                 }
 
                                 return (
-                                    <span className="flex gap-2 items-center">
+                                    <span className="flex items-center gap-2">
                                         <LemonProgress
                                             percent={progress.progress * 100}
                                             strokeColor={`var(--${color})`}
@@ -219,7 +219,7 @@ function BackfillCancelButton({
     cancelBackfill: (backfill: BatchExportBackfill) => void
 }): JSX.Element {
     return (
-        <span className="flex gap-1 items-center">
+        <span className="flex items-center gap-1">
             <LemonButton
                 size="small"
                 type="secondary"

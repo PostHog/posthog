@@ -46,7 +46,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     'ph-no-capture': true,
                 })}
             >
-                <div className="flex items-center flex-1 truncate gap-1">
+                <div className="flex flex-1 items-center gap-1 truncate">
                     {isEvent ? (
                         <EventLabel filter={filter} onClick={onClick} />
                     ) : isAction ? (
@@ -63,7 +63,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
                     <PopoverReferenceContext.Provider value={null}>
                         <LemonButton
                             size="xsmall"
-                            icon={<IconX className="w-3 h-3" />}
+                            icon={<IconX className="h-3 w-3" />}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onClose()
@@ -111,7 +111,7 @@ const EventLabel = ({
     onClick: UniversalFilterButtonProps['onClick']
 }): JSX.Element => {
     return (
-        <div className="flex truncate  items-center deprecated-space-x-1">
+        <div className="deprecated-space-x-1 flex items-center truncate">
             <EntityFilterInfo filter={filter} />
             <LemonButton
                 size="xsmall"

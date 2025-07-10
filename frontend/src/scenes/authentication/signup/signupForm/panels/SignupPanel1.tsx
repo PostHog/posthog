@@ -29,7 +29,7 @@ export function SignupPanel1(): JSX.Element | null {
             {!preflight?.demo && socialAuthAvailable && (
                 <>
                     <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
-                    <p className="text-secondary text-center mb-0">Or use email & password</p>
+                    <p className="text-secondary mb-0 text-center">Or use email & password</p>
                 </>
             )}
             <Form logic={signupLogic} formKey="signupPanel1" className="deprecated-space-y-4" enableFormOnSubmit>
@@ -82,7 +82,7 @@ export function SignupPanel1(): JSX.Element | null {
                 // If we're in the demo environment, login is unified with signup and it's passwordless
                 // For now, if you're not on Cloud, you wouldn't see this page,
                 // but future-proofing this (with `preflight.initiated`) in case this changes
-                <div className="text-center mt-4">
+                <div className="mt-4 text-center">
                     Already have an account?{' '}
                     <Link to={loginUrl} data-attr="signup-login-link" className="font-bold">
                         Log in

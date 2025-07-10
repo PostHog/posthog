@@ -88,14 +88,14 @@ export function ErrorChecklist({ error, metric }: { error: any; metric: any }): 
         }
 
         return (
-            <div className="flex items-center deprecated-space-x-2">
+            <div className="deprecated-space-x-2 flex items-center">
                 {value === false ? (
-                    <span className="flex items-center deprecated-space-x-2">
+                    <span className="deprecated-space-x-2 flex items-center">
                         <IconCheck className="text-success" fontSize={16} />
                         <span className="text-secondary">{successText[errorCode]}</span>
                     </span>
                 ) : (
-                    <span className="flex items-center deprecated-space-x-2">
+                    <span className="deprecated-space-x-2 flex items-center">
                         <IconX className="text-danger" fontSize={16} />
                         <span>{failureText[errorCode]}</span>
                         <Tooltip title="Verify missing events in the Activity tab">
@@ -132,7 +132,7 @@ export function ErrorChecklist({ error, metric }: { error: any; metric: any }): 
         return (
             <>
                 <h2 className="text-xl font-semibold leading-tight">Experiment results timed out</h2>
-                <div className="text-sm text-center text-balance">
+                <div className="text-balance text-center text-sm">
                     This may occur when the experiment has a large amount of data or is particularly complex. We are
                     actively working on fixing this. In the meantime, please try refreshing the experiment to retrieve
                     the results.

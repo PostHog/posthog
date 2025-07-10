@@ -54,7 +54,7 @@ function SurveyOptionsGroup({
     sectionTitle: string
 }): JSX.Element {
     return (
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1 items-start">
+        <div className="grid grid-cols-2 items-start gap-x-2 gap-y-1">
             <h3 className="col-span-2 mb-0">{sectionTitle}</h3>
             {children}
         </div>
@@ -95,7 +95,7 @@ export function SurveyContainerAppearance({
 
     return (
         <SurveyOptionsGroup sectionTitle="Container options">
-            <span className="col-span-2 text-secondary">
+            <span className="text-secondary col-span-2">
                 These options are only applied in the web surveys. Not on native mobile apps.
             </span>
             <SurveyAppearanceInput
@@ -130,9 +130,9 @@ export function SurveyContainerAppearance({
                         ? 'The "next to feedback button" option requires posthog.js version 1.235.2 or higher.'
                         : undefined
                 }
-                className="gap-1 col-span-2"
+                className="col-span-2 gap-1"
             >
-                <div className="grid grid-cols-3 gap-1 mb-1">
+                <div className="mb-1 grid grid-cols-3 gap-1">
                     {gridPositions.map((position) => (
                         <LemonButton
                             key={position}
@@ -149,7 +149,7 @@ export function SurveyContainerAppearance({
                     ))}
                 </div>
                 {surveyType === SurveyType.Widget && appearance.widgetType === SurveyWidgetType.Selector && (
-                    <div className="flex flex-col gap-1 items-start w-60">
+                    <div className="flex w-60 flex-col items-start gap-1">
                         <LemonButton
                             key={SurveyPosition.NextToTrigger}
                             type="tertiary"

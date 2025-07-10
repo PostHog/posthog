@@ -89,8 +89,8 @@ export function SDKInstructionsModal({
             {!sdk?.key || !sdkInstructions ? (
                 <SpinnerOverlay />
             ) : (
-                <div className="flex flex-col h-full">
-                    <header className="p-4 flex items-center gap-2">
+                <div className="flex h-full flex-col">
+                    <header className="flex items-center gap-2 p-4">
                         <LemonButton icon={<IconArrowLeft />} onClick={onClose} size="xsmall">
                             All SDKs
                         </LemonButton>
@@ -98,7 +98,7 @@ export function SDKInstructionsModal({
                     <div className="flex-grow overflow-y-auto px-4 py-2">
                         <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                     </div>
-                    <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
+                    <footer className="bg-bg-light dark:bg-bg-depth sticky bottom-0 flex w-full items-center justify-between gap-2 rounded-b-sm p-2 px-4">
                         <RealtimeCheckIndicator
                             teamPropertyToVerify={verifyingProperty}
                             listeningForName={verifyingName}
@@ -146,9 +146,9 @@ export function OnboardingInstallStep({
                 </div>
             }
         >
-            <div className="flex flex-col gap-y-4 mt-6">
+            <div className="mt-6 flex flex-col gap-y-4">
                 <div className="flex flex-col gap-y-2">
-                    <div className="flex flex-col-reverse md:flex-row justify-between gap-4">
+                    <div className="flex flex-col-reverse justify-between gap-4 md:flex-row">
                         <LemonInput
                             value={searchTerm}
                             onChange={setSearchTerm}
@@ -201,20 +201,20 @@ export function OnboardingInstallStep({
                             label: tag,
                         }))}
                     />
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                         {(filteredSDKs ?? []).map((sdk) => (
                             <LemonCard
                                 key={sdk.key}
-                                className="p-4 cursor-pointer flex flex-col items-start justify-center"
+                                className="flex cursor-pointer flex-col items-start justify-center p-4"
                                 onClick={() => {
                                     selectSDK(sdk)
                                     setInstructionsModalOpen(true)
                                 }}
                             >
                                 {typeof sdk.image === 'string' ? (
-                                    <img src={sdk.image} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
+                                    <img src={sdk.image} className="mb-2 h-8 w-8" alt={`${sdk.name} logo`} />
                                 ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
-                                    <img src={sdk.image.default} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
+                                    <img src={sdk.image.default} className="mb-2 h-8 w-8" alt={`${sdk.name} logo`} />
                                 ) : (
                                     sdk.image
                                 )}

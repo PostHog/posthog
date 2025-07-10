@@ -18,7 +18,7 @@ import { billingProductLogic } from './billingProductLogic'
 
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {
     return (
-        <div className="px-2 pt-4 pb-6">
+        <div className="px-2 pb-6 pt-4">
             <LemonTable dataSource={props.rows} columns={props.columns} embedded showHeader={true} />
         </div>
     )
@@ -40,7 +40,7 @@ export const BillingProductPricingTable = ({
         {
             title: `Priced per ${product.unit}`,
             dataIndex: 'volume',
-            render: (_, item: BillingTableTierRow) => <h4 className="font-bold mb-0">{item.volume}</h4>,
+            render: (_, item: BillingTableTierRow) => <h4 className="mb-0 font-bold">{item.volume}</h4>,
         },
         { title: 'Price', dataIndex: 'basePrice' },
         { title: 'Current Usage', dataIndex: 'usage' },
@@ -48,7 +48,7 @@ export const BillingProductPricingTable = ({
             title: 'Total',
             dataIndex: 'total',
             render: (_, item: BillingTableTierRow) => (
-                <span className="font-bold mb-0 text-text-3000">{item.total}</span>
+                <span className="text-text-3000 mb-0 font-bold">{item.total}</span>
             ),
         },
         {
@@ -114,7 +114,7 @@ export const BillingProductPricingTable = ({
                                   title: '',
                                   dataIndex: 'icon',
                                   render: () => (
-                                      <IconArrowRightDown className="transform -rotate-90 scale-x-[-1] text-base text-secondary" />
+                                      <IconArrowRightDown className="text-secondary -rotate-90 scale-x-[-1] transform text-base" />
                                   ),
                               },
                               { title: `Product name`, dataIndex: 'productName' },
@@ -210,7 +210,7 @@ export const BillingProductPricingTable = ({
     }
 
     return (
-        <div className="pl-16 pb-8">
+        <div className="pb-8 pl-16">
             {(product.tiered || product.type === 'mobile_replay') && tableTierData ? (
                 <>
                     <LemonTable
@@ -227,7 +227,7 @@ export const BillingProductPricingTable = ({
                             rowExpandable: (row) => !!row.subrows?.rows?.length,
                         }}
                     />
-                    <LemonBanner type="warning" className="text-sm pt-2 mt-2">
+                    <LemonBanner type="warning" className="mt-2 pt-2 text-sm">
                         Tier breakdowns are updated once daily and may differ from the gauge above.
                     </LemonBanner>
                 </>

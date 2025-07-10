@@ -22,7 +22,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
     const poorWidth = 100 - goodWidth - improvementsWidth
 
     return (
-        <div className="w-full h-1 rounded-full relative">
+        <div className="relative h-1 w-full rounded-full">
             {/* Green segment up to "good" threshold */}
             <div
                 // eslint-disable-next-line react/forbid-dom-props
@@ -30,7 +30,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                     width: `${goodWidth}%`,
                     backgroundColor: band === 'good' ? `${WEB_VITALS_COLORS.good} !important` : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-secondary"
+                className="bg-surface-secondary absolute h-full rounded-full"
             >
                 <IndicatorLine value={value} metric={metric} band="good" />
             </div>
@@ -46,7 +46,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                             ? `${WEB_VITALS_COLORS.needs_improvements} !important`
                             : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-secondary"
+                className="bg-surface-secondary absolute h-full rounded-full"
             >
                 <IndicatorLine value={value} metric={metric} band="needs_improvements" />
             </div>
@@ -59,7 +59,7 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                     width: `${poorWidth - 1}%`,
                     backgroundColor: band === 'poor' ? `${WEB_VITALS_COLORS.poor} !important` : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-secondary"
+                className="bg-surface-secondary absolute h-full rounded-full"
             >
                 <IndicatorLine value={value} metric={metric} band="poor" />
             </div>
@@ -90,7 +90,7 @@ const IndicatorLine = ({ value, metric, band }: IndicatorLineProps): JSX.Element
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={{ left: `${positionInBand * 100}%`, backgroundColor }}
-            className="absolute w-0.5 h-3 -top-1"
+            className="absolute -top-1 h-3 w-0.5"
         />
     )
 }

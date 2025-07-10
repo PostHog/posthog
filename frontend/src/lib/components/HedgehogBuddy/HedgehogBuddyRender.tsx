@@ -19,7 +19,7 @@ export function HedgehogBuddyStatic({
 
     return (
         <div
-            className="relative overflow-hidden select-none flex-none m-[-2px]"
+            className="relative m-[-2px] flex-none select-none overflow-hidden"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: imgSize,
@@ -27,7 +27,7 @@ export function HedgehogBuddyStatic({
             }}
         >
             <div
-                className="object-cover absolute inset-0 rendering-pixelated bg-cover"
+                className="rendering-pixelated absolute inset-0 bg-cover object-cover"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     filter: filter as any,
@@ -41,7 +41,7 @@ export function HedgehogBuddyStatic({
                 <img
                     key={index}
                     src={`${spriteAccessoryUrl(accessory.img)}`}
-                    className="object-cover absolute inset-0 rendering-pixelated pointer-events-none"
+                    className="rendering-pixelated pointer-events-none absolute inset-0 object-cover"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: imgSize,
@@ -57,14 +57,14 @@ export function HedgehogBuddyStatic({
 export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProps): JSX.Element {
     return (
         <div
-            className="relative rounded-full overflow-hidden"
+            className="relative overflow-hidden rounded-full"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: size,
                 height: size,
             }}
         >
-            <div className="absolute top-0 left-0 w-full h-full transform translate-x-[-3%] translate-y-[10%] scale-[1.8]">
+            <div className="absolute left-0 top-0 h-full w-full translate-x-[-3%] translate-y-[10%] scale-[1.8] transform">
                 <HedgehogBuddyStatic {...props} size={size} />
             </div>
         </div>

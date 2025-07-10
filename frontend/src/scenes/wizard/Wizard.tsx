@@ -16,18 +16,18 @@ export function Wizard(): JSX.Element {
 
     return (
         <div className="flex h-full w-full items-center justify-center">
-            <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
+            <div className="max-w-160 flex w-full flex-col items-center px-12 py-8 text-center">
                 {(view === 'pending' || view === 'creating') && (
                     <>
                         <h1 className="text-lg font-bold">Authenticating setup wizard...</h1>
-                        <Spinner className="w-16 h-16 mt-12" />
+                        <Spinner className="mt-12 h-16 w-16" />
                     </>
                 )}
                 {view === 'success' && (
                     <>
                         <h1 className="text-3xl font-bold">Success!</h1>
-                        <div className="max-w-60 mb-12">
-                            <HeartHog className="w-48 h-48" />
+                        <div className="mb-12 max-w-60">
+                            <HeartHog className="h-48 w-48" />
                         </div>
                         <p className="text-lg">You're all set! You can return to the PostHog setup wizard.</p>
                     </>

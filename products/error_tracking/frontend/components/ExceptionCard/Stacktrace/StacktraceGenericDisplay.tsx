@@ -66,13 +66,13 @@ export function StacktraceGenericExceptionHeader({
 
     return (
         <div className="pb-1">
-            <div className="flex gap-2 items-center h-6">
+            <div className="flex h-6 items-center gap-2">
                 {loading ? (
-                    <LemonSkeleton className="w-[25%] h-2" />
+                    <LemonSkeleton className="h-2 w-[25%]" />
                 ) : (
                     <>
                         {runtime && <RuntimeIcon runtime={runtime} />}
-                        <div className="font-bold text-lg">{type || 'Unknown type'}</div>
+                        <div className="text-lg font-bold">{type || 'Unknown type'}</div>
                         {part && <FingerprintRecordPartDisplay part={part} />}
                     </>
                 )}
@@ -83,7 +83,7 @@ export function StacktraceGenericExceptionHeader({
                 })}
             >
                 {loading ? (
-                    <LemonSkeleton className="w-[50%] h-2" />
+                    <LemonSkeleton className="h-2 w-[50%]" />
                 ) : isScriptError ? (
                     <Tooltip
                         title="This error occurs when JavaScript errors are caught by the browser but details are hidden due to cross-origin restrictions."

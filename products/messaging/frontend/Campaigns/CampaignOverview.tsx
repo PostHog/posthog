@@ -22,7 +22,7 @@ export function CampaignOverview(props: CampaignLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <Form id="campaign-overview" logic={campaignLogic} props={props} formKey="campaign" enableFormOnSubmit>
-                <div className="flex flex-col flex-wrap gap-4 items-start">
+                <div className="flex flex-col flex-wrap items-start gap-4">
                     <BasicInfoSection />
                     <TriggerSection {...props} />
                     <ConversionGoalSection />
@@ -35,7 +35,7 @@ export function CampaignOverview(props: CampaignLogicProps): JSX.Element {
 
 function BasicInfoSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 py-2 w-120">
+        <div className="w-120 flex flex-col gap-2 py-2">
             <LemonField name="name" label="Name">
                 <LemonInput />
             </LemonField>
@@ -51,7 +51,7 @@ function TriggerSection(props: CampaignLogicProps): JSX.Element {
     const { campaignValidationErrors } = useValues(logic)
 
     return (
-        <div className="flex flex-col py-2 w-full">
+        <div className="flex w-full flex-col py-2">
             <div className="flex flex-col">
                 <span className="flex items-center">
                     <IconBolt className="text-lg" />
@@ -71,7 +71,7 @@ function TriggerSection(props: CampaignLogicProps): JSX.Element {
                 )}
             </LemonField>
             {campaignValidationErrors.trigger?.filters && (
-                <span className="text-danger text-sm mt-2">{campaignValidationErrors.trigger.filters}</span>
+                <span className="text-danger mt-2 text-sm">{campaignValidationErrors.trigger.filters}</span>
             )}
         </div>
     )
@@ -79,7 +79,7 @@ function TriggerSection(props: CampaignLogicProps): JSX.Element {
 
 function ConversionGoalSection(): JSX.Element {
     return (
-        <div className="flex flex-col py-2 w-full">
+        <div className="flex w-full flex-col py-2">
             <div className="flex flex-col">
                 <span className="flex items-center gap-1">
                     <IconTarget className="text-lg" />
@@ -89,8 +89,8 @@ function ConversionGoalSection(): JSX.Element {
             </div>
             <LemonDivider />
 
-            <div className="flex gap-1 max-w-240">
-                <div className="flex flex-col flex-2 gap-4">
+            <div className="max-w-240 flex gap-1">
+                <div className="flex-2 flex flex-col gap-4">
                     <LemonField name={['conversion', 'filters']} label="Detect conversion from property changes">
                         {({ value, onChange }) => (
                             <PropertyFilters
@@ -153,7 +153,7 @@ function ConversionGoalSection(): JSX.Element {
 
 function ExitConditionSection(): JSX.Element {
     return (
-        <div className="flex flex-col flex-1 w-full py-2">
+        <div className="flex w-full flex-1 flex-col py-2">
             <div className="flex flex-col">
                 <span className="flex items-center gap-1">
                     <IconLeave className="text-lg" />

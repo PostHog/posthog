@@ -104,7 +104,7 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative flex inline-flex w-fit flex-row flex-nowrap items-center gap-1 break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
@@ -326,7 +326,7 @@ export function PropertiesTable({
                             {
                                 key: 'value',
                                 title: (
-                                    <div className="flex justify-between w-full">
+                                    <div className="flex w-full justify-between">
                                         <div>Value</div>
                                         <LemonTag type="muted" className="font-mono uppercase">
                                             array
@@ -462,7 +462,7 @@ export function PropertiesTable({
         return (
             <>
                 {(searchable || filterable) && (
-                    <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
                         <span className="flex justify-between gap-2">
                             {searchable && (
                                 <LemonInput

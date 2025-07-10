@@ -19,9 +19,9 @@ export function ConfidenceIntervalAxis({ chartRadius }: { chartRadius: number })
 
     const { ticksSvgRef, ticksSvgHeight } = useSvgResizeObserver([tickValues, chartRadius])
     return (
-        <div className="flex border-t border-l border-r rounded-t">
+        <div className="flex rounded-t border-l border-r border-t">
             {/* Left column - padding space above the metric panel */}
-            <div className="w-1/5 border-r border-primary">
+            <div className="border-primary w-1/5 border-r">
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${ticksSvgHeight}px` }}

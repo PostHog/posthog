@@ -52,7 +52,7 @@ export function DashboardEditBar(): JSX.Element {
         <Popover
             visible={!canAutoPreview && filtersUpdated}
             overlay={
-                <div className="flex items-center gap-2 m-1">
+                <div className="m-1 flex items-center gap-2">
                     <LemonButton
                         onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
                         loading={cancellingPreview}
@@ -71,9 +71,9 @@ export function DashboardEditBar(): JSX.Element {
         >
             <div
                 className={clsx(
-                    'flex gap-2 items-end flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
+                    'flex flex-wrap items-end gap-2 border [&>*]:grow md:[&>*]:grow-0',
                     dashboardMode === DashboardMode.Edit
-                        ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
+                        ? 'border-primary -m-1.5 rounded-lg border-dashed p-1.5'
                         : 'border-transparent'
                 )}
             >

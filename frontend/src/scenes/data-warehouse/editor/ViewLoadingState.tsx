@@ -34,7 +34,7 @@ export function ViewEmptyState(): JSX.Element {
     }, [])
 
     return (
-        <div data-attr="view-empty-state" className="flex flex-col flex-1 items-center justify-center">
+        <div data-attr="view-empty-state" className="flex flex-1 flex-col items-center justify-center">
             <span
                 className={`text-center transition-opacity duration-300 ${
                     isMessageVisible ? 'opacity-100' : 'opacity-0'

@@ -58,14 +58,14 @@ export function ExperimentMetricModal({
             width={1000}
             title="Edit experiment metric"
             footer={
-                <div className="flex items-center w-full">
+                <div className="flex w-full items-center">
                     <LemonButton
                         type="secondary"
                         status="danger"
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this metric?',
-                                content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                                content: <div className="text-muted text-sm">This action cannot be undone.</div>,
                                 primaryButton: {
                                     children: 'Delete',
                                     type: 'primary',
@@ -89,7 +89,7 @@ export function ExperimentMetricModal({
                     >
                         Delete
                     </LemonButton>
-                    <div className="flex items-center gap-2 ml-auto">
+                    <div className="ml-auto flex items-center gap-2">
                         <LemonButton form="edit-experiment-metric-form" type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>

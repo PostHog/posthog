@@ -67,12 +67,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 flex-0 flex gap-2 justify-between flex-wrap')}>
+            <div className={clsx('flex-0 flex flex-wrap justify-between gap-2 p-4')}>
                 {groupDataLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : groupData ? (
                     <>
-                        <div className="flex-1 font-semibold truncate">{groupDisplay}</div>
+                        <div className="flex-1 truncate font-semibold">{groupDisplay}</div>
                         <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
                     </>
                 ) : null}

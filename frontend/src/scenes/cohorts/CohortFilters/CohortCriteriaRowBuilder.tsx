@@ -82,7 +82,7 @@ export function CohortCriteriaRowBuilder({
                 }}
             >
                 <>
-                    <div className="flex flex-nowrap items-center mb-1">
+                    <div className="mb-1 flex flex-nowrap items-center">
                         <KeaField
                             name="value"
                             template={({ error, kids }) => {
@@ -121,7 +121,7 @@ export function CohortCriteriaRowBuilder({
                     </div>
                     <div className="flex">
                         <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
-                        <div className="flex flex-wrap items-center min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center">
                             {rowShape.fields.map((field, i) => {
                                 return (
                                     !field.hide &&

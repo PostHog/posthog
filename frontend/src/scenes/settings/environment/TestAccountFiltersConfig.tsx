@@ -157,7 +157,7 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
             </p>
             <div className="mt-4">
                 <strong>Example filters</strong>
-                <ul className="list-disc pl-4 mb-2">
+                <ul className="mb-2 list-disc pl-4">
                     <li>
                         Add a cohort where "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to
                         exclude your team.

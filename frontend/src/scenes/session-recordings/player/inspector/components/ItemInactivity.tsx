@@ -6,11 +6,11 @@ import { InspectorListItemInactivity } from 'scenes/session-recordings/player/in
 
 export function ItemInactivity({ item }: { item: InspectorListItemInactivity }): JSX.Element {
     return (
-        <div className="w-full text-xs items-center justify-center flex">
+        <div className="flex w-full items-center justify-center text-xs">
             <LemonDivider className="shrink" />
-            <div className="flex-1 flex px-2">
+            <div className="flex flex-1 px-2">
                 <IconClock />
-                <div className="flex-1 min-w-30 ml-2">
+                <div className="min-w-30 ml-2 flex-1">
                     {humanFriendlyDuration(item.durationMs / 1000)} of inactivity
                 </div>
             </div>

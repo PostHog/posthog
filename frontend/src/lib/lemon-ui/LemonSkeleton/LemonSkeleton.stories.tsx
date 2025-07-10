@@ -55,7 +55,7 @@ export function Presets(): JSX.Element {
                 }
             >
                 <div className="deprecated-space-y-2">
-                    <LemonSkeleton className="w-1/2 h-4" />
+                    <LemonSkeleton className="h-4 w-1/2" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             </LemonModal>
@@ -71,14 +71,14 @@ export function Customisation(): JSX.Element {
             <LemonLabel>Default</LemonLabel>
             <LemonSkeleton />
             <LemonLabel>Custom classNames</LemonLabel>
-            <LemonSkeleton className="h-10 rounded-lg w-1/3" />
+            <LemonSkeleton className="h-10 w-1/3 rounded-lg" />
         </div>
     )
 }
 
 export function Repeat(): JSX.Element {
     return (
-        <div className="deprecated-space-y-2 p-2 rounded">
+        <div className="deprecated-space-y-2 rounded p-2">
             <p>
                 Skeletons can be easily repeated multiple times using the <b>repeat</b> property
             </p>

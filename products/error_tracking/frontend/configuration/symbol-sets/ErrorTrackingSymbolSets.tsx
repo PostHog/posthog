@@ -55,7 +55,7 @@ export function ErrorTrackingSymbolSets(): JSX.Element {
                 will only apply to all future exceptions ingested.
             </p>
             <div className="space-y-2">
-                <div className="flex justify-end items-center gap-2">
+                <div className="flex items-center justify-end gap-2">
                     <span className="mb-0">Status:</span>
                     <LemonSegmentedButton
                         size="xsmall"
@@ -82,7 +82,7 @@ const SymbolSetTable = (): JSX.Element => {
             width: 200,
             render: (_, { ref }) => {
                 return (
-                    <div className="truncate w-100 overflow-hidden rtl py-0.5" title={ref}>
+                    <div className="w-100 rtl overflow-hidden truncate py-0.5" title={ref}>
                         {ref}
                     </div>
                 )
@@ -112,7 +112,7 @@ const SymbolSetTable = (): JSX.Element => {
             align: 'right',
             render: (_, { id, failure_reason }) => {
                 return (
-                    <div className="flex justify-end items-center gap-1">
+                    <div className="flex items-center justify-end gap-1">
                         <LemonButton
                             type={failure_reason ? 'primary' : 'tertiary'}
                             size="xsmall"

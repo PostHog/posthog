@@ -57,7 +57,7 @@ export function CyclotronJobInputs({
     showSource,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
-        return <span className="italic text-secondary">This function does not require any input variables.</span>
+        return <span className="text-secondary italic">This function does not require any input variables.</span>
     }
 
     const inputSchemas = configuration.inputs_schema
@@ -147,7 +147,7 @@ function JsonConfigField(props: {
                             globals={props.templating ? props.sampleGlobalsWithInputs : undefined}
                         />
                         {props.templating ? (
-                            <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
+                            <span className="absolute right-0 top-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
                                 <CyclotronJobTemplateSuggestionsButton
                                     templating={templatingKind}
                                     value={jsonValue}
@@ -209,7 +209,7 @@ function CyclotronJobTemplateInput(props: {
                 language={props.input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
                 globals={props.sampleGlobalsWithInputs}
             />
-            <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="absolute right-0 top-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
                 <CyclotronJobTemplateSuggestionsButton
                     templating={templating}
                     value={props.input.value}
@@ -264,12 +264,12 @@ function DictionaryField({
                 </LemonButton>
             ) : null}
             {entries.map(([key, val], index) => (
-                <div className="flex gap-2 items-center" key={index}>
+                <div className="flex items-center gap-2" key={index}>
                     <Tooltip title={EXTEND_OBJECT_KEY === key ? 'Include properties from an entire object' : undefined}>
                         <LemonInput
                             value={key === EXTEND_OBJECT_KEY ? 'INCLUDE ENTIRE OBJECT' : key}
                             disabled={key === EXTEND_OBJECT_KEY}
-                            className="flex-1 min-w-60"
+                            className="min-w-60 flex-1"
                             onChange={(key) => {
                                 const newEntries = [...entries]
                                 newEntries[index] = [key, newEntries[index][1]]
@@ -280,7 +280,7 @@ function DictionaryField({
                     </Tooltip>
 
                     <CyclotronJobTemplateInput
-                        className="overflow-hidden flex-2"
+                        className="flex-2 overflow-hidden"
                         input={{ ...input, value: val }}
                         onChange={(val) => {
                             const newEntries = [...entries]
@@ -422,7 +422,7 @@ function CyclotronJobInputSchemaControls({
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap flex-1 gap-2 items-center">
+            <div className="flex flex-1 flex-wrap items-center gap-2">
                 <LemonSelect
                     size="small"
                     options={INPUT_TYPE_LIST.map((type) => ({
@@ -453,7 +453,7 @@ function CyclotronJobInputSchemaControls({
                     Done
                 </LemonButton>
             </div>
-            <div className="flex flex-wrap flex-1 gap-2">
+            <div className="flex flex-1 flex-wrap gap-2">
                 <LemonField.Pure label="Display label">
                     <LemonInput
                         className="min-w-60"
@@ -608,7 +608,7 @@ function CyclotronJobInputWithSchema({
 
                         return (
                             <>
-                                <div className="flex gap-2 items-center">
+                                <div className="flex items-center gap-2">
                                     <LemonLabel
                                         className={showSource ? 'cursor-grab' : ''}
                                         showOptional={!schema.required}
@@ -639,8 +639,8 @@ function CyclotronJobInputWithSchema({
                                     )}
                                 </div>
                                 {value?.secret ? (
-                                    <div className="flex gap-2 items-center p-1 rounded border border-dashed">
-                                        <span className="flex-1 p-1 italic text-secondary">
+                                    <div className="flex items-center gap-2 rounded border border-dashed p-1">
+                                        <span className="text-secondary flex-1 p-1 italic">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
@@ -667,7 +667,7 @@ function CyclotronJobInputWithSchema({
                     }}
                 </LemonField>
             ) : (
-                <div className="p-2 rounded border border-dashed deprecated-space-y-4">
+                <div className="deprecated-space-y-4 rounded border border-dashed p-2">
                     <CyclotronJobInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}

@@ -183,7 +183,7 @@ export function HogFunctionList({
 
     return (
         <>
-            <div className="flex gap-2 items-center mb-2">
+            <div className="mb-2 flex items-center gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search..."
@@ -224,7 +224,7 @@ export function HogFunctionList({
                     }
                     footer={
                         hiddenHogFunctions.length > 0 && (
-                            <div className="p-3 text-secondary">
+                            <div className="text-secondary p-3">
                                 {hiddenHogFunctions.length} hidden.{' '}
                                 <Link
                                     onClick={() => {

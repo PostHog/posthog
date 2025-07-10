@@ -80,8 +80,8 @@ function AccountInfo(): JSX.Element {
             >
                 <ProfilePicture user={user} size="xl" />
                 <div className="AccountInfo__identification AccountPopover__main-info font-sans font-normal">
-                    <div className="font-semibold mb-1">{user?.first_name}</div>
-                    <div className="overflow-hidden text-secondary truncate text-[0.8125rem]" title={user?.email}>
+                    <div className="mb-1 font-semibold">{user?.first_name}</div>
+                    <div className="text-secondary overflow-hidden truncate text-[0.8125rem]" title={user?.email}>
                         {user?.email}
                     </div>
                 </div>
@@ -131,7 +131,7 @@ function AccountOwner({ name, email }: { name: string; email: string }): JSX.Ele
             sideIcon={<IconCopy />}
             tooltip="This is your dedicated PostHog human. Click to copy their email. They can help you with trying out new products, solving problems, and reducing your spend."
         >
-            <div className="flex items-center gap-2 grow">
+            <div className="flex grow items-center gap-2">
                 <ProfilePicture
                     user={{
                         first_name: name,
@@ -140,8 +140,8 @@ function AccountOwner({ name, email }: { name: string; email: string }): JSX.Ele
                     size="md"
                 />
                 <div>
-                    <div className="font-medium truncate">{name}</div>
-                    <div className="text-sm text-muted truncate">{email}</div>
+                    <div className="truncate font-medium">{name}</div>
+                    <div className="text-muted truncate text-sm">{email}</div>
                 </div>
             </div>
         </LemonButton>
@@ -280,7 +280,7 @@ export function AccountPopoverOverlay(): JSX.Element {
                 <InviteMembersButton />
                 {billing?.account_owner?.email && billing?.account_owner?.name && (
                     <>
-                        <h5 className="flex items-center mt-2">YOUR POSTHOG HUMAN</h5>
+                        <h5 className="mt-2 flex items-center">YOUR POSTHOG HUMAN</h5>
                         <AccountOwner name={billing.account_owner.name} email={billing.account_owner.email} />
                     </>
                 )}

@@ -289,7 +289,7 @@ function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
     return (
         <h1 className="TopBar3000__here" data-attr="top-bar-name">
             {breadcrumb.name == null ? (
-                <LemonSkeleton className="w-40 h-4" />
+                <LemonSkeleton className="h-4 w-40" />
             ) : breadcrumb.onRename ? (
                 <EditableField
                     name="item-name-large"

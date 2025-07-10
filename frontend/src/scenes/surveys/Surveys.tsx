@@ -93,7 +93,7 @@ export function Surveys(): JSX.Element {
                         </LemonButton>
                     </>
                 }
-                className="flex gap-2 justify-between items-center min-w-full"
+                className="flex min-w-full items-center justify-between gap-2"
                 caption={
                     <>
                         <div>
@@ -153,14 +153,14 @@ export function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex flex-wrap gap-2 justify-between mb-4">
+                                <div className="mb-4 flex flex-wrap justify-between gap-2">
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
                                         onChange={setSearchTerm}
                                         value={searchTerm || ''}
                                     />
-                                    <div className="flex gap-2 items-center">
+                                    <div className="flex items-center gap-2">
                                         <span>
                                             <b>Status</b>
                                         </span>
@@ -296,7 +296,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Launch this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-secondary">
+                                                                                <div className="text-secondary text-sm">
                                                                                     The survey will immediately start
                                                                                     displaying to users matching the
                                                                                     display conditions.
@@ -334,7 +334,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Stop this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-secondary">
+                                                                                <div className="text-secondary text-sm">
                                                                                     The survey will no longer be visible
                                                                                     to your users.
                                                                                 </div>
@@ -371,7 +371,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Resume this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-secondary">
+                                                                                <div className="text-secondary text-sm">
                                                                                     Once resumed, the survey will be
                                                                                     visible to your users again.
                                                                                 </div>
@@ -421,7 +421,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Archive this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-secondary">
+                                                                                <div className="text-secondary text-sm">
                                                                                     This action will remove the survey
                                                                                     from your active surveys list. It
                                                                                     can be restored at any time.
@@ -457,7 +457,7 @@ export function Surveys(): JSX.Element {
                                                                     LemonDialog.open({
                                                                         title: 'Delete this survey?',
                                                                         content: (
-                                                                            <div className="text-sm text-secondary">
+                                                                            <div className="text-secondary text-sm">
                                                                                 This action cannot be undone. All survey
                                                                                 data will be permanently removed.
                                                                             </div>

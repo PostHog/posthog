@@ -88,7 +88,7 @@ function PlayerSeekbarTick({
                     ) : isNotebookComment(item) ? (
                         item.data.comment
                     ) : (
-                        <div className="flex flex-col px-4 py-2 gap-y-2">
+                        <div className="flex flex-col gap-y-2 px-4 py-2">
                             <div>{item.data.content}</div>
                             <ProfilePicture
                                 user={

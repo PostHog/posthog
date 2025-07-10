@@ -261,16 +261,16 @@ export function NodeCanvas<T extends Node>({ nodes, renderNode }: NodeCanvasProp
     }
 
     return (
-        <div className="w-full h-full relative">
+        <div className="relative h-full w-full">
             <canvas
                 ref={canvasRef}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                className={clsx('w-full h-full absolute inset-0', isDragging ? 'cursor-grabbing' : 'cursor-grab')}
+                className={clsx('absolute inset-0 h-full w-full', isDragging ? 'cursor-grabbing' : 'cursor-grab')}
             />
-            <svg className="absolute inset-0 w-full h-full pointer-events-none">
+            <svg className="pointer-events-none absolute inset-0 h-full w-full">
                 {edges.map((edge, index) => {
                     const controlPoint1X = edge.from.x + offset.x + (edge.to.x - edge.from.x) / 3
                     const controlPoint1Y = edge.from.y + offset.y

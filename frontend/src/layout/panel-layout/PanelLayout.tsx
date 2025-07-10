@@ -180,7 +180,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-layout-panel-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
+                    className="bg-fill-highlight-200 fixed inset-0 z-[var(--z-layout-panel-under)] h-screen w-screen"
                 />
             )}
 
@@ -190,7 +190,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         // Return to tree mode when clicking outside the table view
                         setProjectTreeMode('tree')
                     }}
-                    className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200"
+                    className="bg-fill-highlight-200 fixed inset-0 z-[var(--z-layout-navbar-under)] h-screen w-screen"
                 />
             )}
         </>

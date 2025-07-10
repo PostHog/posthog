@@ -114,7 +114,7 @@ const SupportResponseTimesTable = ({
     ]
 
     return (
-        <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
+        <div className="bg-surface-primary mb-2 grid grid-cols-2 rounded border [&_>*]:px-2 [&_>*]:py-0.5">
             {plansToDisplay.map((plan, index) => {
                 const isBold = plan.current_plan
 
@@ -156,15 +156,15 @@ const SupportResponseTimesTable = ({
             {/* Display expired trial information */}
             {!hasActiveTrial && hasExpiredTrial && expiredTrialDate && (
                 <>
-                    <div className="border-t text-muted col-span-2">Trial expired</div>
+                    <div className="text-muted col-span-2 border-t">Trial expired</div>
                 </>
             )}
 
             {/* Display active trial information integrated into the table */}
             {hasActiveTrial && (
                 <>
-                    <div className="font-bold border-t">Your trial</div>
-                    <div className="font-bold border-t text-right">1 business day</div>
+                    <div className="border-t font-bold">Your trial</div>
+                    <div className="border-t text-right font-bold">1 business day</div>
                     {billing?.trial?.expires_at && (
                         <div className="col-span-2 text-sm">
                             (Trial expires {dayjs(billing.trial.expires_at).format('MMMM D, YYYY')})
@@ -232,7 +232,7 @@ export function SidePanelSupport(): JSX.Element {
                     onClick={onCancel}
                     fullWidth
                     center
-                    className="mt-2 mb-4"
+                    className="mb-4 mt-2"
                 >
                     Cancel
                 </LemonButton>
@@ -240,9 +240,9 @@ export function SidePanelSupport(): JSX.Element {
                 <br />
 
                 {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
-                    <div className="border bg-surface-primary p-2 rounded gap-2">
+                    <div className="bg-surface-primary gap-2 rounded border p-2">
                         <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
-                        <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
+                        <p className="mb-0 mt-2">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
                     </div>
                 ) : (
                     <>
@@ -262,8 +262,8 @@ export function SidePanelSupport(): JSX.Element {
         <div className="SidePanelSupport">
             <SidePanelPaneHeader title={isEmailFormOpen ? supportPanelTitle : 'Help'} />
 
-            <div className="overflow-y-auto flex flex-col h-full">
-                <div className="p-3 max-w-160 w-full mx-auto flex-1 flex flex-col justify-center">
+            <div className="flex h-full flex-col overflow-y-auto">
+                <div className="max-w-160 mx-auto flex w-full flex-1 flex-col justify-center p-3">
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded ? (
                         <SupportFormBlock
                             onCancel={() => {

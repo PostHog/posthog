@@ -56,9 +56,9 @@ export function ExposureCriteriaModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="flex gap-4 mb-4">
+            <div className="mb-4 flex gap-4">
                 <LemonButton
-                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer rounded border p-4 ${
                         !experiment.exposure_criteria?.exposure_config
                             ? 'border-accent bg-accent-highlight-secondary'
                             : 'border-primary'
@@ -69,19 +69,19 @@ export function ExposureCriteriaModal(): JSX.Element {
                         })
                     }}
                 >
-                    <div className="font-semibold flex justify-between items-center">
+                    <div className="flex items-center justify-between font-semibold">
                         <span>Default</span>
                         {!experiment.exposure_criteria?.exposure_config && (
                             <IconCheckCircle fontSize={18} color="var(--accent)" />
                         )}
                     </div>
-                    <div className="text-secondary text-sm leading-relaxed mt-1">
+                    <div className="text-secondary mt-1 text-sm leading-relaxed">
                         When a <LemonTag>$feature_flag_called</LemonTag> event is recorded, a user is considered{' '}
                         <strong>exposed</strong> to the experiment and included in the analysis.
                     </div>
                 </LemonButton>
                 <LemonButton
-                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer rounded border p-4 ${
                         experiment.exposure_criteria?.exposure_config
                             ? 'border-accent bg-accent-highlight-secondary'
                             : 'border-primary'
@@ -96,13 +96,13 @@ export function ExposureCriteriaModal(): JSX.Element {
                         })
                     }}
                 >
-                    <div className="font-semibold flex justify-between items-center">
+                    <div className="flex items-center justify-between font-semibold">
                         <span>Custom</span>
                         {experiment.exposure_criteria?.exposure_config && (
                             <IconCheckCircle fontSize={18} color="var(--accent)" />
                         )}
                     </div>
-                    <div className="text-secondary text-sm leading-relaxed mt-1">
+                    <div className="text-secondary mt-1 text-sm leading-relaxed">
                         If you can't rely on the <LemonTag>$feature_flag_called</LemonTag> event, you can select a
                         custom event to signal that users reached the part of your app where the experiment runs. You
                         can also filter out users you would like to exclude from the analysis.
@@ -135,7 +135,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                 </div>
             )}
             <div className="mb-4">
-                <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>
+                <label className="text-default mb-2 block text-sm font-medium">Multiple variant handling</label>
                 <LemonSelect
                     value={experiment.exposure_criteria?.multiple_variant_handling || 'exclude'}
                     onChange={(value) => {
@@ -158,7 +158,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                     placeholder="Select handling method"
                     fullWidth
                 />
-                <div className="text-xs text-muted mt-1">
+                <div className="text-muted mt-1 text-xs">
                     {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
                         'Users exposed to multiple variants will be analyzed using their first seen variant.'}
                     {(!experiment.exposure_criteria?.multiple_variant_handling ||

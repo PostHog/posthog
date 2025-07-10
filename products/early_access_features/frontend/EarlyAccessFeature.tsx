@@ -241,7 +241,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 }
             />
             <div className={clsx(isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null)}>
-                <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
+                <div className="flex-2 flex min-w-[15rem] flex-col gap-4">
                     {isNewEarlyAccessFeature && (
                         <LemonField name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
@@ -259,8 +259,8 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             ready to release to your early access users.
                         </LemonBanner>
                     )}
-                    <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex-1 min-w-[20rem]">
+                    <div className="flex flex-wrap items-start gap-4">
+                        <div className="min-w-[20rem] flex-1">
                             {'feature_flag' in earlyAccessFeature ? (
                                 <LemonField.Pure label="Connected Feature flag">
                                     <div>
@@ -303,7 +303,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </div>
 
                         {!isNewEarlyAccessFeature && earlyAccessFeature.stage !== 'draft' ? (
-                            <div className="flex-1 min-w-[20rem]">
+                            <div className="min-w-[20rem] flex-1">
                                 <b>Stage</b>
                                 <div>
                                     {isEditingFeature ? (
@@ -348,8 +348,8 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             </div>
                         ) : null}
                     </div>
-                    <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex-1 min-w-[20rem]">
+                    <div className="flex flex-wrap items-start gap-4">
+                        <div className="min-w-[20rem] flex-1">
                             {isEditingFeature || isNewEarlyAccessFeature ? (
                                 <LemonField name="description" label="Description" showOptional>
                                     <LemonTextArea
@@ -370,7 +370,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             )}
                         </div>
-                        <div className="flex-1 min-w-[20rem]">
+                        <div className="min-w-[20rem] flex-1">
                             {isEditingFeature || isNewEarlyAccessFeature ? (
                                 <LemonField name="documentation_url" label="Documentation URL" showOptional>
                                     <LemonInput
@@ -412,7 +412,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
                         <LemonDivider className="my-8" />
-                        <div className="flex gap-4 justify-between items-start">
+                        <div className="flex items-start justify-between gap-4">
                             <div>
                                 <h3>Users</h3>
                                 <p>
@@ -563,7 +563,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
     return (
         <div className="relative">
             {/* NOTE: This is a bit of a placement hack - ideally we would be able to add it to the Query */}
-            <div className="absolute top-0 right-0 z-10">
+            <div className="absolute right-0 top-0 z-10">
                 <LemonButton
                     key="view-opt-in-session-recordings"
                     to={urls.replay(ReplayTabs.Home, recordingsFilters)}

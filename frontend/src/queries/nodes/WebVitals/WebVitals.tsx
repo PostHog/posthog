@@ -62,9 +62,9 @@ export function WebVitals(props: {
     )
 
     return (
-        <div className="flex flex-col flex-1 gap-4">
+        <div className="flex flex-1 flex-col gap-4">
             <div className="flex flex-col gap-1">
-                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                     <WebVitalsTab
                         metric="INP"
                         value={INP}
@@ -90,7 +90,7 @@ export function WebVitals(props: {
                         setTab={() => setWebVitalsTab('CLS')}
                     />
                 </div>
-                <span className="text-xs text-text-tertiary self-center sm:self-end">
+                <span className="text-text-tertiary self-center text-xs sm:self-end">
                     Metrics above are from the last day in the selected time range.{' '}
                     <Link to="https://posthog.com/docs/web-analytics/web-vitals#web-vitals-dashboard" target="_blank">
                         Learn more in the Docs.
@@ -98,9 +98,9 @@ export function WebVitals(props: {
                 </span>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} />
-                <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
+                <div className="bg-surface-primary flex flex-1 flex-col rounded border p-4">
                     <Query
                         query={webVitalsMetricQuery}
                         readOnly

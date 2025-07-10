@@ -17,20 +17,20 @@ export function ExperimentsListView({ experiments }: ExperimentsListViewProps): 
     const { selectExperiment } = useActions(experimentsTabLogic)
 
     return (
-        <div key="experiments-list" className="flex flex-col h-full overflow-y-scoll deprecated-space-y-px">
+        <div key="experiments-list" className="overflow-y-scoll deprecated-space-y-px flex h-full flex-col">
             {experiments.length ? (
                 experiments.map((experiment, index) => (
                     <Link
                         subtle
                         key={experiment.id}
                         onClick={() => selectExperiment(experiment.id || null)}
-                        className="font-medium my-1 w-full"
+                        className="my-1 w-full font-medium"
                     >
-                        <span key={experiment.id + 'index'} className="min-w-[2rem] inline-block text-left">
+                        <span key={experiment.id + 'index'} className="inline-block min-w-[2rem] text-left">
                             {index + 1}.
                         </span>
                         <span key={experiment.id + 'name'} className="flex-grow">
-                            {experiment.name || <span className="italic text-secondary">Untitled</span>}
+                            {experiment.name || <span className="text-secondary italic">Untitled</span>}
                         </span>
                     </Link>
                 ))

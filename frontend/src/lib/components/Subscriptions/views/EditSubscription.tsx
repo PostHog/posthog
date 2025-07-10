@@ -100,11 +100,11 @@ export function EditSubscription({
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="deprecated-space-y-4">
-                            <LemonSkeleton className="w-1/2 h-4" />
+                            <LemonSkeleton className="h-4 w-1/2" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton className="w-1/2 h-4" />
+                            <LemonSkeleton className="h-4 w-1/2" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton className="w-1/2 h-4" />
+                            <LemonSkeleton className="h-4 w-1/2" />
                             <LemonSkeleton.Row />
                         </div>
                     ) : (
@@ -265,7 +265,7 @@ export function EditSubscription({
                                 <LemonField name="target_value" label="Webhook URL">
                                     <LemonInput placeholder="https://example.com/webhooks/1234" />
                                 </LemonField>
-                                <div className="text-xs text-secondary mt-2">
+                                <div className="text-secondary mt-2 text-xs">
                                     Webhooks will be called with a HTTP POST request. The webhook endpoint should
                                     respond with a healthy HTTP code (2xx).
                                 </div>
@@ -273,11 +273,11 @@ export function EditSubscription({
                         ) : null}
 
                         <div>
-                            <div className="flex items-baseline justify-between w-full">
+                            <div className="flex w-full items-baseline justify-between">
                                 <LemonLabel className="mb-2">Recurrence</LemonLabel>
-                                <div className="text-xs text-secondary text-right">{currentTimezone}</div>
+                                <div className="text-secondary text-right text-xs">{currentTimezone}</div>
                             </div>
-                            <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
+                            <div className="flex flex-wrap items-center gap-2 rounded border p-2">
                                 <span>Send every</span>
                                 <LemonField name="interval">
                                     <LemonSelect options={intervalOptions} />

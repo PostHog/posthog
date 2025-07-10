@@ -69,7 +69,7 @@ export function OnboardingErrorTrackingAlertsStep({ stepKey }: { stepKey: Onboar
                             dataIndex: 'name',
                             render: (_, record) => {
                                 return (
-                                    <div className="flex gap-2 font-bold items-center">
+                                    <div className="flex items-center gap-2 font-bold">
                                         <HogFunctionIcon size="small" src={record.icon} />
                                         {record.name}
                                     </div>

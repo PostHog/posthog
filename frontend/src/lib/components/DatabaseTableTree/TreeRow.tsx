@@ -33,9 +33,9 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
                 icon={item.icon ? <>{item.icon}</> : null}
                 className="font-mono"
             >
-                <span className="flex-1 flex gap-2">
+                <span className="flex flex-1 gap-2">
                     <span className="truncate">{item.name}</span>
-                    <span className="italic text-secondary">{item.type}</span>
+                    <span className="text-secondary italic">{item.type}</span>
                 </span>
             </LemonButton>
             {menuItems && menuItems.length > 0 && (
@@ -150,7 +150,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                 icon={<IconChevronDown className={collapsed ? 'rotate-270' : undefined} />}
                 tooltip={name}
             >
-                <div className="flex flex-row w-full justify-between">
+                <div className="flex w-full flex-row justify-between">
                     <span className="truncate">{name}</span>
                     {item.table?.type === 'materialized_view' && (
                         <Tooltip title={getTooltipLabel()}>

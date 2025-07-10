@@ -112,7 +112,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     disabledReason: getChannelRefreshButtonDisabledReason(),
                 }}
                 emptyStateComponent={
-                    <p className="text-secondary italic p-1">
+                    <p className="text-secondary p-1 italic">
                         No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
                             See the docs for more information.
@@ -135,7 +135,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">
-                    <div className="flex gap-2 items-center">
+                    <div className="flex items-center gap-2">
                         <span>
                             The PostHog Slack App is not in this channel. Please add it to the channel otherwise
                             Subscriptions will fail to be delivered.{' '}

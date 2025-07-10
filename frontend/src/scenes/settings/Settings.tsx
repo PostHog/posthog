@@ -143,7 +143,7 @@ export function Settings({
             )}
 
             <AuthenticationAreaComponent>
-                <div className="flex-1 w-full min-w-0 space-y-2">
+                <div className="w-full min-w-0 flex-1 space-y-2">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
@@ -177,7 +177,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                 settings.map((x) => (
                     <div key={x.id} className="relative last:mb-4">
                         {!settingsInSidebar && (
-                            <h2 id={x.id} className="flex gap-2 items-center">
+                            <h2 id={x.id} className="flex items-center gap-2">
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
                                     <LemonButton

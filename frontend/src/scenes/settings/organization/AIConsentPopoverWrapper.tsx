@@ -29,8 +29,8 @@ export function AIConsentPopoverWrapper({
         <Popover
             // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
-                <div className="flex flex-col items-end m-1.5">
-                    <p className="font-medium text-pretty mb-1.5">
+                <div className="m-1.5 flex flex-col items-end">
+                    <p className="mb-1.5 text-pretty font-medium">
                         Max needs your approval to potentially process
                         <br />
                         identifying user data using{' '}

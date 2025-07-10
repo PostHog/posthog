@@ -52,7 +52,7 @@ export const SkeletonLog = (): JSX.Element => {
         <div className="ActivityLogRow items-start">
             <LemonSkeleton.Circle />
             <div className="details deprecated-space-y-4 mt-2">
-                <LemonSkeleton className="w-1/2 h-4" />
+                <LemonSkeleton className="h-4 w-1/2" />
                 <LemonSkeleton />
             </div>
         </div>
@@ -76,8 +76,8 @@ const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JS
     const changes = logItem.unprocessed?.detail.changes
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 px-2 py-1">
-            <div className="flex flex-col deprecated-space-y-2">
+        <div className="deprecated-space-y-2 flex flex-col px-2 py-1">
+            <div className="deprecated-space-y-2 flex flex-col">
                 {changes?.length ? (
                     changes.map((change, i) => {
                         return (
@@ -102,7 +102,7 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
     const containerRef = useRef<HTMLDivElement>(null)
     const [width] = useSize(containerRef)
     return (
-        <div ref={containerRef} className="flex flex-col space-y-2 w-full">
+        <div ref={containerRef} className="flex w-full flex-col space-y-2">
             {field ? <h2>{field}</h2> : null}
             <MonacoDiffEditor
                 original={JSON.stringify(before, null, 2)}
@@ -121,9 +121,9 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
     const [isExpanded, setIsExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
     return (
-        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
+        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'rounded border')}>
             <div
-                className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
+                className={clsx('ActivityLogRow deprecated-space-x-2 flex', logItem.unread && 'ActivityLogRow--unread')}
             >
                 <ProfilePicture
                     showName={false}

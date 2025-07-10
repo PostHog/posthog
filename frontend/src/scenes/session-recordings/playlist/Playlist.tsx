@@ -143,7 +143,7 @@ export function Playlist({
     return (
         <>
             <div
-                className={clsx('flex flex-col w-full gap-2 h-full', {
+                className={clsx('flex h-full w-full flex-col gap-2', {
                     'xl:flex-row': true,
                 })}
             >
@@ -156,26 +156,26 @@ export function Playlist({
                     <div
                         ref={playlistRef}
                         data-attr={dataAttr}
-                        className={clsx('Playlist w-full min-w-60 min-h-96', {
+                        className={clsx('Playlist min-h-96 w-full min-w-60', {
                             'Playlist--wide': size !== 'small',
                             'Playlist--embedded': embedded,
                         })}
                     >
                         <div
                             ref={playlistListRef}
-                            className="Playlist__list flex flex-col relative overflow-hidden h-full w-full"
+                            className="Playlist__list relative flex h-full w-full flex-col overflow-hidden"
                         >
-                            <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
+                            <div className="bg-bg-light Playlist__list relative flex h-full w-full flex-col overflow-hidden">
                                 <DraggableToNotebook href={notebooksHref}>
                                     <div className="flex flex-col gap-1">
-                                        <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                                        <div className="bg-bg-3000 relative flex shrink-0 items-center justify-between gap-0.5 whitespace-nowrap border-b">
                                             {title && <TitleWithCount title={title} count={itemsCount} />}
                                             {headerActions}
                                         </div>
                                         <LemonTableLoader loading={loading} />
                                     </div>
                                 </DraggableToNotebook>
-                                <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
+                                <div className="flex-1 overflow-y-auto" onScroll={handleScroll} ref={contentRef}>
                                     {sectionCount > 1 ? (
                                         <LemonCollapse
                                             defaultActiveKeys={openSections}
@@ -214,7 +214,7 @@ export function Playlist({
                                         listEmptyState
                                     )}
                                 </div>
-                                <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
+                                <div className="relative flex shrink-0 items-center justify-between gap-0.5 whitespace-nowrap">
                                     {footerActions}
                                 </div>
                             </div>
@@ -224,7 +224,7 @@ export function Playlist({
                 {!isFiltersExpanded && (
                     <div
                         className={clsx(
-                            'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
+                            'Playlist order-first h-full min-h-96 w-full min-w-96 lg:min-w-[560px] xl:order-none',
                             {
                                 'Playlist--wide': size !== 'small',
                                 'Playlist--embedded': embedded,
@@ -240,7 +240,7 @@ export function Playlist({
                     </div>
                 )}
                 {isFiltersExpanded && filterContent && (
-                    <div className="bg-surface-primary border rounded-md p-2 w-full">{filterContent}</div>
+                    <div className="bg-surface-primary w-full rounded-md border p-2">{filterContent}</div>
                 )}
             </div>
         </>
@@ -251,8 +251,8 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     return (
         <div className="flex items-center gap-0.5">
             {title && (
-                <span className="flex flex-1 gap-1 items-center">
-                    <span className="font-bold uppercase text-xxs tracking-wide">{title}</span>
+                <span className="flex flex-1 items-center gap-1">
+                    <span className="text-xxs font-bold uppercase tracking-wide">{title}</span>
                     <Tooltip
                         placement="bottom"
                         title={
@@ -264,7 +264,7 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
                             </>
                         }
                     >
-                        <span className="rounded py-1 px-2 bg-border-light font-semibold select-none text-xxs">
+                        <span className="bg-border-light text-xxs select-none rounded px-2 py-1 font-semibold">
                             {Math.min(999, count)}+
                         </span>
                     </Tooltip>
@@ -326,9 +326,9 @@ const LoadingState = (): JSX.Element => {
     return (
         <>
             {range(5).map((i) => (
-                <div key={i} className="p-4 deprecated-space-y-2">
-                    <LemonSkeleton className="w-1/2 h-4" />
-                    <LemonSkeleton className="w-1/3 h-4" />
+                <div key={i} className="deprecated-space-y-2 p-4">
+                    <LemonSkeleton className="h-4 w-1/2" />
+                    <LemonSkeleton className="h-4 w-1/3" />
                 </div>
             ))}
         </>

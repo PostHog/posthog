@@ -125,7 +125,7 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
             />
             <LemonDivider />
             <p>You can choose which metrics to capture. By default, we capture all metrics.</p>
-            <div className="inline-grid grid-cols-2 gap-2 xs:grid xs:w-full">
+            <div className="xs:grid xs:w-full inline-grid grid-cols-2 gap-2">
                 <WebVitalsAllowedMetricSwitch metric="CLS" />
                 <WebVitalsAllowedMetricSwitch metric="FCP" />
                 <WebVitalsAllowedMetricSwitch metric="LCP" />

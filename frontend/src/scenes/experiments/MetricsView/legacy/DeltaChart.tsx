@@ -236,7 +236,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                         transform="translate(-90, 0)" // Move left to accommodate tag width
                     >
                         <VariantTag
-                            className="justify-end mt-0.5"
+                            className="mt-0.5 justify-end"
                             experimentId={experimentId as ExperimentIdType}
                             variantKey={variant.key}
                             fontSize={10}
@@ -315,7 +315,7 @@ function VariantBar({ variant, index }: { variant: any; index: number }): JSX.El
                     {/* Move foreignObject for variant tag to left of 0 point */}
                     <foreignObject x={valueToX(0) - 150} y={y + barHeight / 2 - 10} width="90" height="16">
                         <VariantTag
-                            className="justify-end mt-0.5"
+                            className="mt-0.5 justify-end"
                             experimentId={experimentId as ExperimentIdType}
                             variantKey={variant.key}
                             fontSize={10}
@@ -401,12 +401,12 @@ function ChartControls(): JSX.Element {
     return (
         <>
             {/* Chart is z-index 100, so we need to be above it */}
-            <div className="absolute top-2 left-2 z-[102]">
+            <div className="absolute left-2 top-2 z-[102]">
                 <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
             </div>
             {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                 <div
-                    className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
+                    className="absolute bottom-2 left-2 z-[101] flex justify-center bg-[var(--bg-table)]"
                     // Chart is z-index 100, so we need to be above it
                 >
                     <LemonButton
@@ -464,7 +464,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
 
     if (result && hasMinimumExposureForResults) {
         return (
-            <div className="relative w-full max-w-screen">
+            <div className="max-w-screen relative w-full">
                 <ChartControls />
                 <ChartSVG chartSvgRef={chartSvgRef} />
                 <ChartTooltips />
@@ -475,7 +475,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
     }
 
     return (
-        <div className="relative w-full max-w-screen">
+        <div className="max-w-screen relative w-full">
             <ChartEmptyState
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}

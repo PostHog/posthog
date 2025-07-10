@@ -55,7 +55,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                             <p className="text-muted">
                                 <span>
                                     Example:{' '}
-                                    <span className="font-mono text-accent text-xs">/merchant/\d+/dashboard$</span> (no
+                                    <span className="text-accent font-mono text-xs">/merchant/\d+/dashboard$</span> (no
                                     need to escape slashes)
                                 </span>
                                 <br />
@@ -80,13 +80,13 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                 <br />
                                 <span>
                                     Example:{' '}
-                                    <span className="font-mono text-accent text-xs">{'/merchant/<id>/dashboard'}</span>
+                                    <span className="text-accent font-mono text-xs">{'/merchant/<id>/dashboard'}</span>
                                 </span>
                             </p>
                         </div>
                     </div>
 
-                    <div className="flex space-between mt-3">
+                    <div className="space-between mt-3 flex">
                         <AiRegexHelper onApply={setRegex} />
                         <AiRegexHelperButton />
 

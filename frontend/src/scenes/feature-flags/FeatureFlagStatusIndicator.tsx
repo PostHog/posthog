@@ -36,7 +36,7 @@ export function FeatureFlagStatusIndicator({
             placement="right"
         >
             <span>
-                <LemonTag type="warning" className="uppercase cursor-default">
+                <LemonTag type="warning" className="cursor-default uppercase">
                     {flagStatus.status}
                 </LemonTag>
             </span>

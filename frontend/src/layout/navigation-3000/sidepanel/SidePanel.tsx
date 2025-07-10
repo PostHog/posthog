@@ -45,7 +45,7 @@ export const SIDE_PANEL_TABS: Record<
                 <ProfilePicture
                     user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
                     size="md"
-                    className="border bg-bg-light -scale-x-100" // Flip the hedegehog to face the scene
+                    className="bg-bg-light -scale-x-100 border" // Flip the hedegehog to face the scene
                 />
             )
         },
@@ -228,7 +228,7 @@ export function SidePanel(): JSX.Element | null {
                     </div>
                 </div>
                 {menuOptions ? (
-                    <div className="shrink-0 flex items-center m-2">
+                    <div className="m-2 flex shrink-0 items-center">
                         <LemonMenu items={menuOptions}>
                             <LemonButton size="small" icon={<IconEllipsis />} />
                         </LemonMenu>

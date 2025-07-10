@@ -99,7 +99,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                     )}
                                 </th>
                                 <th
-                                    className="relative font-title font-semibold text-secondary uppercase cursor-default text-center"
+                                    className="font-title text-secondary relative cursor-default text-center font-semibold uppercase"
                                     data-attr={`lemon-calendar-month-title-${month}`}
                                     colSpan={5}
                                 >
@@ -123,7 +123,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                             </tr>
                             <tr>
                                 {range(0, 7).map((day) => (
-                                    <th key={day} className="py-2 text-xs font-bold text-secondary uppercase">
+                                    <th key={day} className="text-secondary py-2 text-xs font-bold uppercase">
                                         {dayLabels[firstDay.add(day, 'day').day()]}
                                     </th>
                                 ))}
@@ -169,7 +169,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                 )
             })}
             {granularity != 'day' && (
-                <div className="LemonCalendar__time absolute top-0 bottom-0 right-0 flex divide-x border-l">
+                <div className="LemonCalendar__time absolute bottom-0 right-0 top-0 flex divide-x border-l">
                     <ScrollableShadows direction="vertical">
                         {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((hour) => {
                             const buttonProps = props.getLemonButtonTimeProps?.({
@@ -179,7 +179,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
 
                             return (
                                 <LemonButton fullWidth key={hour} {...buttonProps}>
-                                    <span className="w-full text-center px-2">{String(hour).padStart(2, '0')}</span>
+                                    <span className="w-full px-2 text-center">{String(hour).padStart(2, '0')}</span>
                                 </LemonButton>
                             )
                         })}
@@ -194,7 +194,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                 })
                                 return (
                                     <LemonButton fullWidth key={minute} {...buttonProps}>
-                                        <span className="w-full text-center px-2">
+                                        <span className="w-full px-2 text-center">
                                             {String(minute).padStart(2, '0')}
                                         </span>
                                     </LemonButton>

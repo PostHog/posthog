@@ -134,7 +134,7 @@ export function SurveyDisplaySummary({
     const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
 
     return (
-        <div className="flex flex-col mt-2 gap-2">
+        <div className="mt-2 flex flex-col gap-2">
             <div className="font-semibold">Display conditions summary</div>
             <span className="text-secondary">
                 {hasConditions || hasFeatureFlags
@@ -142,7 +142,7 @@ export function SurveyDisplaySummary({
                     : 'Surveys will be displayed to everyone.'}
             </span>
             {survey.conditions?.url && (
-                <div className="flex flex-col font-medium gap-1">
+                <div className="flex flex-col gap-1 font-medium">
                     <div className="flex-row">
                         <span>
                             URL{' '}
@@ -156,7 +156,7 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {survey.conditions?.deviceTypes && (
-                <div className="flex font-medium gap-1 items-center">
+                <div className="flex items-center gap-1 font-medium">
                     <span>
                         Device Types{' '}
                         {SurveyMatchTypeLabels[
@@ -170,14 +170,14 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {survey.conditions?.selector && (
-                <div className="flex flex-col font-medium gap-1">
+                <div className="flex flex-col gap-1 font-medium">
                     <div className="flex-row">
                         <span>Selector matches:</span> <LemonTag>{survey.conditions.selector}</LemonTag>
                     </div>
                 </div>
             )}
             {survey.linked_flag_id && (
-                <div className="flex flex-row font-medium gap-1">
+                <div className="flex flex-row gap-1 font-medium">
                     <span>Feature flag enabled for:</span>{' '}
                     {id !== 'new' ? (
                         survey.linked_flag?.id ? (
@@ -189,7 +189,7 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {survey.conditions?.seenSurveyWaitPeriodInDays && (
-                <div className="flex flex-col font-medium gap-1">
+                <div className="flex flex-col gap-1 font-medium">
                     <div className="flex-row">
                         <span>Wait period after seeing survey:</span>{' '}
                         <LemonTag>
@@ -208,7 +208,7 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {(survey.conditions?.events?.values.length ?? 0) > 0 && (
-                <div className="flex flex-col font-medium gap-1">
+                <div className="flex flex-col gap-1 font-medium">
                     <div className="flex-row">
                         <span>
                             When the user sends the following events (

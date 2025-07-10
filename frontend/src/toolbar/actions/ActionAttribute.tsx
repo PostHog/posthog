@@ -58,7 +58,7 @@ export function ActionAttribute({
         )
 
     return (
-        <div key={attribute} className="flex flex-row gap-2 justify-between items-center">
+        <div key={attribute} className="flex flex-row items-center justify-between gap-2">
             {automaticActionCreationEnabled && (
                 <LemonSwitch
                     size="small"

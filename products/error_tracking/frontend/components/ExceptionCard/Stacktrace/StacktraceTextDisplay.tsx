@@ -70,7 +70,7 @@ function ExceptionTextDisplay({ exception }: { exception: ErrorTrackingException
     const { showAllFrames } = useValues(exceptionCardLogic)
     return (
         <div>
-            <p className="font-mono mb-0 font-bold line-clamp-1">
+            <p className="mb-0 line-clamp-1 font-mono font-bold">
                 {exception.type}: {exception.value}
             </p>
             {(exception.stacktrace?.frames || [])
@@ -90,11 +90,11 @@ function StackframeTextDisplay({ frame }: { frame: ErrorTrackingStackFrame }): J
     }, [loadFromRawIds, frame.raw_id])
     return (
         <>
-            <p className="font-mono indent-[1rem] whitespace-no-wrap mb-0 line-clamp-1">
+            <p className="whitespace-no-wrap mb-0 line-clamp-1 indent-[1rem] font-mono">
                 File "{frame.source}", line: {frame.line}, in: {frame.resolved_name}
             </p>
             {stackFrameRecords[frame.raw_id] && stackFrameRecords[frame.raw_id].context?.line.line && (
-                <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary line-clamp-1">
+                <p className="whitespace-no-wrap text-tertiary mb-0 line-clamp-1 indent-[2rem] font-mono">
                     {stackFrameRecords[frame.raw_id].context?.line.line}
                 </p>
             )}

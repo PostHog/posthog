@@ -26,9 +26,9 @@ export function PlayerPersonMeta(): JSX.Element {
     }
 
     return (
-        <div className="PlayerMeta__top flex items-center gap-1 shrink-0 cursor-pointer" onClick={onClick}>
+        <div className="PlayerMeta__top flex shrink-0 cursor-pointer items-center gap-1" onClick={onClick}>
             {!sessionPerson ? (
-                <LemonSkeleton.Circle className="w-8 h-8" />
+                <LemonSkeleton.Circle className="h-8 w-8" />
             ) : (
                 <PersonIcon person={sessionPerson} size="md" className="mr-0" />
             )}

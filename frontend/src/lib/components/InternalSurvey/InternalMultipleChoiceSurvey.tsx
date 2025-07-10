@@ -32,7 +32,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                             <>
                                 <strong>{question.question}</strong>
                                 {question.type === SurveyQuestionType.MultipleChoice && (
-                                    <ul className="list-inside list-none mt-2">
+                                    <ul className="mt-2 list-inside list-none">
                                         {question.choices.map((choice, index) => {
                                             // Add an open choice text area if the last choice is an open choice
                                             if (index === question.choices.length - 1 && question.hasOpenChoice) {

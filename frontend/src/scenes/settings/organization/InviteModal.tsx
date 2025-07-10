@@ -65,7 +65,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 <LemonInput
                     placeholder={`${name.toLowerCase()}@posthog.com`}
                     type="email"
-                    className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
+                    className={`error-on-blur${!invitesToSend[index]?.isValid ? 'errored' : ''}`}
                     onChange={(v) => {
                         let isValid = true
                         if (v && !isEmail(v)) {
@@ -84,7 +84,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 />
             </div>
             {preflight?.email_service_available && (
-                <div className="flex-1 flex gap-1 items-center justify-between">
+                <div className="flex flex-1 items-center justify-between gap-1">
                     <LemonInput
                         placeholder={name}
                         className="flex-1"
@@ -100,7 +100,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 </div>
             )}
             {allowedLevelsOptions.length > 1 && (
-                <div className="flex-1 flex gap-1 items-center justify-between">
+                <div className="flex flex-1 items-center justify-between gap-1">
                     <LemonSelect
                         fullWidth
                         data-attr="invite-row-org-member-level"
@@ -113,7 +113,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 </div>
             )}
             {!preflight?.email_service_available && (
-                <div className="flex-1 flex gap-1 items-center justify-between">
+                <div className="flex flex-1 items-center justify-between gap-1">
                     <LemonButton
                         type="primary"
                         className="flex-1"

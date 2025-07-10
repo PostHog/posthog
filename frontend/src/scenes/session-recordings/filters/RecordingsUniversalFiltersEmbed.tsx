@@ -137,7 +137,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                 </>
             </MaxTool>
             {!isZenMode && (
-                <div className="flex gap-2 mt-2 justify-between">
+                <div className="mt-2 flex justify-between gap-2">
                     <HideRecordingsMenu />
                     <SettingsMenu
                         highlightWhenActive={false}
@@ -283,7 +283,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                             e.stopPropagation() // Prevent dropdown from closing
                         }}
                     />
-                    <div className="flex justify-end gap-2 mt-4">
+                    <div className="mt-4 flex justify-end gap-2">
                         <LemonButton type="secondary" onClick={closeSaveFiltersModal} tooltip="Close">
                             Close
                         </LemonButton>
@@ -306,18 +306,18 @@ export const RecordingsUniversalFiltersEmbed = ({
             key: 'filters',
             label: <div className="px-2">Filters</div>,
             content: (
-                <div className={clsx('relative bg-surface-primary w-full ', className)}>
+                <div className={clsx('bg-surface-primary relative w-full', className)}>
                     {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST_MAX_AI] && (
                         <>
-                            <div className="px-2 py-2 text-center mt-4">
-                                <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">
+                            <div className="mt-4 px-2 py-2 text-center">
+                                <h2 className="@md/max-welcome:text-2xl mb-2 text-balance text-xl font-bold">
                                     Ask Max AI
                                 </h2>
                                 <p className="text-secondary text-sm">
                                     Ask Max AI to help you find recordings that match your criteria.
                                 </p>
                             </div>
-                            <div className="flex items-center gap-2 px-2 max-w-2xl mx-auto">
+                            <div className="mx-auto flex max-w-2xl items-center gap-2 px-2">
                                 <LemonInput
                                     placeholder="Show me recordings of people who ..."
                                     size="small"
@@ -333,14 +333,14 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     onClick={handleMaxOpen}
                                 />
                             </div>
-                            <div className="px-2 py-2 font-medium flex items-center justify-center gap-2 text-secondary text-xs my-4">
-                                <div className="h-px bg-border flex-1" />
+                            <div className="text-secondary my-4 flex items-center justify-center gap-2 px-2 py-2 text-xs font-medium">
+                                <div className="bg-border h-px flex-1" />
                                 <span>Or set filters manually</span>
-                                <div className="h-px bg-border flex-1" />
+                                <div className="bg-border h-px flex-1" />
                             </div>
                         </>
                     )}
-                    <div className="flex items-center py-2 justify-between">
+                    <div className="flex items-center justify-between py-2">
                         <AndOrFilterSelect
                             value={filters.filter_group.type}
                             onChange={(type) => {
@@ -377,8 +377,8 @@ export const RecordingsUniversalFiltersEmbed = ({
                         </div>
                     </div>
 
-                    <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
-                        <div className="flex flex-wrap gap-2 items-center">
+                    <div className="mt-2 flex flex-wrap justify-between gap-2 px-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <div className="py-2 font-medium">Applied filters:</div>
                             <DateFilter
                                 dateFrom={filters.date_from ?? '-3d'}
@@ -430,8 +430,8 @@ export const RecordingsUniversalFiltersEmbed = ({
                             </UniversalFilters>
                         </div>
                     </div>
-                    <div className="flex justify-between gap-2 border-t pt-4 mx-2 mt-8 ">
-                        <div className="flex flex-wrap gap-2 items-center justify-end">
+                    <div className="mx-2 mt-8 flex justify-between gap-2 border-t pt-4">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                             <LemonButton
                                 type="tertiary"
                                 size="small"
@@ -500,7 +500,7 @@ export const RecordingsUniversalFiltersEmbed = ({
         {
             key: 'saved',
             label: (
-                <div className="px-2 flex">
+                <div className="flex px-2">
                     <span>
                         {savedFilters.results?.length ? (
                             <LemonBadge.Number count={savedFilters.results?.length} className="mr-2" />
@@ -516,8 +516,8 @@ export const RecordingsUniversalFiltersEmbed = ({
             key: 'explore',
             label: <div className="px-2">Explore</div>,
             content: (
-                <div className="flex flex-col gap-2 w-full pb-2">
-                    <div className="flex flex-row gap-2 w-full">
+                <div className="flex w-full flex-col gap-2 pb-2">
+                    <div className="flex w-full flex-row gap-2">
                         <ReplayActiveUsersTable />
                         <ReplayActiveScreensTable />
                     </div>
@@ -530,7 +530,7 @@ export const RecordingsUniversalFiltersEmbed = ({
 
     return (
         <div className="relative">
-            <div className="absolute top-0 right-0 z-1">
+            <div className="z-1 absolute right-0 top-0">
                 <LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />
             </div>
             <LemonTabs

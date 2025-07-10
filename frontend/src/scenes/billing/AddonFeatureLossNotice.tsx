@@ -53,11 +53,11 @@ export const AddonFeatureLossNotice = ({ product }: AddonFeatureLossNoticeProps)
     return (
         <LemonBanner type="warning" hideIcon className="p-3">
             <div>
-                <div className="flex items-center gap-2 cursor-pointer font-semibold" onClick={handleToggle}>
+                <div className="flex cursor-pointer items-center gap-2 font-semibold" onClick={handleToggle}>
                     You'll lose access to {featuresToLose.length} features, click here to find out which ones.
                 </div>
                 <AnimatedCollapsible collapsed={!isExpanded}>
-                    <div className="pt-3 pb-1">
+                    <div className="pb-1 pt-3">
                         <BillingAddonFeaturesList
                             addonFeatures={featuresToLose}
                             addonType={product.type}

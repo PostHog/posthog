@@ -395,8 +395,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                 width="80%"
                 maxWidth="100%"
                 footer={
-                    <div className="flex justify-between items-center w-full">
-                        <div className="flex gap-2 items-center">
+                    <div className="flex w-full items-center justify-between">
+                        <div className="flex items-center gap-2">
                             <LemonColorPicker
                                 selectedColor={color}
                                 onSelectColor={(newColor) => {
@@ -412,7 +412,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                                     return {
                                         label: (
                                             <div
-                                                className="w-12 bg-gray-700 rounded-full"
+                                                className="w-12 rounded-full bg-gray-700"
                                                 // eslint-disable-next-line react/forbid-dom-props
                                                 style={{ height: `${value}px` }}
                                             />
@@ -455,7 +455,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                                 tooltip="Undo"
                             />
                         </div>
-                        <div className="flex gap-2 items-center">
+                        <div className="flex items-center gap-2">
                             <LemonButton type="secondary" onClick={handleClose}>
                                 Cancel
                             </LemonButton>
@@ -471,9 +471,9 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                     </div>
                 }
             >
-                <div className="flex flex-col gap-4 max-h-[80vh]">
+                <div className="flex max-h-[80vh] flex-col gap-4">
                     <div
-                        className={`flex-grow flex justify-center items-center overflow-hidden ${
+                        className={`flex flex-grow items-center justify-center overflow-hidden ${
                             mode === 'moveText' && selectedTextIndex !== null
                                 ? 'cursor-move'
                                 : mode === 'draw'
@@ -490,14 +490,14 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                             onClick={handleCanvasClickForTextPlacement}
                             className={`border border-gray-300 ${
                                 originalImage ? 'block' : 'hidden'
-                            } max-w-full max-h-full object-contain`}
+                            } max-h-full max-w-full object-contain`}
                         />
                         {!originalImage && imageFile && <p>Loading image...</p>}
                         {!originalImage && !imageFile && <p>No image selected.</p>}
 
                         {mode === 'text' && textInputPosition.visible && selectedTextIndex === null && (
                             <div
-                                className="absolute bg-white border rounded p-1 z-10"
+                                className="absolute z-10 rounded border bg-white p-1"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ top: textInputPosition.y, left: textInputPosition.x }}
                             >
@@ -516,7 +516,7 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
                                     autoFocus
                                     placeholder="Type and press Enter"
                                 />
-                                <div className="flex gap-2 items-center mt-2">
+                                <div className="mt-2 flex items-center gap-2">
                                     <LemonButton
                                         size="small"
                                         type="primary"

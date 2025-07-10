@@ -62,7 +62,7 @@ export function TemplateLinkSection({
                         type="text"
                         value={templateLink}
                         readOnly
-                        className="w-full px-3 py-2 text-sm border rounded bg-bg-light"
+                        className="bg-bg-light w-full rounded border px-3 py-2 text-sm"
                         onClick={(e) => (e.target as HTMLInputElement).select()}
                     />
                 </div>

@@ -337,7 +337,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 <LemonTag type={StatusTagSetting[schema.status] || 'default'}>
                                     {schema.status}
                                     {schema.latest_error && schema.status === 'Failed' && (
-                                        <span className="ml-0.5 inline-flex items-center justify-center w-3 h-3 bg-danger/90 text-white rounded-full text-[10px] font-medium tracking-tight shadow-md backdrop-blur-sm border border-danger/20">
+                                        <span className="bg-danger/90 border-danger/20 ml-0.5 inline-flex h-3 w-3 items-center justify-center rounded-full border text-[10px] font-medium tracking-tight text-white shadow-md backdrop-blur-sm">
                                             ?
                                         </span>
                                     )}
@@ -494,7 +494,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         >
             {schemaLoading && (
                 <div className="deprecated-space-y-2">
-                    <LemonSkeleton className="w-1/2 h-4" />
+                    <LemonSkeleton className="h-4 w-1/2" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             )}

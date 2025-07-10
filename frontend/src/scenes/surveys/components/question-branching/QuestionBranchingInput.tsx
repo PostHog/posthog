@@ -231,12 +231,12 @@ function QuestionResponseBasedBranchingInput({
         <div className="mt-2 flex flex-col gap-2">
             {responseConfig.map(({ value, label }, i) => (
                 <div key={i} className="flex">
-                    <div className="w-2/3 flex items-center">
+                    <div className="flex w-2/3 items-center">
                         <div>
                             If the answer is<span className="font-bold">&nbsp;{label}</span>, go to:
                         </div>
                     </div>
-                    <div className="w-1/3 flex justify-end">
+                    <div className="flex w-1/3 justify-end">
                         <LemonSelect
                             className="w-full whitespace-nowrap"
                             value={getResponseBasedBranchingDropdownValue(questionIndex, question, value)}

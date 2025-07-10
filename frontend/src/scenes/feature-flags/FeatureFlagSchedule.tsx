@@ -149,9 +149,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 <div>
                     <h3 className="l3">Add a scheduled change</h3>
                     <div className="mb-6">Automatically change flag properties at a future point in time.</div>
-                    <div className="inline-flex gap-10 mb-8">
+                    <div className="mb-8 inline-flex gap-10">
                         <div>
-                            <div className="font-semibold leading-6 h-6 mb-1">Change type</div>
+                            <div className="mb-1 h-6 font-semibold leading-6">Change type</div>
                             <LemonSelect<ScheduledChangeOperationType>
                                 className="w-50"
                                 placeholder="Select variant"
@@ -167,7 +167,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             />
                         </div>
                         <div className="w-50">
-                            <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
+                            <div className="mb-1 h-6 font-semibold leading-6">Date and time</div>
                             <LemonCalendarSelectInput
                                 value={scheduleDateMarker}
                                 onChange={(value) => setScheduleDateMarker(value)}
@@ -181,7 +181,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     <div className="deprecated-space-y-4">
                         {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
                             <>
-                                <div className="border rounded p-4">
+                                <div className="rounded border p-4">
                                     <LemonCheckbox
                                         id="flag-enabled-checkbox"
                                         label="Enable feature flag"

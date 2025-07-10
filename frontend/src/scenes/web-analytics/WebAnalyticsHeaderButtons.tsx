@@ -36,9 +36,9 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                     visible={showPopover}
                     onClickOutside={() => setShowPopover(false)}
                     overlay={
-                        <div className="p-4 max-w-160">
-                            <div className="flex items-center gap-2 mb-2">
-                                <h3 className="font-semibold flex items-center gap-2">
+                        <div className="max-w-160 p-4">
+                            <div className="mb-2 flex items-center gap-2">
+                                <h3 className="flex items-center gap-2 font-semibold">
                                     About the New Query Engine
                                     <LemonTag type="warning" className="uppercase">
                                         Beta
@@ -52,7 +52,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
                             <div className="mb-3">
                                 <strong>A few things to note:</strong>
-                                <ul className="list-disc ml-4 mt-1 space-y-1">
+                                <ul className="ml-4 mt-1 list-disc space-y-1">
                                     <li>
                                         Some filters may not yet be supported, but we're working on expanding coverage.
                                     </li>
@@ -70,7 +70,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
                             <div className="mb-3">
                                 <strong>Coming Soon:</strong>
-                                <ul className="list-disc ml-4 mt-1 space-y-1">
+                                <ul className="ml-4 mt-1 list-disc space-y-1">
                                     <li>Use the new engine for chart visualizations</li>
                                     <li>Support for channel types in breakdowns</li>
                                     <li>Enable conversion goals</li>
@@ -82,7 +82,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                     }
                 >
                     <div
-                        className="flex items-center gap-2 cursor-pointer"
+                        className="flex cursor-pointer items-center gap-2"
                         onClick={() => handleToggleEngine(!isUsingNewEngine)}
                         onMouseEnter={() => setShowPopover(true)}
                         onMouseLeave={() => setShowPopover(false)}

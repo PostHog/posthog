@@ -11,7 +11,7 @@ export function HogFlowEditorPanel({ className, position, children }: HogFlowEdi
     return (
         <div
             className={clsx(
-                'react-flow__panel flex flex-col top max-h-full m-0',
+                'react-flow__panel top m-0 flex max-h-full flex-col',
                 className,
                 position.includes('right') ? 'right' : 'left',
                 position.includes('bottom') ? 'justify-end' : 'justify-start'
@@ -19,7 +19,7 @@ export function HogFlowEditorPanel({ className, position, children }: HogFlowEdi
         >
             <div
                 className={clsx(
-                    'flex z-10 flex-col max-h-full m-2 rounded-md border shadow-lg bg-surface-primary overflow-hidden',
+                    'bg-surface-primary z-10 m-2 flex max-h-full flex-col overflow-hidden rounded-md border shadow-lg',
                     className
                 )}
             >

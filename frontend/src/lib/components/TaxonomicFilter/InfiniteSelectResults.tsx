@@ -61,7 +61,7 @@ function CategoryPill({
                     {group?.name}
                     {': '}
                     {showLoading ? (
-                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
+                        <Spinner className="ml-1 inline-block text-sm" textColored speed="0.8s" />
                     ) : (
                         totalResultCount
                     )}
@@ -78,7 +78,7 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
     const { setEventOrdering } = useActions(taxonomicFilterPreferencesLogic)
 
     return (
-        <div className="flex flex-row justify-between items-center w-full relative pb-2">
+        <div className="relative flex w-full flex-row items-center justify-between pb-2">
             {openTab === TaxonomicFilterGroupType.Events ? (
                 <>
                     <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
@@ -197,7 +197,7 @@ export function InfiniteSelectResults({
             {hasMultipleGroups && (
                 <div
                     className={cn(
-                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b',
+                        useVerticalLayout ? 'mr-2 flex-shrink-0 border-r pr-2' : 'border-b',
                         'border-primary'
                     )}
                 >
@@ -205,7 +205,7 @@ export function InfiniteSelectResults({
                     <div
                         className={cn(
                             'taxonomic-pills flex',
-                            useVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
+                            useVerticalLayout ? 'flex-col gap-1' : 'flex-wrap gap-0.5'
                         )}
                     >
                         {taxonomicGroupTypes.map((groupType) => {
@@ -226,10 +226,10 @@ export function InfiniteSelectResults({
                 </div>
             )}
 
-            <div className={cn('flex-1 overflow-hidden min-h-0')}>
+            <div className={cn('min-h-0 flex-1 overflow-hidden')}>
                 {taxonomicGroupTypes.map((groupType) => {
                     return (
-                        <div key={groupType} className={cn(groupType === openTab ? 'flex flex-col h-full' : 'hidden')}>
+                        <div key={groupType} className={cn(groupType === openTab ? 'flex h-full flex-col' : 'hidden')}>
                             <BindLogic
                                 logic={infiniteListLogic}
                                 props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

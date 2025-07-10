@@ -30,10 +30,10 @@ export function LemonCard({
     return (
         <div
             className={cn(
-                'LemonCard border rounded p-6 bg-surface-primary relative',
+                'LemonCard bg-surface-primary relative rounded border p-6',
                 {
                     'LemonCard--hoverEffect': hoverEffect,
-                    'border-2 border-accent': focused,
+                    'border-accent border-2': focused,
                     'border-primary': !focused,
                     'cursor-pointer': !!onClick && !focused,
                 },
@@ -43,7 +43,7 @@ export function LemonCard({
             {...props}
         >
             {closeable ? (
-                <div className="absolute top-2 right-2">
+                <div className="absolute right-2 top-2">
                     <LemonButton
                         icon={<IconX />}
                         onClick={(e) => {

@@ -364,13 +364,13 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
             >
                 {'summary' in item ? (
                     <>
-                        <div className="flex space-between gap-1">
+                        <div className="space-between flex gap-1">
                             <h5 className="flex-1">{formattedName}</h5>
                             <div>
                                 <ExtraContext data={item.extraContextTop} />
                             </div>
                         </div>
-                        <div className="flex space-between gap-1">
+                        <div className="space-between flex gap-1">
                             <div className="flex-1 overflow-hidden text-ellipsis">
                                 {item.searchMatch?.matchingFields
                                     ? `Matching fields: ${item.searchMatch.matchingFields

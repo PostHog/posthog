@@ -71,7 +71,7 @@ export function MultiplePointsForOnePersonProperty(): JSX.Element {
     })
 
     return (
-        <div className="border rounded w-120">
+        <div className="w-120 rounded border">
             <PropertiesTimeline
                 actor={examplePerson}
                 filter={{
@@ -108,7 +108,7 @@ export function OnePointForOnePersonProperty(): JSX.Element {
     })
 
     return (
-        <div className="border rounded w-120">
+        <div className="w-120 rounded border">
             <PropertiesTimeline
                 actor={examplePerson}
                 filter={{
@@ -145,7 +145,7 @@ export function NoPointsForNoPersonProperties(): JSX.Element {
     })
 
     return (
-        <div className="border rounded w-120">
+        <div className="w-120 rounded border">
             <PropertiesTimeline
                 actor={examplePerson}
                 filter={{

@@ -26,7 +26,7 @@ export type OverviewItem = TextOverviewItem | PropertyOverviewItem
 export function OverviewGrid({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="@container/og">
-            <div className="grid grid-cols-1 place-items-center gap-4 px-2 py-1 @md/og:grid-cols-2 @2xl/og:grid-cols-3">
+            <div className="@md/og:grid-cols-2 @2xl/og:grid-cols-3 grid grid-cols-1 place-items-center gap-4 px-2 py-1">
                 {children}
             </div>
         </div>
@@ -49,7 +49,7 @@ export function OverviewGridItem({
     itemKeyTooltip?: ReactNode
 }): JSX.Element {
     return (
-        <div className="flex flex-1 w-full justify-between items-center deprecated-space-x-4">
+        <div className="deprecated-space-x-4 flex w-full flex-1 items-center justify-between">
             <div className={clsx('text-sm', fadeLabel && 'font-light')}>
                 <Tooltip title={itemKeyTooltip}>
                     {icon} {label}

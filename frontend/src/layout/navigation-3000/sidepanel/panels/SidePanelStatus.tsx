@@ -66,7 +66,7 @@ export const SidePanelStatus = (): JSX.Element => {
                 <iframe
                     src={STATUS_PAGE_BASE}
                     title="Status"
-                    className={clsx('w-full h-full', !ready && 'hidden')}
+                    className={clsx('h-full w-full', !ready && 'hidden')}
                     onLoad={() => setReady(true)}
                 />
 

@@ -29,7 +29,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
     return (
         <ToolbarMenu>
             {allExperiments.length > 10 && (
-                <ToolbarMenu.Header className="px-3 mt-2">
+                <ToolbarMenu.Header className="mt-2 px-3">
                     <LemonInput
                         autoFocus={true}
                         fullWidth={true}
@@ -41,7 +41,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Header>
             )}
             <ToolbarMenu.Body>
-                <div className="px-1 deprecated-space-y-px py-2">
+                <div className="deprecated-space-y-px px-1 py-2">
                     {isWebExperimentsDisabled && (
                         <div className="pb-2">
                             <LemonBanner type="warning">
@@ -58,7 +58,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                         </div>
                     )}
                     {allExperiments.length === 0 && allExperimentsLoading ? (
-                        <div className="text-center my-4">
+                        <div className="my-4 text-center">
                             <Spinner />
                         </div>
                     ) : (
@@ -67,7 +67,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
-                <div className="flex items-center justify-between flex-1">
+                <div className="flex flex-1 items-center justify-between">
                     <Link to={`${apiURL}${urls.experiments()}`} target="_blank">
                         View &amp; edit all experiments <IconOpenInNew />
                     </Link>

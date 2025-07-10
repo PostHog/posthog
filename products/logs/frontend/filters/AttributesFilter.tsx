@@ -31,7 +31,7 @@ const NestedFilterGroup = (): JSX.Element => {
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
     return (
-        <div className="flex gap-1 items-center flex-wrap">
+        <div className="flex flex-wrap items-center gap-1">
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <>

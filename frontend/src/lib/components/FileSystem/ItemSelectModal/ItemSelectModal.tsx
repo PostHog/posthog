@@ -48,7 +48,7 @@ function RootFolderButton({
 }): JSX.Element {
     return (
         <ButtonPrimitive
-            className={cn('flex gap-2 px-2 py-1 border border-primary rounded hover:border-secondary', {
+            className={cn('border-primary hover:border-secondary flex gap-2 rounded border px-2 py-1', {
                 'border-accent': active,
             })}
             onClick={onClick}
@@ -192,7 +192,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                 <ScrollableShadows
                                     direction="vertical"
                                     className={cn(
-                                        'bg-surface-primary border rounded group/colorful-product-icons colorful-product-icons-true',
+                                        'bg-surface-primary group/colorful-product-icons colorful-product-icons-true rounded border',
                                         className
                                     )}
                                 >
@@ -254,7 +254,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                                             <LemonTag
                                                                 type="highlight"
                                                                 size="small"
-                                                                className="ml-1 relative top-[-1px]"
+                                                                className="relative top-[-1px] ml-1"
                                                             >
                                                                 New
                                                             </LemonTag>

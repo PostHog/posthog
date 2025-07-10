@@ -43,18 +43,18 @@ function WhyCloudModal({ setOpen, open }: { setOpen: (open: boolean) => void; op
                     return (
                         <li
                             key={section.title}
-                            className="border-t first:border-t-0 border-dashed border-gray-accent mt-2 first:mt-0"
+                            className="border-gray-accent mt-2 border-t border-dashed first:mt-0 first:border-t-0"
                         >
-                            <h4 className="text-lg m-0 mt-2">{section.title}</h4>
-                            <ul className="list-none p-0 my-2 deprecated-space-y-1">
+                            <h4 className="m-0 mt-2 text-lg">{section.title}</h4>
+                            <ul className="deprecated-space-y-1 my-2 list-none p-0">
                                 {section.features.map((feature) => {
                                     return (
                                         <li
                                             key={feature}
-                                            className="flex items-center deprecated-space-x-2 text-gray-accent-light align-center"
+                                            className="deprecated-space-x-2 text-gray-accent-light align-center flex items-center"
                                         >
                                             <IconCheckCircle className="w-[20px] flex-shrink-0" />
-                                            <span className="text-black font-medium">{feature}</span>
+                                            <span className="font-medium text-black">{feature}</span>
                                         </li>
                                     )
                                 })}

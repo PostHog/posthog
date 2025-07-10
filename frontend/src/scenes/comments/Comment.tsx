@@ -34,17 +34,15 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx('Comment border rounded-lg bg-surface-primary', isHighlighted && 'border-accent')}
+            className={clsx('Comment bg-surface-primary rounded-lg border', isHighlighted && 'border-accent')}
             data-comment-id={comment.id}
         >
-            <div className="flex-1 flex justify-start p-2 gap-2">
+            <div className="flex flex-1 justify-start gap-2 p-2">
                 <ProfilePicture className="mt-1" size="xl" user={comment.created_by} />
 
-                <div className="flex flex-col flex-1">
+                <div className="flex flex-1 flex-col">
                     <div className="flex items-center gap-2">
-                        <span className="flex-1 font-semibold ">
-                            {comment.created_by?.first_name ?? 'Unknown user'}
-                        </span>
+                        <span className="flex-1 font-semibold">{comment.created_by?.first_name ?? 'Unknown user'}</span>
                         {comment.created_at ? (
                             <span className="text-xs">
                                 <TZLabel time={comment.created_at} />
@@ -75,7 +73,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
-                    {comment.version ? <span className="text-xs text-secondary italic">(edited)</span> : null}
+                    {comment.version ? <span className="text-secondary text-xs italic">(edited)</span> : null}
                 </div>
             </div>
 
@@ -89,7 +87,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         disabled={commentsLoading}
                         onPressCmdEnter={persistEditedComment}
                     />
-                    <div className="flex justify-between items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
                         <div className="flex-1" />
                         <LemonButton
                             type="secondary"
@@ -121,16 +119,16 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
     // TODO: Permissions
 
     return (
-        <div className="relative deprecated-space-y-2">
+        <div className="deprecated-space-y-2 relative">
             {comment ? (
                 <Comment comment={comment} />
             ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-surface-primary text-secondary">
+                <div className="bg-surface-primary text-secondary rounded border border-dashed p-2 font-semibold italic">
                     Deleted comment
                 </div>
             )}
 
-            <div className="pl-8 deprecated-space-y-2">
+            <div className="deprecated-space-y-2 pl-8">
                 {replies?.map((x) => (
                     <CommentWithReplies
                         key={x.id}

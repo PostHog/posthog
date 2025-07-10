@@ -41,7 +41,7 @@ const Filters = (): JSX.Element => {
     const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
 
     return (
-        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
+        <div className="-mt-4 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-b py-4">
             <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             <PropertyFilters
                 propertyFilters={propertyFilters}
@@ -60,7 +60,7 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(llmObservabilityLogic)
 
     return (
-        <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
+        <div className="@xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 mt-2 grid grid-cols-1 gap-4">
             {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
@@ -166,11 +166,11 @@ function LLMObservabilityGenerations(): JSX.Element {
 
 function LLMObservabilityNoEvents(): JSX.Element {
     return (
-        <div className="w-full flex flex-col items-center justify-center">
-            <div className="flex flex-col items-center justify-center max-w-md w-full">
-                <IconArchive className="text-5xl mb-2 text-muted-alt" />
+        <div className="flex w-full flex-col items-center justify-center">
+            <div className="flex w-full max-w-md flex-col items-center justify-center">
+                <IconArchive className="text-muted-alt mb-2 text-5xl" />
                 <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
-                <p className="text-sm text-center text-balance">
+                <p className="text-balance text-center text-sm">
                     To use the LLM Observability product, please{' '}
                     <Link to="https://posthog.com/docs/ai-engineering/observability">
                         instrument your LLM calls with the PostHog SDK

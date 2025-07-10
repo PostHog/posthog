@@ -34,7 +34,7 @@ const Template: StoryFn<StoryProps> = ({ earlyAccessFeatures, enabledFeatureFlag
     setFeatureFlags(enabledFeatureFlags)
 
     return (
-        <div className="w-160 p-4 border rounded mx-auto my-2">
+        <div className="w-160 mx-auto my-2 rounded border p-4">
             <FeaturePreviews />
         </div>
     )

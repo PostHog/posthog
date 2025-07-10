@@ -35,7 +35,7 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
             <div
                 ref={ref}
                 className={clsx(
-                    'LemonProgress rounded-full w-full inline-block',
+                    'LemonProgress inline-block w-full rounded-full',
                     size === 'large' ? 'h-5' : 'h-1.5',
                     className
                 )}

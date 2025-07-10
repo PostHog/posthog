@@ -167,7 +167,7 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     {props.template.icon && (
-                        <div className="bg-surface-primary rounded p-2 w-8 h-8 flex items-center justify-center">
+                        <div className="bg-surface-primary flex h-8 w-8 items-center justify-center rounded p-2">
                             {props.template.icon}
                         </div>
                     )}
@@ -188,8 +188,8 @@ const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
-            <div className="flex flex-col gap-2 w-full">
-                <div className="flex flex-row gap-2 w-full">
+            <div className="flex w-full flex-col gap-2">
+                <div className="flex w-full flex-row gap-2">
                     <ReplayActiveUsersTable />
                     <ReplayActiveScreensTable />
                 </div>

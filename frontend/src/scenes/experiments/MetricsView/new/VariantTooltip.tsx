@@ -54,7 +54,7 @@ export function VariantTooltip({
 
     return (
         <div
-            className="fixed -translate-x-1/2 -translate-y-full bg-[var(--bg-surface-primary)] border border-[var(--border-primary)] px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[300px]"
+            className="fixed z-[100] min-w-[300px] -translate-x-1/2 -translate-y-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface-primary)] px-3 py-2 text-[13px] shadow-md"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 left: screenX,
@@ -67,36 +67,36 @@ export function VariantTooltip({
             <div className="flex flex-col gap-1">
                 <div className="font-semibold">{variantResult.key}</div>
 
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <span className="text-secondary font-semibold">Samples:</span>
                     <span className="font-semibold">{variantResult.number_of_samples}</span>
                 </div>
 
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <span className="text-secondary font-semibold">Sum:</span>
                     <span className="font-semibold">{variantResult.sum}</span>
                 </div>
 
                 {isBayesianResult(variantResult) ? (
-                    <div className="flex justify-between items-center">
+                    <div className="flex items-center justify-between">
                         <span className="text-secondary font-semibold">Chance to win:</span>
                         <span className="font-semibold">{formatChanceToWin(variantResult.chance_to_win)}</span>
                     </div>
                 ) : (
-                    <div className="flex justify-between items-center">
+                    <div className="flex items-center justify-between">
                         <span className="text-secondary font-semibold">P-value:</span>
                         <span className="font-semibold">{formatPValue(variantResult.p_value)}</span>
                     </div>
                 )}
 
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <span className="text-secondary font-semibold">Significant:</span>
                     <span className={`font-semibold ${variantResult.significant ? 'text-success' : 'text-muted'}`}>
                         {variantResult.significant ? 'Yes' : 'No'}
                     </span>
                 </div>
 
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <span className="text-secondary font-semibold">Delta:</span>
                     <span className="font-semibold">
                         {variantResult.key === 'control' ? (
@@ -115,7 +115,7 @@ export function VariantTooltip({
                     </span>
                 </div>
 
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <span className="text-secondary font-semibold">{intervalLabel}:</span>
                     <span className="font-semibold">{intervalPercent}</span>
                 </div>

@@ -368,7 +368,7 @@ const CritterMatchGame: React.FC = () => {
     return (
         <div className="Game368Hedgehogs">
             <div className="cmg-container">
-                <h2 className="flex gap-2 items-center">
+                <h2 className="flex items-center gap-2">
                     {gameOver ? (
                         pointsLeft > 0 ? (
                             <>

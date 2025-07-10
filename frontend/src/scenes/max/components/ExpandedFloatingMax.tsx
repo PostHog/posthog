@@ -52,7 +52,7 @@ export function ExpandedFloatingMax({ onCollapse, onDismiss }: ExpandedFloatingM
             ref={expandedContainerRef}
             className={
                 isDragging || isAnimating
-                    ? 'flex flex-col rounded-lg w-80 border backdrop-blur-sm bg-[var(--glass-bg-3000)] mb-2'
+                    ? 'mb-2 flex w-80 flex-col rounded-lg border bg-[var(--glass-bg-3000)] backdrop-blur-sm'
                     : 'relative flex flex-col'
             }
             style={isDragging || isAnimating ? containerStyle : {}}
@@ -78,10 +78,10 @@ export function ExpandedFloatingMax({ onCollapse, onDismiss }: ExpandedFloatingM
                     setShowFloatingMaxSuggestions(false)
                 }}
                 bottomActions={
-                    <div className="px-1 -mt-1">
+                    <div className="-mt-1 px-1">
                         <div
                             ref={dragElementRef}
-                            className={`flex items-center justify-center cursor-grab ${
+                            className={`flex cursor-grab items-center justify-center ${
                                 isDragging ? 'cursor-grabbing' : 'cursor-grab'
                             }`}
                             onMouseDown={handleMouseDown}
@@ -106,14 +106,14 @@ export function ExpandedFloatingMax({ onCollapse, onDismiss }: ExpandedFloatingM
                     />
                 ) : threadVisible ? (
                     <>
-                        <div className="flex items-center justify-between pl-2 pr-1 py-1 border-b border-border">
-                            <div className="text-xs font-medium text-muted">{conversation?.title}</div>
+                        <div className="border-border flex items-center justify-between border-b py-1 pl-2 pr-1">
+                            <div className="text-muted text-xs font-medium">{conversation?.title}</div>
                             <div className="flex items-center gap-1">
                                 <FloatingInputActions onCollapse={handleCollapse} isThreadVisible={true} />
                             </div>
                         </div>
                         {/* Negative bottom margin so that the scrollable area touches the input */}
-                        <div className="max-h-96 overflow-y-auto -mb-1">
+                        <div className="-mb-1 max-h-96 overflow-y-auto">
                             <ThreadAutoScroller>
                                 <Thread className="p-1" />
                             </ThreadAutoScroller>

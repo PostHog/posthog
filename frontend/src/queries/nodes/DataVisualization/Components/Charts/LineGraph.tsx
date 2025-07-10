@@ -542,7 +542,7 @@ export const LineGraph = (): JSX.Element => {
 
     return (
         <div
-            className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
+            className={clsx('bg-surface-primary relative flex flex-1 flex-col rounded p-2', {
                 border: showEditingUI,
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
@@ -550,7 +550,7 @@ export const LineGraph = (): JSX.Element => {
             ref={containerRef}
         >
             <div
-                className={clsx('flex flex-1 w-full overflow-hidden', {
+                className={clsx('flex w-full flex-1 overflow-hidden', {
                     'h-full': !presetChartHeight,
                 })}
                 // eslint-disable-next-line react/forbid-dom-props

@@ -14,7 +14,7 @@ export const UniqueUsersPanel = ({ uniqueUsers }: { uniqueUsers: number }): JSX.
         <div>
             <div className="card-secondary">Unique users</div>
             <div className="font-semibold">~{humanFriendlyNumber(uniqueUsers, 0)} persons</div>
-            <div className="text-xs text-muted">Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days</div>
+            <div className="text-muted text-xs">Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days</div>
         </div>
     )
 }

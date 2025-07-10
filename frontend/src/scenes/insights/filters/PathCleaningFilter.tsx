@@ -34,7 +34,7 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                 }
             >
                 {/* This div is necessary for the tooltip to work. */}
-                <div className="inline-block mt-4 w-full">
+                <div className="mt-4 inline-block w-full">
                     <LemonSwitch
                         disabled={!hasFilters}
                         checked={hasFilters ? pathReplacements || false : false}

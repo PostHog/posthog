@@ -41,7 +41,7 @@ export function LemonDivider({
             )}
             role="separator"
         >
-            {label && <div className="px-3 text-xs whitespace-nowrap font-semibold">{label}</div>}
+            {label && <div className="whitespace-nowrap px-3 text-xs font-semibold">{label}</div>}
         </div>
     )
 }

@@ -64,7 +64,7 @@ export function Info(): JSX.Element {
     return (
         <div>
             <div className="flex flex-wrap justify-between gap-4">
-                <div className="inline-flex deprecated-space-x-8">
+                <div className="deprecated-space-x-8 inline-flex">
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
@@ -82,14 +82,14 @@ export function Info(): JSX.Element {
                                     >
                                         <IconWarning
                                             style={{ transform: 'translateY(2px)' }}
-                                            className="mr-1 text-danger"
+                                            className="text-danger mr-1"
                                             fontSize="18px"
                                         />
                                     </Tooltip>
                                 )}
                             <CopyToClipboardInline
                                 iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
-                                className="font-normal text-sm"
+                                className="text-sm font-normal"
                                 description="feature flag key"
                             >
                                 {experiment.feature_flag.key}
@@ -107,7 +107,7 @@ export function Info(): JSX.Element {
                         <div className="text-xs font-semibold uppercase tracking-wide">
                             <span>Stats Engine</span>
                         </div>
-                        <div className="inline-flex deprecated-space-x-2">
+                        <div className="deprecated-space-x-2 inline-flex">
                             <span>{statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}</span>
                             {usesNewQueryRunner &&
                                 (isExperimentDraft ||
@@ -130,11 +130,11 @@ export function Info(): JSX.Element {
                 </div>
 
                 <div className="flex flex-col">
-                    <div className="inline-flex deprecated-space-x-8">
+                    <div className="deprecated-space-x-8 inline-flex">
                         {experiment.start_date && (
                             <div className="block">
                                 <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
-                                <div className="inline-flex deprecated-space-x-2">
+                                <div className="deprecated-space-x-2 inline-flex">
                                     <span
                                         className={`${
                                             lastRefresh
@@ -173,7 +173,7 @@ export function Info(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <div className="block mt-4">
+            <div className="mt-4 block">
                 <div className="flex gap-6">
                     <div className="w-[500px]">
                         <div className="flex items-center gap-2">
@@ -186,9 +186,9 @@ export function Info(): JSX.Element {
                             />
                         </div>
                         {experiment.description ? (
-                            <p className="py-2 m-0">{experiment.description}</p>
+                            <p className="m-0 py-2">{experiment.description}</p>
                         ) : (
-                            <p className="py-2 m-0 text-muted">Add your hypothesis for this test</p>
+                            <p className="text-muted m-0 py-2">Add your hypothesis for this test</p>
                         )}
 
                         <LemonModal
@@ -196,7 +196,7 @@ export function Info(): JSX.Element {
                             onClose={closeDescriptionModal}
                             title="Edit hypothesis"
                             footer={
-                                <div className="flex items-center gap-2 justify-end">
+                                <div className="flex items-center justify-end gap-2">
                                     <LemonButton type="secondary" onClick={closeDescriptionModal}>
                                         Cancel
                                     </LemonButton>
@@ -234,10 +234,10 @@ export function Info(): JSX.Element {
                                 />
                             </div>
                             <div className="py-2">
-                                <div className="font-semibold flex items-center gap-2">
+                                <div className="flex items-center gap-2 font-semibold">
                                     <div
                                         className={clsx(
-                                            'w-2 h-2 rounded-full',
+                                            'h-2 w-2 rounded-full',
                                             CONCLUSION_DISPLAY_CONFIG[experiment.conclusion]?.color || ''
                                         )}
                                     />

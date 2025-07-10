@@ -125,7 +125,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode }: Props): 
                                 loading={breakdownValuesLoading}
                                 size="xsmall"
                                 type="secondary"
-                                className="inline-block ml-2"
+                                className="ml-2 inline-block"
                             >
                                 Set to {(breakdownFilter.breakdown_limit || 25) * 2}
                             </LemonButton>

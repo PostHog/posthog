@@ -20,7 +20,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
 
     return hasLegend ? (
         <div
-            className={clsx('InsightLegendMenu', 'flex overflow-auto border rounded', {
+            className={clsx('InsightLegendMenu', 'flex overflow-auto rounded border', {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
                 'InsightLegendMenu--in-card-view': inCardView,

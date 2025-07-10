@@ -20,7 +20,7 @@ export const HedgehogMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
 
             <ToolbarMenu.Footer>
-                <div className="flex gap-2 justify-between flex-1">
+                <div className="flex flex-1 justify-between gap-2">
                     <LemonButton type="secondary" size="small" onClick={() => setHedgehogMode(false)}>
                         Go away...
                     </LemonButton>

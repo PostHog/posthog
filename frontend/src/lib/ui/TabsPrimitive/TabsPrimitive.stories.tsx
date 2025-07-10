@@ -14,7 +14,7 @@ export default meta
 export function TabsSimple(): JSX.Element {
     return (
         <TabsPrimitive className="w-[800px]" defaultValue="stacktrace">
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
                 <IconLogomark className="text-xl" />
                 <TabsPrimitiveList>
                     <TabsPrimitiveTrigger className="px-2" value="stacktrace">

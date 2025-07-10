@@ -331,7 +331,7 @@ export const StoriesModal = (): JSX.Element | null => {
             onClose={() => handleClose(true)}
         >
             <div className="flex flex-col">
-                <div className="relative flex-1 stories-container">
+                <div className="stories-container relative flex-1">
                     <StoriesPlayer
                         stories={stories}
                         defaultInterval={IMAGE_STORY_INTERVAL}
@@ -387,13 +387,13 @@ export const StoriesModal = (): JSX.Element | null => {
                             {!activeGroup?.stories[activeStoryIndex]?.seeMoreOptions?.hideDefaultClose && (
                                 <button
                                     onClick={() => handleOverlayClose()}
-                                    className="absolute top-4 right-4 z-10 bg-black/20 hover:bg-black/30 text-white rounded-full w-8 h-8 flex items-center justify-center transition-all duration-200 cursor-pointer"
+                                    className="absolute right-4 top-4 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-black/20 text-white transition-all duration-200 hover:bg-black/30"
                                     aria-label="Close overlay"
                                 >
-                                    <IconX className="w-5 h-5" />
+                                    <IconX className="h-5 w-5" />
                                 </button>
                             )}
-                            <div className="w-full h-full overflow-auto">{overlayComponent()}</div>
+                            <div className="h-full w-full overflow-auto">{overlayComponent()}</div>
                         </div>
                     )}
                 </div>

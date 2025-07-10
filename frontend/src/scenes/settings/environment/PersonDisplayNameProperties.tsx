@@ -20,7 +20,7 @@ export function PersonDisplayNameProperties(): JSX.Element {
     )
 
     if (!currentTeam) {
-        return <LemonSkeleton className="w-1/2 h-4" />
+        return <LemonSkeleton className="h-4 w-1/2" />
     }
 
     return (

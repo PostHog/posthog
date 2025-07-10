@@ -60,7 +60,7 @@ export function CreateRoleModal(): JSX.Element {
                 rolesLoading ? (
                     <Spinner textColored />
                 ) : isAdminOrOwner ? (
-                    <div className="flex flex-row justify-between w-full">
+                    <div className="flex w-full flex-row justify-between">
                         <div>
                             {!isNewRole && (
                                 <LemonButton
@@ -121,7 +121,7 @@ export function CreateRoleModal(): JSX.Element {
                 <>
                     <h5>Role Members</h5>
                     {roleMembersInFocus.length > 0 ? (
-                        <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
+                        <div className="mt-2 max-h-80 overflow-y-auto rounded pb-2">
                             {roleMembersInFocus.map((member) => {
                                 return (
                                     <MemberRow
@@ -154,7 +154,7 @@ function MemberRow({
     const { user } = member
 
     return (
-        <div className="flex items-center justify-between mt-2 h-8">
+        <div className="mt-2 flex h-8 items-center justify-between">
             <ProfilePicture user={user} size="md" showName />
             {isAdminOrOwner && deleteMember && (
                 <LemonButton

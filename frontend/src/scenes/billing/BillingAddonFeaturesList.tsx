@@ -26,10 +26,10 @@ export const BillingAddonFeaturesList = ({
 
     return (
         <div>
-            <p className="ml-0 mb-2 max-w-200">{title}</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+            <p className="max-w-200 mb-2 ml-0">{title}</p>
+            <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
                 {addonFeatures.map((feature, index) => (
-                    <div className="flex gap-x-2 items-center mb-2" key={'addon-features-' + addonType + index}>
+                    <div className="mb-2 flex items-center gap-x-2" key={'addon-features-' + addonType + index}>
                         {icon}
                         <Tooltip key={feature.key} title={feature.description}>
                             <b>

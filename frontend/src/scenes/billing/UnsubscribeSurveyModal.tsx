@@ -86,13 +86,13 @@ export const UnsubscribeSurveyModal = ({
     const renderHedgehogStep = (): JSX.Element => (
         <div className="flex flex-col gap-4">
             <div className="text-center">
-                <h3 className="text-lg mb-2">How about now? Was that enough hedgehogs?</h3>
+                <h3 className="mb-2 text-lg">How about now? Was that enough hedgehogs?</h3>
                 <p className="text-secondary mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
-                <div className="flex justify-center items-center">
+                <div className="flex items-center justify-center">
                     <HeartHog width="100" height="100" />
                 </div>
             </div>
-            <div className="flex gap-2 justify-center">
+            <div className="flex justify-center gap-2">
                 <Link onClick={triggerMoreHedgehogs} disabled={billingLoading}>
                     Still not enough! More hedgehogs! 🦔
                 </Link>
@@ -278,7 +278,7 @@ export const UnsubscribeSurveyModal = ({
                         </LemonBanner>
                         {includesPipelinesAddon && itemsToDisable.length > 0 ? (
                             <div className="mt-6">
-                                <h3 className="mt-2 mb-2 mr-8">Important: Disable remaining export apps</h3>
+                                <h3 className="mb-2 mr-8 mt-2">Important: Disable remaining export apps</h3>
                                 <p>
                                     To avoid unexpected impact on your data, you must explicitly disable the following
                                     apps and exports before unsubscribing:

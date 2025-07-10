@@ -54,15 +54,15 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col rounded bg-primary border overflow-hidden mb-3" title={session.sessionId}>
-            <div className="flex items-center justify-between bg-surface-primary p-0.5 pr-2 text-xs">
+        <div className="bg-primary mb-3 flex flex-col overflow-hidden rounded border" title={session.sessionId}>
+            <div className="bg-surface-primary flex items-center justify-between p-0.5 pr-2 text-xs">
                 <div className="flex items-center">
                     <LemonButton
                         size="small"
                         icon={isFolded ? <IconExpand /> : <IconCollapse />}
                         onClick={() => setIsFolded((state) => !state)}
                     />
-                    <span className="font-bold ml-2">{humanFriendlyDetailedTime(startTime)}</span>
+                    <span className="ml-2 font-bold">{humanFriendlyDetailedTime(startTime)}</span>
                 </div>
                 <div className="flex items-center">
                     <span>
@@ -79,7 +79,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                 </div>
             </div>
             {!isFolded && (
-                <div className="p-1 border-t deprecated-space-y-1">
+                <div className="deprecated-space-y-1 border-t p-1">
                     {session.events.map((event: any) => (
                         <SessionEvent key={event.id} event={event} />
                     ))}

@@ -74,14 +74,14 @@ export function LiveEventsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <div className="mb-4 flex w-full justify-between items-center">
+            <div className="mb-4 flex w-full items-center justify-between">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
+                        <div className="bg-surface-primary border-primary text-secondary flex items-center justify-center gap-x-2.5 rounded border px-3 py-2 text-xs font-medium">
                             <span className="relative flex h-2.5 w-2.5">
                                 <span
                                     className={clsx(
-                                        'absolute inline-flex h-full w-full rounded-full bg-danger',
+                                        'bg-danger absolute inline-flex h-full w-full rounded-full',
                                         stats?.users_on_product != null && 'animate-ping'
                                     )}
                                     // Unfortunately we can't use the `opacity-50` class, because we use Tailwind's
@@ -90,9 +90,9 @@ export function LiveEventsTable(): JSX.Element {
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ opacity: 0.75 }}
                                 />
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
+                                <span className="bg-danger relative inline-flex h-2.5 w-2.5 rounded-full" />
                             </span>
-                            <span className="text-sm cursor-default">
+                            <span className="cursor-default text-sm">
                                 Users active right now: <b>{stats?.users_on_product ?? '0'}</b>
                             </span>
                         </div>
@@ -109,9 +109,9 @@ export function LiveEventsTable(): JSX.Element {
                     <LemonButton
                         icon={
                             streamPaused ? (
-                                <IconPlayFilled className="w-4 h-4" />
+                                <IconPlayFilled className="h-4 w-4" />
                             ) : (
-                                <IconPauseFilled className="w-4 h-4" />
+                                <IconPauseFilled className="h-4 w-4" />
                             )
                         }
                         type="secondary"
@@ -129,13 +129,13 @@ export function LiveEventsTable(): JSX.Element {
                 dataSource={events}
                 useURLForSorting={false}
                 emptyState={
-                    <div className="flex flex-col justify-center items-center gap-4 p-6">
+                    <div className="flex flex-col items-center justify-center gap-4 p-6">
                         {!streamPaused ? (
                             <Spinner className="text-4xl" textColored />
                         ) : (
                             <IconPauseFilled className="text-4xl" />
                         )}
-                        <span className="text-lg font-title font-semibold leading-tight">
+                        <span className="font-title text-lg font-semibold leading-tight">
                             {!streamPaused ? 'Waiting for events…' : 'Stream paused'}
                         </span>
                     </div>

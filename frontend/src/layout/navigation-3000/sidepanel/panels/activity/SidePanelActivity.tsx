@@ -105,10 +105,10 @@ export const SidePanelActivity = (): JSX.Element => {
             <SidePanelPaneHeader title="Team activity" />
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
-                className="flex flex-col flex-1 overflow-hidden"
+                className="flex flex-1 flex-col overflow-hidden"
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
-                <div className="flex flex-col flex-1 overflow-hidden">
+                <div className="flex flex-1 flex-col overflow-hidden">
                     <div className="mx-2 shrink-0">
                         <LemonTabs
                             activeKey={activeTab as SidePanelActivityTab}
@@ -144,7 +144,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
                     {/* Controls */}
                     {activeTab === SidePanelActivityTab.Unread ? (
-                        <div className="px-2 pb-2 deprecated-space-y-2 shrink-0">
+                        <div className="deprecated-space-y-2 shrink-0 px-2 pb-2">
                             <div className="flex items-center justify-between gap-2">
                                 {hasUnread ? (
                                     <LemonButton type="secondary" onClick={() => markAllAsRead()}>
@@ -154,7 +154,7 @@ export const SidePanelActivity = (): JSX.Element => {
                             </div>
                         </div>
                     ) : activeTab === SidePanelActivityTab.All ? (
-                        <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2 shrink-0">
+                        <div className="deprecated-space-y-2 flex shrink-0 items-center justify-between gap-2 px-2 pb-2">
                             <div className="flex items-center gap-2">
                                 {allActivityResponseLoading ? <Spinner textColored /> : null}
                             </div>
@@ -190,18 +190,18 @@ export const SidePanelActivity = (): JSX.Element => {
                         </div>
                     ) : null}
 
-                    <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
+                    <div className="flex flex-1 flex-col overflow-hidden" ref={contentRef} onScroll={handleScroll}>
                         <ScrollableShadows direction="vertical" innerClassName="p-2 deprecated-space-y-px">
                             {activeTab === SidePanelActivityTab.Unread ? (
                                 <>
                                     {importantChangesLoading && !hasNotifications ? (
-                                        <LemonSkeleton className="h-12 my-2" repeat={10} fade />
+                                        <LemonSkeleton className="my-2 h-12" repeat={10} fade />
                                     ) : hasNotifications ? (
                                         notifications.map((logItem, index) => (
                                             <ActivityLogRow logItem={logItem} key={index} />
                                         ))
                                     ) : (
-                                        <div className="p-6 text-center border border-dashed rounded text-secondary">
+                                        <div className="text-secondary rounded border border-dashed p-6 text-center">
                                             You're all caught up!
                                         </div>
                                     )}
@@ -209,14 +209,14 @@ export const SidePanelActivity = (): JSX.Element => {
                             ) : activeTab === SidePanelActivityTab.All ? (
                                 <>
                                     {allActivityResponseLoading && !allActivity.length ? (
-                                        <LemonSkeleton className="h-12 my-2" repeat={10} fade />
+                                        <LemonSkeleton className="my-2 h-12" repeat={10} fade />
                                     ) : allActivity.length ? (
                                         <>
                                             {allActivity.map((logItem, index) => (
                                                 <ActivityLogRow logItem={logItem} key={index} />
                                             ))}
 
-                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
+                                            <div className="text-secondary m-4 flex h-10 items-center justify-center gap-2">
                                                 {allActivityResponseLoading ? (
                                                     <>
                                                         <Spinner textColored /> Loading older activity
@@ -236,7 +236,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             </div>
                                         </>
                                     ) : (
-                                        <div className="flex flex-col items-center gap-2 p-6 text-center border border-dashed rounded">
+                                        <div className="flex flex-col items-center gap-2 rounded border border-dashed p-6 text-center">
                                             <span>No activity yet</span>
                                             {filters ? (
                                                 <LemonButton type="secondary" onClick={() => setFilters(null)}>

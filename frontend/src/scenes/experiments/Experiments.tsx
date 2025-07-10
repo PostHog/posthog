@@ -154,7 +154,7 @@ export function Experiments(): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Archive this experiment?',
                                                     content: (
-                                                        <div className="text-sm text-secondary">
+                                                        <div className="text-secondary text-sm">
                                                             This action will move the experiment to the archived tab. It
                                                             can be restored at any time.
                                                         </div>
@@ -185,7 +185,7 @@ export function Experiments(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Delete this experiment?',
                                             content: (
-                                                <div className="text-sm text-secondary">
+                                                <div className="text-secondary text-sm">
                                                     Experiment with its settings will be deleted, but event data will be
                                                     preserved.
                                                 </div>
@@ -291,7 +291,7 @@ export function Experiments(): JSX.Element {
                     )}
                     {!shouldShowEmptyState && (
                         <>
-                            <div className="flex justify-between mb-4 gap-2 flex-wrap">
+                            <div className="mb-4 flex flex-wrap justify-between gap-2">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search experiments"

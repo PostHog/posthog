@@ -222,7 +222,7 @@ export function PerformanceCardDescriptions({
 }): JSX.Element {
     const performanceValues = itemToPerformanceValues(item)
     return (
-        <div className={clsx('p-2 text-xs border-t', !expanded && 'hidden')}>
+        <div className={clsx('border-t p-2 text-xs', !expanded && 'hidden')}>
             {Object.entries(summaryMapping)
                 .filter(([key]) => performanceValues[key] !== undefined)
                 .map(([key, summary]) => (
@@ -251,7 +251,7 @@ function PerformanceCardDescription({
 }): JSX.Element {
     return (
         <>
-            <div className="flex gap-2 font-semibold my-1">
+            <div className="my-1 flex gap-2 font-semibold">
                 <span>{label}</span>
                 <PerformanceDuration benchmarks={benchmarks} value={value} />
             </div>

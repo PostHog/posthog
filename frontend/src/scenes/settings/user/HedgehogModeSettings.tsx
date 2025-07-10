@@ -27,7 +27,7 @@ export function HedgehogModeSettings(): JSX.Element {
                 />
             </div>
 
-            <div className="mt-4 p-2 border rounded bg-surface-primary">
+            <div className="bg-surface-primary mt-4 rounded border p-2">
                 <HedgehogOptions />
             </div>
         </>

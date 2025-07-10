@@ -142,7 +142,7 @@ export function CalendarHeatMap({
                                     <th
                                         key={i}
                                         className={cn(
-                                            cellIsClickable ? 'rounded cursor-pointer hover:bg-highlight' : ''
+                                            cellIsClickable ? 'hover:bg-highlight cursor-pointer rounded' : ''
                                         )}
                                         onClick={
                                             cellIsClickable
@@ -237,7 +237,7 @@ export function CalendarHeatMap({
 
 function LoadingRow({ cellCount = 14 }: { cellCount?: number }): JSX.Element {
     return (
-        <div className="flex items-center justify-center min-h-8 p-0.5 m-0.5">
+        <div className="m-0.5 flex min-h-8 items-center justify-center p-0.5">
             <div className="flex gap-1">
                 {Array(cellCount)
                     .fill(0)

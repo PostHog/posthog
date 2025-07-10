@@ -39,9 +39,9 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     return (
-        <div className="bg-surface-primary rounded border p-3 relative">
+        <div className="bg-surface-primary relative rounded border p-3">
             {index > 0 && !(index % 2 === 0) && (
-                <div className="absolute top-1/2 -left-5">
+                <div className="absolute -left-5 top-1/2">
                     <OperandTag operand="or" />
                 </div>
             )}
@@ -51,7 +51,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
 
                     {!isOnlyStep && (
                         <LemonButton
-                            className="absolute top-2 right-2"
+                            className="absolute right-2 top-2"
                             icon={<IconX />}
                             size="small"
                             aria-label="delete"
@@ -102,7 +102,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     </div>
                 )}
 
-                <div className="mt-4 deprecated-space-y-2">
+                <div className="deprecated-space-y-2 mt-4">
                     <LemonLabel>Filters</LemonLabel>
                     <PropertyFilters
                         propertyFilters={step.properties}

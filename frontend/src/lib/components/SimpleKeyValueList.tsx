@@ -55,14 +55,14 @@ export function SimpleKeyValueList({
     }, [item, promotedKeys])
 
     return (
-        <div className="text-xs deprecated-space-y-1 max-w-full">
+        <div className="deprecated-space-y-1 max-w-full text-xs">
             {header}
             {sortedItemsPromotedFirst.map(([key, value]) => (
-                <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">
+                <div key={key} className="flex items-start justify-between gap-4 overflow-hidden">
                     <span className="font-semibold">
                         <PropertyKeyInfo value={key} />
                     </span>
-                    <pre className="text-primary-alt break-all mb-0">{JSON.stringify(value, null, 2)}</pre>
+                    <pre className="text-primary-alt mb-0 break-all">{JSON.stringify(value, null, 2)}</pre>
                 </div>
             ))}
             {Object.keys(item).length === 0 && emptyMessage}

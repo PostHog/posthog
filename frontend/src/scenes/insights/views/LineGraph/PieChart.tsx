@@ -276,7 +276,7 @@ export function PieChart({
     }, [datasets, hiddenLegendIndexes])
 
     return (
-        <div className="absolute w-full h-full" data-attr={dataAttr}>
+        <div className="absolute h-full w-full" data-attr={dataAttr}>
             <canvas ref={canvasRef} />
         </div>
     )

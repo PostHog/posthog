@@ -59,7 +59,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                         <LemonSkeleton className="h-6 flex-1" />
                     ) : (
                         <>
-                            <span className="flex-1 font-semibold truncate">{survey.name}</span>
+                            <span className="flex-1 truncate font-semibold">{survey.name}</span>
                             {/* survey has to exist in notebooks */}
                             <StatusTag survey={survey as Survey} />
                         </>
@@ -84,7 +84,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                                         targetingFlagFilters={targetingFlagFilters}
                                     />
 
-                                    <div className="w-full flex flex-col items-center">
+                                    <div className="flex w-full flex-col items-center">
                                         <SurveyAppearancePreview survey={survey} previewPageIndex={0} />
                                     </div>
                                 </div>

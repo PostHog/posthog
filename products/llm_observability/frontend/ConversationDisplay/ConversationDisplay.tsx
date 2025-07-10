@@ -30,7 +30,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
 
     return (
         <>
-            <header className="mb-2 flex justify-between items-center">
+            <header className="mb-2 flex items-center justify-between">
                 <MetadataHeader
                     inputTokens={eventProperties.$ai_input_tokens}
                     outputTokens={eventProperties.$ai_output_tokens}

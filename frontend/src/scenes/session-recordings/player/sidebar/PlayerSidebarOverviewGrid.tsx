@@ -11,9 +11,9 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { overviewItems, loading } = useValues(playerMetaLogic(logicProps))
     return (
-        <div className="rounded border bg-surface-primary">
+        <div className="bg-surface-primary rounded border">
             {loading ? (
-                <div className="flex flex-col deprecated-space-y-1">
+                <div className="deprecated-space-y-1 flex flex-col">
                     <LemonSkeleton.Row repeat={6} className="h-5" />
                 </div>
             ) : (
@@ -28,7 +28,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                 itemKeyTooltip={item.keyTooltip}
                                 fadeLabel
                             >
-                                <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium">
+                                <div className="deprecated-space-x-2 flex flex-row items-center justify-start font-medium">
                                     {item.type === 'property' && (
                                         <PropertyIcon property={item.property} value={item.value} />
                                     )}

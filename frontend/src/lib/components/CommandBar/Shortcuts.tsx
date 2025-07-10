@@ -8,7 +8,7 @@ export const Shortcuts = (): JSX.Element => {
     useMountedLogic(shortcutsLogic)
 
     return (
-        <div className="flex flex-col h-full p-5">
+        <div className="flex h-full flex-col p-5">
             <h3>Keyboard shortcuts</h3>
             <h4>Site-wide shortcuts</h4>
             <div className="deprecated-space-y-1">

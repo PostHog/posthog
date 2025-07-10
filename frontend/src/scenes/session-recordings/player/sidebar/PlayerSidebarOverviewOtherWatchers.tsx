@@ -11,7 +11,7 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 function OtherWatchersLoading(): JSX.Element {
     return (
-        <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
+        <div className="deprecated-space-x-2 flex flex-row items-center justify-center px-2 py-1">
             <IconPeople />
             <LemonSkeleton.Row repeat={1} className="h-5" />
         </div>
@@ -27,7 +27,7 @@ function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType })
     const count = metadata.viewers.length
     const varyingText = count > 1 ? 'users have' : 'user has'
     return (
-        <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
+        <div className="deprecated-space-x-2 flex flex-row items-center justify-center px-2 py-1">
             <ProfileBubbles people={metadata.viewers.map((v) => ({ email: v }))} />
             <span>
                 {count} other {varyingText} watched this recording.
@@ -38,7 +38,7 @@ function OtherWatchersDisplay({ metadata }: { metadata?: SessionRecordingType })
 
 function NoOtherWatchers(): JSX.Element {
     return (
-        <div className="flex flex-row deprecated-space-x-2 items-center justify-center px-2 py-1">
+        <div className="deprecated-space-x-2 flex flex-row items-center justify-center px-2 py-1">
             <IconPeople />
             <span>Nobody else has watched this recording.</span>
         </div>
@@ -49,7 +49,7 @@ export function PlayerSidebarOverviewOtherWatchers(): JSX.Element {
     const { sessionPlayerMetaDataLoading, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <div className="rounded border bg-surface-primary">
+        <div className="bg-surface-primary rounded border">
             {sessionPlayerMetaDataLoading ? (
                 <OtherWatchersLoading />
             ) : sessionPlayerMetaData?.viewers?.length ? (

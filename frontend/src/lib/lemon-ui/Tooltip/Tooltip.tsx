@@ -162,7 +162,7 @@ export function Tooltip({
                     >
                         <div
                             className={clsx(
-                                'bg-surface-tooltip text-primary-inverse py-1.5 px-2 break-words rounded text-start',
+                                'bg-surface-tooltip text-primary-inverse break-words rounded px-2 py-1.5 text-start',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props

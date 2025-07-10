@@ -25,17 +25,17 @@ export const WebAnalyticsFilters = (): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
     return (
-        <div className="flex flex-col md:flex-row md:justify-between gap-2">
-            <div className="flex items-start shrink-0">
-                <div className="flex flex-1 flex-row gap-2 items-center">
-                    <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">
+        <div className="flex flex-col gap-2 md:flex-row md:justify-between">
+            <div className="flex shrink-0 items-start">
+                <div className="flex flex-1 flex-row items-center gap-2">
+                    <div className="flex flex-1 flex-row items-center gap-1 md:flex-none">
                         <ReloadAll iconOnly />
 
                         <WebAnalyticsDomainSelector />
                         <WebAnalyticsDeviceToggle />
                     </div>
 
-                    <div className="hidden md:flex items-center gap-2">
+                    <div className="hidden items-center gap-2 md:flex">
                         <span className="text-muted-alt">|</span>
                         <WebAnalyticsLiveUserCount />
                     </div>
@@ -51,13 +51,13 @@ export const WebAnalyticsFilters = (): JSX.Element => {
             </div>
 
             {/* On more than mobile, just display Foldable Fields, on smaller delegate displaying it to the expanded state */}
-            <div className="hidden sm:flex gap-2">
+            <div className="hidden gap-2 sm:flex">
                 <FoldableFilters />
             </div>
 
             <div
                 className={clsx(
-                    'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
+                    'flex flex-col gap-2 overflow-hidden transition-all duration-200 sm:hidden',
                     expanded ? 'max-h-[500px]' : 'max-h-0'
                 )}
             >
@@ -76,7 +76,7 @@ const FoldableFilters = (): JSX.Element => {
     const { setDates } = useActions(webAnalyticsLogic)
 
     return (
-        <div className="flex flex-row md:flex-row-reverse flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow w-full">
+        <div className="flex w-full flex-row flex-wrap gap-2 md:flex-row-reverse [&>*]:grow md:[&>*]:grow-0">
             <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             <WebAnalyticsCompareFilter />
 
@@ -181,7 +181,7 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                         ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
                     ],
                     footer: (
-                        <span className="text-xs px-2">
+                        <span className="px-2 text-xs">
                             Have more domains? Go to <DomainSettingsLink />
                         </span>
                     ),

@@ -17,10 +17,10 @@ export function MaxMemorySettings(): JSX.Element {
             logic={maxSettingsLogic}
             formKey="coreMemoryForm"
             enableFormOnSubmit
-            className="w-full deprecated-space-y-4"
+            className="deprecated-space-y-4 w-full"
         >
             {currentProjectLoading || isLoading ? (
-                <div className="gap-2 flex flex-col">
+                <div className="flex flex-col gap-2">
                     <LemonSkeleton className="h-6 w-32" />
                     <LemonSkeleton className="h-16" />
                 </div>

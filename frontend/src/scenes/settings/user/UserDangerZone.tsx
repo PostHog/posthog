@@ -85,7 +85,7 @@ export function DeleteUserModal({
                                     title: '',
                                     render: function RenderActionButton(_, organization) {
                                         return (
-                                            <div className="flex justify-end items-center gap-2 py-1 text-danger font-semibold">
+                                            <div className="text-danger flex items-center justify-end gap-2 py-1 font-semibold">
                                                 {organization.membership_level ===
                                                     OrganizationMembershipLevel.Owner && (
                                                     <LemonButton
@@ -158,7 +158,7 @@ export function DeleteUserModal({
 
                         {keys.length > 0 && (
                             <>
-                                <p className="text-danger font-semibold mt-4">
+                                <p className="text-danger mt-4 font-semibold">
                                     The following personal API keys will be deleted
                                 </p>
                                 <LemonTable

@@ -55,7 +55,7 @@ export function ChartModal({
                         <LegacyExploreButton result={result} />
                     </div>
                     <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
-                        <div className="items-center inline-flex flex-wrap">
+                        <div className="inline-flex flex-wrap items-center">
                             <WinningVariantText result={result} experimentId={experimentId} />
                             <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
                         </div>
@@ -78,7 +78,7 @@ export function ChartModal({
                                 </div>
                             )}
                             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
-                                <div className="items-center inline-flex flex-wrap">
+                                <div className="inline-flex flex-wrap items-center">
                                     <WinningVariantText result={result} experimentId={experimentId} />
                                     <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
                                 </div>

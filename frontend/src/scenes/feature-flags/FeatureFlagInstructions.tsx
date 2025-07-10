@@ -173,7 +173,7 @@ export function CodeInstructions({
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
                 labelInMenu: (
-                    <div className="flex items-center deprecated-space-x-2">
+                    <div className="deprecated-space-x-2 flex items-center">
                         <option.Icon />
                         <span>{option.value}</span>
                     </div>
@@ -187,7 +187,7 @@ export function CodeInstructions({
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
                 labelInMenu: (
-                    <div className="flex items-center deprecated-space-x-2">
+                    <div className="deprecated-space-x-2 flex items-center">
                         <option.Icon />
                         <span>{option.value}</span>
                     </div>
@@ -203,7 +203,7 @@ export function CodeInstructions({
                 label: option.value,
                 'data-attr': `feature-flag-instructions-select-option-${option.key}`,
                 labelInMenu: (
-                    <div className="flex items-center deprecated-space-x-2">
+                    <div className="deprecated-space-x-2 flex items-center">
                         <option.Icon />
                         <span>{option.value}</span>
                     </div>
@@ -246,7 +246,7 @@ export function CodeInstructions({
                                 checked={showPayloadCode}
                                 disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.key)}
                             />
-                            <IconInfo className="text-xl text-secondary shrink-0" />
+                            <IconInfo className="text-secondary shrink-0 text-xl" />
                         </div>
                     </Tooltip>
                     <>
@@ -268,7 +268,7 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                <IconInfo className="text-secondary shrink-0 text-xl" />
                             </div>
                         </Tooltip>
                         <Tooltip
@@ -290,13 +290,13 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                <IconInfo className="text-secondary shrink-0 text-xl" />
                             </div>
                         </Tooltip>
                     </>
                 </div>
             )}
-            <div className="mt-4 mb">
+            <div className="mb mt-4">
                 {showLocalEvalCode && (
                     <>
                         <h4 className="l4">Local evaluation</h4>

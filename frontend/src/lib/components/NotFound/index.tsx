@@ -47,13 +47,13 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
     return (
         <div className="NotFoundComponent" data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}>
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
-            <h1 className="text-3xl font-bold mt-4 mb-0">
+            <h1 className="mb-0 mt-4 text-3xl font-bold">
                 {appContext?.suggested_users_with_access
                     ? 'Log in as a customer to access this project'
                     : `${capitalizeFirstLetter(object)} not found`}
             </h1>
             {!nodeLogic ? (
-                <p className="text-sm font-semibold italic mt-3 mb-0">
+                <p className="mb-0 mt-3 text-sm font-semibold italic">
                     {appContext?.suggested_users_with_access ? (
                         <>
                             The user
@@ -69,7 +69,7 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
                     )}
                 </p>
             ) : null}
-            <p className="text-sm mt-3 mb-0">
+            <p className="mb-0 mt-3 text-sm">
                 {appContext?.suggested_users_with_access ? (
                     <LogInAsSuggestions suggestedUsers={appContext.suggested_users_with_access} />
                 ) : (
@@ -91,14 +91,14 @@ export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element 
                 )}
             </p>
             {nodeLogic && (
-                <div className="flex justify-center mt-4 w-fit">
+                <div className="mt-4 flex w-fit justify-center">
                     <LemonButton type="secondary" status="danger" onClick={nodeLogic.actions.deleteNode}>
                         Remove from Notebook
                     </LemonButton>
                 </div>
             )}
             {object === 'Person' && meta?.urlId && (
-                <div className="flex justify-center mt-4 w-fit">
+                <div className="mt-4 flex w-fit justify-center">
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -133,7 +133,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
     const [successfulUserId, setSuccessfulUserId] = useState<number | null>(null)
 
     return (
-        <ScrollableShadows direction="vertical" className="bg-surface-primary border rounded mt-1 max-h-64 *:p-1">
+        <ScrollableShadows direction="vertical" className="bg-surface-primary mt-1 max-h-64 rounded border *:p-1">
             <LemonMenuOverlay
                 items={suggestedUsers.map((user) => ({
                     icon: <ProfilePicture user={user} size="md" />,

@@ -23,7 +23,7 @@ export function DetailsButton({
         <>
             {(isSecondary || (!isSecondary && primaryMetricsLength > 1)) && (
                 <div
-                    className="absolute top-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
+                    className="absolute left-2 top-2 z-[101] flex justify-center bg-[var(--bg-table)]"
                     // Chart is z-index 100, so we need to be above it
                 >
                     <LemonButton

@@ -77,8 +77,8 @@ export function ViewLinkForm(): JSX.Element {
 
     return (
         <Form logic={viewLinkLogic} formKey="viewLink" enableFormOnSubmit>
-            <div className="flex flex-col w-full justify-between items-center">
-                <div className="flex flex-row w-full justify-between">
+            <div className="flex w-full flex-col items-center justify-between">
+                <div className="flex w-full flex-row justify-between">
                     <div className="w-60">
                         <span className="l4">Source Table</span>
                         <div className="text-wrap break-all">
@@ -108,7 +108,7 @@ export function ViewLinkForm(): JSX.Element {
                         </Field>
                     </div>
                 </div>
-                <div className="mt-4 flex flex-row justify-between items-center w-full">
+                <div className="mt-4 flex w-full flex-row items-center justify-between">
                     <div className="w-60">
                         <span className="l4">Source Table Key</span>
                         <Field name="source_table_key">
@@ -160,9 +160,9 @@ export function ViewLinkForm(): JSX.Element {
                     </div>
                 </div>
                 {'events' === selectedJoiningTableName && (
-                    <div className="w-full mt-2">
-                        <LemonDivider className="mt-4 mb-4" />
-                        <div className="mt-4 flex flex-row justify-between w-full">
+                    <div className="mt-2 w-full">
+                        <LemonDivider className="mb-4 mt-4" />
+                        <div className="mt-4 flex w-full flex-row justify-between">
                             <div className="mr-4">
                                 <span className="l4">Optimize for Experiments</span>
                                 <Field name="experiments_optimized">
@@ -191,8 +191,8 @@ export function ViewLinkForm(): JSX.Element {
                     </div>
                 )}
                 {sqlCodeSnippet && (
-                    <div className="w-full mt-2">
-                        <LemonDivider className="mt-4 mb-4" />
+                    <div className="mt-2 w-full">
+                        <LemonDivider className="mb-4 mt-4" />
                         <LemonButton
                             fullWidth
                             onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
@@ -209,7 +209,7 @@ export function ViewLinkForm(): JSX.Element {
                 )}
                 {sqlCodeSnippet && advancedSettingsExpanded && (
                     <>
-                        <div className="mt-3 flex flex-row justify-between items-center w-full">
+                        <div className="mt-3 flex w-full flex-row items-center justify-between">
                             <div className="w-full">
                                 <span className="l4">Field Name</span>
                                 <Field
@@ -233,14 +233,14 @@ export function ViewLinkForm(): JSX.Element {
                 )}
                 {error && (
                     <div className="flex w-full">
-                        <div className="text-danger flex text-sm overflow-auto">
+                        <div className="text-danger flex overflow-auto text-sm">
                             <span>{error}</span>
                         </div>
                     </div>
                 )}
             </div>
-            <LemonDivider className="mt-4 mb-4" />
-            <div className="flex flex-row justify-end w-full">
+            <LemonDivider className="mb-4 mt-4" />
+            <div className="flex w-full flex-row justify-end">
                 <LemonButton className="mr-3" type="secondary" onClick={toggleJoinTableModal}>
                     Close
                 </LemonButton>

@@ -220,7 +220,7 @@ export const WithFooter: Story = BasicTemplate.bind({})
 WithFooter.args = {
     footer: (
         <>
-            <div className="flex items-center m-2">
+            <div className="m-2 flex items-center">
                 <LemonButton center fullWidth>
                     Load more rows
                 </LemonButton>

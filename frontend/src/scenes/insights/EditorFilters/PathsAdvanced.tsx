@@ -95,7 +95,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                     <span className="ml-2">persons.</span>
                 </div>
                 <div>
-                    <div className="flex items-center my-2">
+                    <div className="my-2 flex items-center">
                         <LemonLabel
                             info={
                                 <>

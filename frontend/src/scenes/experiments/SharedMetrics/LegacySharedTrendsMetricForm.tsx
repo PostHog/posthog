@@ -72,7 +72,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                     allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
-                                <div className="mt-4 deprecated-space-y-4">
+                                <div className="deprecated-space-y-4 mt-4">
                                     <TestAccountFilterSwitch
                                         checked={(() => {
                                             const val = sharedMetricQuery.count_query?.filterTestAccounts
@@ -92,7 +92,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         fullWidth
                                     />
                                 </div>
-                                <LemonBanner type="info" className="mt-3 mb-3">
+                                <LemonBanner type="info" className="mb-3 mt-3">
                                     Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data.
                                     This can cause a mismatch between the preview and the actual results.
                                 </LemonBanner>
@@ -116,9 +116,9 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                         label: 'Exposure',
                         content: (
                             <>
-                                <div className="flex gap-4 mb-4">
+                                <div className="mb-4 flex gap-4">
                                     <div
-                                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                                        className={`flex-1 cursor-pointer rounded border p-4 ${
                                             !sharedMetricQuery.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
                                                 : 'border-primary'
@@ -132,7 +132,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                             })
                                         }}
                                     >
-                                        <div className="font-semibold flex justify-between items-center">
+                                        <div className="flex items-center justify-between font-semibold">
                                             <span>Default</span>
                                             {!sharedMetricQuery.exposure_query && (
                                                 <IconCheckCircle fontSize={18} color="var(--accent)" />
@@ -146,7 +146,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         </div>
                                     </div>
                                     <div
-                                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                                        className={`flex-1 cursor-pointer rounded border p-4 ${
                                             sharedMetricQuery.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
                                                 : 'border-primary'
@@ -182,7 +182,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                             })
                                         }}
                                     >
-                                        <div className="font-semibold flex justify-between items-center">
+                                        <div className="flex items-center justify-between font-semibold">
                                             <span>Custom</span>
                                             {sharedMetricQuery.exposure_query && (
                                                 <IconCheckCircle fontSize={18} color="var(--accent)" />
@@ -230,7 +230,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                             allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                             {...commonActionFilterProps}
                                         />
-                                        <div className="mt-4 deprecated-space-y-4">
+                                        <div className="deprecated-space-y-4 mt-4">
                                             <TestAccountFilterSwitch
                                                 checked={(() => {
                                                     const val = sharedMetricQuery.exposure_query?.filterTestAccounts
@@ -250,7 +250,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                                 fullWidth
                                             />
                                         </div>
-                                        <LemonBanner type="info" className="mt-3 mb-3">
+                                        <LemonBanner type="info" className="mb-3 mt-3">
                                             Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days
                                             of data. This can cause a mismatch between the preview and the actual
                                             results.

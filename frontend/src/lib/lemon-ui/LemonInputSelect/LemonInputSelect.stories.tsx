@@ -33,7 +33,7 @@ const meta: Meta<typeof LemonInputSelect> = {
         options: names.map((x, i) => ({
             key: `user-${i}`,
             labelComponent: (
-                <span className="flex gap-2 items-center">
+                <span className="flex items-center gap-2">
                     <ProfilePicture
                         user={{
                             first_name: x,

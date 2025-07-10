@@ -12,18 +12,18 @@ export function PreLaunchChecklist(): JSX.Element {
         useActions(modalsLogic)
     return (
         <div>
-            <div className="flex items-center deprecated-space-x-2 mb-2">
-                <h2 className="mb-0 font-semibold text-lg leading-6">Pre-launch checklist</h2>
+            <div className="deprecated-space-x-2 mb-2 flex items-center">
+                <h2 className="mb-0 text-lg font-semibold leading-6">Pre-launch checklist</h2>
             </div>
 
-            <div className="bg-bg-light rounded p-4 border">
+            <div className="bg-bg-light rounded border p-4">
                 <div>
                     {/* Step 1 - Hypothesis */}
-                    <div className="flex gap-3 mb-6">
+                    <div className="mb-6 flex gap-3">
                         {experiment.description ? (
-                            <IconCheckCircle className="text-success flex-none w-6 h-6" />
+                            <IconCheckCircle className="text-success h-6 w-6 flex-none" />
                         ) : (
-                            <div className="flex-none w-5 h-5 rounded-full border-2 border-orange" />
+                            <div className="border-orange h-5 w-5 flex-none rounded-full border-2" />
                         )}
                         <div className="flex-1">
                             <div className={`text-xs font-semibold ${experiment.description ? 'text-success' : ''}`}>
@@ -62,11 +62,11 @@ export function PreLaunchChecklist(): JSX.Element {
                     </div>
 
                     {/* Step 2 - Metric */}
-                    <div className="flex gap-3 mb-6">
+                    <div className="mb-6 flex gap-3">
                         {experiment.metrics?.length > 0 ? (
-                            <IconCheckCircle className="text-success flex-none w-6 h-6" />
+                            <IconCheckCircle className="text-success h-6 w-6 flex-none" />
                         ) : (
-                            <div className="flex-none w-5 h-5 rounded-full border-2 border-orange" />
+                            <div className="border-orange h-5 w-5 flex-none rounded-full border-2" />
                         )}
                         <div className="flex-1">
                             <div
@@ -111,9 +111,9 @@ export function PreLaunchChecklist(): JSX.Element {
                     {/* Step 3 - Running time */}
                     <div className="flex gap-3">
                         {experiment.parameters?.recommended_running_time ? (
-                            <IconCheckCircle className="text-success flex-none w-6 h-6" />
+                            <IconCheckCircle className="text-success h-6 w-6 flex-none" />
                         ) : (
-                            <div className="flex-none w-5 h-5 rounded-full border-2 border-orange" />
+                            <div className="border-orange h-5 w-5 flex-none rounded-full border-2" />
                         )}
                         <div className="flex-1">
                             <div

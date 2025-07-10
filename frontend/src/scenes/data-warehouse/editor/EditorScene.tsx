@@ -128,7 +128,7 @@ export function EditorScene(): JSX.Element {
                                         >
                                             <div
                                                 data-attr="editor-scene"
-                                                className="EditorScene w-full h-full flex flex-row overflow-hidden"
+                                                className="EditorScene flex h-full w-full flex-row overflow-hidden"
                                                 ref={ref}
                                             >
                                                 {!featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] && (

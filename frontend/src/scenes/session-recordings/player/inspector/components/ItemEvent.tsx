@@ -54,7 +54,7 @@ function SummarizeWebVitals({ properties }: { properties: Record<string, any> })
     const { $web_vitals_FCP_event, $web_vitals_CLS_event, $web_vitals_INP_event, $web_vitals_LCP_event } = properties
 
     return (
-        <div className="flex gap-1 items-center">
+        <div className="flex items-center gap-1">
             <WebVitalEventSummary event={$web_vitals_FCP_event} />
             <WebVitalEventSummary event={$web_vitals_CLS_event} />
             <WebVitalEventSummary event={$web_vitals_INP_event} />
@@ -80,8 +80,8 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
         ) : null
 
     return (
-        <div data-attr="item-event" className="font-light w-full">
-            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
+        <div data-attr="item-event" className="w-full font-light">
+            <div className="flex w-full cursor-pointer flex-row items-center justify-between gap-2 px-2 py-1 text-xs">
                 <div className="truncate">
                     <PropertyKeyInfo
                         className="font-medium"
@@ -152,8 +152,8 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         : null
 
     return (
-        <div data-attr="item-event" className="font-light w-full">
-            <div className="px-2 py-1 text-xs border-t">
+        <div data-attr="item-event" className="w-full font-light">
+            <div className="border-t px-2 py-1 text-xs">
                 <div className="flex justify-end gap-2">
                     {item.data.event === '$exception' && '$exception_issue_id' in item.data.properties ? (
                         <LemonButton
@@ -336,7 +336,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                     key: 'raw',
                                     label: 'Raw',
                                     content: (
-                                        <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                        <pre className="text-secondary whitespace-pre-wrap text-xs">
                                             {JSON.stringify(item.data.properties, null, 2)}
                                         </pre>
                                     ),
@@ -345,7 +345,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         />
                     )
                 ) : (
-                    <div className="text-secondary flex gap-1 items-center">
+                    <div className="text-secondary flex items-center gap-1">
                         <Spinner textColored />
                         Loading...
                     </div>

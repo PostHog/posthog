@@ -25,7 +25,7 @@ export function EntityFilterInfo({
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         return (
             <span
-                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'truncate whitespace-nowrap')}
                 title="All events"
             >
                 All events
@@ -41,9 +41,9 @@ export function EntityFilterInfo({
     if (!filter?.custom_name) {
         return (
             // eslint-disable-next-line react/forbid-dom-props
-            <span className={!allowWrap ? 'flex truncate  items-center' : ''} style={style}>
+            <span className={!allowWrap ? 'flex items-center truncate' : ''} style={style}>
                 <span
-                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'truncate whitespace-nowrap')}
                     title={titleToDisplay}
                 >
                     {titleToDisplay}
@@ -59,7 +59,7 @@ export function EntityFilterInfo({
         // eslint-disable-next-line react/forbid-dom-props
         <span className={!allowWrap ? 'flex items-baseline' : ''} style={style}>
             <span
-                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'truncate whitespace-nowrap')}
                 title={customTitle ?? undefined}
             >
                 {customTitle}
@@ -67,8 +67,8 @@ export function EntityFilterInfo({
             {!showSingleName && (
                 <span
                     className={clsx(
-                        'EntityFilterInfo max-w-100 ml-1 text-secondary text-xs',
-                        !allowWrap && 'whitespace-nowrap truncate'
+                        'EntityFilterInfo max-w-100 text-secondary ml-1 text-xs',
+                        !allowWrap && 'truncate whitespace-nowrap'
                     )}
                     title={titleToDisplay}
                 >

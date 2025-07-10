@@ -54,7 +54,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
             currentProjectItems.push({
                 label: projectNameWithoutEmoji,
                 icon: projectNameEmojiMatch ? (
-                    <div className="size-5 text-xl leading-5 text-center">{projectNameEmojiMatch}</div>
+                    <div className="size-5 text-center text-xl leading-5">{projectNameEmojiMatch}</div>
                 ) : (
                     <UploadedLogo
                         name={projectName}
@@ -104,16 +104,16 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 label: (
                     <>
                         {projectNameWithoutEmoji}
-                        <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
+                        <LemonTag size="small" className="border-text-3000 ml-1.5 uppercase">
                             {projectTeams[0].name}
                         </LemonTag>
                         {projectTeams.length > 1 && (
-                            <span className="text-xs font-medium ml-1.5">+ {projectTeams.length - 1}</span>
+                            <span className="ml-1.5 text-xs font-medium">+ {projectTeams.length - 1}</span>
                         )}
                     </>
                 ),
                 icon: projectNameEmojiMatch ? (
-                    <div className="size-6 text-xl leading-6 text-center">{projectNameEmojiMatch}</div>
+                    <div className="size-6 text-center text-xl leading-6">{projectNameEmojiMatch}</div>
                 ) : (
                     <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark size="small" />
                 ),
@@ -214,7 +214,7 @@ function convertTeamToMenuItem(
         key: team.id,
         active: team.id === currentTeam.id,
         to: determineProjectSwitchUrl(location.pathname, team.id),
-        icon: <IconCornerDownRight className="ml-1 -mr-1 -mt-[5px]" />,
+        icon: <IconCornerDownRight className="-mr-1 -mt-[5px] ml-1" />,
         tooltip:
             team.id === currentTeam.id
                 ? 'Currently active environment'

@@ -102,7 +102,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                             (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
                         label: (
                             <div className="mb-4 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                <div className="mb-1 flex items-center overflow-hidden leading-[normal]">
                                     <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
                                     {!incrementalSyncSupported.disabled && (
                                         <LemonTag type="success">Recommended</LemonTag>
@@ -144,7 +144,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                             (appendSyncSupported.disabled && appendSyncSupported.disabledReason) || undefined,
                         label: (
                             <div className="mb-4 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                <div className="mb-1 flex items-center overflow-hidden leading-[normal]">
                                     <h4 className="mb-0 mr-2 text-base font-semibold">Append only replication</h4>
                                 </div>
                                 <p className="mb-2">
@@ -185,7 +185,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                         value: 'full_refresh',
                         label: (
                             <div className="mb-6 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                <div className="mb-1 flex items-center overflow-hidden leading-[normal]">
                                     <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
                                 </div>
                                 <p className="m-0">
@@ -198,7 +198,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                 ]}
                 onChange={(newValue) => setRadioValue(newValue)}
             />
-            <div className="flex flex-row justify-end w-full">
+            <div className="flex w-full flex-row justify-end">
                 <LemonButton className="mr-3" type="secondary" onClick={onClose}>
                     Close
                 </LemonButton>

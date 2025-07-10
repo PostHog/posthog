@@ -179,7 +179,7 @@ export function SharingModalContent({
                                     formKey="embedConfig"
                                     className="deprecated-space-y-2"
                                 >
-                                    <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
+                                    <div className="grid-flow grid grid-cols-2 gap-2 *:odd:last:col-span-2">
                                         {insight && (
                                             <LemonField name="noHeader">
                                                 {({ value, onChange }) => (
@@ -203,7 +203,7 @@ export function SharingModalContent({
                                                             <span>Show PostHog branding</span>
                                                             {!whitelabelAvailable && (
                                                                 <Tooltip title="This is a premium feature, click to learn more.">
-                                                                    <IconLock className="ml-1.5 text-secondary text-lg" />
+                                                                    <IconLock className="text-secondary ml-1.5 text-lg" />
                                                                 </Tooltip>
                                                             )}
                                                         </div>

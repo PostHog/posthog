@@ -35,14 +35,14 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     return (
         <>
             <div
-                className="relative flex flex-row w-full bg-primary"
+                className="bg-primary relative flex w-full flex-row"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     height: `${queryPaneHeight}px`,
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
-                <div className="relative flex flex-col w-full">
+                <div className="relative flex w-full flex-col">
                     <div className="flex-1" data-attr="hogql-query-editor">
                         <AutoSizer>
                             {({ height, width }) => (
@@ -97,7 +97,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     </div>
                     {props.originalValue && (
                         <div
-                            className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
+                            className="bg-bg-light absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 gap-1 whitespace-nowrap rounded border px-1.5 py-1"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
                         >

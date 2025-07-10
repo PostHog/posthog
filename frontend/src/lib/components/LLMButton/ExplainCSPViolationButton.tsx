@@ -36,7 +36,7 @@ export const ExplainCSPViolationButton = ({
 
         if (!isMaxEnabled) {
             setResult(
-                <div className="flex flex-col items-center justify-center min-h-40 gap-4 text-l text-center">
+                <div className="text-l flex min-h-40 flex-col items-center justify-center gap-4 text-center">
                     <SupportHeroHog style={{ maxWidth: 120, marginBottom: 8 }} />
                     <div>
                         Want to get CSP violation explanations from the cutest security hog in the world?
@@ -53,7 +53,7 @@ export const ExplainCSPViolationButton = ({
                         </Link>{' '}
                         in your feature previews.
                         <div className="mt-4">
-                            <span className="text-xs text-muted">
+                            <span className="text-muted text-xs">
                                 Otherwise, you can edit this insight and remove this column on the SQL query.
                             </span>
                         </div>
@@ -70,9 +70,9 @@ export const ExplainCSPViolationButton = ({
                 setResult(
                     <>
                         <LemonMarkdown wrapCode={true}>{r.response}</LemonMarkdown>
-                        <div className="flex items-center mt-2 p-2 border border-border-strong rounded">
-                            <IconWarning className="text-warning-dark flex-shrink-0 mr-2" />
-                            <span className="text-xs text-muted">
+                        <div className="border-border-strong mt-2 flex items-center rounded border p-2">
+                            <IconWarning className="text-warning-dark mr-2 flex-shrink-0" />
+                            <span className="text-muted text-xs">
                                 Security advice from robots should always be double-checked by humans
                             </span>
                         </div>
@@ -80,7 +80,7 @@ export const ExplainCSPViolationButton = ({
                 )
             } else {
                 setResult(
-                    <div className="flex items-center justify-center min-h-40 gap-4 text-l">
+                    <div className="text-l flex min-h-40 items-center justify-center gap-4">
                         Sorry! We failed to get a CSP explanation. Please try again later
                     </div>
                 )
@@ -95,9 +95,9 @@ export const ExplainCSPViolationButton = ({
             visible={isOpen}
             onClickOutside={() => setIsOpen(false)}
             overlay={
-                <div className="p-4 min-w-160 max-w-200 min-h-40 max-h-160">
+                <div className="min-w-160 max-w-200 max-h-160 min-h-40 p-4">
                     {loading ? (
-                        <div className="flex items-center justify-center min-h-40 gap-4">
+                        <div className="flex min-h-40 items-center justify-center gap-4">
                             <div className="text-l">
                                 <Spinner /> The security hogs are sniffing the violation{' '}
                             </div>

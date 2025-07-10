@@ -25,9 +25,9 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
     return (
         <div className={clsx('border-l-4', focused ? 'border-accent' : !isExecutable ? 'border-transparent' : null)}>
             <div
-                className={`flex items-center w-full px-2 hover:bg-surface-secondary ${
+                className={`hover:bg-surface-secondary flex w-full items-center px-2 ${
                     focused ? 'bg-surface-secondary' : 'bg-surface-primary'
-                } border-b cursor-pointer`}
+                } cursor-pointer border-b`}
                 onClick={() => {
                     if (isExecutable) {
                         executeResult(result)
@@ -35,11 +35,11 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
                 }}
                 ref={ref}
             >
-                <div className="px-2 py-3 w-full gap-y-0.5 flex items-center">
+                <div className="flex w-full items-center gap-y-0.5 px-2 py-3">
                     <result.icon className="text-muted-3000" />
-                    <span className="ml-2 text-text-3000 font-bold">{result.display}</span>
+                    <span className="text-text-3000 ml-2 font-bold">{result.display}</span>
                 </div>
-                {focused && <div className="shrink-0 text-primary-3000">Run command</div>}
+                {focused && <div className="text-primary-3000 shrink-0">Run command</div>}
             </div>
         </div>
     )

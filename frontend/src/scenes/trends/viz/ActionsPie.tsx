@@ -141,14 +141,14 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                         />
                     </div>
                     {showAggregation && (
-                        <div className="text-7xl text-center font-bold m-0">
+                        <div className="m-0 text-center text-7xl font-bold">
                             {formatAggregationAxisValue(trendsFilter, total)}
                         </div>
                     )}
                 </div>
             </div>
         ) : (
-            <p className="text-center mt-16">We couldn't find any matching actions.</p>
+            <p className="mt-16 text-center">We couldn't find any matching actions.</p>
         )
     ) : null
 }

@@ -28,7 +28,7 @@ export function Overview(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <div className="flex items-center m-2 shrink-0">
+                    <div className="m-2 flex shrink-0 items-center">
                         <LemonMenu items={menuItems}>
                             <LemonButton
                                 data-attr="new-pipeline-button"

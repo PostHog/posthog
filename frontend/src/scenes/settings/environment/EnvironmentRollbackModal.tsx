@@ -35,8 +35,8 @@ function ProjectEnvironmentSelector({ project }: { project: ProjectWithEnvironme
     }))
 
     return (
-        <div className="mb-4 flex items-center gap-4 w-full">
-            <div className="font-semibold min-w-0 flex-1 flex items-center gap-2">
+        <div className="mb-4 flex w-full items-center gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2 font-semibold">
                 <UploadedLogo name={project.name} entityId={project.id} outlinedLettermark size="small" />
                 <span className="truncate" title={project.name}>
                     {project.name}
@@ -143,15 +143,15 @@ export function EnvironmentRollbackModal(): JSX.Element {
                                 <ProjectEnvironmentSelector key={project.id} project={project} />
                             ))}
                             {hiddenProjectsCount > 0 && (
-                                <div className="flex items-center gap-4 w-full opacity-50">
-                                    <div className="min-w-0 flex-1 flex items-center gap-2">
-                                        <div className="w-6 h-6 bg-border rounded-full flex-shrink-0" />
-                                        <div className="flex-1 text-muted text-sm">
+                                <div className="flex w-full items-center gap-4 opacity-50">
+                                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                                        <div className="bg-border h-6 w-6 flex-shrink-0 rounded-full" />
+                                        <div className="text-muted flex-1 text-sm">
                                             + {pluralize(hiddenProjectsCount, 'project')} already using single
                                             environment
                                         </div>
                                     </div>
-                                    <div className="w-[300px] h-8 bg-border rounded flex-shrink-0 flex items-center justify-center">
+                                    <div className="bg-border flex h-8 w-[300px] flex-shrink-0 items-center justify-center rounded">
                                         <span className="text-muted text-xs">No action needed</span>
                                     </div>
                                 </div>

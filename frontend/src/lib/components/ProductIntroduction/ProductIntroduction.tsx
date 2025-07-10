@@ -62,11 +62,11 @@ export const ProductIntroduction = ({
     const actionable = action || actionElementOverride
     return (
         <div
-            className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4"
+            className="border-primary mb-4 mt-2 w-full justify-center rounded border-2 border-dashed p-8"
             data-attr={`product-introduction-${thingName}`}
         >
             {!isEmpty && (
-                <div className="flex justify-end -mb-6 -mt-2 -mr-2">
+                <div className="-mb-6 -mr-2 -mt-2 flex justify-end">
                     <div>
                         <LemonButton
                             icon={<IconX />}
@@ -78,19 +78,19 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-8 w-full justify-center">
+            <div className="flex w-full items-center justify-center gap-8">
                 <div>
-                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
+                    <div className="lg:w-50 mx-auto mb-4 hidden w-40 md:block">
                         {CustomHog ? (
-                            <CustomHog className="w-full h-full" />
+                            <CustomHog className="h-full w-full" />
                         ) : actionable ? (
-                            <BuilderHog3 className="w-full h-full" />
+                            <BuilderHog3 className="h-full w-full" />
                         ) : (
-                            <DetectiveHog className="w-full h-full" />
+                            <DetectiveHog className="h-full w-full" />
                         )}
                     </div>
                 </div>
-                <div className="flex-shrink max-w-140">
+                <div className="max-w-140 flex-shrink">
                     <h2>
                         {!isEmpty
                             ? `Welcome to ${productName}!`
@@ -107,7 +107,7 @@ export const ProductIntroduction = ({
                             started yourself.
                         </p>
                     )}
-                    <div className="flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap">
+                    <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
                         {action ? (
                             <LemonButton
                                 type="primary"
@@ -126,7 +126,7 @@ export const ProductIntroduction = ({
                         {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
-                                sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                                sideIcon={<IconOpenSidebar className="h-4 w-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"
                                 targetBlank

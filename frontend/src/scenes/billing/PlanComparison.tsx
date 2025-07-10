@@ -30,7 +30,7 @@ export function PlanIcon({
     timeDenominator?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center text-xs text-secondary">
+        <div className="text-secondary flex items-center text-xs">
             {!feature ? (
                 <>
                     <IconX className={clsx('text-danger mx-4', className)} />
@@ -75,7 +75,7 @@ const PricingTiers = ({
                         key={`${plan.plan_key}-${product.type}-${tier.up_to}`}
                         className={clsx(
                             'flex',
-                            width && width < 100 ? 'flex-col mb-2' : 'justify-between items-center'
+                            width && width < 100 ? 'mb-2 flex-col' : 'items-center justify-between'
                         )}
                         ref={tiersRef}
                     >
@@ -92,7 +92,7 @@ const PricingTiers = ({
             ) : product?.free_allocation ? (
                 <div
                     key={`${plan.plan_key}-${product.type}-tiers`}
-                    className={clsx('flex', width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center')}
+                    className={clsx('flex', width && width < 100 ? 'mb-2 flex-col' : 'items-center justify-between')}
                     ref={tiersRef}
                 >
                     <span className="text-xs">
@@ -162,7 +162,7 @@ export const PlanComparison = ({
                                               : 'Usage-based - starting at $0'
                                           : '$0 per month'}
                                 {isProrated && (
-                                    <p className="text-xxs text-secondary font-normal italic mt-2">
+                                    <p className="text-xxs text-secondary mt-2 font-normal italic">
                                         Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
                                         {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
                                         thereafter.
@@ -180,7 +180,7 @@ export const PlanComparison = ({
                                     <span className="font-bold">{product.name}</span>
                                 </p>
                             )}
-                            <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
+                            <p className="ml-0 mt-1 text-xs">Priced per {product.unit}</p>
                         </th>
                         {plans?.map((plan) => (
                             <td key={`${plan.plan_key}-tiers-td`}>
@@ -192,7 +192,7 @@ export const PlanComparison = ({
                 {includeAddons && product.addons.length > 0 && (
                     <tr>
                         <th colSpan={1} className="PlanTable__th__section rounded text-left">
-                            <h3 className="mt-6 mb-6">Available add-ons:</h3>
+                            <h3 className="mb-6 mt-6">Available add-ons:</h3>
                         </th>
                     </tr>
                 )}
@@ -212,7 +212,7 @@ export const PlanComparison = ({
                                     <th scope="row">
                                         <p className="ml-0">
                                             <Tooltip title={addon.description}>
-                                                <span className="font-bold cursor-default">{addon.name}</span>
+                                                <span className="cursor-default font-bold">{addon.name}</span>
                                             </Tooltip>
                                             <Tooltip
                                                 title={
@@ -229,7 +229,7 @@ export const PlanComparison = ({
                                                 </LemonTag>
                                             </Tooltip>
                                         </p>
-                                        <p className="ml-0 text-xs text-secondary mt-1">Priced per {addon.unit}</p>
+                                        <p className="text-secondary ml-0 mt-1 text-xs">Priced per {addon.unit}</p>
                                     </th>
                                     {plans?.map((plan, i) => {
                                         // If the parent plan is free, the addon isn't available
@@ -260,7 +260,7 @@ export const PlanComparison = ({
                         })}
                 <tr>
                     <th colSpan={1} className="PlanTable__th__section rounded text-left">
-                        <h3 className="mt-6 mb-2">
+                        <h3 className="mb-2 mt-6">
                             {product.type === 'platform_and_support' ? 'Platform' : 'Product'} features:
                         </h3>
                     </th>
@@ -285,7 +285,7 @@ export const PlanComparison = ({
                                 <div
                                     className={
                                         comparisonModalHighlightedFeatureKey === feature.key
-                                            ? 'border-b-2 border-danger-lighter px-1 pb-1 w-max'
+                                            ? 'border-danger-lighter w-max border-b-2 px-1 pb-1'
                                             : undefined
                                     }
                                 >
@@ -309,7 +309,7 @@ export const PlanComparison = ({
                     <>
                         <tr>
                             <th colSpan={1} className="PlanTable__th__section rounded text-left">
-                                <h3 className="mt-6 mb-2">
+                                <h3 className="mb-2 mt-6">
                                     <Tooltip title="Organizations with any paid subscription get access to additional features.">
                                         <span>Included platform features:</span>
                                     </Tooltip>
@@ -327,9 +327,9 @@ export const PlanComparison = ({
                                         <tr>
                                             <th
                                                 colSpan={3}
-                                                className="PlanTable__th__section bg-primary justify-left rounded text-left mb-2"
+                                                className="PlanTable__th__section bg-primary justify-left mb-2 rounded text-left"
                                             >
-                                                <div className="flex items-center gap-x-2 my-2">
+                                                <div className="my-2 flex items-center gap-x-2">
                                                     {getProductIcon(
                                                         includedProduct.name,
                                                         includedProduct.icon_key,
@@ -419,8 +419,8 @@ export const PlanComparisonModal = ({
 }): JSX.Element | null => {
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
-            <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
-                <div className="text-left bg-surface-primary rounded relative w-full">
+            <div className="PlanComparisonModal flex h-full w-full justify-center p-6">
+                <div className="bg-surface-primary relative w-full rounded text-left">
                     {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>

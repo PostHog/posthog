@@ -91,7 +91,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
         },
         {
             title: (
-                <div className="inline-flex items-center deprecated-space-x-1">
+                <div className="deprecated-space-x-1 inline-flex items-center">
                     <div>Match evaluation</div>
                     <Tooltip
                         title={
@@ -113,7 +113,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                         }
                         closeDelayMs={200}
                     >
-                        <IconInfo className="text-secondary text-base ml-1" />
+                        <IconInfo className="text-secondary ml-1 text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -152,7 +152,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
 
     return (
         <>
-            <div className="flex justify-between mb-4 gap-2 flex-wrap">
+            <div className="mb-4 flex flex-wrap justify-between gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for feature flags"

@@ -618,7 +618,7 @@ export function ActionFilterRow({
             </div>
 
             {propertyFiltersVisible && (
-                <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
+                <div className={`ActionFilterRow-filters${filtersLeftPadding ? 'pl-7' : ''}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}

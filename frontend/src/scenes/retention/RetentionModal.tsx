@@ -56,7 +56,7 @@ export function RetentionModal(): JSX.Element | null {
             isOpen // always open, as we simply don't mount otherwise
             onClose={closeModal}
             footer={
-                <div className="flex justify-between gap-2 w-full">
+                <div className="flex w-full justify-between gap-2">
                     <div className="flex gap-2">
                         {!!people.result?.length && !exploreUrl && (
                             <LemonButton

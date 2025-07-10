@@ -81,13 +81,13 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative deprecated-space-y-4 flex flex-col">
+                <div className="deprecated-space-y-4 relative flex flex-col">
                     <TraceMetadata
                         trace={trace}
                         metricEvents={metricEvents as LLMTraceEvent[]}
                         feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                     />
-                    <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
+                    <div className="flex min-h-0 flex-1 flex-col gap-4 md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
                         <EventContent event={event} tree={enrichedTree} />
                     </div>
@@ -135,7 +135,7 @@ function TraceMetadata({
     feedbackEvents: LLMTraceEvent[]
 }): JSX.Element {
     return (
-        <header className="flex gap-2 flex-wrap">
+        <header className="flex flex-wrap gap-2">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
@@ -197,10 +197,10 @@ function TraceSidebar({
 
     return (
         <aside
-            className="sticky bottom-[var(--scene-padding)] border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
+            className="border-primary bg-surface-primary sticky bottom-[var(--scene-padding)] flex max-h-fit w-full flex-col overflow-hidden rounded border md:w-80"
             ref={ref}
         >
-            <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
+            <h3 className="my-2 px-2 text-sm font-medium">Tree</h3>
             <LemonDivider className="m-0" />
             <div className="p-2">
                 <LemonInput
@@ -211,7 +211,7 @@ function TraceSidebar({
                     size="small"
                 />
             </div>
-            <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
+            <ul className="overflow-y-auto overflow-x-hidden p-1 *:first:mt-0">
                 <TreeNode
                     topLevelTrace={trace}
                     node={{
@@ -238,19 +238,19 @@ function NestingGroup({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
+        <li className={clsx('flex min-w-0 items-stretch', isCollapsed && 'text-border hover:text-muted')}>
             <div
                 className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
                 onClick={onToggle}
             >
                 <div
                     className={clsx(
-                        'w-0 h-full my-0 ml-1 mr-2 border-l border-current',
+                        'my-0 ml-1 mr-2 h-full w-0 border-l border-current',
                         isCollapsed && 'border-dashed'
                     )}
                 />
             </div>
-            <ul className="flex-1 min-w-0">{children}</ul>
+            <ul className="min-w-0 flex-1">{children}</ul>
         </li>
     )
 }
@@ -300,7 +300,7 @@ const TreeNode = React.memo(function TraceNode({
                     timestamp: removeMilliseconds(topLevelTrace.createdAt),
                 })}
                 className={classNames(
-                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
+                    'hover:!bg-accent-highlight-secondary flex min-h-8 flex-col justify-center gap-1 rounded p-1 text-xs',
                     isSelected && '!bg-accent-highlight-secondary'
                 )}
             >
@@ -312,7 +312,7 @@ const TreeNode = React.memo(function TraceNode({
                 </div>
                 {renderModelRow(item)}
                 {hasChildren && (
-                    <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
+                    <div className="text-secondary flex flex-row flex-wrap items-center gap-1.5">{children}</div>
                 )}
             </Link>
         </li>
@@ -391,7 +391,7 @@ function EventContentDisplay({
     return (
         <LLMInputOutput
             inputDisplay={
-                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
+                <div className="rounded border bg-[var(--bg-fill-secondary)] p-2 text-xs">
                     {isObject(input) ? (
                         <JSONViewer src={input} collapsed={4} />
                     ) : (
@@ -402,7 +402,7 @@ function EventContentDisplay({
             outputDisplay={
                 <div
                     className={cn(
-                        'p-2 text-xs border rounded',
+                        'rounded border p-2 text-xs',
                         !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-error-tertiary)]'
                     )}
                 >
@@ -465,15 +465,15 @@ const EventContent = React.memo(
         }
 
         return (
-            <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="bg-surface-primary border-primary flex max-h-fit flex-1 flex-col overflow-y-auto rounded border p-4">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (
                     <>
                         <header className="deprecated-space-y-2">
-                            <div className="flex-row flex items-center gap-2">
+                            <div className="flex flex-row items-center gap-2">
                                 <EventTypeTag event={event} />
-                                <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
+                                <h3 className="m-0 flex-1 truncate p-0 text-lg font-semibold">
                                     {formatLLMEventTitle(event)}
                                 </h3>
                             </div>
@@ -633,7 +633,7 @@ function TraceMetricsTable(): JSX.Element | null {
 
     return (
         <div className="mb-3">
-            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
+            <h4 className="mb-2 flex items-center gap-x-1.5 text-xs font-semibold">
                 <IconMessage className="text-base" />
                 Metrics and user feedback
             </h4>

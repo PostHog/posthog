@@ -84,11 +84,11 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     }, [contextId])
 
     return (
-        <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
+        <div className="deprecated-space-y-2 bg-surface-primary rounded border p-3">
             <LemonField name="filters" label="Trigger">
                 {({ value, onChange }) => (
                     <>
-                        <div className="text-xs text-secondary">Choose what event should trigger this destination</div>
+                        <div className="text-secondary text-xs">Choose what event should trigger this destination</div>
                         <LemonSelect
                             options={options}
                             value={getSimpleFilterValue(value)}

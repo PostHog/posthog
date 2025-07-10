@@ -82,7 +82,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         )
     }
     if (math === 'hogql') {
-        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
+        return <LemonTag className="max-w-60 overflow-hidden text-ellipsis">{String(mathHogQL) || 'SQL'}</LemonTag>
     }
     return <LemonTag>{capitalizeFirstLetter(math)}</LemonTag>
 }
@@ -119,7 +119,7 @@ export function InsightLabel({
 
     return (
         <div className={clsx('insights-label', className)}>
-            <div className="flex items-center w-fit">
+            <div className="flex w-fit items-center">
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
                         className="color-icon"
@@ -143,7 +143,7 @@ export function InsightLabel({
                     />
                 )}
                 <div
-                    className={clsx('flex items-center w-fit gap-x-2', allowWrap && 'flex-wrap')}
+                    className={clsx('flex w-fit items-center gap-x-2', allowWrap && 'flex-wrap')}
                     onClick={onLabelClick}
                 >
                     {showEventName && (

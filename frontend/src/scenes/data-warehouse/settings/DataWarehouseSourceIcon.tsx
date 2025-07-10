@@ -116,20 +116,20 @@ export function DataWarehouseSourceIcon({
 
     if (disableTooltip) {
         return (
-            <div className="flex gap-4 items-center">
+            <div className="flex items-center gap-4">
                 <img
                     src={icon}
                     alt={type}
                     height={sizePx}
                     width={sizePx}
-                    className="object-contain max-w-none rounded"
+                    className="max-w-none rounded object-contain"
                 />
             </div>
         )
     }
 
     return (
-        <div className="flex gap-4 items-center">
+        <div className="flex items-center gap-4">
             <Tooltip
                 title={
                     <>
@@ -145,7 +145,7 @@ export function DataWarehouseSourceIcon({
                         alt={type}
                         height={sizePx}
                         width={sizePx}
-                        className="object-contain max-w-none rounded"
+                        className="max-w-none rounded object-contain"
                     />
                 </Link>
             </Tooltip>

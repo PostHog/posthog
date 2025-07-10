@@ -32,7 +32,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
             ) : (
                 <LLMInputOutput
                     inputDisplay={
-                        <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
+                        <div className="rounded border bg-[var(--bg-fill-secondary)] p-2 text-xs">
                             {isObject(input) ? (
                                 <JSONViewer src={input} collapsed={2} />
                             ) : (
@@ -43,7 +43,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                     outputDisplay={
                         <div
                             className={cn(
-                                'p-2 text-xs border rounded',
+                                'rounded border p-2 text-xs',
                                 !raisedError
                                     ? 'bg-[var(--bg-fill-success-tertiary)]'
                                     : 'bg-[var(--bg-fill-error-tertiary)]'
@@ -65,7 +65,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
 export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
     if (event.properties.$ai_is_error) {
         return (
-            <div className="flex items-center gap-1 text-danger">
+            <div className="text-danger flex items-center gap-1">
                 <IconExclamation />
                 <span>Error</span>
             </div>

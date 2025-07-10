@@ -54,10 +54,10 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     }, [currentPath])
 
     return (
-        <div className="w-full flex gap-x-2 border-b border-1 border-primary p-2">
+        <div className="border-1 border-primary flex w-full gap-x-2 border-b p-2">
             <LemonInput
                 size="medium"
-                className="grow font-mono text-sm pl-0.5"
+                className="grow pl-0.5 font-mono text-sm"
                 defaultValue={currentPath}
                 value={inputValue}
                 onChange={(v) => setInputValue(v)}
@@ -120,8 +120,8 @@ export const SiteChooser = (): JSX.Element => {
 
     return (
         <>
-            <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
-            <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
+            <div className="bg-primary-alt-highlight absolute inset-0 z-10 flex items-center justify-center rounded opacity-80 backdrop-blur-md backdrop-filter" />
+            <div className="absolute inset-0 z-20 flex items-center justify-center rounded">
                 <LemonCard className="max-w-lg" hoverEffect={false}>
                     {iframeBanner?.level == 'error' && (
                         <LemonBanner type="error" className="mb-4">
@@ -186,18 +186,18 @@ export const SiteChooser = (): JSX.Element => {
                 </LemonCard>
             </div>
             <div className="deprecated-space-y-6 relative m-6">
-                <LemonSkeleton className="h-10 rounded-lg w-1/3" />
+                <LemonSkeleton className="h-10 w-1/3 rounded-lg" />
                 <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={5} />
                 </div>
                 <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={3} />
                 </div>
-                <LemonSkeleton className="h-6 rounded-lg w-2/3" />
+                <LemonSkeleton className="h-6 w-2/3 rounded-lg" />
                 <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={3} />
                 </div>
-                <LemonSkeleton className="h-10 rounded-lg w-2/3" />
+                <LemonSkeleton className="h-10 w-2/3 rounded-lg" />
                 <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={5} />
                 </div>
@@ -236,12 +236,12 @@ export const OnboardingDashboardTemplateConfigureStep = ({
         >
             <>
                 {dashboardCreatedDuringOnboarding ? (
-                    <div className="mb-8 max-w-screen-md mx-auto">
-                        <div className="bg-success-highlight rounded p-6 flex justify-between items-center">
+                    <div className="mx-auto mb-8 max-w-screen-md">
+                        <div className="bg-success-highlight flex items-center justify-between rounded p-6">
                             <div className="flex gap-x-4">
-                                <IconCheckCircle className="text-success text-3xl mb-6" />
+                                <IconCheckCircle className="text-success mb-6 text-3xl" />
                                 <div>
-                                    <h3 className="text-lg font-bold mb-1 text-left">Dashboard created!</h3>
+                                    <h3 className="mb-1 text-left text-lg font-bold">Dashboard created!</h3>
                                     <p className="mx-0 mb-0">We'll take you there when you're done onboarding.</p>
                                 </div>
                             </div>
@@ -249,7 +249,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                 <StarHog className="h-full w-full" />
                             </div>
                         </div>
-                        <div className="w-full flex justify-end">
+                        <div className="flex w-full justify-end">
                             <LemonButton
                                 type="primary"
                                 status="alt"
@@ -263,10 +263,10 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                         </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-6 deprecated-space-x-6 min-h-[80vh]">
-                        <div className="col-span-4 relative max-h-[100vh] overflow-y-hidden">
+                    <div className="deprecated-space-x-6 grid min-h-[80vh] grid-cols-6">
+                        <div className="relative col-span-4 max-h-[100vh] overflow-y-hidden">
                             {browserUrl && iframeBanner?.level != 'error' ? (
-                                <div className="border border-1 border-primary rounded h-full w-full flex flex-col">
+                                <div className="border-1 border-primary flex h-full w-full flex-col rounded border">
                                     <UrlInput iframeRef={iframeRef} />
                                     <div className="m-2 grow rounded">
                                         <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />
@@ -287,8 +287,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                             </p>
                             <p className="italic">PS! These don't have to be perfect, you can fine-tune them later.</p>
                             <DashboardTemplateVariables hasSelectedSite={!!browserUrl} iframeRef={iframeRef} />
-                            <div className="flex flex-wrap mt-6 w-full gap-x-2 gap-y-2 justify-center">
-                                <div className="grow min-w-64">
+                            <div className="mt-6 flex w-full flex-wrap justify-center gap-x-2 gap-y-2">
+                                <div className="min-w-64 grow">
                                     <LemonButton
                                         type="primary"
                                         status="alt"

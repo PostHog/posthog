@@ -62,7 +62,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
             )}
             {isFunnels && <FunnelsInfo dataset={dataset as FlattenedFunnelStepByBreakdown} />}
 
-            <h3 className="l4 mt-2 mb-2">Color</h3>
+            <h3 className="l4 mb-2 mt-2">Color</h3>
             <div className="flex flex-wrap gap-1">
                 {Object.keys(theme).map((key) => (
                     <LemonColorButton

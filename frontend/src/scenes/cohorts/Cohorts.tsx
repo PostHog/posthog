@@ -155,7 +155,7 @@ export function Cohorts(): JSX.Element {
                 customHog={ListHog}
             />
 
-            <div className="flex justify-between items-center mb-4 gap-2">
+            <div className="mb-4 flex items-center justify-between gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for cohorts"

@@ -34,7 +34,7 @@ export function VariantTooltip({
 }: VariantTooltipProps): JSX.Element {
     return (
         <div
-            className="fixed -translate-x-1/2 -translate-y-full bg-[var(--bg-surface-primary)] border border-[var(--border-primary)] px-3 py-2 rounded-md text-[13px] shadow-md pointer-events-none z-[103] min-w-[300px]"
+            className="pointer-events-none fixed z-[103] min-w-[300px] -translate-x-1/2 -translate-y-full rounded-md border border-[var(--border-primary)] bg-[var(--bg-surface-primary)] px-3 py-2 text-[13px] shadow-md"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 left: tooltipData.x,
@@ -44,11 +44,11 @@ export function VariantTooltip({
             <div className="flex flex-col gap-1">
                 <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
                 <div className="inline-flex">
-                    <span className="text-secondary font-semibold mb-1">Win probability:</span>
+                    <span className="text-secondary mb-1 font-semibold">Win probability:</span>
                     {result?.probability?.[tooltipData.variant] !== undefined ? (
-                        <span className="flex items-center justify-between flex-1 pl-6">
+                        <span className="flex flex-1 items-center justify-between pl-6">
                             <LemonProgress
-                                className="w-3/4 mr-4"
+                                className="mr-4 w-3/4"
                                 percent={result.probability[tooltipData.variant] * 100}
                             />
                             <span className="font-semibold">
@@ -61,7 +61,7 @@ export function VariantTooltip({
                 </div>
                 {metricType === InsightType.TRENDS ? (
                     <>
-                        <div className="flex justify-between items-center">
+                        <div className="flex items-center justify-between">
                             <span className="text-secondary font-semibold">
                                 {metricType === InsightType.TRENDS && result.exposure_query?.series?.[0]?.math ? (
                                     <span>Total</span>
@@ -77,7 +77,7 @@ export function VariantTooltip({
                                 })()}
                             </span>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex items-center justify-between">
                             <span className="text-secondary font-semibold">Exposure:</span>
                             <span className="font-semibold">
                                 {(() => {
@@ -86,7 +86,7 @@ export function VariantTooltip({
                                 })()}
                             </span>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex items-center justify-between">
                             <span className="text-secondary font-semibold">Mean:</span>
                             <span className="font-semibold">
                                 {(() => {
@@ -101,14 +101,14 @@ export function VariantTooltip({
                         </div>
                     </>
                 ) : (
-                    <div className="flex justify-between items-center">
+                    <div className="flex items-center justify-between">
                         <span className="text-secondary font-semibold">Conversion rate:</span>
                         <span className="font-semibold">
                             {conversionRateForVariant(result, tooltipData.variant)?.toFixed(2)}%
                         </span>
                     </div>
                 )}
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <span className="text-secondary font-semibold">Delta:</span>
                     <span className="font-semibold">
                         {tooltipData.variant === 'control' ? (
@@ -129,7 +129,7 @@ export function VariantTooltip({
                         )}
                     </span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                     <span className="text-secondary font-semibold">Credible interval:</span>
                     <span className="font-semibold">
                         {(() => {

@@ -36,7 +36,7 @@ const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): 
     }, [selectedTabOptions])
 
     return (
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-2">
                 <CommentsList {...logicProps} />
             </div>
@@ -54,14 +54,14 @@ export const SidePanelDiscussion = (): JSX.Element => {
     const { scope, item_id } = commentsLogicProps ?? {}
 
     return (
-        <div className="flex flex-col overflow-hidden flex-1">
+        <div className="flex flex-1 flex-col overflow-hidden">
             <SidePanelPaneHeader
                 title={
-                    <div className="flex deprecated-space-x-2">
+                    <div className="deprecated-space-x-2 flex">
                         <span>
                             Discussion{' '}
                             {scope ? (
-                                <span className="font-normal text-secondary">
+                                <span className="text-secondary font-normal">
                                     about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
                                 </span>
                             ) : null}
@@ -76,9 +76,9 @@ export const SidePanelDiscussion = (): JSX.Element => {
             {commentsLogicProps && !commentsLogicProps.disabled ? (
                 <DiscussionContent logicProps={commentsLogicProps} />
             ) : (
-                <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">
-                    <div className="max-w-80 mx-auto">
-                        <WarningHog className="w-full h-full" />
+                <div className="max-w-160 deprecated-space-y-4 mx-auto mt-8 p-8">
+                    <div className="mx-auto max-w-80">
+                        <WarningHog className="h-full w-full" />
                     </div>
                     <h2>Discussions aren't supported here yet...</h2>
                     <p>

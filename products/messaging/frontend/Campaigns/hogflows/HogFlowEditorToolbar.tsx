@@ -40,7 +40,7 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
 export function HogFlowEditorToolbar(): JSX.Element {
     return (
-        <div className="flex overflow-y-auto flex-col gap-px p-1 w-120">
+        <div className="w-120 flex flex-col gap-px overflow-y-auto p-1">
             {TOOLBAR_NODES_TO_SHOW.map((type) => (
                 <HogFlowEditorToolbarNode key={type} type={type} />
             ))}

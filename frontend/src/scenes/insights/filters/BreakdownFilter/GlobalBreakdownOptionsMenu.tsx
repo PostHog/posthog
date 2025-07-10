@@ -38,13 +38,13 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-secondary text-xl shrink-0" />
+                                <IconInfo className="text-secondary shrink-0 text-xl" />
                             </Tooltip>
                         </div>
                     }
                 />
             )}
-            <div className="px-2 flex gap-2 items-baseline">
+            <div className="flex items-baseline gap-2 px-2">
                 <LemonLabel className="font-medium" htmlFor="breakdown-limit">
                     Breakdown limit
                 </LemonLabel>
@@ -56,7 +56,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                     // :HACKY: We cap the breakdown limit in the `onChange` handler, as the `max` prop doesn't enforce anything.
                     onChange={(value) => setBreakdownLimit(value !== undefined ? Math.min(value, 1000) : undefined)}
                     fullWidth={false}
-                    className="w-20 ml-2"
+                    className="ml-2 w-20"
                     type="number"
                 />
             </div>

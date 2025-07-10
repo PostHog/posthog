@@ -83,9 +83,9 @@ export function NotebookCanvas(): JSX.Element {
                     </>
                 }
             />
-            <div className="flex flex-col flex-1">
+            <div className="flex flex-1 flex-col">
                 <div className="relative flex-1">
-                    <div className="absolute inset-0 flex flex-col p-3 overflow-y-auto">
+                    <div className="absolute inset-0 flex flex-col overflow-y-auto p-3">
                         <LemonBanner type="info" className="mb-4">
                             <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for
                             easy sharing.

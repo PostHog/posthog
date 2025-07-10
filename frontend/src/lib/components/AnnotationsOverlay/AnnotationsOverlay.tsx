@@ -228,7 +228,7 @@ function AnnotationsPopover({
                     width="var(--annotations-popover-width)"
                 >
                     {popoverAnnotations.length > 0 ? (
-                        <ul className="flex flex-col gap-2 w-full overflow-y-auto">
+                        <ul className="flex w-full flex-col gap-2 overflow-y-auto">
                             {popoverAnnotations.map((annotation) => (
                                 <AnnotationCard key={annotation.id} annotation={annotation} />
                             ))}
@@ -248,9 +248,9 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
+        <li className="AnnotationCard flex w-full list-none flex-col rounded border p-3">
             <div className="flex items-center gap-2">
-                <h5 className="grow m-0 text-secondary">
+                <h5 className="text-secondary m-0 grow">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
                     {annotation.scope === AnnotationScope.Recording ? ' comment' : '-level'}
@@ -273,7 +273,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 />
             </div>
             <div className="mt-1">{annotation.content}</div>
-            <div className="leading-6 mt-2 flex flex-row items-center justify-between">
+            <div className="mt-2 flex flex-row items-center justify-between leading-6">
                 <div>
                     <ProfilePicture
                         user={

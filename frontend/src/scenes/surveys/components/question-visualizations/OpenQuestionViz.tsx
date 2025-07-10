@@ -21,11 +21,11 @@ export function OpenQuestionViz({ question, responseData }: Props): JSX.Element 
                     }
 
                     return (
-                        <div key={`${question.id}-${i}`} className="masonry-item border rounded">
-                            <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
+                        <div key={`${question.id}-${i}`} className="masonry-item rounded border">
+                            <div className="max-h-80 overflow-y-auto px-5 py-4 text-center font-semibold italic">
                                 {typeof event.response !== 'string' ? JSON.stringify(event.response) : event.response}
                             </div>
-                            <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
+                            <div className="bg-surface-primary w-full items-center truncate rounded-b border-t px-5 py-4">
                                 <PersonDisplay person={personProp} withIcon={true} noEllipsis={false} isCentered />
                             </div>
                         </div>

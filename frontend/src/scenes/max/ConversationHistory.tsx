@@ -23,9 +23,9 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     return (
-        <div className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
+        <div className="@container/chat-history flex w-full max-w-screen-lg grow flex-col gap-4 self-center px-4 py-8">
             {!sidePanel && (
-                <div className="flex items-center gap-4 mb-4">
+                <div className="mb-4 flex items-center gap-4">
                     <LemonButton
                         size="small"
                         icon={<IconChevronLeft />}
@@ -33,7 +33,7 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                         tooltip="Go back to home"
                         tooltipPlacement="bottom"
                     />
-                    <h2 className="text-xl font-bold mb-0">Chat history</h2>
+                    <h2 className="mb-0 text-xl font-bold">Chat history</h2>
                 </div>
             )}
             {conversationHistory.length > 0 ? (
@@ -57,7 +57,7 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                     <LemonSkeleton className="h-14 opacity-5" />
                 </>
             ) : (
-                <div className="flex items-center flex-1">
+                <div className="flex flex-1 items-center">
                     <ProductIntroduction
                         isEmpty
                         productName="Max"
@@ -98,10 +98,10 @@ function ConversationCard({
 }): JSX.Element {
     return (
         <Link
-            className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center"
+            className="bg-surface-primary flex min-h-14 w-full flex-row items-center gap-2 rounded-lg p-4"
             to={getConversationUrl({ pathname, search, conversationId: conversation.id, includeHash })}
         >
-            <span className="flex-1 line-clamp-1">{conversation.title}</span>
+            <span className="line-clamp-1 flex-1">{conversation.title}</span>
             {conversation.status === ConversationStatus.InProgress ? (
                 <Spinner className="h-4 w-4" />
             ) : (

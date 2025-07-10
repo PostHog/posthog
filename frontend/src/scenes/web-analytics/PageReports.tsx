@@ -15,11 +15,11 @@ import { pageReportsLogic } from './pageReportsLogic'
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (
-        <div className="border-2 border-dashed border-primary w-full p-8 rounded flex items-center justify-center gap-8">
+        <div className="border-primary flex w-full items-center justify-center gap-8 rounded border-2 border-dashed p-8">
             <div className="flex-shrink-0">
                 <XRayHog2 alt="X-ray hedgehog" className="w-60" />
             </div>
-            <div className="flex-1 max-w-140">
+            <div className="max-w-140 flex-1">
                 <h2>Select a page to analyze</h2>
                 <p className="ml-0">
                     See detailed performance metrics for any page on your site. Just use the search bar above to find
@@ -39,7 +39,7 @@ export function PageReportsFilters(): JSX.Element {
         key: option.url,
         label: option.url,
         labelComponent: (
-            <div className="flex justify-between items-center w-full">
+            <div className="flex w-full items-center justify-between">
                 <span className="truncate">{option.url}</span>
                 <span className="text-muted ml-2">{option.count.toLocaleString()}</span>
             </div>
@@ -51,7 +51,7 @@ export function PageReportsFilters(): JSX.Element {
             <div className="flex items-center gap-2">
                 <div className="flex-1">
                     <div className="relative">
-                        <IconGlobe className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                        <IconGlobe className="text-muted absolute left-2 top-1/2 -translate-y-1/2" />
                         <LemonInputSelect
                             allowCustomValues={false}
                             placeholder="Click or type to see top pages"
@@ -85,14 +85,14 @@ export function PageReports(): JSX.Element {
 
     if (!hasPageUrl) {
         return (
-            <div className="space-y-2 mt-2">
+            <div className="mt-2 space-y-2">
                 <NoUrlSelectedMessage />
             </div>
         )
     }
 
     return (
-        <div className="space-y-2 mt-2 h-full min-h-0">
+        <div className="mt-2 h-full min-h-0 space-y-2">
             <Tiles tiles={tiles} compact={true} />
         </div>
     )

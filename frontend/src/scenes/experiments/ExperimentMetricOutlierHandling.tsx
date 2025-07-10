@@ -20,7 +20,7 @@ export function ExperimentMetricOutlierHandling({
             >
                 Outlier handling
             </LemonLabel>
-            <p className="text-sm text-muted-alt">
+            <p className="text-muted-alt text-sm">
                 Set winsorization lower and upper bounds to cap metric values at the specified percentiles.
             </p>
             <div className="mt-3 flex items-center gap-2">
@@ -42,7 +42,7 @@ export function ExperimentMetricOutlierHandling({
                     suffix={<span className="text-sm">%</span>}
                     size="small"
                     className={`w-20 transition-opacity ${
-                        metric.lower_bound_percentile === undefined ? 'opacity-0 invisible' : 'opacity-100 visible'
+                        metric.lower_bound_percentile === undefined ? 'invisible opacity-0' : 'visible opacity-100'
                     }`}
                 />
             </div>
@@ -65,7 +65,7 @@ export function ExperimentMetricOutlierHandling({
                     suffix={<span className="text-sm">%</span>}
                     size="small"
                     className={`w-20 transition-opacity ${
-                        metric.upper_bound_percentile === undefined ? 'opacity-0 invisible' : 'opacity-100 visible'
+                        metric.upper_bound_percentile === undefined ? 'invisible opacity-0' : 'visible opacity-100'
                     }`}
                 />
             </div>

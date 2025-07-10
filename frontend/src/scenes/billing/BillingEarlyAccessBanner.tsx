@@ -13,11 +13,11 @@ export function BillingEarlyAccessBanner(): JSX.Element {
     return (
         <LemonBanner type="info" hideIcon className="overflow-visible">
             <div className="flex items-center gap-4">
-                <div className="relative flex-shrink-0 mr-2">
-                    <LemonTag type="completion" className="absolute top-2.5 left-0 transform -rotate-12">
+                <div className="relative mr-2 flex-shrink-0">
+                    <LemonTag type="completion" className="absolute left-0 top-2.5 -rotate-12 transform">
                         EARLY ACCESS
                     </LemonTag>
-                    <BuilderHog3 className="w-20 h-20 mt-6" />
+                    <BuilderHog3 className="mt-6 h-20 w-20" />
                 </div>
                 <div className="text-primary">
                     <p>
@@ -35,7 +35,7 @@ export function BillingEarlyAccessBanner(): JSX.Element {
                         </Link>
                         !
                     </p>
-                    <ul className="list-disc list-inside pl-2">
+                    <ul className="list-inside list-disc pl-2">
                         <li>Usage data updates daily (UTC) - so today's numbers show up tomorrow</li>
                         <li>Historical spend is calculated using the current subscription plan</li>
                     </ul>

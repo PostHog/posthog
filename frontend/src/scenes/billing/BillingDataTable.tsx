@@ -99,7 +99,7 @@ export function BillingDataTable({
                                 className="mr-2"
                             />
                             <SeriesColorDot colorIndex={record.id} />
-                            <span className="font-medium whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
+                            <span className="max-w-xs overflow-hidden text-ellipsis whitespace-nowrap font-medium">
                                 {record.label}
                             </span>
                         </div>
@@ -115,7 +115,7 @@ export function BillingDataTable({
     )
 
     return (
-        <div className="overflow-x-auto border rounded bg-bg-light">
+        <div className="bg-bg-light overflow-x-auto rounded border">
             <LemonTable
                 data-attr="billing-data-table"
                 dataSource={series}

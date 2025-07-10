@@ -518,7 +518,7 @@ export function ProjectTree({
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
-                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                                <IconChevronRight className="text-tertiary size-3 rotate-90" />
                             </ButtonPrimitive>
                         )
                     }
@@ -555,7 +555,7 @@ export function ProjectTree({
                                         ...treeTableColumnSizes.slice(index + 1),
                                     ])
                                 }}
-                                className="absolute h-[30px] flex items-center"
+                                className="absolute flex h-[30px] items-center"
                                 style={{
                                     transform: `translateX(${header.offset || 0}px)`,
                                 }}
@@ -564,7 +564,7 @@ export function ProjectTree({
                                 <ButtonPrimitive
                                     key={header.key}
                                     fullWidth
-                                    className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
+                                    className="text-secondary duration-50 pointer-events-none flex gap-2 rounded-none text-xs font-bold uppercase motion-safe:transition-[left]"
                                     style={{
                                         paddingLeft: index === 0 ? '35px' : undefined,
                                     }}
@@ -592,7 +592,7 @@ export function ProjectTree({
                             return (
                                 <span
                                     key={header.key}
-                                    className="text-left flex items-center h-[var(--button-height-base)]"
+                                    className="flex h-[var(--button-height-base)] items-center text-left"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{
                                         // First we keep relative
@@ -613,7 +613,7 @@ export function ProjectTree({
                                     >
                                         <span
                                             className={cn(
-                                                'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100 font-normal truncate',
+                                                'starting:opacity-0 delay-50 truncate font-normal opacity-100 duration-100 motion-safe:transition-opacity',
                                                 {
                                                     'font-semibold':
                                                         index === 0 && isFolder && item.type !== 'empty-folder',
@@ -688,14 +688,14 @@ export function ProjectTree({
                         >
                             {item.displayName}{' '}
                             {isNew ? (
-                                <LemonTag type="highlight" size="small" className="ml-1 relative top-[-1px]">
+                                <LemonTag type="highlight" size="small" className="relative top-[-1px] ml-1">
                                     New
                                 </LemonTag>
                             ) : null}
                         </span>
 
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
-                            <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                            <span className="text-tertiary text-xxs ml-1 pt-[3px]">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
                         )}
@@ -707,7 +707,7 @@ export function ProjectTree({
                                         key={tag}
                                         type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
                                         size="small"
-                                        className="ml-2 relative top-[-1px]"
+                                        className="relative top-[-1px] ml-2"
                                     >
                                         {tag.toUpperCase()}
                                     </LemonTag>
@@ -792,7 +792,7 @@ export function ProjectTree({
                 <ButtonPrimitive
                     tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
                     onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2  bg-surface-primary border border-primary z-[var(--z-resizer)]"
+                    className="bg-surface-primary border-primary absolute right-0 top-1/2 z-[var(--z-resizer)] translate-x-1/2 translate-y-1/2 border"
                     data-attr="tree-panel-switch-view-button"
                     iconOnly
                 >

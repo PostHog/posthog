@@ -165,7 +165,7 @@ export function Login(): JSX.Element {
                     )}
                 </Form>
                 {preflight?.cloud && (
-                    <div className="text-center mt-4">
+                    <div className="mt-4 text-center">
                         Don't have an account?{' '}
                         <Link to={signupUrl} data-attr="signup" className="font-bold">
                             Create an account

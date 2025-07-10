@@ -27,7 +27,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: PropertyDefinition) {
-                return <span className="text-xl text-secondary">{getPropertyDefinitionIcon(definition)}</span>
+                return <span className="text-secondary text-xl">{getPropertyDefinitionIcon(definition)}</span>
             },
         },
         {
@@ -88,7 +88,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Query with SQL
                 </Link>
             </LemonBanner>
-            <div className="flex mb-4 gap-2 flex-wrap">
+            <div className="mb-4 flex flex-wrap gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"

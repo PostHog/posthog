@@ -105,7 +105,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         }
 
         return (
-            <div className="flex flex-row gap-2 justify-end mt-4">
+            <div className="mt-4 flex flex-row justify-end gap-2">
                 {canGoBack && (
                     <LemonButton
                         type="secondary"

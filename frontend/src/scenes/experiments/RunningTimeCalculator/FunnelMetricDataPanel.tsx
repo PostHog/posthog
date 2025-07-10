@@ -70,7 +70,7 @@ export const FunnelMetricDataPanel = ({
                     {conversionRateInputType === ConversionRateInputType.MANUAL && (
                         <div className="flex items-center gap-2">
                             <LemonInput
-                                className="w-[80px] mt-2"
+                                className="mt-2 w-[80px]"
                                 min={0}
                                 step={1}
                                 max={100}
@@ -86,7 +86,7 @@ export const FunnelMetricDataPanel = ({
                         </div>
                     )}
                     {conversionRateInputType === ConversionRateInputType.AUTOMATIC && (
-                        <div className="font-semibold mt-2">
+                        <div className="mt-2 font-semibold">
                             ~{humanFriendlyNumber(automaticConversionRateDecimal * 100, 2)}%
                         </div>
                     )}

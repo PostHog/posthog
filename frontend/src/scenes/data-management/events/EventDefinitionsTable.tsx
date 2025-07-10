@@ -42,7 +42,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: EventDefinition) {
-                return <span className="text-xl text-secondary">{getEventDefinitionIcon(definition)}</span>
+                return <span className="text-secondary text-xl">{getEventDefinitionIcon(definition)}</span>
             },
         },
         {
@@ -151,7 +151,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 </Link>
             </LemonBanner>
 
-            <div className="flex justify-between items-center gap-2 mb-4">
+            <div className="mb-4 flex items-center justify-between gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for events"

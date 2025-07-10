@@ -45,7 +45,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
         >
             <div
                 ref={menuRef}
-                className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5"
+                className="NotebookInlineMenu bg-surface-primary text-secondary flex items-center gap-x-0.5 rounded border p-1"
             >
                 {editor.isActive('link') ? (
                     <>
@@ -119,7 +119,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                                 editor.commands.setMark('comment', { id: markId })
                                 insertComment({ type: 'mark', id: markId })
                             }}
-                            icon={<IconComment className="w-4 h-4" />}
+                            icon={<IconComment className="h-4 w-4" />}
                             size="small"
                         />
                     </>

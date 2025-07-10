@@ -533,7 +533,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             {mode === 'add' && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="text-xs text-secondary p-1">
+                    <div className="text-secondary p-1 text-xs">
                         You can trigger this menu by typing <KeyboardShortcut forwardslash />
                     </div>
                 </>

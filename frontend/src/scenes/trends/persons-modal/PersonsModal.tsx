@@ -194,7 +194,7 @@ export function PersonsModal({
                                   )
                         )}
 
-                    <div className="flex items-center gap-2 text-secondary">
+                    <div className="text-secondary flex items-center gap-2">
                         {actorsResponseLoading ? (
                             <>
                                 <Spinner />
@@ -211,8 +211,8 @@ export function PersonsModal({
                         )}
                     </div>
                 </div>
-                <div className="px-4 overflow-hidden flex flex-col">
-                    <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2">
+                <div className="flex flex-col overflow-hidden px-4">
+                    <div className="deprecated-space-y-2 bg-border-light relative mb-2 min-h-20 overflow-y-auto rounded p-2">
                         {errorObject ? (
                             validationError ? (
                                 <InsightValidationError query={query} detail={validationError} />
@@ -239,7 +239,7 @@ export function PersonsModal({
                                 <LemonSkeleton active={false} className="h-4 w-3/5" />
                             </div>
                         ) : (
-                            <div className="text-center p-5" data-attr="persons-modal-no-matches">
+                            <div className="p-5 text-center" data-attr="persons-modal-no-matches">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
                             </div>
                         )}
@@ -254,7 +254,7 @@ export function PersonsModal({
                     </div>
                 </div>
                 <LemonModal.Footer>
-                    <div className="flex justify-between gap-2 w-full">
+                    <div className="flex w-full justify-between gap-2">
                         <div className="flex gap-2">
                             {actors.length > 0 && (
                                 <LemonButton
@@ -355,7 +355,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-surface-primary">
+        <div className="bg-surface-primary relative rounded border">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
@@ -375,7 +375,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                         </div>
                     ) : (
                         <>
-                            <div className="font-bold flex items-start">
+                            <div className="flex items-start font-bold">
                                 <PersonDisplay person={actor} withIcon={false} />
                             </div>
                             {actor.distinct_ids?.[0] && (
@@ -383,7 +383,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                     explicitValue={actor.distinct_ids[0]}
                                     iconStyle={{ color: 'var(--accent)' }}
                                     iconPosition="end"
-                                    className="text-xs text-secondary"
+                                    className="text-secondary text-xs"
                                 >
                                     {midEllipsis(actor.distinct_ids[0], 32)}
                                 </CopyToClipboardInline>
@@ -421,7 +421,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
             </div>
 
             {expanded ? (
-                <div className="PersonsModal__tabs bg-primary border-t rounded-b">
+                <div className="PersonsModal__tabs bg-primary rounded-b border-t">
                     <LemonTabs
                         activeKey={tab}
                         onChange={setTab}
@@ -442,8 +442,8 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                 key: 'recordings',
                                 label: 'Recordings',
                                 content: (
-                                    <div className="p-2 deprecated-space-y-2 font-medium mt-1">
-                                        <div className="flex justify-between items-center px-2">
+                                    <div className="deprecated-space-y-2 mt-1 p-2 font-medium">
+                                        <div className="flex items-center justify-between px-2">
                                             <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
                                         </div>
                                         <ul className="deprecated-space-y-px">

@@ -40,14 +40,14 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
             <div
                 ref={testResultsRef}
                 className={clsx(
-                    'p-3 rounded border',
+                    'rounded border p-3',
                     expanded ? 'bg-surface-primary' : 'bg-surface-secondary',
                     expanded ? 'min-h-120' : ''
                 )}
             >
-                <div className="flex gap-2 justify-end items-center mb-2">
-                    <div className="flex-1 deprecated-space-y-2">
-                        <h2 className="flex gap-2 items-center mb-0">
+                <div className="mb-2 flex items-center justify-end gap-2">
+                    <div className="deprecated-space-y-2 flex-1">
+                        <h2 className="mb-0 flex items-center gap-2">
                             <span>Testing</span>
                         </h2>
                         {!expanded ? (
@@ -153,7 +153,7 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
                             </LemonField>
                             <LemonDivider className="my-4" />
                             <div className="flex flex-col gap-2">
-                                <div className="flex gap-2 justify-between items-center">
+                                <div className="flex items-center justify-between gap-2">
                                     <LemonLabel className="flex-1">
                                         Response
                                         {testResult && (

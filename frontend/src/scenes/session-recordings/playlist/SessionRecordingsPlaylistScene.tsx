@@ -42,7 +42,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 <LemonSkeleton className="h-4 w-1/3" />
                 <LemonSkeleton className="h-4 w-1/4" />
 
-                <div className="flex justify-between mt-4">
+                <div className="mt-4 flex justify-between">
                     <LemonSkeleton.Button />
                     <div className="flex gap-4">
                         <LemonSkeleton.Button />
@@ -50,7 +50,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="flex justify-between gap-4 mt-8">
+                <div className="mt-8 flex justify-between gap-4">
                     <div className="deprecated-space-y-8 w-1/4">
                         <LemonSkeleton className="h-10" repeat={10} />
                     </div>
@@ -69,7 +69,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         <div className="-mb-14">
             <PageHeader
                 buttons={
-                    <div className="flex justify-between items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
                         <More
                             overlay={
                                 <>

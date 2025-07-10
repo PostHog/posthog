@@ -21,7 +21,7 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
 
     const getCloudPanels = (): JSX.Element => (
         <LemonCollapse
-            className="mt-2 bg-surface-primary"
+            className="bg-surface-primary mt-2"
             defaultActiveKey="1"
             panels={[
                 {
@@ -38,7 +38,7 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
                                 prebuilt widget
                             </Link>{' '}
                             to opt-in to features
-                            <img className="max-h-full max-w-full mt-2.5" src={EarlyAccessFeatureImage} />
+                            <img className="mt-2.5 max-h-full max-w-full" src={EarlyAccessFeatureImage} />
                         </div>
                     ),
                 },

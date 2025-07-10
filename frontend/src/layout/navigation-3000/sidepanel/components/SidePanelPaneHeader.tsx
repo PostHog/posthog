@@ -20,15 +20,15 @@ export function SidePanelPaneHeader({ children, title, className, onClose }: Sid
     return (
         <header
             className={clsx(
-                'border-b shrink-0 flex items-center justify-end',
-                !modalMode ? 'sticky top-0 z-10 bg-surface-secondary p-1 h-10' : 'pb-2 mt-2 mx-3',
+                'flex shrink-0 items-center justify-end border-b',
+                !modalMode ? 'bg-surface-secondary sticky top-0 z-10 h-10 p-1' : 'mx-3 mt-2 pb-2',
                 className
             )}
         >
             {title ? (
                 <h3
-                    className={clsx('flex-1 flex items-center gap-1 font-semibold mb-0 truncate', {
-                        'text-sm px-2': !modalMode,
+                    className={clsx('mb-0 flex flex-1 items-center gap-1 truncate font-semibold', {
+                        'px-2 text-sm': !modalMode,
                     })}
                 >
                     {title}

@@ -69,7 +69,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
     const iconProperties = person?.properties || {}
 
     const propertyIcons = (
-        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-4 ph-no-capture">
+        <div className="ph-no-capture flex h-4 shrink-0 flex-row flex-nowrap gap-1">
             {!personLoading ? (
                 iconPropertyKeys.map((property) => {
                     let value = iconProperties?.[property]
@@ -96,7 +96,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                     )
                 })
             ) : (
-                <LemonSkeleton className="h-4 w-18 my-1" />
+                <LemonSkeleton className="w-18 my-1 h-4" />
             )}
         </div>
     )
@@ -109,7 +109,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
         <div className="flex flex-col overflow-hidden">
             <div
                 className={clsx(
-                    'p-4 flex-0 flex gap-2 justify-between min-h-20 items-center',
+                    'flex-0 flex min-h-20 items-center justify-between gap-2 p-4',
                     !expanded && 'cursor-pointer'
                 )}
             >
@@ -138,7 +138,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
             {expanded && (
                 <>
                     <LemonDivider className="mx-2" />
-                    <div className="flex-1 p-2 overflow-y-auto">
+                    <div className="flex-1 overflow-y-auto p-2">
                         <PropertiesTable
                             type={PropertyDefinitionType.Person}
                             properties={person?.properties}

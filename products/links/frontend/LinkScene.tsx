@@ -171,7 +171,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                         <div className="flex flex-col">
                             <LemonLabel>Destination URL</LemonLabel>
                             {displayForm ? (
-                                <div className="flex gap-1 items-center">
+                                <div className="flex items-center gap-1">
                                     <LemonField name="redirect_url" label="Destination URL">
                                         <LemonInput
                                             placeholder="https://loooooooooooooong.posthog.com/"
@@ -190,7 +190,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                         <div className="flex flex-col">
                             <LemonLabel>Short Link</LemonLabel>
                             {displayForm ? (
-                                <div className="flex gap-1 items-center">
+                                <div className="flex items-center gap-1">
                                     <LemonField name="short_link_domain">
                                         <LemonSelect<AvailableDomain> options={DOMAIN_OPTIONS} className="text-muted" />
                                     </LemonField>
@@ -214,7 +214,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                         <div className="flex flex-col">
                             <LemonLabel>Description</LemonLabel>
                             {displayForm ? (
-                                <div className="flex gap-1 items-center">
+                                <div className="flex items-center gap-1">
                                     <LemonField name="description" label="Description" showOptional>
                                         <LemonTextArea
                                             placeholder="Add a description so that you can easily identify this link"
@@ -230,9 +230,9 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
 
                     <LemonDivider vertical />
 
-                    <div className="flex-1 space-y-6 max-w-80">
+                    <div className="max-w-80 flex-1 space-y-6">
                         <div>
-                            <div className="flex justify-between items-center">
+                            <div className="flex items-center justify-between">
                                 <LemonLabel>
                                     <span className="flex items-center gap-1">QR Code</span>
                                 </LemonLabel>
@@ -252,7 +252,7 @@ export function LinkScene({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             </div>
 
-                            <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
+                            <div className="bg-bg-light mt-2 flex items-center justify-center rounded-md border p-4">
                                 <div className="text-center">
                                     <QRCodeSVG
                                         size={128}

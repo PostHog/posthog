@@ -51,7 +51,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
 
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
-            <div className="flex justify-between items-center border-b-1 p-1">
+            <div className="border-b-1 flex items-center justify-between p-1">
                 <h4 className="mb-0 px-1">{title || 'Timezone conversion'}</h4>
                 <LemonButton icon={<IconGear />} size="xsmall" to={urls.settings('project', 'date-and-time')} />
             </div>
@@ -156,7 +156,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         <span
             className={
                 !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
+                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-b border-dotted', className)
                     : className
             }
             ref={ref}

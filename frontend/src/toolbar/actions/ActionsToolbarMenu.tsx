@@ -43,9 +43,9 @@ const ActionsListToolbarMenu = (): JSX.Element => {
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="px-1 deprecated-space-y-px py-2">
+                <div className="deprecated-space-y-px px-1 py-2">
                     {allActions.length === 0 && allActionsLoading ? (
-                        <div className="text-center my-4">
+                        <div className="my-4 text-center">
                             <Spinner />
                         </div>
                     ) : (
@@ -54,7 +54,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
-                <div className="flex items-center justify-between flex-1">
+                <div className="flex flex-1 items-center justify-between">
                     <Link to={`${apiURL}${urls.actions()}`} target="_blank" className="text-primary">
                         View &amp; edit all actions <IconOpenInNew />
                     </Link>

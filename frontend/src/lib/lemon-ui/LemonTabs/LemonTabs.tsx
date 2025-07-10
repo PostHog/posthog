@@ -79,7 +79,7 @@ export function LemonTabs<T extends string | number>({
                     const content = (
                         <>
                             {tab.label}
-                            {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
+                            {tab.tooltip && <IconInfo className="ml-1 shrink-0 text-base" />}
                         </>
                     )
                     return (

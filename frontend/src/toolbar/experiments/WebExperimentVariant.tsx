@@ -47,7 +47,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                     />
                 </div>
             )}
-            <div className="flex items-center justify-between mb-2">
+            <div className="mb-2 flex items-center justify-between">
                 <LemonLabel>Transformations</LemonLabel>
                 <LemonButton
                     type="secondary"

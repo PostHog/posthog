@@ -37,7 +37,7 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'PostgreSQL - currently running queries',
                         content: (
                             <>
-                                <div className="flex mb-4 float-right deprecated-space-x-2">
+                                <div className="deprecated-space-x-2 float-right mb-4 flex">
                                     <LemonCheckbox
                                         checked={showIdle}
                                         onChange={setShowIdle}
@@ -61,7 +61,7 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'Clickhouse - currently running queries',
                         content: (
                             <>
-                                <div className="flex mb-4 float-right">
+                                <div className="float-right mb-4 flex">
                                     <LemonButton
                                         type="secondary"
                                         size="small"
@@ -80,7 +80,7 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'Clickhouse - slow query log (past 6 hours)',
                         content: (
                             <>
-                                <div className="flex mb-4 float-right">
+                                <div className="float-right mb-4 flex">
                                     <LemonButton
                                         type="secondary"
                                         size="small"

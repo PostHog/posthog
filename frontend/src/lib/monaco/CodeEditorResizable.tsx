@@ -47,7 +47,7 @@ export function CodeEditorResizeable({
     return (
         <div
             ref={ref}
-            className={clsx('relative CodeEditorResizeable', !embedded ? 'w-full rounded border' : '', className)}
+            className={clsx('CodeEditorResizeable relative', !embedded ? 'w-full rounded border' : '', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 minHeight,
@@ -67,7 +67,7 @@ export function CodeEditorResizeable({
             </AutoSizer>
 
             {showDiffActions && (
-                <div className="flex absolute top-2 right-2 z-20 gap-1 p-1 bg-white rounded-lg border shadow-sm">
+                <div className="absolute right-2 top-2 z-20 flex gap-1 rounded-lg border bg-white p-1 shadow-sm">
                     <LemonButton
                         status="danger"
                         icon={<IconX />}
@@ -91,7 +91,7 @@ export function CodeEditorResizeable({
 
             {/* Using a standard resize css means we need overflow-hidden which hides parts of the editor unnecessarily */}
             <div
-                className="overflow-hidden absolute right-0 bottom-0 z-20 w-5 h-5 resize-y cursor-s-resize"
+                className="absolute bottom-0 right-0 z-20 h-5 w-5 cursor-s-resize resize-y overflow-hidden"
                 onMouseDown={(e) => {
                     const startY = e.clientY
                     const startHeight = ref.current?.clientHeight ?? 0

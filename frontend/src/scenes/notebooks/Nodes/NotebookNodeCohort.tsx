@@ -130,14 +130,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
     }
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 gap-2', !expanded && 'cursor-pointer')}>
+            <div className={clsx('gap-2 p-4', !expanded && 'cursor-pointer')}>
                 {cohortLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <div className="flex items-center gap-2">
                         <IconPeople className="text-secondary text-lg" />
-                        <span className="flex-1 font-semibold truncate">{cohort.name}</span>
-                        <span className="italic text-secondary">({cohort.count} persons)</span>
+                        <span className="flex-1 truncate font-semibold">{cohort.name}</span>
+                        <span className="text-secondary italic">({cohort.count} persons)</span>
                         <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
                     </div>
                 )}

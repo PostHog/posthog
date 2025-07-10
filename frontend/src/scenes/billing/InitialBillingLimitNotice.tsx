@@ -25,7 +25,7 @@ const InitialBillingLimitNoticeContents = ({ product }: { product: BillingProduc
             }}
             dismissKey={`initial-billing-limit-notice-${product.type}`}
         >
-            <p className="flex-1 min-w-full sm:min-w-0">
+            <p className="min-w-full flex-1 sm:min-w-0">
                 Default initial billing limit of <b className="text-accent">${initialBillingLimit}</b> active.
             </p>
             <p className="font-normal">

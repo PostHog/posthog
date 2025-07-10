@@ -260,7 +260,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                     <BarChartWithLine data={debugResponse.hourly_stats} />
                 </div>
             ) : null}
-            <div className="flex gap-4 items-start justify-between mb-4">
+            <div className="mb-4 flex items-start justify-between gap-4">
                 <div className="flex flex-wrap gap-2">
                     {!debugResponse.stats
                         ? paths?.map(([path, count]) => (
@@ -270,12 +270,12 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                   size="small"
                                   onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
                               >
-                                  {path} <span className="ml-0.5 text-secondary ligatures-none">({count})</span>
+                                  {path} <span className="text-secondary ligatures-none ml-0.5">({count})</span>
                               </LemonButton>
                           ))
                         : null}
                     {!debugResponseLoading && !!debugResponse.stats ? (
-                        <div className="flex flex-row deprecated-space-x-4 p-4 border rounded bg-surface-primary">
+                        <div className="deprecated-space-x-4 bg-surface-primary flex flex-row rounded border p-4">
                             <div className="flex flex-col items-center">
                                 <span className="text-sm font-bold">last 14 days</span>
                             </div>
@@ -326,7 +326,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                         render: function Timestamp(_, item) {
                             return (
                                 <>
-                                    <div className="font-mono whitespace-pre mb-2">
+                                    <div className="mb-2 whitespace-pre font-mono">
                                         {dayjs.tz(item.timestamp, 'UTC').tz().format().replace('T', '\n')}
                                     </div>
                                     <div>
@@ -347,7 +347,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                         title: 'Query',
                         render: function Query(_, item) {
                             return (
-                                <div className="max-w-200 py-1 deprecated-space-y-2">
+                                <div className="max-w-200 deprecated-space-y-2 py-1">
                                     <div>
                                         <LemonTag className="inline-block">
                                             <span className="font-bold tracking-wide">ID:</span>{' '}
@@ -403,7 +403,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                         ) : null}
                                     </div>
                                     {item.exception && (
-                                        <LemonBanner type="error" className="text-xs font-mono">
+                                        <LemonBanner type="error" className="font-mono text-xs">
                                             <div>{item.exception}</div>
                                         </LemonBanner>
                                     )}
@@ -411,7 +411,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                         language={Language.SQL}
                                         thing="query"
                                         maxLinesWithoutExpansion={10}
-                                        className="text-sm max-w-[60vw]"
+                                        className="max-w-[60vw] text-sm"
                                     >
                                         {item.query}
                                     </CodeSnippet>
@@ -531,7 +531,7 @@ function ProfilingStats({ item }: { item: Query }): JSX.Element | null {
                     language={Language.JSON}
                     maxLinesWithoutExpansion={0}
                     key={item.query_id}
-                    className="text-sm mb-2"
+                    className="mb-2 text-sm"
                 >
                     {JSON.stringify(event, null, 2)}
                 </CodeSnippet>
@@ -606,7 +606,7 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
                         language={Language.JSON}
                         maxLinesWithoutExpansion={0}
                         key={item.query_id}
-                        className="text-sm mb-2 w-80"
+                        className="mb-2 w-80 text-sm"
                     >
                         {JSON.stringify(modifiers, null, 2)}
                     </CodeSnippet>
@@ -666,7 +666,7 @@ function Timing({ item }: { item: Query }): JSX.Element | null {
                     language={Language.JSON}
                     maxLinesWithoutExpansion={0}
                     key={item.query_id}
-                    className="text-sm mb-2 w-80"
+                    className="mb-2 w-80 text-sm"
                 >
                     {JSON.stringify(timings, null, 2)}
                 </CodeSnippet>

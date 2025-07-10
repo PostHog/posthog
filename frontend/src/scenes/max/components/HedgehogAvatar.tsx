@@ -73,7 +73,7 @@ export function HedgehogAvatar({
             <div
                 ref={dragElementRef}
                 // border color should be the same as textarea :focus border
-                className={`size-10 rounded-full overflow-hidden border border-[var(--border-bold)] transition-all duration-100 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 flex items-center justify-center bg-bg-light m-0.5 ${
+                className={`bg-bg-light m-0.5 flex size-10 -scale-x-100 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-[var(--border-bold)] transition-all duration-100 hover:-scale-x-110 hover:scale-y-110 ${
                     isDragging ? 'cursor-grabbing' : 'cursor-grab'
                 }`}
                 onClick={() => {

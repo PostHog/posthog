@@ -45,7 +45,7 @@ const StatusesTemplate = ({
     ...props
 }: LemonButtonProps & { noText?: boolean; accommodateTooltip?: boolean }): JSX.Element => {
     return (
-        <div className={clsx('flex gap-2 border rounded-lg p-2 flex-wrap', accommodateTooltip && 'pt-12')}>
+        <div className={clsx('flex flex-wrap gap-2 rounded-lg border p-2', accommodateTooltip && 'pt-12')}>
             {statuses.map((status, j) => (
                 <LemonButton key={j} status={status} icon={<IconCalculate />} {...props}>
                     {!noText ? capitalizeFirstLetter(status || 'default') : undefined}
@@ -71,10 +71,10 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
 export const TypesAndStatuses: Story = () => {
     return (
         <div className="deprecated-space-y-12">
-            <div className="p-2 rounded-lg border">
+            <div className="rounded-lg border p-2">
                 <TypesAndStatusesTemplate />
             </div>
-            <div className="p-2 bg-surface-primary rounded-lg border">
+            <div className="bg-surface-primary rounded-lg border p-2">
                 <TypesAndStatusesTemplate />
             </div>
         </div>
@@ -205,7 +205,7 @@ export const Active = (): JSX.Element => {
 export const MenuButtons = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
-            <div className="border rounded-lg flex flex-col p-2 deprecated-space-y-1">
+            <div className="deprecated-space-y-1 flex flex-col rounded-lg border p-2">
                 <LemonButton active>Active item</LemonButton>
                 <LemonButton>Item 1</LemonButton>
                 <LemonButton>Item 2</LemonButton>
@@ -277,7 +277,7 @@ export const WithSideAction = (): JSX.Element => {
 export const WithButtonWrapper = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
-            <div className="border rounded-lg flex flex-col p-2 space-y-1">
+            <div className="flex flex-col space-y-1 rounded-lg border p-2">
                 <LemonButton
                     buttonWrapper={(button) => <div className="opacity-50">{button}</div>}
                     sideAction={{
@@ -428,7 +428,7 @@ export const WithOverflowingContent = (): JSX.Element => {
     const longText = 'long text that will overflow the button by at least a little!'
 
     return (
-        <div className="w-200 border p-2 rounded flex items-center gap-2 overflow-hidden">
+        <div className="w-200 flex items-center gap-2 overflow-hidden rounded border p-2">
             <LemonButton type="secondary">No shrink</LemonButton>
             <LemonButton type="secondary" icon={<IconLink />}>
                 Small button

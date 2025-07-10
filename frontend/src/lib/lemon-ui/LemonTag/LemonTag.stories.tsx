@@ -38,7 +38,7 @@ export const LemonTag: Story = {
                 return (
                     <div key={size}>
                         <h4 className="capitalize">{size}</h4>
-                        <div className="flex gap-1 flex-wrap">
+                        <div className="flex flex-wrap gap-1">
                             {ALL_COLORS.map((type) => (
                                 <LemonTagComponent key={type} type={type} size={size}>
                                     {type}
@@ -60,7 +60,7 @@ export const CloseOnClick: Story = {
                 <p className="text-muted mb-2">
                     Hover to see the icon swap to close (X), click anywhere on the tag to close it
                 </p>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex flex-wrap gap-2">
                     <LemonTagComponent
                         icon={<IconFlag />}
                         closeOnClick
@@ -90,7 +90,7 @@ export const CloseOnClick: Story = {
             </div>
             <div>
                 <h4>Regular Closable Tags (for comparison)</h4>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex flex-wrap gap-2">
                     <LemonTagComponent
                         icon={<IconFlag />}
                         closable

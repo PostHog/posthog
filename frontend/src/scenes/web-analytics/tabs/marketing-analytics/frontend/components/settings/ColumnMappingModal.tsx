@@ -127,8 +127,8 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
             title={`Configure ${table.name} Mapping`}
             width={600}
             footer={
-                <div className="flex justify-between items-center w-full">
-                    <span className="text-sm text-muted">
+                <div className="flex w-full items-center justify-between">
+                    <span className="text-muted text-sm">
                         {requiredFieldsConfigured}/{requiredFields.length} required fields configured
                     </span>
                     <div className="flex items-center gap-2">
@@ -144,11 +144,11 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
         >
             <div className="space-y-6">
                 <div>
-                    <h4 className="font-semibold mb-3">Required Fields</h4>
+                    <h4 className="mb-3 font-semibold">Required Fields</h4>
                     <div className="space-y-4">
                         {requiredFields.sort().map((fieldName) => (
                             <div key={fieldName} className="flex items-center gap-3">
-                                <div className="w-6 flex justify-center">
+                                <div className="flex w-6 justify-center">
                                     {getStatusIcon(getFieldStatus(fieldName))}
                                 </div>
                                 <div className="w-40">
@@ -164,11 +164,11 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
 
                 {optionalFields.length > 0 && (
                     <div>
-                        <h4 className="font-semibold mb-3">Optional Fields</h4>
+                        <h4 className="mb-3 font-semibold">Optional Fields</h4>
                         <div className="space-y-4">
                             {optionalFields.sort().map((fieldName) => (
                                 <div key={fieldName} className="flex items-center gap-3">
-                                    <div className="w-6 flex justify-center">
+                                    <div className="flex w-6 justify-center">
                                         {getStatusIcon(getFieldStatus(fieldName))}
                                     </div>
                                     <div className="w-40">

@@ -84,7 +84,7 @@ export function StartupProgram(): JSX.Element {
 
     if (isCurrentlyOnStartupPlan || wasPreviouslyOnStartupPlan) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="max-w-200 mx-auto mt-6 px-4">
                 <LemonBanner type="info">
                     <h2 className="mb-2">
                         You {wasPreviouslyOnStartupPlan ? 'were' : 'are'} already in the {programName}
@@ -103,7 +103,7 @@ export function StartupProgram(): JSX.Element {
 
     if (isAnnualPlanCustomer) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="max-w-200 mx-auto mt-6 px-4">
                 <LemonBanner type="info">
                     <h2 className="mb-2">You are already on an annual plan</h2>
                     <p>
@@ -123,7 +123,7 @@ export function StartupProgram(): JSX.Element {
 
     if (!isUserOrganizationOwnerOrAdmin) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="max-w-200 mx-auto mt-6 px-4">
                 <LemonBanner type="warning">
                     <h2 className="mb-2">Admin or owner permission required</h2>
                     <p>
@@ -140,44 +140,44 @@ export function StartupProgram(): JSX.Element {
 
     return (
         <div className="mx-auto max-w-[1200px]">
-            <div className="flex flex-col items-center mb-8">
+            <div className="mb-8 flex flex-col items-center">
                 {isYC ? (
-                    <div className="flex flex-col items-center mt-8">
-                        <div className="px-4 w-full max-w-100 mb-4">
+                    <div className="mt-8 flex flex-col items-center">
+                        <div className="max-w-100 mb-4 w-full px-4">
                             <div className="relative">
                                 <YCHog className="h-auto w-full" />
                             </div>
                         </div>
                         <div className="text-center">
-                            <h1 className="text-2xl sm:text-3xl mb-2 sm:mb-3">
+                            <h1 className="mb-2 text-2xl sm:mb-3 sm:text-3xl">
                                 You've found our secret Y Combinator offer!
                             </h1>
-                            <p className="text-sm sm:text-base text-muted">
+                            <p className="text-muted text-sm sm:text-base">
                                 Get $50,000 in credits (plus extras you'll actually use) to help you get to
                                 product-market fit.
                             </p>
                         </div>
                     </div>
                 ) : (
-                    <div className="flex items-center justify-center -mt-6 md:gap-8 mb-3">
+                    <div className="-mt-6 mb-3 flex items-center justify-center md:gap-8">
                         <div className="flex items-end self-end">
-                            <div className="relative w-35 min-w-18">
+                            <div className="w-35 min-w-18 relative">
                                 <ClimberHog1 className="h-auto w-full" />
                             </div>
                         </div>
                         <div className="text-center">
-                            <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">
+                            <h1 className="mb-2 text-xl sm:mb-3 sm:text-3xl">
                                 {isReferralProgram && referrerDisplayName
                                     ? `PostHog x ${referrerDisplayName}`
                                     : "Apply for PostHog's startup program"}
                             </h1>
-                            <p className="text-sm sm:text-base text-muted">
+                            <p className="text-muted text-sm sm:text-base">
                                 Get $50,000 in credits (plus extras you'll actually use) to help you get to
                                 product-market fit.
                             </p>
                         </div>
                         <div className="flex items-center">
-                            <div className="relative w-35 min-w-18">
+                            <div className="w-35 min-w-18 relative">
                                 <ClimberHog2 className="h-auto w-full" />
                             </div>
                         </div>
@@ -185,30 +185,30 @@ export function StartupProgram(): JSX.Element {
                 )}
             </div>
 
-            <div className="grid md:grid-cols-2 gap-8 mb-8">
+            <div className="mb-8 grid gap-8 md:grid-cols-2">
                 <div className="bg-surface-secondary rounded-lg p-6">
-                    <h2 className="text-xl mb-4">
+                    <h2 className="mb-4 text-xl">
                         {isReferralProgram && referrerDisplayName
                             ? `We've teamed up with ${referrerDisplayName} to offer you`
                             : 'What you can get'}
                     </h2>
                     <div className="space-y-3">
                         <div className="flex items-start">
-                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <IconCheck className="text-success mr-2 mt-1 shrink-0" />
                             <div>
                                 <h4 className="font-semibold">
                                     $50,000 in PostHog credit{' '}
-                                    <span className="text-[0.66em] align-super text-muted">1</span>
+                                    <span className="text-muted align-super text-[0.66em]">1</span>
                                 </h4>
                                 <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
                             </div>
                         </div>
                         <div className="flex items-start">
-                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <IconCheck className="text-success mr-2 mt-1 shrink-0" />
                             <div>
                                 <h4 className="font-semibold">
                                     Exclusive founder merch{' '}
-                                    <span className="text-[0.66em] align-super text-muted">2</span>
+                                    <span className="text-muted align-super text-[0.66em]">2</span>
                                 </h4>
                                 <p className="text-muted text-sm">
                                     Who wouldn't want free laptop stickers, hats, or t-shirts?
@@ -216,7 +216,7 @@ export function StartupProgram(): JSX.Element {
                             </div>
                         </div>
                         <div className="flex items-start">
-                            <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                            <IconCheck className="text-success mr-2 mt-1 shrink-0" />
                             <div>
                                 <h4 className="font-semibold">50% off Mintlify and Speakeasy for 6 months</h4>
                                 <p className="text-muted text-sm">The best products deserve the best documentation</p>
@@ -224,7 +224,7 @@ export function StartupProgram(): JSX.Element {
                         </div>
                         {isYC && (
                             <div className="flex items-start">
-                                <IconCheck className="text-success shrink-0 mt-1 mr-2" />
+                                <IconCheck className="text-success mr-2 mt-1 shrink-0" />
                                 <div>
                                     <h4 className="font-semibold">Priority support</h4>
                                     <p className="text-muted text-sm">
@@ -237,14 +237,14 @@ export function StartupProgram(): JSX.Element {
 
                     {!isYC && (
                         <div className="mt-6">
-                            <h3 className="text-lg mb-3">As long as</h3>
+                            <h3 className="mb-3 text-lg">As long as</h3>
                             <ul className="space-y-2">
                                 <li className="flex items-center text-sm">
-                                    <IconArrowRight className="text-muted shrink-0 mr-2" />
+                                    <IconArrowRight className="text-muted mr-2 shrink-0" />
                                     Your company was founded less than 2 years ago
                                 </li>
                                 <li className="flex items-center text-sm">
-                                    <IconArrowRight className="text-muted shrink-0 mr-2" />
+                                    <IconArrowRight className="text-muted mr-2 shrink-0" />
                                     You've raised less than $5 million in funding
                                 </li>
                             </ul>
@@ -253,7 +253,7 @@ export function StartupProgram(): JSX.Element {
 
                     {isYC && (
                         <div className="mt-4">
-                            <div className="text-xs text-muted space-y-1">
+                            <div className="text-muted space-y-1 text-xs">
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">1</span>
                                     Applies to current and previous 4 batches. Earlier batches get $25,000 for 12
@@ -272,8 +272,8 @@ export function StartupProgram(): JSX.Element {
                 <div className="space-y-4">
                     {/* Step 1: Add billing details */}
                     <div className="bg-surface-secondary rounded-lg p-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl m-0">Step 1: Add billing details</h2>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h2 className="m-0 text-xl">Step 1: Add billing details</h2>
                         </div>
                         {billingLoading ? (
                             <div className="flex items-center gap-2">
@@ -281,7 +281,7 @@ export function StartupProgram(): JSX.Element {
                                 <span>Checking if you're on a paid plan</span>
                             </div>
                         ) : billing?.has_active_subscription ? (
-                            <div className="flex items-center gap-2 text-success">
+                            <div className="text-success flex items-center gap-2">
                                 <IconCheck className="shrink-0" />
                                 <span>You're on a paid plan</span>
                             </div>
@@ -306,13 +306,13 @@ export function StartupProgram(): JSX.Element {
 
                     {/* Step 2: Submit application form */}
                     <div className="bg-surface-secondary rounded-lg p-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl m-0">Step 2: Submit application</h2>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h2 className="m-0 text-xl">Step 2: Submit application</h2>
                         </div>
 
                         {formSubmitted ? (
                             <div className="space-y-4">
-                                <div className="flex items-center gap-2 text-success">
+                                <div className="text-success flex items-center gap-2">
                                     <IconCheck className="shrink-0" />
                                     <span>Application submitted successfully!</span>
                                 </div>
@@ -332,7 +332,7 @@ export function StartupProgram(): JSX.Element {
                                 className="space-y-3"
                             >
                                 <div className="hidden">
-                                    <div className="grid md:grid-cols-2 gap-3">
+                                    <div className="grid gap-3 md:grid-cols-2">
                                         <LemonField name="first_name" label="First name">
                                             <LemonInput placeholder="Jane" />
                                         </LemonField>
@@ -414,9 +414,9 @@ export function StartupProgram(): JSX.Element {
                                                 onChange={setFilesToUpload}
                                                 loading={uploading}
                                                 callToAction={
-                                                    <div className="border border-dashed rounded p-2 w-full">
+                                                    <div className="w-full rounded border border-dashed p-2">
                                                         {startupProgram.yc_proof_screenshot_url ? (
-                                                            <div className="flex items-center justify-center gap-4 w-full">
+                                                            <div className="flex w-full items-center justify-center gap-4">
                                                                 <span className="font-semibold">
                                                                     YC deal screenshot
                                                                 </span>
@@ -439,7 +439,7 @@ export function StartupProgram(): JSX.Element {
                                                                             )
                                                                         }}
                                                                         tooltip="Remove screenshot"
-                                                                        className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
+                                                                        className="!bg-bg-light absolute -right-1 -top-1 rounded-full p-0.5"
                                                                         noPadding
                                                                     />
                                                                 </div>

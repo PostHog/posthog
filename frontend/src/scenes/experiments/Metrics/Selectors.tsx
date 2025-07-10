@@ -103,7 +103,7 @@ export function FunnelAggregationSelect({
     })
 
     return (
-        <div className="flex items-center w-full gap-2">
+        <div className="flex w-full items-center gap-2">
             <span>Aggregating by</span>
             <LemonSelect
                 className="flex-1"
@@ -148,7 +148,7 @@ export function FunnelConversionWindowFilter({
                         </>
                     }
                 >
-                    <IconInfo className="w-4 info-indicator" />
+                    <IconInfo className="info-indicator w-4" />
                 </Tooltip>
             </span>
             <div className="flex items-center gap-2">
@@ -185,7 +185,7 @@ export function FunnelAttributionSelect({
     const funnelOrderType = undefined
 
     return (
-        <div className="flex items-center w-full gap-2">
+        <div className="flex w-full items-center gap-2">
             <div className="flex">
                 <span>Attribution type</span>
                 <Tooltip
@@ -219,7 +219,7 @@ export function FunnelAttributionSelect({
                         </div>
                     }
                 >
-                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                    <IconInfo className="text-secondary ml-1 shrink-0 text-xl" />
                 </Tooltip>
             </div>
             <LemonSelect

@@ -125,7 +125,7 @@ function DashboardScene(): JSX.Element {
             ) : (
                 <div>
                     <div className="Dashboard_filters">
-                        <div className="flex gap-2 justify-between">
+                        <div className="flex justify-between gap-2">
                             {![
                                 DashboardPlacement.Public,
                                 DashboardPlacement.Export,
@@ -143,7 +143,7 @@ function DashboardScene(): JSX.Element {
                                 )}
                             {placement !== DashboardPlacement.Export && (
                                 <div
-                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
+                                    className={clsx('deprecated-space-x-4 dashoard-items-actions flex shrink-0', {
                                         'mt-7': hasVariables,
                                     })}
                                 >

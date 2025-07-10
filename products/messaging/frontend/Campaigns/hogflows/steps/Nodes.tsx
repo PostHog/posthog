@@ -43,7 +43,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
             onDragOver={() => setIsHighlighted(true)}
             onDragLeave={() => setIsHighlighted(false)}
             className={clsx(
-                'flex justify-center items-center p-2 rounded border border-dashed transition-all cursor-pointer',
+                'flex cursor-pointer items-center justify-center rounded border border-dashed p-2 transition-all',
                 isHighlighted ? 'border-primary bg-surface-primary' : 'border-transparent'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -52,8 +52,8 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
                 height: DROPZONE_NODE_HEIGHT,
             }}
         >
-            <div className="flex flex-col justify-center items-center w-4 h-4 rounded-full border bg-surface-primary">
-                <IconPlus className="text-sm text-primary" />
+            <div className="bg-surface-primary flex h-4 w-4 flex-col items-center justify-center rounded-full border">
+                <IconPlus className="text-primary text-sm" />
             </div>
         </div>
     )

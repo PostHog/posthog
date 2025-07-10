@@ -99,7 +99,7 @@ function ActionsColumn({
 }): JSX.Element {
     if (mode === 'edit') {
         return (
-            <div className="my-2 flex gap-2 justify-end">
+            <div className="my-2 flex justify-end gap-2">
                 <LemonButton
                     type="primary"
                     size="small"
@@ -116,7 +116,7 @@ function ActionsColumn({
     }
 
     return (
-        <div className="my-2 flex gap-2 justify-end">
+        <div className="my-2 flex justify-end gap-2">
             <LemonButton
                 type="secondary"
                 size="small"
@@ -298,7 +298,7 @@ export function GoalsConfiguration(): JSX.Element {
             key: 'actions',
             fullWidth: true,
             title: (
-                <div className="flex flex-row w-full justify-end my-2">
+                <div className="my-2 flex w-full flex-row justify-end">
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}

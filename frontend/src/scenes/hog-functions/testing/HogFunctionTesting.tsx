@@ -257,7 +257,7 @@ export function RetryStatusIcon({
         >
             <span
                 className={clsx(
-                    `RetryStatusIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs select-none`,
+                    `RetryStatusIcon flex h-6 select-none items-center justify-center rounded-full border-2 p-2 text-xs font-semibold`,
                     color === 'primary' && 'RetryStatusIcon--pulse',
                     showLabel ? '' : 'w-6',
                     retries.length > 0 ? `border-${color} text-${color}-dark` : ''
@@ -291,7 +291,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
             <LemonButton
                 onClick={handleRefresh}
                 loading={eventsLoading}
@@ -319,7 +319,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         className="deprecated-space-y-3"
                     >
                         <HogFunctionFilters embedded={true} />
-                        <div className="flex justify-end mt-2">
+                        <div className="mt-2 flex justify-end">
                             <LemonButton size="small" type="primary" onClick={() => setDropdownOpen(false)}>
                                 Done
                             </LemonButton>
@@ -455,7 +455,7 @@ function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                         }
 
                         return (
-                            <div className="flex gap-2 items-center">
+                            <div className="flex items-center gap-2">
                                 {selectingMany ? (
                                     <LemonCheckbox
                                         checked={selectedForRetry.includes(eventId)}

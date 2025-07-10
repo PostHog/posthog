@@ -73,7 +73,7 @@ function SuggestionsList(): JSX.Element {
             <ToggleGroup
                 ref={focusElementRef}
                 type="single"
-                className="QuestionInput__SuggestionsList absolute inset-x-2 top-full grid auto-rows-auto p-1 border-x border-b rounded-b-lg backdrop-blur-sm bg-[var(--glass-bg-3000)] z-10"
+                className="QuestionInput__SuggestionsList absolute inset-x-2 top-full z-10 grid auto-rows-auto rounded-b-lg border-x border-b bg-[var(--glass-bg-3000)] p-1 backdrop-blur-sm"
                 onValueChange={(index) => {
                     const suggestion = activeSuggestionGroup?.suggestions[Number(index)]
                     if (!suggestion) {

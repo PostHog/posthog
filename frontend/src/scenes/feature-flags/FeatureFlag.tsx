@@ -159,7 +159,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.OVERVIEW,
             content: (
                 <>
-                    <div className="flex gap-4 flex-wrap">
+                    <div className="flex flex-wrap gap-4">
                         <div className="w-full">
                             <FeatureFlagRollout readOnly />
                             {!featureFlag.is_remote_configuration && (
@@ -226,7 +226,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             label: (
                 <div className="flex flex-row">
                     <div>Analysis</div>
-                    <LemonTag className="ml-1 float-right uppercase" type="warning">
+                    <LemonTag className="float-right ml-1 uppercase" type="warning">
                         {' '}
                         Beta
                     </LemonTag>
@@ -379,7 +379,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 )}
                                 <LemonField name="active">
                                     {({ value, onChange }) => (
-                                        <div className="border rounded p-4">
+                                        <div className="rounded border p-4">
                                             <LemonCheckbox
                                                 id="flag-enabled-checkbox"
                                                 label="Enable feature flag"
@@ -393,7 +393,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 {!featureFlag.is_remote_configuration && (
                                     <LemonField name="ensure_experience_continuity">
                                         {({ value, onChange }) => (
-                                            <div className="border rounded p-4">
+                                            <div className="rounded border p-4">
                                                 <LemonCheckbox
                                                     id="continuity-checkbox"
                                                     label="Persist flag across authentication steps"
@@ -401,7 +401,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     fullWidth
                                                     checked={value}
                                                 />
-                                                <div className="text-secondary text-sm pl-7">
+                                                <div className="text-secondary pl-7 text-sm">
                                                     If your feature flag is applied before identifying the user, use
                                                     this to ensure that the flag value remains consistent for the same
                                                     user. Depending on your setup, this option might not always be
@@ -457,8 +457,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                             <FeatureFlagAutoRollback />
                                         )}
-                                        <div className="border rounded bg-surface-primary">
-                                            <h3 className="p-2 mb-0">Permissions</h3>
+                                        <div className="bg-surface-primary rounded border">
+                                            <h3 className="mb-0 p-2">Permissions</h3>
                                             <LemonDivider className="my-0" />
                                             <div className="p-3">
                                                 <FeatureFlagPermissions featureFlag={featureFlag} />
@@ -469,7 +469,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <LemonDivider />
                             </>
                         )}
-                        <div className="flex items-center gap-2 justify-end">
+                        <div className="flex items-center justify-end gap-2">
                             <LemonButton
                                 data-attr="cancel-feature-flag"
                                 type="secondary"
@@ -503,7 +503,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             caption={
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <div className="flex deprecated-space-x-1">
+                                        <div className="deprecated-space-x-1 flex">
                                             <div>
                                                 <span className="text-secondary">Key:</span>{' '}
                                                 <CopyToClipboardInline
@@ -736,7 +736,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                     )}
                 </div>
             )}
-            <div className="mt-4 mb-4">
+            <div className="mb-4 mt-4">
                 <b>Log</b>
                 <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
@@ -856,10 +856,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         <>
             {readOnly ? (
                 <>
-                    <div className="flex flex-col mb-4">
+                    <div className="mb-4 flex flex-col">
                         <div className="grid grid-cols-8">
-                            <div className="col-span-2 card-secondary">Status</div>
-                            <div className="col-span-6 card-secondary">Type</div>
+                            <div className="card-secondary col-span-2">Status</div>
+                            <div className="card-secondary col-span-6">Type</div>
                             <div className="col-span-2">
                                 {featureFlag.deleted ? (
                                     <LemonTag size="medium" type="danger" className="uppercase">
@@ -939,7 +939,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {featureFlag.filters.multivariate && (
                         <>
                             <h3 className="l3">Variant keys</h3>
-                            <div className="border rounded p-4 mb-4 bg-surface-primary">
+                            <div className="bg-surface-primary mb-4 rounded border p-4">
                                 <div className="grid grid-cols-10 gap-4 font-semibold">
                                     <div className="col-span-2">Key</div>
                                     <div className="col-span-2">Description</div>
@@ -1109,7 +1109,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {featureFlag.is_remote_configuration && (
                                     <LemonField name="has_encrypted_payloads">
                                         {({ value, onChange }) => (
-                                            <div className="border rounded mb-4 p-4">
+                                            <div className="mb-4 rounded border p-4">
                                                 <LemonCheckbox
                                                     id="flag-payload-encrypted-checkbox"
                                                     label="Encrypt remote configuration payload"
@@ -1152,7 +1152,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     )}
                                 </div>
                                 {featureFlag.is_remote_configuration && (
-                                    <div className="text-sm text-secondary mt-4">
+                                    <div className="text-secondary mt-4 text-sm">
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
                                         <span className="font-mono font-bold">
                                             {featureFlag.has_encrypted_payloads
@@ -1199,7 +1199,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     <h3 className="l4">Variant keys</h3>
                     <span>The rollout percentage of feature flag variants must add up to 100%</span>
                     <div className="VariantFormList deprecated-space-y-2">
-                        <div className="VariantFormList__row grid label-row gap-2 items-center">
+                        <div className="VariantFormList__row label-row grid items-center gap-2">
                             <div />
                             <div className="col-span-4">Variant key</div>
                             <div className="col-span-6">Description</div>
@@ -1211,7 +1211,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </span>
                                 </div>
                             </div>
-                            <div className="col-span-3 flex justify-between items-center gap-1">
+                            <div className="col-span-3 flex items-center justify-between gap-1">
                                 <span>Rollout</span>
                                 <LemonButton
                                     onClick={distributeVariantsEqually}

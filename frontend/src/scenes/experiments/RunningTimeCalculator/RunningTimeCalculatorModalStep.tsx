@@ -10,12 +10,12 @@ export const RunningTimeCalculatorModalStep = ({
     description: string
 }): JSX.Element => (
     <div className="space-y-6">
-        <div className="rounded bg-light p-4 space-y-3">
+        <div className="bg-light space-y-3 rounded p-4">
             <div className="flex items-center gap-2">
-                <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
+                <span className="bg-muted flex h-6 w-6 items-center justify-center rounded-full font-semibold text-white">
                     {stepNumber}
                 </span>
-                <h4 className="font-semibold m-0">{title}</h4>
+                <h4 className="m-0 font-semibold">{title}</h4>
             </div>
             <p className="text-muted">{description}</p>
             <div className="space-y-2">{children}</div>

@@ -38,7 +38,7 @@ export function StaffUsersTab(): JSX.Element {
                 return (
                     <>
                         {user.first_name}
-                        {user.uuid === myself?.uuid && <LemonTag className="uppercase ml-1">Me</LemonTag>}
+                        {user.uuid === myself?.uuid && <LemonTag className="ml-1 uppercase">Me</LemonTag>}
                     </>
                 )
             },
@@ -87,7 +87,7 @@ export function StaffUsersTab(): JSX.Element {
             </div>
             <LemonDivider className="mb-4" />
             <section>
-                <div className="flex gap-2 mb-4">
+                <div className="mb-4 flex gap-2">
                     <div className="flex-1">
                         <LemonInputSelect
                             placeholder="Add staff users here…"
@@ -163,7 +163,7 @@ const StaffUsersRemovalModal = ({
                 {myself?.uuid === user?.uuid ? (
                     <>
                         Please confirm you want to <b>remove yourself</b> as a staff user.
-                        <div className="font-normal text-secondary">
+                        <div className="text-secondary font-normal">
                             Only another staff user will be able to add you again.
                         </div>
                     </>

@@ -542,12 +542,12 @@ export function DataTable({
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-4 flex-1 h-full">
+                <div className="relative flex h-full w-full flex-1 flex-col gap-4">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
@@ -555,9 +555,9 @@ export function DataTable({
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (
-                        <div className="flex gap-4 justify-between flex-wrap">
-                            <div className="flex gap-4 items-center">{secondRowLeft}</div>
-                            <div className="flex gap-4 items-center">{secondRowRight}</div>
+                        <div className="flex flex-wrap justify-between gap-4">
+                            <div className="flex items-center gap-4">{secondRowLeft}</div>
+                            <div className="flex items-center gap-4">{secondRowRight}</div>
                         </div>
                     )}
                     {showOpenEditorButton && inlineEditorButtonOnRow === 0 && !isReadOnly ? (
@@ -567,7 +567,7 @@ export function DataTable({
                         <LemonTable
                             data-attr={dataAttr}
                             className={clsx('DataTable', {
-                                'border border-dotted border-success': usedWebAnalyticsPreAggregatedTables,
+                                'border-success border border-dotted': usedWebAnalyticsPreAggregatedTables,
                             })}
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}
@@ -635,7 +635,7 @@ export function DataTable({
                                 clsx('DataTable__row', {
                                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                     'DataTable__row--category_row': !!label,
-                                    'border border-x-danger-dark bg-danger-highlight':
+                                    'border-x-danger-dark bg-danger-highlight border':
                                         sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
                                         result &&
                                         result[0] &&

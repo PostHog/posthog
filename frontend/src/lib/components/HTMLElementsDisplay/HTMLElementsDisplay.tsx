@@ -37,7 +37,7 @@ function CloseAllTags({
                     >
                         <pre
                             className={clsx(
-                                'whitespace-pre-wrap break-all !p-0 !m-0 rounded-none text-primary',
+                                'text-primary !m-0 whitespace-pre-wrap break-all rounded-none !p-0',
                                 size === 'xsmall' ? 'text-xs' : 'text-sm'
                             )}
                             key={index}
@@ -155,9 +155,9 @@ export function HTMLElementsDisplay({
     return (
         <div className={clsx('flex flex-col gap-1', size === 'xsmall' && 'text-xxs')}>
             {editable && !!parsedElements.length && (
-                <div className="flex flex-col gap-2 mb-2">
+                <div className="mb-2 flex flex-col gap-2">
                     <div>Selector:</div>
-                    <div className="w-full border rounded bg-primary px-4 py-2 select-text">
+                    <div className="bg-primary w-full select-text rounded border px-4 py-2">
                         <pre className={clsx('m-0', size === 'xsmall' ? 'text-xxs' : 'text-sm')}>{chosenSelector}</pre>
                     </div>
                 </div>
@@ -172,13 +172,13 @@ export function HTMLElementsDisplay({
                     )}
                 </LemonBanner>
             )}
-            <div className="px-4 rounded bg-primary">
+            <div className="bg-primary rounded px-4">
                 {parsedElements.length ? (
                     <>
                         {elementsToShowDepth ? (
                             <pre
                                 className={clsx(
-                                    '!p-1 !m-0 opacity-50 text-primary cursor-pointer',
+                                    'text-primary !m-0 cursor-pointer !p-1 opacity-50',
                                     size === 'xsmall' ? 'text-xxs' : 'text-sm'
                                 )}
                                 data-attr="elements-display-show-more-of-chain"

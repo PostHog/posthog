@@ -96,41 +96,41 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
             />
             <div
                 className={clsx(
-                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
-                    highlight ? 'border-2 border-accent-active' : 'border-gray-200 dark:border-gray-700'
+                    'bg-bg-light dark:bg-bg-depth rounded-xs relative flex h-full transform flex-col border p-6 transition-transform hover:scale-[1.02] hover:shadow-lg',
+                    highlight ? 'border-accent-active border-2' : 'border-gray-200 dark:border-gray-700'
                 )}
             >
                 {planData.plan === Plan.RIDICULOUSLY_CHEAP && (
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-bg-light dark:bg-bg-depth rounded-xs text-xs text-accent-active font-semibold shadow-md border-accent-active border-2">
+                    <div className="bg-bg-light dark:bg-bg-depth rounded-xs text-accent-active border-accent-active absolute right-0 top-0 -mr-4 -mt-4 border-2 px-3 py-1 text-xs font-semibold shadow-md">
                         Free tier included!
                     </div>
                 )}
                 <header className="mb-0">
-                    <h3 className="text-2xl font-bold mb-0 text-gray-800 dark:text-gray-100">{planData.title}</h3>
+                    <h3 className="mb-0 text-2xl font-bold text-gray-800 dark:text-gray-100">{planData.title}</h3>
                     <p className="text-muted dark:text-gray-400">{planData.subtitle}</p>
                 </header>
                 <section className="mb-3">
                     <div className="flex items-baseline gap-1">
                         {planData.pricePreface && (
-                            <span className="text-base text-muted-alt dark:text-gray-300">{planData.pricePreface}</span>
+                            <span className="text-muted-alt text-base dark:text-gray-300">{planData.pricePreface}</span>
                         )}
                         <span className="text-xl font-extrabold text-gray-900 dark:text-white">{planData.price}</span>
                         {planData.priceSuffix && (
-                            <span className="text-base text-muted-alt dark:text-gray-300">{planData.priceSuffix}</span>
+                            <span className="text-muted-alt text-base dark:text-gray-300">{planData.priceSuffix}</span>
                         )}
                     </div>
                     {planData.priceSubtitle && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">{planData.priceSubtitle}</p>
                     )}
                 </section>
-                <section className="flex-1 mb-3">
+                <section className="mb-3 flex-1">
                     <ul className="deprecated-space-y-2">
                         {features.map((feature) => (
                             <li key={feature.name} className="flex items-center">
                                 {feature.available ? (
-                                    <IconCheck className="w-4 h-4 text-success mr-2" />
+                                    <IconCheck className="text-success mr-2 h-4 w-4" />
                                 ) : (
-                                    <IconX className="w-4 h-4 text-gray-400 mr-2" />
+                                    <IconX className="mr-2 h-4 w-4 text-gray-400" />
                                 )}
                                 <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
                                     {feature.name}
@@ -213,7 +213,7 @@ export const PlanCards: React.FC<{ product: BillingProductV2Type }> = ({ product
     return (
         <div className="px-4">
             <div className="py-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                     {PLANS_DATA.map((planData, index) => (
                         <PlanCard
                             key={planData.plan}

@@ -49,7 +49,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
         useActions(dataVisualizationLogic)
 
     return (
-        <div className="flex flex-col ConditionalFormattingTab">
+        <div className="ConditionalFormattingTab flex flex-col">
             <p>You can add rules to make the cells in the table change color if they meet certain conditions.</p>
 
             {conditionalFormattingRules.length > 0 && (
@@ -95,7 +95,7 @@ const RuleItem = ({ rule: propsRule }: { rule: ConditionalFormattingRule }): JSX
     const { rule, template } = useValues(builtCFLogic)
 
     return (
-        <div className="gap-2 flex flex-col">
+        <div className="flex flex-col gap-2">
             <LemonSelect
                 placeholder="Column"
                 className="w-full"
@@ -103,7 +103,7 @@ const RuleItem = ({ rule: propsRule }: { rule: ConditionalFormattingRule }): JSX
                 options={columns.map(({ name, type }) => ({
                     value: name,
                     label: (
-                        <div className="items-center flex-1">
+                        <div className="flex-1 items-center">
                             {name}
                             <LemonTag className="ml-2" type="default">
                                 {type.name}

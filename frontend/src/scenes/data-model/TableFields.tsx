@@ -29,12 +29,12 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
     return (
         <div className="">
             <div>
-                <div className="pl-4 mt-4">
+                <div className="mt-4 pl-4">
                     <h3>{tableName}</h3>
                 </div>
             </div>
             <div className="flex flex-col gap-1">
-                <div className="pl-4 mt-4">
+                <div className="mt-4 pl-4">
                     <h4>Schema</h4>
                 </div>
                 <LemonTable
@@ -55,7 +55,7 @@ export function TableFields({ fixedFields, joinedFields, rowsRefs, tableName }: 
                 />
             </div>
             <div>
-                <div className="px-4 my-4 flex flex-row justify-between">
+                <div className="my-4 flex flex-row justify-between px-4">
                     <h4>Joined Tables</h4>
                     <LemonButton
                         type="primary"

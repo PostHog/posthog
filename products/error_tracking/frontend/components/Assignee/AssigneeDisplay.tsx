@@ -64,7 +64,7 @@ export const AssigneeIconDisplay = ({ assignee, size }: AssigneeIconDisplayProps
         .otherwise(() => (
             <IconPerson
                 className={cn(
-                    'rounded-full border border-dashed border-secondary text-secondary flex items-center justify-center p-0.5',
+                    'border-secondary text-secondary flex items-center justify-center rounded-full border border-dashed p-0.5',
                     getIconClassname(size)
                 )}
             />
@@ -115,7 +115,7 @@ export const AssigneeDisplay = ({
     size,
 }: AssigneeDisplayProps): JSX.Element => {
     return (
-        <div className={cn('flex justify-start items-center gap-1', className)}>
+        <div className={cn('flex items-center justify-start gap-1', className)}>
             <AssigneeIconDisplay assignee={assignee} size={size} />
             <AssigneeLabelDisplay
                 className={labelClassname}

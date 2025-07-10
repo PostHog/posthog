@@ -22,7 +22,7 @@ export function CalendarHeatMapCell({ values, bg, fontSize, tooltip, onClick }: 
     return (
         <Tooltip delayMs={100} title={tooltip}>
             <div
-                className={cn('CalendarHeatMap__Cell', onClick ? 'cursor-pointer hover:bg-highlight' : '')}
+                className={cn('CalendarHeatMap__Cell', onClick ? 'hover:bg-highlight cursor-pointer' : '')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ fontSize, backgroundColor, color }}
                 onClick={onClick}

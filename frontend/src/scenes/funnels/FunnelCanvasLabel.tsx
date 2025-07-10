@@ -26,11 +26,11 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         ...(funnelsFilter?.funnelVizType === FunnelVizType.Steps
             ? [
                   <>
-                      <span className="flex items-center text-secondary mr-1">
+                      <span className="text-secondary mr-1 flex items-center">
                           <Tooltip
                               title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
                           >
-                              <IconInfo className="mr-1 text-xl shrink-0" />
+                              <IconInfo className="mr-1 shrink-0 text-xl" />
                           </Tooltip>
                           <span>Total conversion rate:</span>
                       </span>
@@ -41,11 +41,11 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         ...(funnelsFilter?.funnelVizType !== FunnelVizType.Trends
             ? [
                   <>
-                      <span className="flex items-center text-secondary">
+                      <span className="text-secondary flex items-center">
                           <Tooltip
                               title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
                           >
-                              <IconInfo className="mr-1 text-xl shrink-0" />
+                              <IconInfo className="mr-1 shrink-0 text-xl" />
                           </Tooltip>
                           <span>Average time to convert</span>
                       </span>
@@ -104,7 +104,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         <div className="flex items-center">
             {labels.map((label, i) => (
                 <React.Fragment key={i}>
-                    {i > 0 && <span className="my-0.5 mx-2 border-l border-primary h-3.5" />}
+                    {i > 0 && <span className="border-primary mx-2 my-0.5 h-3.5 border-l" />}
                     {label}
                 </React.Fragment>
             ))}

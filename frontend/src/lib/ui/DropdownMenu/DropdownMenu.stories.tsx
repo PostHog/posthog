@@ -46,7 +46,7 @@ export function Default(): JSX.Element {
                     <ButtonPrimitive>
                         <IconSearch />
                         Dropdown
-                        <IconChevronRight className="rotate-90 group-data-[state=open]/button-root:rotate-270" />
+                        <IconChevronRight className="group-data-[state=open]/button-root:rotate-270 rotate-90" />
                     </ButtonPrimitive>
                 </DropdownMenuTrigger>
 

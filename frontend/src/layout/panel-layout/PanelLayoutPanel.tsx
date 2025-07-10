@@ -107,10 +107,10 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div className="flex justify-between p-1 gap-px bg-surface-tertiary">
+            <div className="bg-surface-tertiary flex justify-between gap-px p-1">
                 <ProjectDropdownMenu />
 
-                <div className="flex gap-px items-center justify-end shrink-0">
+                <div className="flex shrink-0 items-center justify-end gap-px">
                     {!isMobileLayout && (
                         <ButtonPrimitive
                             iconOnly
@@ -122,9 +122,9 @@ export function PanelLayoutPanel({
                             aria-pressed={isLayoutPanelPinned}
                         >
                             {isLayoutPanelPinned ? (
-                                <IconPinFilled className="size-3 text-primary" />
+                                <IconPinFilled className="text-primary size-3" />
                             ) : (
-                                <IconPin className="size-3 text-tertiary" />
+                                <IconPin className="text-tertiary size-3" />
                             )}
                         </ButtonPrimitive>
                     )}
@@ -145,11 +145,11 @@ export function PanelLayoutPanel({
                     </ButtonPrimitive>
                 </div>
             </div>
-            <div className="border-b border-primary h-px" />
-            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary group/colorful-product-icons colorful-product-icons-true">
+            <div className="border-primary h-px border-b" />
+            <div className="z-main-nav bg-surface-secondary group/colorful-product-icons colorful-product-icons-true flex flex-1 flex-col justify-between overflow-y-auto">
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
-                        <div className="flex gap-1 p-1 items-center justify-between">
+                        <div className="flex items-center justify-between gap-1 p-1">
                             {searchField ?? null}
 
                             {filterDropdown || sortDropdown ? (
@@ -159,7 +159,7 @@ export function PanelLayoutPanel({
                                 </div>
                             ) : null}
                         </div>
-                        <div className="border-b border-primary h-px" />
+                        <div className="border-primary h-px border-b" />
                     </>
                 ) : null}
                 {children}

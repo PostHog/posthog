@@ -27,14 +27,14 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 logic={experimentsTabLogic}
                 formKey="experimentForm"
                 enableFormOnSubmit
-                className="flex flex-col overflow-hidden flex-1"
+                className="flex flex-1 flex-col overflow-hidden"
             >
                 <ToolbarMenu.Header className="border-b">
                     {selectedExperimentId === 'new' ? (
                         <div className="w-full px-2 pb-4 pt-2">
                             <LemonLabel>Experiment name</LemonLabel>
                             <LemonInput
-                                className="w-2/3 mt-1"
+                                className="mt-1 w-2/3"
                                 placeholder="Example: Pricing page conversion"
                                 onChange={(newName: string) => {
                                     setExperimentFormValue('name', newName)
@@ -61,7 +61,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 <ToolbarMenu.Body>
                     <div className="deprecated-space-y-6 p-2">
                         <div>
-                            <div className="flex items-center justify-between mb-2">
+                            <div className="mb-2 flex items-center justify-between">
                                 <LemonLabel>Variants</LemonLabel>
                                 {addVariantAvailable && (
                                     <LemonButton
@@ -110,7 +110,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     </div>
                 </ToolbarMenu.Body>
                 <ToolbarMenu.Footer>
-                    <div className="flex justify-between items-center w-full">
+                    <div className="flex w-full items-center justify-between">
                         <LemonButton type="secondary" size="small" onClick={() => selectExperiment(null)}>
                             Cancel
                         </LemonButton>

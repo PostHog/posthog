@@ -51,7 +51,7 @@ export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Eleme
     }
 
     return (
-        <div className="flex flex-col -mt-1 uppercase">
+        <div className="-mt-1 flex flex-col uppercase">
             {lifecycles.map((lifecycle) => (
                 <LemonLabel key={lifecycle.name} info={lifecycle.tooltip}>
                     <LemonCheckbox

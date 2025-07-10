@@ -214,7 +214,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     ) : (
                         <>
                             <div
-                                className="SessionRecordingPlayer__main flex flex-col h-full w-full"
+                                className="SessionRecordingPlayer__main flex h-full w-full flex-col"
                                 ref={playerMainRef}
                             >
                                 {isRecentAndInvalid ? (
@@ -250,8 +250,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="flex w-full h-full">
-                                        <div className="flex flex-col flex-1 w-full">
+                                    <div className="flex h-full w-full">
+                                        <div className="flex w-full flex-1 flex-col">
                                             {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
                                             <div

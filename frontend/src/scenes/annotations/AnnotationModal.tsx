@@ -114,7 +114,7 @@ export function AnnotationModal({
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
             description="Use annotations to comment on insights, dashboards, and recordings."
             footer={
-                <div className="flex-1 flex items-center justify-between">
+                <div className="flex flex-1 items-center justify-between">
                     <div className="flex items-center gap-2">
                         {existingModalAnnotation && (
                             <LemonButton

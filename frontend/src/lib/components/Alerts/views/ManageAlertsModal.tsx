@@ -40,8 +40,8 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 
     return (
         <LemonButton type="secondary" onClick={onClick} data-attr="alert-list-item" fullWidth>
-            <div className="flex justify-between flex-auto items-center p-2">
-                <div className="flex flex-row gap-3 items-center">
+            <div className="flex flex-auto items-center justify-between p-2">
+                <div className="flex flex-row items-center gap-3">
                     <span>{alert.name}</span>
                     <AlertStateIndicator alert={alert} />
 
@@ -106,7 +106,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                         ))}
                     </div>
                 ) : (
-                    <div className="flex flex-col p-4 items-center text-center">
+                    <div className="flex flex-col items-center p-4 text-center">
                         <h3>There are no alerts for this insight</h3>
 
                         <p>Once alerts are created they will display here. </p>

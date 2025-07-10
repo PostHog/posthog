@@ -9,7 +9,7 @@ export function CampaignWorkflow(props: CampaignLogicProps): JSX.Element {
     const { originalCampaign, campaignLoading } = useValues(campaignLogic(props))
 
     return (
-        <div className="relative border rounded-md h-[calc(100vh-210px)]">
+        <div className="relative h-[calc(100vh-210px)] rounded-md border">
             <BindLogic logic={campaignLogic} props={props}>
                 {!originalCampaign && campaignLoading ? <SpinnerOverlay /> : <HogFlowEditor />}
             </BindLogic>

@@ -49,7 +49,7 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
             <div className="deprecated-space-y-4">
                 <AppMetricsTotals />
 
-                <div className="flex gap-2 items-center">
+                <div className="flex items-center gap-2">
                     <h2 className="mb-0">Delivery trends</h2>
                     <div className="flex-1" />
                     <LemonDropdown
@@ -57,7 +57,7 @@ export function HogFunctionMetrics({ id }: HogFunctionMetricsLogicProps): JSX.El
                         matchWidth={false}
                         placement="right-end"
                         overlay={
-                            <div className="overflow-hidden deprecated-space-y-2 max-w-100">
+                            <div className="deprecated-space-y-2 max-w-100 overflow-hidden">
                                 {ALL_METRIC_TYPES.filter(
                                     ({ value }) => value !== 'fetch' || type !== 'transformation'
                                 ).map(({ label, value }) => {
@@ -133,9 +133,9 @@ function AppMetricBigNumber({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-surface-primary">
+            <div className="bg-surface-primary flex flex-1 flex-col items-center gap-2 rounded border p-2">
                 <div className="text-xs font-bold uppercase">{label.replace(/_/g, ' ')}</div>
-                <div className="flex flex-1 items-center mb-2 text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
+                <div className="mb-2 flex flex-1 items-center text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
             </div>
         </Tooltip>
     )
@@ -146,11 +146,11 @@ function AppMetricsTotals(): JSX.Element {
 
     return (
         <div className="deprecated-space-y-4">
-            <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap items-center gap-2">
                 {Object.entries(METRICS_INFO).map(([key, value]) => (
-                    <div key={key} className="flex flex-col flex-1 h-30 min-w-30 max-w-100">
+                    <div key={key} className="h-30 min-w-30 max-w-100 flex flex-1 flex-col">
                         {appMetricsTotalsLoading ? (
-                            <LemonSkeleton className="w-full h-full" />
+                            <LemonSkeleton className="h-full w-full" />
                         ) : (
                             <AppMetricBigNumber label={key} value={appMetricsTotals?.totals?.[key]} tooltip={value} />
                         )}
@@ -249,7 +249,7 @@ function AppMetricsGraph(): JSX.Element {
     }, [appMetrics])
 
     return (
-        <div className="relative border rounded p-6 bg-surface-primary h-[50vh]">
+        <div className="bg-surface-primary relative h-[50vh] rounded border p-6">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
             <Popover

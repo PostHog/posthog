@@ -93,7 +93,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
                                 </Link>
                             </div>
-                            <div className="text-xs text-tertiary">{insight.description}</div>
+                            <div className="text-tertiary text-xs">{insight.description}</div>
                         </div>
                     </>
                 )
@@ -136,7 +136,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
         <div className="saved-insights">
             <SavedInsightsFilters filters={filters} setFilters={setModalFilters} />
             <LemonDivider className="my-4" />
-            <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
+            <div className="mb-4 mt-2 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-secondary">
                     {count
                         ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

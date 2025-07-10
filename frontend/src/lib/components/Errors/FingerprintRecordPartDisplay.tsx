@@ -36,7 +36,7 @@ function renderPartTooltip(component: FingerprintRecordPart): React.ReactNode {
             <span>Fingerprinted by</span>
             <ul>
                 {pieces.map((piece, index) => (
-                    <li key={index} className={cn('list-disc ml-4')}>
+                    <li key={index} className={cn('ml-4 list-disc')}>
                         {piece}
                     </li>
                 ))}

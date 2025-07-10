@@ -56,16 +56,16 @@ export function SurveyOverview(): JSX.Element {
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
     return (
         <div className="flex gap-4">
-            <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
+            <dl className="flex flex-1 flex-col gap-4 overflow-hidden">
                 <SurveyOption label="Display mode">{SURVEY_TYPE_LABEL_MAP[survey.type]}</SurveyOption>
                 <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
                     {survey.questions.map((q, idx) => {
                         return (
-                            <div key={q.id ?? idx} className="flex flex-col lg:gap-4 lg:flex-row justify-between">
+                            <div key={q.id ?? idx} className="flex flex-col justify-between lg:flex-row lg:gap-4">
                                 <span className="flex-1 truncate">
                                     {idx + 1}. {q.question}
                                 </span>
-                                <span className="flex items-center gap-1 text-xs text-muted">
+                                <span className="text-muted flex items-center gap-1 text-xs">
                                     {QuestionIconMap[q.type]}
                                     {SurveyQuestionLabel[q.type]}
                                 </span>
@@ -119,8 +119,8 @@ export function SurveyOverview(): JSX.Element {
                     />
                 ) : (
                     <div className="mt-2 space-y-2">
-                        <div className="p-4 border rounded">
-                            <div className="flex flex-row items-center w-full gap-1">
+                        <div className="rounded border p-4">
+                            <div className="flex w-full flex-row items-center gap-1">
                                 Learn how to set up API surveys{' '}
                                 <Link
                                     data-attr="survey-doc-link"

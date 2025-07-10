@@ -116,7 +116,7 @@ const BasicTemplate: StoryFn<typeof PlayerInspector> = () => {
     }, [sessionPlayerMetaData])
 
     return (
-        <div className="flex flex-col gap-2 min-w-96 min-h-120">
+        <div className="min-h-120 flex min-w-96 flex-col gap-2">
             <BindLogic
                 logic={sessionRecordingPlayerLogic}
                 props={{

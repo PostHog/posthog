@@ -31,12 +31,12 @@ export function WebExperimentImplementationDetails({ experiment }: WebExperiment
     return (
         <>
             <div>
-                <h2 className="font-semibold text-lg mb-2">Implementation</h2>
-                <div className="border p-6 rounded bg-surface-primary deprecated-space-y-2">
-                    <div className="font-semibold leading-tight text-base text-current">
+                <h2 className="mb-2 text-lg font-semibold">Implementation</h2>
+                <div className="bg-surface-primary deprecated-space-y-2 rounded border p-6">
+                    <div className="text-base font-semibold leading-tight text-current">
                         Define variant changes directly on your website
                     </div>
-                    <div className="text-sm text-secondary">
+                    <div className="text-secondary text-sm">
                         Use our toolbar to select elements and apply transformations for each variant.
                     </div>
                     <div>

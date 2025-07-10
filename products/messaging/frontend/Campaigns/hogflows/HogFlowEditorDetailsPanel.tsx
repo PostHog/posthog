@@ -33,12 +33,12 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const Step = getHogFlowStep(action.type)
 
     return (
-        <div className="flex flex-col flex-1 max-h-full w-120 overflow-y-scroll">
-            <div className="flex justify-between items-center px-2 my-2">
-                <h3 className="flex gap-1 items-center mb-0 font-semibold">
+        <div className="w-120 flex max-h-full flex-1 flex-col overflow-y-scroll">
+            <div className="my-2 flex items-center justify-between px-2">
+                <h3 className="mb-0 flex items-center gap-1 font-semibold">
                     <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
                 </h3>
-                <div className="flex gap-1 items-center">
+                <div className="flex items-center gap-1">
                     {selectedNode.deletable && (
                         <LemonButton
                             size="xsmall"
@@ -68,7 +68,7 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
             <LemonDivider className="my-0" />
             {!['trigger', 'exit'].includes(action.type) && (
                 <div className="flex flex-col p-2">
-                    <LemonLabel htmlFor="conditions" className="flex gap-2 justify-between items-center">
+                    <LemonLabel htmlFor="conditions" className="flex items-center justify-between gap-2">
                         <span>Conditions</span>
                         <LemonSwitch
                             id="conditions"

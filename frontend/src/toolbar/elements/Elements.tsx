@@ -46,7 +46,7 @@ export function Elements(): JSX.Element {
         <>
             <div
                 id="posthog-infowindow-container"
-                className="w-full h-full absolute top-0 left-0 pointer-events-none z-[2147483021]"
+                className="pointer-events-none absolute left-0 top-0 z-[2147483021] h-full w-full"
                 {...themeProps}
             >
                 <ElementInfoWindow />
@@ -54,7 +54,7 @@ export function Elements(): JSX.Element {
 
             <div
                 id="posthog-toolbar-elements"
-                className="w-full h-full absolute top-0 pointer-events-none z-[2147483010]"
+                className="pointer-events-none absolute top-0 z-[2147483010] h-full w-full"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     top: relativePositionCompensation,

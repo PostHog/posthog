@@ -66,7 +66,7 @@ export function SessionRecordingsPlaylist({
         sections.push({
             key: 'pinned',
             title: (
-                <div className="flex flex-row deprecated-space-x-1 items-center">
+                <div className="deprecated-space-x-1 flex flex-row items-center">
                     <span>Pinned recordings</span>
                     <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
                 </div>
@@ -81,7 +81,7 @@ export function SessionRecordingsPlaylist({
         sections.push({
             key: 'other',
             title: (
-                <div className="flex flex-row deprecated-space-x-1 items-center">
+                <div className="deprecated-space-x-1 flex flex-row items-center">
                     <span>Results</span>
                     <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
                 </div>
@@ -93,7 +93,7 @@ export function SessionRecordingsPlaylist({
             ),
             footer: (
                 <div className="p-4">
-                    <div className="h-10 flex items-center justify-center gap-2 text-secondary">
+                    <div className="text-secondary flex h-10 items-center justify-center gap-2">
                         {sessionRecordingsResponseLoading ? (
                             <>
                                 <Spinner textColored /> Loading older recordings
@@ -111,7 +111,7 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="h-full deprecated-space-y-2">
+            <div className="deprecated-space-y-2 h-full">
                 <Playlist
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
@@ -189,7 +189,7 @@ const ListEmptyState = (): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="p-3 text-sm text-secondary">
+        <div className="text-secondary p-3 text-sm">
             {sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
@@ -207,7 +207,7 @@ const CollectionEmptyState = (): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="p-3 text-sm text-secondary">
+        <div className="text-secondary p-3 text-sm">
             {sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (

@@ -21,14 +21,14 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
 
     return (
-        <div className="flex items-start gap-x-1.5 group">
+        <div className="group flex items-start gap-x-1.5">
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
                     <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="deprecated-space-x-1">
-                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.last_seen} className="border-b border-dotted" />
                         </div>
                     </div>
                 }
@@ -81,10 +81,10 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
             )}
         >
             <h2 className="m-0 mb-3">Error tracking</h2>
-            <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+            <div className="bg-surface-primary flex flex-1 flex-col rounded border px-1 py-2">
                 <Query query={query} embedded={true} context={context} />
             </div>
-            <div className="flex flex-row-reverse my-2">
+            <div className="my-2 flex flex-row-reverse">
                 <LemonButton
                     to={to}
                     icon={<IconOpenInNew />}

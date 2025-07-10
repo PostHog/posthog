@@ -18,12 +18,12 @@ const Template: StoryFn<typeof LemonBadge.Number> = ({ count, ...props }: LemonB
 
     return (
         <>
-            <div className="flex items-center min-h-6">
+            <div className="flex min-h-6 items-center">
                 <div>Count: </div>
                 <LemonBadge.Number count={countOverride} {...props} />
             </div>
             <br />
-            <div className="flex deprecated-space-x-1">
+            <div className="deprecated-space-x-1 flex">
                 <LemonButton type="primary" onClick={() => setCount((countOverride || 0) + 1)}>
                     Increment
                 </LemonButton>

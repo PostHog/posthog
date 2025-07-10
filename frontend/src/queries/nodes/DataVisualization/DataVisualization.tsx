@@ -171,7 +171,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!response || responseLoading) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
+            <div className="bg-surface-primary flex h-full flex-1 flex-col items-center justify-center">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
@@ -201,17 +201,17 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 'h-full': visualizationType !== ChartDisplayType.ActionsTable,
             })}
         >
-            <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+            <div className="relative flex w-full flex-1 flex-col gap-4 overflow-hidden">
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex gap-4 justify-between flex-wrap px-px">
-                            <div className="flex gap-4 items-center">
+                        <div className="flex flex-wrap justify-between gap-4 px-px">
+                            <div className="flex items-center gap-4">
                                 <Reload />
                                 <ElapsedTime />
                             </div>
-                            <div className="flex gap-4 items-center">
-                                <div className="flex gap-4 items-center flex-wrap">
+                            <div className="flex items-center gap-4">
+                                <div className="flex flex-wrap items-center gap-4">
                                     <AddVariableButton />
 
                                     {sourceFeatures.has(QueryFeature.dateRangePicker) &&
@@ -264,9 +264,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 <VariablesForInsight />
 
                 <div className="flex flex-1 flex-row gap-4">
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
+                    <div className={clsx('h-full w-full flex-1 overflow-auto')}>
                         {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
-                            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
+                            <div className="bg-surface-primary relative flex flex-1 flex-col rounded p-2">
                                 <InsightErrorState
                                     query={props.query}
                                     excludeDetail

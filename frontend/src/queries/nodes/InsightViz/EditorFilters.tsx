@@ -230,7 +230,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                      <IconInfo className="text-secondary ml-1 shrink-0 text-xl" />
                                   </Tooltip>
                               </div>
                           ),
@@ -255,7 +255,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                      <IconInfo className="text-secondary ml-1 shrink-0 text-xl" />
                                   </Tooltip>
                               </div>
                           ),
@@ -325,7 +325,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                      <IconInfo className="text-secondary ml-1 shrink-0 text-xl" />
                                   </Tooltip>
                               </div>
                           ),
@@ -420,12 +420,12 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     className="EditorFiltersWrapper"
                 >
                     <div
-                        className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                            'p-4 rounded border': !embedded,
+                        className={clsx('bg-surface-primary flex flex-row flex-wrap gap-8', {
+                            'rounded border p-4': !embedded,
                         })}
                     >
                         {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                            <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                            <div key={title} className="flex max-w-full flex-1 flex-col gap-4">
                                 {editorFilterGroups.map((editorFilterGroup) => (
                                     <EditorFilterGroup
                                         key={editorFilterGroup.title}

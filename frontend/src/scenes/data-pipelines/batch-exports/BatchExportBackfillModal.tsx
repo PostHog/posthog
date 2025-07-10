@@ -123,10 +123,10 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                             <LemonCheckbox
                                 bordered
                                 label={
-                                    <span className="flex gap-2 items-center">
+                                    <span className="flex items-center gap-2">
                                         Backfill since beginning of time
                                         <Tooltip title="If selected, we will backfill all data since the beginning of time until the end date set below. There is no need to set a start date for the backfill.">
-                                            <IconInfo className="text-lg text-secondary" />
+                                            <IconInfo className="text-secondary text-lg" />
                                         </Tooltip>
                                     </span>
                                 }

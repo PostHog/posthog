@@ -16,7 +16,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
     const { countedUsers, countedUsersLoading } = useValues(replayActiveUsersTableLogic({ scene: 'templates' }))
 
     return (
-        <div className="flex flex-col border rounded bg-surface-primary w-full px-4 py-2">
+        <div className="bg-surface-primary flex w-full flex-col rounded border px-4 py-2">
             <LemonTable
                 embedded={true}
                 columns={[
@@ -24,7 +24,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
                         title: (
                             <>
                                 <Tooltip title="Click a row to see recordings.">
-                                    <div className="flex flex-row gap-2 items-center cursor-pointer">
+                                    <div className="flex cursor-pointer flex-row items-center gap-2">
                                         <IconInfo className="text-xl" /> Last 7 days most active users
                                     </div>
                                 </Tooltip>

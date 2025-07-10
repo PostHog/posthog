@@ -54,20 +54,20 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
     }
 
     return (
-        <div className="bg-primary p-4 mt-10 rounded-lg">
-            <div className="flex flex-row gap-2 items-center mb-2">
+        <div className="bg-primary mt-10 rounded-lg p-4">
+            <div className="mb-2 flex flex-row items-center gap-2">
                 <h3 className="m-0">Current status: </h3>
                 <AlertStateIndicator alert={alert} />
                 <h3 className="m-0">
                     {alert.snoozed_until && ` until ${formatDate(dayjs(alert?.snoozed_until), 'MMM D, HH:mm')}`}
                 </h3>
             </div>
-            <table className="w-full table-auto border-spacing-2 border-collapse">
+            <table className="w-full table-auto border-collapse border-spacing-2">
                 <thead>
                     <tr className="text-left">
                         <th>Status</th>
                         <th className="text-right">Time</th>
-                        <th className="text-right pr-4">Value</th>
+                        <th className="pr-4 text-right">Value</th>
                         <th>Targets notified</th>
                     </tr>
                 </thead>
@@ -78,7 +78,7 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
                             <td className="text-right">
                                 <TZLabel time={check.created_at} />
                             </td>
-                            <td className="text-right pr-4">{check.calculated_value}</td>
+                            <td className="pr-4 text-right">{check.calculated_value}</td>
                             <td>{check.targets_notified ? 'Yes' : 'No'}</td>
                         </tr>
                     ))}
@@ -169,7 +169,7 @@ export function EditAlertModal({
                     <LemonModal.Content>
                         <div className="deprecated-space-y-8">
                             <div className="deprecated-space-y-4">
-                                <div className="flex gap-4 items-center">
+                                <div className="flex items-center gap-4">
                                     <LemonField className="flex-auto" name="name">
                                         <LemonInput placeholder="Alert name" data-attr="alertForm-name" />
                                     </LemonField>
@@ -200,7 +200,7 @@ export function EditAlertModal({
                                             values breaches the threshold.
                                         </LemonBanner>
                                     )}
-                                    <div className="flex gap-4 items-center">
+                                    <div className="flex items-center gap-4">
                                         <div>When</div>
                                         <Group name={['config']}>
                                             <LemonField name="series_index" className="flex-auto">
@@ -264,7 +264,7 @@ export function EditAlertModal({
                                             </LemonField>
                                         </Group>
                                     </div>
-                                    <div className="flex gap-4 items-center">
+                                    <div className="flex items-center gap-4">
                                         <div>less than</div>
                                         <LemonField name="lower">
                                             <LemonInput
@@ -348,7 +348,7 @@ export function EditAlertModal({
                                             </Group>
                                         )}
                                     </div>
-                                    <div className="flex gap-4 items-center">
+                                    <div className="flex items-center gap-4">
                                         <div>Run alert every</div>
                                         <LemonField name="calculation_interval">
                                             <LemonSelect
@@ -388,7 +388,7 @@ export function EditAlertModal({
 
                             <div>
                                 <h3>Notification</h3>
-                                <div className="flex gap-4 items-center mt-2">
+                                <div className="mt-2 flex items-center gap-4">
                                     <div>E-mail</div>
                                     <div className="flex-auto">
                                         <MemberSelectMultiple

@@ -25,12 +25,12 @@ const formatFreeTierLimit = (value: number): string => {
 const FreeTierItem = ({ limit }: { limit: FreeTierLimit }): JSX.Element => {
     const Icon = Icons[limit.icon as keyof typeof Icons]
     return (
-        <div className="flex flex-col items-center w-36">
-            <div className="flex gap-1 items-center">
-                <Icon className="w-6 h-6" color={limit.color} />
+        <div className="flex w-36 flex-col items-center">
+            <div className="flex items-center gap-1">
+                <Icon className="h-6 w-6" color={limit.color} />
             </div>
-            <strong className="text-[15px] text-center leading-none mt-2 mb-1">{limit.title}</strong>
-            <div className="text-sm text-center text-success dark:text-green-400">
+            <strong className="mb-1 mt-2 text-center text-[15px] leading-none">{limit.title}</strong>
+            <div className="text-success text-center text-sm dark:text-green-400">
                 {`${formatFreeTierLimit(limit.value)} ${limit.unit}${limit.value === 1 ? '' : 's'}`}
             </div>
         </div>
@@ -59,13 +59,13 @@ export const FreeTierLimits: React.FC = (): JSX.Element => {
 
     return (
         <div className="mt-12">
-            <h4 className="text-center text-base font-semibold text-gray-800 dark:text-gray-100 mb-4">
+            <h4 className="mb-4 text-center text-base font-semibold text-gray-800 dark:text-gray-100">
                 Monthly free tier applies to both plans
             </h4>
             <div className="flex justify-center">
                 <div className="flex flex-wrap justify-center">
                     {freeTierLimits.map((limit) => (
-                        <div key={limit.title} className="w-full basis-1/3 py-2 flex justify-center items-center">
+                        <div key={limit.title} className="flex w-full basis-1/3 items-center justify-center py-2">
                             <FreeTierItem limit={limit} />
                         </div>
                     ))}

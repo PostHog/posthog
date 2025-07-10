@@ -41,7 +41,7 @@ export function CompactList({
             {title && (
                 <>
                     <div className="CompactList__header">
-                        <h3 className="px-2 truncate" title={typeof title === 'string' ? title : undefined}>
+                        <h3 className="truncate px-2" title={typeof title === 'string' ? title : undefined}>
                             {title}
                         </h3>
                         {viewAllURL && <LemonButton to={viewAllURL}>View all</LemonButton>}
@@ -52,9 +52,9 @@ export function CompactList({
                     </div>
                 </>
             )}
-            <div className={clsx('CompactList__content', contentHeightBehavior === 'shrink' && 'max-h-[16rem] h-auto')}>
+            <div className={clsx('CompactList__content', contentHeightBehavior === 'shrink' && 'h-auto max-h-[16rem]')}>
                 {loading ? (
-                    <div className="p-2 deprecated-space-y-6">
+                    <div className="deprecated-space-y-6 p-2">
                         {Array.from({ length: 6 }, (_, index) => (
                             <LemonSkeleton key={index} />
                         ))}

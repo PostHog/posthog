@@ -48,7 +48,7 @@ export function SelectableProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className={clsx('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
+            className={clsx('flex cursor-pointer justify-center', vertical ? 'flex-col' : 'items-center', className)}
             key={productKey}
             onClick={onClick}
             focused={selected}
@@ -66,13 +66,13 @@ export function SelectableProductCard({
                         }}
                         data-attr={`return-to-${productKey}`}
                     >
-                        <IconCheckCircle className="absolute top-0 right-0" color="green" />
+                        <IconCheckCircle className="absolute right-0 top-0" color="green" />
                     </div>
                 </Tooltip>
             )}
-            <div className="grid grid-rows-[repeat(2,_48px)] justify-items-center select-none">
+            <div className="grid select-none grid-rows-[repeat(2,_48px)] justify-items-center">
                 <div className="self-center">{getProductIcon(product.iconColor, product.icon, 'text-2xl')}</div>
-                <div className="font-bold text-center self-start text-md">{product.name}</div>
+                <div className="text-md self-start text-center font-bold">{product.name}</div>
             </div>
         </LemonCard>
     )
@@ -87,17 +87,17 @@ export function Products(): JSX.Element {
     const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full h-full p-4 items-center justify-center bg-primary">
+        <div className="bg-primary flex h-full w-full flex-1 flex-col items-center justify-center p-4">
             <>
-                <div className="flex flex-col justify-center flex-grow items-center">
+                <div className="flex flex-grow flex-col items-center justify-center">
                     <div className="mb-2">
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center">
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
                     </div>
-                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-[720px]">
-                        <div className="flex flex-wrap gap-4 items-center justify-center">
+                    <div className="flex w-full max-w-[720px] flex-col-reverse items-center justify-center gap-6 sm:flex-col md:gap-12">
+                        <div className="flex flex-wrap items-center justify-center gap-4">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
                                 <SelectableProductCard
                                     product={
@@ -118,7 +118,7 @@ export function Products(): JSX.Element {
 
                         <div
                             className={clsx(
-                                'flex flex-col-reverse sm:flex-row gap-4 items-center justify-center w-full',
+                                'flex w-full flex-col-reverse items-center justify-center gap-4 sm:flex-row',
                                 hasIngestedEvent && 'sm:justify-between sm:px-4'
                             )}
                         >
@@ -133,7 +133,7 @@ export function Products(): JSX.Element {
                                 </LemonButton>
                             )}
                             {selectedProducts.length > 1 ? (
-                                <div className="flex gap-2 items-center justify-center">
+                                <div className="flex items-center justify-center gap-2">
                                     <LemonLabel>Start first with</LemonLabel>
                                     <LemonSelect
                                         value={firstProductOnboarding}
@@ -175,7 +175,7 @@ export function Products(): JSX.Element {
                         </div>
                     </div>
                 </div>
-                <p className="text-center mt-8">
+                <p className="mt-8 text-center">
                     Need help from a team member? <Link onClick={() => showInviteModal()}>Invite them</Link>
                 </p>
             </>

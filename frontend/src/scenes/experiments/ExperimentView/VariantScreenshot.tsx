@@ -96,23 +96,23 @@ export function VariantScreenshot({
 
     return (
         <div className="deprecated-space-y-4">
-            <div className="flex gap-4 items-start">
+            <div className="flex items-start gap-4">
                 {mediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">
-                        <div className="text-secondary inline-flex flow-row items-center gap-1 cursor-pointer">
-                            <div onClick={() => setSelectedImageIndex(index)} className="cursor-zoom-in relative">
+                        <div className="text-secondary flow-row inline-flex cursor-pointer items-center gap-1">
+                            <div onClick={() => setSelectedImageIndex(index)} className="relative cursor-zoom-in">
                                 <div
-                                    className={`relative flex overflow-hidden select-none ${widthClass} h-16 rounded before:absolute before:inset-0 before:border before:rounded`}
+                                    className={`relative flex select-none overflow-hidden ${widthClass} h-16 rounded before:absolute before:inset-0 before:rounded before:border`}
                                 >
                                     {loadingImages[mediaId] && <LemonSkeleton className="absolute inset-0" />}
                                     <img
-                                        className="w-full h-full object-cover"
+                                        className="h-full w-full object-cover"
                                         src={mediaId.startsWith('data:') ? mediaId : `/uploaded_media/${mediaId}`}
                                         onError={() => handleImageError(mediaId)}
                                         onLoad={() => handleImageLoad(mediaId)}
                                     />
                                 </div>
-                                <div className="absolute -inset-2 group">
+                                <div className="group absolute -inset-2">
                                     <LemonButton
                                         icon={<IconX />}
                                         onClick={(e) => {
@@ -123,7 +123,7 @@ export function VariantScreenshot({
                                         tooltip="Remove"
                                         tooltipPlacement="right"
                                         noPadding
-                                        className="group-hover:flex hidden absolute right-0 top-0"
+                                        className="absolute right-0 top-0 hidden group-hover:flex"
                                     />
                                 </div>
                             </div>
@@ -140,8 +140,8 @@ export function VariantScreenshot({
                             loading={uploading}
                             value={filesToUpload}
                             callToAction={
-                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent">
-                                    <span className="text-2xl text-secondary">+</span>
+                                <div className="hover:border-accent flex h-16 w-full cursor-pointer items-center justify-center rounded border border-dashed">
+                                    <span className="text-secondary text-2xl">+</span>
                                 </div>
                             }
                         />
@@ -155,7 +155,7 @@ export function VariantScreenshot({
                 title={
                     <div className="flex items-center gap-2">
                         <span>Screenshot {selectedImageIndex !== null ? selectedImageIndex + 1 : ''}</span>
-                        <LemonDivider className="my-0 mx-1" vertical />
+                        <LemonDivider className="mx-1 my-0" vertical />
                         <VariantTag experimentId={experiment.id} variantKey={variantKey} />
                         {rolloutPercentage !== undefined && (
                             <span className="text-secondary text-sm">({rolloutPercentage}% rollout)</span>
@@ -171,7 +171,7 @@ export function VariantScreenshot({
                                 : `/uploaded_media/${mediaIds[selectedImageIndex]}`
                         }
                         alt={`Screenshot ${selectedImageIndex + 1}: ${variantKey}`}
-                        className="max-w-full max-h-[80vh] overflow-auto"
+                        className="max-h-[80vh] max-w-full overflow-auto"
                     />
                 )}
             </LemonModal>

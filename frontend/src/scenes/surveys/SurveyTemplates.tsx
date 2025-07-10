@@ -42,14 +42,14 @@ export function SurveyTemplates(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <div className="flex flex-row flex-wrap gap-8 mt-8">
+            <div className="mt-8 flex flex-row flex-wrap gap-8">
                 {templates.map((template, idx) => {
                     return (
                         <div className="flex flex-col items-center" key={idx}>
                             <span className="text-md">
                                 <b>{template.templateType}</b>
                             </span>
-                            <span className="flex flex-wrap text-xs text-secondary max-w-80 font-medium mb-3">
+                            <span className="text-secondary mb-3 flex max-w-80 flex-wrap text-xs font-medium">
                                 {template.description}
                             </span>
                             <div

@@ -25,11 +25,11 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
         <div
             onClick={setTab}
             className={clsx(
-                'flex-1 gap-2 border p-2 bg-surface-primary rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
+                'bg-surface-primary flex flex-1 cursor-pointer flex-col items-center justify-between gap-2 rounded border p-2 sm:items-start',
                 isActive && 'border-accent border-2'
             )}
         >
-            <div className="text-sm hidden sm:flex w-full flex-row justify-between">
+            <div className="hidden w-full flex-row justify-between text-sm sm:flex">
                 <span>
                     {label} ({metric})
                 </span>
@@ -48,12 +48,12 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
                     style={{ color }}
                     className="text-2xl"
                 >
-                    {parsedValue || <LemonSkeleton fade className="w-20 h-8" />}
+                    {parsedValue || <LemonSkeleton fade className="h-8 w-20" />}
                 </span>
-                <span className="text-xs ml-1 mb-1">{unit}</span>
+                <span className="mb-1 ml-1 text-xs">{unit}</span>
             </div>
 
-            <div className="w-full mt-2 hidden sm:block">
+            <div className="mt-2 hidden w-full sm:block">
                 <WebVitalsProgressBar value={value} metric={metric} />
             </div>
         </div>

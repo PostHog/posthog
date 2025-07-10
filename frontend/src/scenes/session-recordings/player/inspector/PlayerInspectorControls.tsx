@@ -69,7 +69,7 @@ function sideActionForType({
                                     tooltip={filter.tooltip}
                                     active={filter.enabled}
                                 >
-                                    <div className="flex flex-row w-full items-center justify-between">
+                                    <div className="flex w-full flex-row items-center justify-between">
                                         <span>{filter.name}&nbsp;</span>
                                         <span
                                             // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷

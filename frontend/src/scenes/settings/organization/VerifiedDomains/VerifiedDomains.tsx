@@ -89,7 +89,7 @@ function VerifiedDomainsTable(): JSX.Element {
                   {
                       key: 'is_verified',
                       title: (
-                          <div className="flex items-center deprecated-space-x-1">
+                          <div className="deprecated-space-x-1 flex items-center">
                               <span>Verification</span>
                               <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
                                   <IconInfo />
@@ -98,15 +98,15 @@ function VerifiedDomainsTable(): JSX.Element {
                       ),
                       render: function Verified(_, { is_verified, verified_at }) {
                           return is_verified ? (
-                              <div className="flex items-center text-success">
+                              <div className="text-success flex items-center">
                                   <IconCheckCircle style={iconStyle} /> Verified
                               </div>
                           ) : verified_at ? (
-                              <div className="flex items-center text-danger">
+                              <div className="text-danger flex items-center">
                                   <IconExclamation style={iconStyle} /> Verification expired
                               </div>
                           ) : (
-                              <div className="flex items-center text-warning">
+                              <div className="text-warning flex items-center">
                                   <IconWarning style={iconStyle} /> Pending verification
                               </div>
                           )
@@ -117,7 +117,7 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'jit_provisioning_enabled',
             title: (
-                <div className="flex items-center deprecated-space-x-1">
+                <div className="deprecated-space-x-1 flex items-center">
                     <span>Automatic provisioning</span>
                     <Tooltip
                         title={`Enables just-in-time provisioning. If a user logs in with SSO with an email address on this domain an account will be created in ${
@@ -149,7 +149,7 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'sso_enforcement',
             title: (
-                <div className="flex items-center deprecated-space-x-1">
+                <div className="deprecated-space-x-1 flex items-center">
                     <span>Enforce SSO</span>
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
                         <IconInfo />
@@ -196,11 +196,11 @@ function VerifiedDomainsTable(): JSX.Element {
                 return is_verified ? (
                     <>
                         {has_saml ? (
-                            <div className="flex items-center text-success">
+                            <div className="text-success flex items-center">
                                 <IconCheckCircle style={iconStyle} /> SAML enabled
                             </div>
                         ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
-                            <div className="flex items-center text-warning">
+                            <div className="text-warning flex items-center">
                                 <IconWarning style={iconStyle} /> SAML partially configured
                             </div>
                         ) : (

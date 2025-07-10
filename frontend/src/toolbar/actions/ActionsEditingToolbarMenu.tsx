@@ -46,10 +46,10 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                 logic={actionsTabLogic}
                 formKey="actionForm"
                 enableFormOnSubmit
-                className="flex flex-col overflow-hidden flex-1"
+                className="flex flex-1 flex-col overflow-hidden"
             >
                 <ToolbarMenu.Header className="border-b">
-                    <h1 className="p-1 font-bold text-sm mb-0">
+                    <h1 className="mb-0 p-1 text-sm font-bold">
                         {selectedActionId === 'new' ? 'New ' : 'Edit '}
                         action
                     </h1>
@@ -70,7 +70,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                         {actionForm.steps?.map((step, index) => (
                             <Group key={index} name={['steps', index]}>
                                 <LemonDivider />
-                                <div key={index} className="p-1 flex flex-col gap-2">
+                                <div key={index} className="flex flex-col gap-2 p-1">
                                     <div className="flex flex-row justify-between">
                                         <h3>
                                             {index > 0 ? 'OR ' : null}Element #{index + 1}
@@ -113,7 +113,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                 label="Selector"
                                                 caption="CSS selector that uniquely identifies your element"
                                             />
-                                            <div className="flex flex-row justify-end mb-2">
+                                            <div className="mb-2 flex flex-row justify-end">
                                                 <LemonButton
                                                     size="small"
                                                     type="secondary"
@@ -165,7 +165,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                     ) : null}
 
                                     {index === (actionForm.steps?.length || 0) - 1 ? (
-                                        <div className="text-right mt-4">
+                                        <div className="mt-4 text-right">
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"

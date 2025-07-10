@@ -44,7 +44,7 @@ export function RevenueAnalyticsRevenueNode(props: {
     const { response, responseLoading, queryId } = useValues(logic)
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                 <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
                     <MRRTile
@@ -95,7 +95,7 @@ const GrossRevenueTile = ({
             title={GROSS_REVENUE_TITLE}
             tooltip={GROSS_REVENUE_TOOLTIP}
             extra={
-                <div className="flex items-center gap-1 text-muted-alt">
+                <div className="text-muted-alt flex items-center gap-1">
                     <LemonSegmentedButton
                         value={insightsDisplayMode}
                         onChange={setInsightsDisplayMode}

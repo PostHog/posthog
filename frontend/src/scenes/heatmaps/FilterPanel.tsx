@@ -66,7 +66,7 @@ export function FilterPanel({
     return (
         <div
             className={clsx(
-                'flex flex-col gap-y-2 px-2 py-1 border-r border-t bg-surface-primary mt-2 relative',
+                'bg-surface-primary relative mt-2 flex flex-col gap-y-2 border-r border-t px-2 py-1',
                 !filterPanelCollapsed && 'w-100'
             )}
         >
@@ -94,7 +94,7 @@ export function FilterPanel({
                                 onClick={() => toggleFilterPanelCollapsed?.()}
                             />
                         </Tooltip>
-                        <h2 className="flex-1 mb-0 px-2">Heatmap settings</h2>
+                        <h2 className="mb-0 flex-1 px-2">Heatmap settings</h2>
                     </div>
                     {isEmpty ? (
                         <LemonBanner type="info">

@@ -74,8 +74,8 @@ export function PlayerSidebar(): JSX.Element {
             />
             {sidebarOpen && (
                 <>
-                    <div className="flex bg-surface-primary pt-[1px]">
-                        <div className="w-2.5 border-b shrink-0" />
+                    <div className="bg-surface-primary flex pt-[1px]">
+                        <div className="w-2.5 shrink-0 border-b" />
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tabId) => setTab(tabId)}
@@ -96,8 +96,8 @@ export function PlayerSidebar(): JSX.Element {
                             size="small"
                             className="overflow-x-auto"
                         />
-                        <div className="flex flex-1 border-b shrink-0" />
-                        <div className="flex gap-1 border-b end">
+                        <div className="flex flex-1 shrink-0 border-b" />
+                        <div className="end flex gap-1 border-b">
                             <LemonButton
                                 size="small"
                                 icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}

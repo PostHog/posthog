@@ -185,10 +185,10 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
     } = item
 
     return (
-        <div data-attr="item-performance-event" className="font-light w-full">
+        <div data-attr="item-performance-event" className="w-full font-light">
             <div className="flex-1 overflow-hidden">
                 <div
-                    className="absolute bg-accent rounded-xs opacity-75 h-1 bottom-0.5"
+                    className="bg-accent rounded-xs absolute bottom-0.5 h-1 opacity-75"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         left: `${(startTime / contextLengthMs) * 100}%`,
@@ -198,7 +198,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                 {item.entry_type === 'navigation' ? (
                     <NavigationItem item={item} expanded={false} navigationURL={shortEventName} />
                 ) : (
-                    <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
+                    <div className="flex cursor-pointer items-center gap-2 p-2 text-xs">
                         <MethodTag item={item} />
                         <PerformanceEventLabel name={item.name} expanded={false} />
                         {/* We only show the status if it exists and is an error status */}
@@ -282,7 +282,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
     )
 
     return (
-        <div className="p-2 text-xs border-t font-light w-full">
+        <div className="w-full border-t p-2 text-xs font-light">
             <>
                 <StatusRow item={item} />
                 <p>
@@ -427,7 +427,7 @@ export function HeadersDisplay({
     const emptyMessage = isInitial ? 'captured before PostHog was initialized' : 'No headers captured'
 
     return (
-        <div className="flex flex-col w-full">
+        <div className="flex w-full flex-col">
             {isHeadersCaptureEnabled ? (
                 <>
                     <div>
@@ -470,7 +470,7 @@ export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed
     }
 
     return (
-        <div className="flex gap-4 items-center justify-between overflow-hidden">
+        <div className="flex items-center justify-between gap-4 overflow-hidden">
             {detailed ? <div className="font-semibold">Status code</div> : null}
             <div>
                 <LemonTag type={statusType}>{statusDescription}</LemonTag>
@@ -485,9 +485,9 @@ export function MethodTag({ item, label }: { item: PerformanceEvent; label?: boo
         return null
     }
     return (
-        <div className="flex gap-4 items-center justify-between overflow-hidden">
+        <div className="flex items-center justify-between gap-4 overflow-hidden">
             {label ? <div className="font-semibold">Request method</div> : null}
-            <div className="uppercase font-semibold">{item.method}</div>
+            <div className="font-semibold uppercase">{item.method}</div>
         </div>
     )
 }
@@ -506,7 +506,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
 
     return methodRow || statusRow ? (
         <p>
-            <div className="text-xs deprecated-space-y-1 max-w-full">
+            <div className="deprecated-space-y-1 max-w-full text-xs">
                 {methodRow}
                 {statusRow}
             </div>

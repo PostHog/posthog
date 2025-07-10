@@ -34,7 +34,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 onPressCmdEnter={sendComposedContent}
                 ref={setComposerRef}
             />
-            <div className="flex justify-between items-center gap-2">
+            <div className="flex items-center justify-between gap-2">
                 <div className="flex-1" />
                 {replyingCommentId ? (
                     <LemonButton type="secondary" onClick={() => setReplyingComment(null)}>

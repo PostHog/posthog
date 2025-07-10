@@ -42,7 +42,7 @@ export function TextCardInternal(
     return (
         <div
             className={clsx(
-                'TextCard bg-surface-primary border rounded flex flex-col',
+                'TextCard bg-surface-primary flex flex-col rounded border',
                 className,
                 showResizeHandles && 'border'
             )}

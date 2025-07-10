@@ -160,7 +160,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 border rounded p-4 bg-surface-primary">
+                <div className="bg-surface-primary mb-4 rounded border p-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -187,7 +187,7 @@ export function FeatureFlagReleaseConditions({
                         {!readOnly && (
                             <div className="flex">
                                 {filterGroups.length > 1 && (
-                                    <div className="flex mr-2">
+                                    <div className="mr-2 flex">
                                         <LemonButton
                                             icon={<IconArrowDown />}
                                             noPadding
@@ -234,7 +234,7 @@ export function FeatureFlagReleaseConditions({
                     </div>
                     <LemonDivider className="my-3" />
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
-                        <LemonBanner type="info" className="mt-3 mb-3">
+                        <LemonBanner type="info" className="mb-3 mt-3">
                             These properties aren't immediately available on first page load for unidentified persons.
                             This feature flag requires that at least one event is sent prior to becoming available to
                             your product or website.{' '}
@@ -295,7 +295,7 @@ export function FeatureFlagReleaseConditions({
                                               return message.value ? (
                                                   <div
                                                       key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
+                                                      className="text-danger Field--error flex items-center gap-1 text-sm"
                                                   >
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>
@@ -325,7 +325,7 @@ export function FeatureFlagReleaseConditions({
                                     : 'none'
                             }
                         >
-                            <div className="text-sm ">
+                            <div className="text-sm">
                                 Rolled out to{' '}
                                 {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
                                 <b>%</b>
@@ -351,7 +351,7 @@ export function FeatureFlagReleaseConditions({
                                     <LemonInput
                                         data-attr="rollout-percentage"
                                         type="number"
-                                        className="ml-2 mr-1.5 max-w-30"
+                                        className="max-w-30 ml-2 mr-1.5"
                                         onChange={(value): void => {
                                             updateConditionSet(index, value === undefined ? 0 : value)
                                         }}
@@ -364,7 +364,7 @@ export function FeatureFlagReleaseConditions({
                                 </LemonField.Pure>{' '}
                                 <div
                                     className={clsx(
-                                        propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
+                                        propertySelectErrors?.[index]?.rollout_percentage ? 'h-0 basis-full' : ''
                                     )}
                                 />
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
@@ -450,7 +450,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 rounded p-4 bg-surface-primary">
+                <div className="bg-surface-primary mb-4 rounded p-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
@@ -541,7 +541,7 @@ export function FeatureFlagReleaseConditions({
                             (group) =>
                                 filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
                         ) && (
-                            <LemonBanner type="info" className="mt-3 mb-3">
+                            <LemonBanner type="info" className="mb-3 mt-3">
                                 Multiple variant overrides detected. We use the variant override for the first condition
                                 set that matches.
                             </LemonBanner>

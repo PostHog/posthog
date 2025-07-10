@@ -124,10 +124,10 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                     formKey="configuration"
                     className="deprecated-space-y-3"
                 >
-                    <div className="flex flex-wrap gap-4 items-start">
-                        <div className="flex flex-col flex-1 min-w-100 deprecated-space-y-3">
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
-                                <div className="flex flex-row gap-2 items-center min-h-16">
+                    <div className="flex flex-wrap items-start gap-4">
+                        <div className="min-w-100 deprecated-space-y-3 flex flex-1 flex-col">
+                            <div className="bg-surface-primary deprecated-space-y-2 rounded border p-3">
+                                <div className="flex min-h-16 flex-row items-center gap-2">
                                     {configuration.destination ? (
                                         <>
                                             <RenderBatchExportIcon size="medium" type={configuration.destination} />
@@ -162,7 +162,7 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                                     <LemonInput type="text" />
                                 </LemonField>
 
-                                <div className="flex gap-2 min-h-16">
+                                <div className="flex min-h-16 gap-2">
                                     <LemonField
                                         name="interval"
                                         label="Interval"
@@ -188,8 +188,8 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                                     </LemonField>
                                 </div>
                             </div>
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
-                                <div className="flex gap-2 min-h-16">
+                            <div className="bg-surface-primary deprecated-space-y-2 rounded border p-3">
+                                <div className="flex min-h-16 gap-2">
                                     <LemonField
                                         name="model"
                                         label="Model"
@@ -233,11 +233,11 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                                 </div>
                                 {selectedModel === 'events' ? (
                                     <>
-                                        <div className="flex flex-col gap-2 min-h-16">
-                                            <div className="flex gap-2 justify-between w-full">
+                                        <div className="flex min-h-16 flex-col gap-2">
+                                            <div className="flex w-full justify-between gap-2">
                                                 <LemonLabel>Include events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-secondary">
+                                            <p className="text-secondary mb-0 text-xs">
                                                 If set, the batch export will <b>only</b> export events matching any of
                                                 the below. If left unset, all events will be exported.
                                             </p>
@@ -263,11 +263,11 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                                                 }
                                             />
                                         </div>
-                                        <div className="flex flex-col gap-2 min-h-16">
-                                            <div className="flex gap-2 justify-between w-full">
+                                        <div className="flex min-h-16 flex-col gap-2">
+                                            <div className="flex w-full justify-between gap-2">
                                                 <LemonLabel>Exclude events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-secondary">
+                                            <p className="text-secondary mb-0 text-xs">
                                                 If set, the batch export will <b>exclude</b> events matching any of the
                                                 below. If left unset, no events will be excluded from the export.
                                             </p>
@@ -293,7 +293,7 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                                                 }
                                             />
                                         </div>
-                                        <div className="flex gap-2 min-h-16">
+                                        <div className="flex min-h-16 gap-2">
                                             <LemonField name="filters" label="Filters" className="flex flex-1">
                                                 <PropertyFilters
                                                     propertyFilters={
@@ -321,15 +321,15 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                             </div>
                         </div>
 
-                        <div className="gap-4 flex-2 deprecated-space-y-4 min-w-100">
-                            <div className="p-3 rounded border bg-surface-primary">
+                        <div className="flex-2 deprecated-space-y-4 min-w-100 gap-4">
+                            <div className="bg-surface-primary rounded border p-3">
                                 <BatchExportConfigurationFields
                                     isNew={isNew}
                                     formValues={configuration as BatchExportConfigurationForm}
                                 />
                             </div>
                             {batchExportConfigTest && (
-                                <div className="p-3 rounded border bg-surface-primary">
+                                <div className="bg-surface-primary rounded border p-3">
                                     <BatchExportConfigurationTests
                                         batchExportConfigTest={batchExportConfigTest}
                                         batchExportConfigTestLoading={batchExportConfigTestLoading}
@@ -341,7 +341,7 @@ export function BatchExportConfiguration({ service, id }: { service?: string; id
                             )}
                         </div>
                     </div>
-                    <div className="flex gap-2 justify-end">{buttons}</div>
+                    <div className="flex justify-end gap-2">{buttons}</div>
                 </Form>
             </>
         </div>
@@ -378,7 +378,7 @@ export function BatchExportConfigurationTests({
 }): JSX.Element | null {
     if (!batchExportConfigTest && batchExportConfigTestLoading) {
         return (
-            <div className="flex justify-center items-center p-4">
+            <div className="flex items-center justify-center p-4">
                 <Spinner />
             </div>
         )
@@ -394,16 +394,16 @@ export function BatchExportConfigurationTests({
         }
 
         return step.result.status === 'Passed' ? (
-            <IconCheckCircle className="text-green-500 shrink-0" />
+            <IconCheckCircle className="shrink-0 text-green-500" />
         ) : (
-            <IconX className="text-red-500 shrink-0" />
+            <IconX className="shrink-0 text-red-500" />
         )
     }
 
     const header = (
         <div className="space-y-2">
-            <h2 className="flex gap-2 items-center m-0 text-lg font-semibold">Test configuration</h2>
-            <p className="text-xs text-secondary">
+            <h2 className="m-0 flex items-center gap-2 text-lg font-semibold">Test configuration</h2>
+            <p className="text-secondary text-xs">
                 Test the batch export's configuration to uncover errors before saving it
             </p>
         </div>
@@ -423,7 +423,7 @@ export function BatchExportConfigurationTests({
 
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
                 {header}
                 <LemonButton
                     onClick={() => runBatchExportConfigTestStep(0)}
@@ -444,7 +444,7 @@ export function BatchExportConfigurationTests({
 
                     return (
                         <div key={`${step.name}-${index}`}>
-                            <div className="flex gap-2 items-start">
+                            <div className="flex items-start gap-2">
                                 <div className="mt-1">{renderStatusIcon(step, index)}</div>
                                 <div className="flex-1">
                                     <LemonLabel info={step.description} className="mb-2">

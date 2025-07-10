@@ -304,7 +304,7 @@ export const TimingBar = ({
                         <span>{label}</span>
                     </Tooltip>
                 </div>
-                <div className="flex-1 grow relative">
+                <div className="relative flex-1 grow">
                     <div
                         className="relative h-full"
                         /* eslint-disable-next-line react/forbid-dom-props */

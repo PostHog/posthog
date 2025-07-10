@@ -78,7 +78,7 @@ export function CyclotronJobInputIntegrationField({
         requiresFieldValue = requiresField?.value
         if (!requiresFieldValue) {
             return (
-                <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
+                <div className="text-secondary h-10 rounded border border-dashed p-2 italic">
                     Configure {requiresFieldSchema.label} to continue
                 </div>
             )
@@ -86,7 +86,7 @@ export function CyclotronJobInputIntegrationField({
     }
     if (!integration) {
         return (
-            <div className="p-2 h-10 italic rounded border border-dashed text-secondary">
+            <div className="text-secondary h-10 rounded border border-dashed p-2 italic">
                 Configure {relatedSchemaIntegration.label} to continue
             </div>
         )

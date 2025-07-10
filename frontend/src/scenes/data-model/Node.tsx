@@ -10,7 +10,7 @@ function GenericNode({ pref, className = '', children }: NodeProps): JSX.Element
     return (
         <div
             ref={pref}
-            className={`flex w-[200px] px-4 py-3 justify-center items-center space-between gap-1 bg-primary border border-black border-2 rounded-lg ${className}`}
+            className={`space-between bg-primary flex w-[200px] items-center justify-center gap-1 rounded-lg border border-2 border-black px-4 py-3 ${className}`}
         >
             {children}
         </div>

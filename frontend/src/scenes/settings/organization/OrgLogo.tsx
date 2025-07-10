@@ -47,7 +47,7 @@ export function OrganizationLogo(): JSX.Element {
                                 size="xlarge"
                             />
                             {logoMediaId && (
-                                <div className="absolute -inset-2 group">
+                                <div className="group absolute -inset-2">
                                     <LemonButton
                                         icon={<IconX />}
                                         onClick={(e) => {
@@ -58,12 +58,12 @@ export function OrganizationLogo(): JSX.Element {
                                         tooltip="Reset back to lettermark"
                                         tooltipPlacement="right"
                                         noPadding
-                                        className="group-hover:flex hidden absolute right-0 top-0"
+                                        className="absolute right-0 top-0 hidden group-hover:flex"
                                     />
                                 </div>
                             )}
                         </div>
-                        <IconUploadFile className="text-2xl ml-1" />
+                        <IconUploadFile className="ml-1 text-2xl" />
                         <div>
                             Click or drag and drop to upload logo image
                             <br />

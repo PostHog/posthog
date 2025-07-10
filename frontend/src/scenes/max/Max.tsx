@@ -61,21 +61,21 @@ export function Max(): JSX.Element {
 
     if (isFloatingMaxExpanded || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
         return (
-            <div className="flex flex-col items-center justify-center w-full grow">
+            <div className="flex w-full grow flex-col items-center justify-center">
                 {isFloatingMaxExpanded ? (
                     <IconCornerDownRight
                         className={clsx(
-                            'text-3xl text-muted mb-2',
+                            'text-muted mb-2 text-3xl',
                             floatingMaxPosition?.side === 'left' && '-scale-x-100'
                         )}
                     />
                 ) : (
-                    <IconSidePanel className="text-3xl text-muted mb-2" />
+                    <IconSidePanel className="text-muted mb-2 text-3xl" />
                 )}
-                <h3 className="text-xl font-bold mb-1">
+                <h3 className="mb-1 text-xl font-bold">
                     Max is currently {isFloatingMaxExpanded ? 'floating' : 'in the sidebar'}
                 </h3>
-                <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
+                <p className="text-muted mb-2 text-sm">You can navigate freely around the app, or…</p>
                 <LemonButton
                     type="secondary"
                     size="xsmall"
@@ -162,7 +162,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     }}
                 >
                     <div className="flex flex-1">
-                        <div className="flex items-center flex-1">
+                        <div className="flex flex-1 items-center">
                             <AnimatedBackButton in={!backButtonDisabled}>
                                 <LemonButton
                                     size="small"
@@ -175,7 +175,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                             </AnimatedBackButton>
                             {chatTitle ? (
                                 <h3
-                                    className="flex items-center font-semibold mb-0 line-clamp-1 text-sm ml-1"
+                                    className="mb-0 ml-1 line-clamp-1 flex items-center text-sm font-semibold"
                                     title={chatTitle !== 'Max AI' ? chatTitle : undefined}
                                 >
                                     {chatTitle !== 'Max AI' ? (
@@ -190,7 +190,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                     )}
                                 </h3>
                             ) : (
-                                <LemonSkeleton className="h-5 w-48 ml-1" />
+                                <LemonSkeleton className="ml-1 h-5 w-48" />
                             )}
                         </div>
                         {!conversationHistoryVisible && !threadVisible && (
@@ -232,7 +232,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
-                    <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
+                    <div className="@container/max-welcome relative flex grow flex-col gap-4 px-4 pb-7">
                         {wasUserAutoEnrolled && (
                             <LemonBanner
                                 type="info"
@@ -254,7 +254,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 !
                             </LemonBanner>
                         )}
-                        <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <div className="flex flex-1 flex-col items-center justify-center gap-3">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
                         </div>

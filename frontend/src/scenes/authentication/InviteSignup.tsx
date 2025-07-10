@@ -40,7 +40,7 @@ interface ErrorMessage {
 
 function HelperLinks(): JSX.Element {
     return (
-        <div className="font-bold text-center">
+        <div className="text-center font-bold">
             <Link to="/">App Home</Link>
             <span className="mx-2">|</span>
             <Link to={`https://posthog.com?${UTM_TAGS}&utm_message=invalid-invite`}>PostHog Website</Link>
@@ -144,7 +144,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                 </div>
                 {user && (
                     <div
-                        className="border rounded-lg border-dashed flex items-center gap-2 px-2 py-1"
+                        className="flex items-center gap-2 rounded-lg border border-dashed px-2 py-1"
                         data-attr="top-navigation-whoami"
                     >
                         <ProfilePicture user={user} />
@@ -217,10 +217,10 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </>
             }
             leftContainerContent={
-                <div className="mb-8 text-secondary">
-                    <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
+                <div className="text-secondary mb-8">
+                    <div className="flex flex-col items-center gap-2 text-center text-lg font-semibold">
                         <span>You've been invited to join</span>
-                        <span className="text-4xl font-bold border-b border-dashed pb-2">
+                        <span className="border-b border-dashed pb-2 text-4xl font-bold">
                             {invite?.organization_name || 'us'}
                         </span>
                         <span>on PostHog</span>
@@ -308,10 +308,10 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     />
                 )}
             </Form>
-            <div className="mt-4 text-center text-secondary">
+            <div className="text-secondary mt-4 text-center">
                 Already have an account? <Link to="/login">Log in</Link>
             </div>
-            <div className="mt-4 text-center text-secondary">
+            <div className="text-secondary mt-4 text-center">
                 By clicking continue you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service

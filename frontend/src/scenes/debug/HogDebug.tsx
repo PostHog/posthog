@@ -45,13 +45,13 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
         <div className="deprecated-space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={clsx('flex flex-col rounded deprecated-space-y-2 w-full p-2 border')}
+                className={clsx('deprecated-space-y-2 flex w-full flex-col rounded border p-2')}
             >
                 <div className="relative flex-1 overflow-hidden">
-                    <div className="resize-y overflow-hidden h-[222px]">
+                    <div className="h-[222px] resize-y overflow-hidden">
                         <CodeEditor
                             queryKey={props.queryKey ?? `new/${realKey}`}
-                            className="border rounded overflow-hidden h-full"
+                            className="h-full overflow-hidden rounded border"
                             language="hog"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}

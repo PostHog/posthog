@@ -64,17 +64,17 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
     return (
         <div
-            className="bg-surface-secondary rounded p-6 flex flex-col"
+            className="bg-surface-secondary flex flex-col rounded p-6"
             ref={productRef}
             data-attr={`billing-product-addon-${addon.type}`}
         >
-            <div className="sm:flex justify-between gap-x-4">
+            <div className="justify-between gap-x-4 sm:flex">
                 {/* Header */}
                 <div className="flex gap-x-4">
                     <div>{getProductIcon(addon.name, addon.icon_key, 'text-2xl shrink-0')}</div>
                     <div>
-                        <div className="flex gap-x-2 items-center mt-0 mb-2 ">
-                            <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
+                        <div className="mb-2 mt-0 flex items-center gap-x-2">
+                            <h4 className="mb-1 font-bold leading-5">{addon.name}</h4>
                             {addon.inclusion_only ? (
                                 <div className="flex gap-x-2">
                                     <Tooltip
@@ -104,9 +104,9 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 </div>
                             )}
                         </div>
-                        <p className="ml-0 mb-0">{addon.description} </p>
+                        <p className="mb-0 ml-0">{addon.description} </p>
                         {is_enhanced_persons_og_customer && (
-                            <p className="mt-2 mb-0">
+                            <p className="mb-0 mt-2">
                                 <Link
                                     to="https://posthog.com/changelog/2024#person-profiles-launched-posthog-now-up-to-80percent-cheaper"
                                     className="italic"
@@ -141,12 +141,12 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <div className="grow">
                                 <BillingGauge items={gaugeItems} product={addon} />
                             </div>
-                            <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
+                            <div className="flex shrink-0 flex-wrap items-end justify-end gap-8">
                                 <Tooltip
                                     title={`The current amount you have been billed for mobile recordings this ${billing?.billing_period?.interval}.`}
                                 >
                                     <div className="flex flex-col items-center">
-                                        <div className="font-bold text-3xl leading-7">
+                                        <div className="text-3xl font-bold leading-7">
                                             {humanFriendlyCurrency(
                                                 parseFloat(addon.current_amount_usd || '0') *
                                                     (1 -
@@ -155,7 +155,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                                             : 0))
                                             )}
                                         </div>
-                                        <span className="text-xs text-muted">
+                                        <span className="text-muted text-xs">
                                             {capitalizeFirstLetter(billing?.billing_period?.interval || '')}
                                             -to-date
                                         </span>
@@ -168,7 +168,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     </>
                 )}
 
-                <p className="ml-0 mb-0 mt-2">
+                <p className="mb-0 ml-0 mt-2">
                     {addon.docs_url && (
                         <>
                             <Link to={addon.docs_url}>Read the docs</Link> for more information.

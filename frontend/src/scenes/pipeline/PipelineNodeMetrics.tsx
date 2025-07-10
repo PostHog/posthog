@@ -70,14 +70,14 @@ export function PipelineNodeMetrics({ id }: PipelineNodeMetricsProps): JSX.Eleme
 
 function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX.Element {
     if (metricsLoading) {
-        return <LemonSkeleton className="w-20 h-4 mb-2" repeat={4} />
+        return <LemonSkeleton className="mb-2 h-4 w-20" repeat={4} />
     }
 
     return (
         <div className="deprecated-space-y-4">
-            <div className="flex items-start gap-8 flex-wrap">
+            <div className="flex flex-wrap items-start gap-8">
                 <div>
-                    <div className="text-secondary font-semibold mb-2">
+                    <div className="text-secondary mb-2 font-semibold">
                         Events Processed successfully
                         <Tooltip title="Total number of events processed successfully">
                             <IconInfo />
@@ -86,7 +86,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
                 </div>
                 <div>
-                    <div className="text-secondary font-semibold mb-2">
+                    <div className="text-secondary mb-2 font-semibold">
                         Events Failed
                         <Tooltip title="Total number of events that threw an error during processing">
                             <IconInfo />
@@ -169,11 +169,11 @@ function AppMetricsGraph({ metrics, metricsLoading }: AppMetricsGraphProps): JSX
     }, [metrics])
 
     if (metricsLoading || !metrics) {
-        return <LemonSkeleton className="AppMetricsGraph border rounded p-6" />
+        return <LemonSkeleton className="AppMetricsGraph rounded border p-6" />
     }
 
     return (
-        <div className="AppMetricsGraph border rounded p-6">
+        <div className="AppMetricsGraph rounded border p-6">
             <canvas ref={canvasRef} />
         </div>
     )
@@ -278,7 +278,7 @@ function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
             width="min(50vw, 80rem)"
             description={<span>{activeErrorDetails?.error_details?.error.message?.substring(0, 200)}</span>}
             footer={
-                <div className="flex items-center justify-end gap-1 h-">
+                <div className="h- flex items-center justify-end gap-1">
                     {errorDetailsLoading ? (
                         <LemonSkeleton className="h-10" />
                     ) : (
@@ -304,7 +304,7 @@ function ErrorDetailsModal({ id }: { id: number | string }): JSX.Element {
             {!errorDetailsModalError || errorDetailsLoading ? (
                 <LemonSkeleton className="h-10" />
             ) : (
-                <div className="flex flex-col deprecated-space-y-2 h-[80vh]">
+                <div className="deprecated-space-y-2 flex h-[80vh] flex-col">
                     <div>
                         <span className="font-semibold">When:</span>{' '}
                         <TZLabel time={activeErrorDetails.timestamp} showSeconds />
@@ -354,7 +354,7 @@ function CollapsibleSection(props: {
     const [isExpanded, setIsExpanded] = useState(props.defaultIsExpanded)
 
     return (
-        <div className="bg-primary border rounded">
+        <div className="bg-primary rounded border">
             <LemonButton
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}

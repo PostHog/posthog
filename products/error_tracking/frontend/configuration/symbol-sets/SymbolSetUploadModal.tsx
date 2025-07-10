@@ -26,7 +26,7 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                             accept="text/javascript"
                             multiple={false}
                             callToAction={
-                                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
+                                <div className="deprecated-space-y-2 flex w-full flex-col items-center justify-center rounded border border-dashed p-4">
                                     <span className="flex items-center gap-2 font-semibold">
                                         <IconUploadFile className="text-2xl" /> Add minified source
                                     </span>
@@ -42,7 +42,7 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                             accept="*"
                             multiple={false}
                             callToAction={
-                                <div className="flex flex-col items-center justify-center deprecated-space-y-2 border border-dashed rounded p-4 w-full">
+                                <div className="deprecated-space-y-2 flex w-full flex-col items-center justify-center rounded border border-dashed p-4">
                                     <span className="flex items-center gap-2 font-semibold">
                                         <IconUploadFile className="text-2xl" /> Add source map
                                     </span>

@@ -13,7 +13,7 @@ export function WelcomeLogo({ view }: { view?: string }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     return (
-        <Link to={`https://posthog.com?${UTM_TAGS}`} className="flex flex-col items-center mb-8">
+        <Link to={`https://posthog.com?${UTM_TAGS}`} className="mb-8 flex flex-col items-center">
             <img
                 src={preflight?.demo ? demoLogo : preflight?.cloud ? cloudLogo : defaultLogo}
                 alt={`PostHog${preflight?.cloud ? ' Cloud' : ''}`}

@@ -115,7 +115,7 @@ function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.El
 export function NPSBreakdownSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="font-semibold text-secondary">
+            <div className="text-secondary font-semibold">
                 <LemonSkeleton className="h-10 w-20" />
                 <Tooltip
                     placement="bottom"
@@ -133,8 +133,8 @@ export function NPSBreakdownSkeleton(): JSX.Element {
 function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="font-semibold text-secondary">
-                <div className="text-4xl font-bold text-primary">{npsBreakdown.score}</div>
+            <div className="text-secondary font-semibold">
+                <div className="text-primary text-4xl font-bold">{npsBreakdown.score}</div>
                 <Tooltip
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
@@ -161,8 +161,8 @@ function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: numbe
                         header: 'NPS Trend Over Time',
                         content: (
                             <div className="flex flex-col gap-2">
-                                <div className="flex gap-2 justify-between items-center">
-                                    <div className="flex gap-2 items-center">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
                                         <DateFilter
                                             dateFrom={dateRange?.date_from ?? undefined}
                                             dateTo={dateRange?.date_to ?? undefined}
@@ -317,8 +317,8 @@ function RatingScoreOverTime({
                         header: `Average Rating Trend Over Time`,
                         content: (
                             <div>
-                                <div className="flex justify-between items-center p-2">
-                                    <div className="flex gap-2 items-center">
+                                <div className="flex items-center justify-between p-2">
+                                    <div className="flex items-center gap-2">
                                         <DateFilter
                                             dateFrom={dateRange?.date_from ?? undefined}
                                             dateTo={dateRange?.date_to ?? undefined}
@@ -394,7 +394,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
     return (
         <>
             <div className="flex flex-col gap-1">
-                <div className="h-50 border rounded pt-8">
+                <div className="h-50 rounded border pt-8">
                     <div className="relative h-full w-full">
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <LineGraph

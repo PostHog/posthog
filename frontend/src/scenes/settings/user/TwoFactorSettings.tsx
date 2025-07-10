@@ -58,11 +58,11 @@ export function TwoFactorSettings(): JSX.Element {
                                     Save these backup codes in a secure location. Each code can only be used once to
                                     sign in if you lose access to your authentication device.
                                 </p>
-                                <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
+                                <div className="bg-primary deprecated-space-y-1 relative rounded p-4 font-mono">
                                     <LemonButton
                                         icon={<IconCopy />}
                                         size="small"
-                                        className="absolute top-4 right-4"
+                                        className="absolute right-4 top-4"
                                         onClick={() => {
                                             void copyToClipboard(status.backup_codes.join('\n') || '', 'backup codes')
                                         }}
@@ -75,7 +75,7 @@ export function TwoFactorSettings(): JSX.Element {
                                 </div>
                             </>
                         ) : (
-                            <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
+                            <div className="bg-primary deprecated-space-y-1 relative rounded p-4 font-mono">
                                 <p className="text-secondary mb-0">No backup codes generated</p>
                             </div>
                         )}
@@ -93,7 +93,7 @@ export function TwoFactorSettings(): JSX.Element {
 
             {user?.is_2fa_enabled ? (
                 <>
-                    <div className="mb-4 flex items-center deprecated-space-x-2">
+                    <div className="deprecated-space-x-2 mb-4 flex items-center">
                         <IconCheckCircle color="green" className="text-xl" />
                         <span className="font-medium">2FA enabled</span>
                     </div>
@@ -108,7 +108,7 @@ export function TwoFactorSettings(): JSX.Element {
                 </>
             ) : (
                 <div>
-                    <div className="mb-4 flex items-center deprecated-space-x-2">
+                    <div className="deprecated-space-x-2 mb-4 flex items-center">
                         <IconWarning color="orange" className="text-xl" />
                         <span className="font-medium">2FA is not enabled</span>
                     </div>

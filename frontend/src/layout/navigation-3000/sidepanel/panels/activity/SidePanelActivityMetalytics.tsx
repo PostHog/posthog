@@ -12,7 +12,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
 
     if (!instanceId) {
         return (
-            <p className="border-dashed ">
+            <p className="border-dashed">
                 You can see internal analytics of how your Organization members are using PostHog for things such as
                 Dashboards, Insights, Playlists etc. Open an app to see the viewership data here.
             </p>
@@ -22,7 +22,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
     const humanizedScope = `this ${scope ? humanizeScope(scope, true) : 'app'}`
 
     return (
-        <div className="deprecated-space-y-4 ">
+        <div className="deprecated-space-y-4">
             <p>
                 You are viewing "meta" analytics of how your organization members are interacting with{' '}
                 <b>{humanizedScope}</b>.
@@ -32,8 +32,8 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     title={`The total number of times ${humanizedScope} has been viewed by members of your organization.`}
                     placement="top"
                 >
-                    <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
-                        <div className="text-sm text-secondary">Views</div>
+                    <div className="bg-surface-primary min-w-40 flex-1 rounded border p-4">
+                        <div className="text-secondary text-sm">Views</div>
                         <div className="text-2xl font-semibold">
                             {viewCountLoading ? <Spinner /> : (viewCount?.views ?? 0)}
                         </div>
@@ -44,8 +44,8 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     title={`The total number of unique organization members who have viewed ${humanizedScope}.`}
                     placement="top"
                 >
-                    <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
-                        <div className="text-sm text-secondary">Viewers</div>
+                    <div className="bg-surface-primary min-w-40 flex-1 rounded border p-4">
+                        <div className="text-secondary text-sm">Viewers</div>
                         <div className="text-2xl font-semibold">
                             {viewCountLoading ? <Spinner /> : (viewCount?.users ?? 0)}
                         </div>
@@ -53,8 +53,8 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                 </Tooltip>
 
                 <Tooltip title={`The most recent 30 users who have viewed ${humanizedScope}.`} placement="top">
-                    <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
-                        <div className="text-sm text-secondary">Recent viewers (30 days)</div>
+                    <div className="bg-surface-primary min-w-40 flex-1 rounded border p-4">
+                        <div className="text-secondary text-sm">Recent viewers (30 days)</div>
                         {recentUsersLoading ? (
                             <Spinner />
                         ) : recentUserMembers.length > 0 ? (
@@ -68,7 +68,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                                 limit={3}
                             />
                         ) : (
-                            <div className="text-sm mt-2">No recent viewers</div>
+                            <div className="mt-2 text-sm">No recent viewers</div>
                         )}
                     </div>
                 </Tooltip>

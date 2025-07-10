@@ -101,7 +101,7 @@ const Component = ({
     }
 
     return (
-        <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+        <div className="flex h-full flex-1 flex-col" data-attr="notebook-node-query">
             <BindLogic logic={insightLogic} props={insightLogicProps}>
                 <Query
                     // use separate keys for the settings and visualization to avoid conflicts with insightProps
@@ -178,7 +178,7 @@ export const Settings = ({
     }
 
     return attributes.query.kind === NodeKind.SavedInsightNode ? (
-        <div className="p-3 deprecated-space-y-2">
+        <div className="deprecated-space-y-2 p-3">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
             <div>
                 Changes made to the original insight will be reflected in the notebook. Or you can detach from the

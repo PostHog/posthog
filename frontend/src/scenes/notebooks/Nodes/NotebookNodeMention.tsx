@@ -24,7 +24,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         <NodeViewWrapper as="span" className={clsx('NotebookMention', props.selected && 'NotebookMention--selected')}>
             <Tooltip
                 title={
-                    <div className="p-2 flex items-center gap-2">
+                    <div className="flex items-center gap-2 p-2">
                         <ProfilePicture user={member?.user} size="xl" />
                         <div>
                             <div className="font-bold">{member?.user.first_name}</div>

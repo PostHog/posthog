@@ -36,15 +36,15 @@ export function LemonSkeleton({ className, repeat, active = true, fade = false }
 }
 
 LemonSkeleton.Text = function LemonSkeletonText({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={cn('rounded h-6 w-full', className)} {...props} />
+    return <LemonSkeleton className={cn('h-6 w-full rounded', className)} {...props} />
 }
 
 LemonSkeleton.Row = function LemonSkeletonRow({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={cn('rounded h-10 w-full', className)} {...props} />
+    return <LemonSkeleton className={cn('h-10 w-full rounded', className)} {...props} />
 }
 
 LemonSkeleton.Circle = function LemonSkeletonCircle({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={cn('rounded-full shrink-0', className || 'h-10 w-10')} {...props} />
+    return <LemonSkeleton className={cn('shrink-0 rounded-full', className || 'h-10 w-10')} {...props} />
 }
 
 LemonSkeleton.Button = function LemonSkeletonButton({

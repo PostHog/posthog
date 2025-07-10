@@ -193,13 +193,13 @@ function CreateRecordForm(): JSX.Element {
     const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
-        <div className="bg-surface-primary rounded border px-5 py-4 deprecated-space-y-2">
+        <div className="bg-surface-primary deprecated-space-y-2 rounded border px-5 py-4">
             {formState == 'active' ? (
                 <Form
                     logic={proxyLogic}
                     formKey="createRecord"
                     enableFormOnSubmit
-                    className="w-full deprecated-space-y-2"
+                    className="deprecated-space-y-2 w-full"
                 >
                     <LemonField name="domain">
                         <LemonInput

@@ -92,7 +92,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
     const { resolutionDisplay, scaleDisplay, loading } = useValues(playerMetaLogic(logicProps))
 
     return loading ? (
-        <LemonSkeleton className="w-1/3 h-4" />
+        <LemonSkeleton className="h-4 w-1/3" />
     ) : (
         <Tooltip
             placement="bottom"
@@ -104,7 +104,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
+            <span className="text-secondary flex flex-row items-center gap-x-1 text-xs">
                 {size === 'normal' && <span>{resolutionDisplay}</span>}
                 <span>({scaleDisplay})</span>
             </span>
@@ -138,7 +138,7 @@ export function PlayerMeta(): JSX.Element {
         }
         return (
             <div className="PlayerMeta">
-                <div className="flex justify-between items-center m-2">
+                <div className="m-2 flex items-center justify-between">
                     {!whitelabel ? (
                         <Tooltip title="Powered by PostHog" placement="right">
                             <Link to="https://posthog.com" className="flex items-center" target="blank">
@@ -163,7 +163,7 @@ export function PlayerMeta(): JSX.Element {
         windowOptions.push({
             label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
-                <div className="flex flex-row gap-x-1 space-between items-center">
+                <div className="space-between flex flex-row items-center gap-x-1">
                     Follow window:&nbsp;
                     <IconWindow value={index + 1} className="text-secondary" />
                 </div>
@@ -180,9 +180,9 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div className="flex flex-row items-center justify-between gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
+                <div className="flex flex-row items-center justify-between gap-x-1 overflow-hidden whitespace-nowrap px-1 py-0.5 text-xs">
                     {loading ? (
-                        <LemonSkeleton className="w-1/3 h-4 my-1" />
+                        <LemonSkeleton className="my-1 h-4 w-1/3" />
                     ) : (
                         <>
                             <LemonSelect

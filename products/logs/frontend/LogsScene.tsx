@@ -70,7 +70,7 @@ export function LogsScene(): JSX.Element {
         .filter((series) => series.values.reduce((a, b) => a + b) > 0)
 
     return (
-        <div className="flex flex-col gap-y-2 h-screen">
+        <div className="flex h-screen flex-col gap-y-2">
             <Filters />
             <>
                 <div className={sparklineLoading ? 'sparkline-loading' : ''}>
@@ -217,8 +217,8 @@ const Filters = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-y-1.5">
-            <div className="flex justify-between gap-y-2 flex-wrap-reverse">
-                <div className="flex gap-x-1 gap-y-2 flex-wrap">
+            <div className="flex flex-wrap-reverse justify-between gap-y-2">
+                <div className="flex flex-wrap gap-x-1 gap-y-2">
                     <SeverityLevelsFilter />
                     <ServiceFilter />
                     <AttributesFilter />

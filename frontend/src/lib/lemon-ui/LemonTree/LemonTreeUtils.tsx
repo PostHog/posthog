@@ -35,7 +35,7 @@ export const TreeNodeDisplayCheckbox = ({
             <div className={ICON_CLASSES}>
                 <LemonCheckbox
                     className={cn(
-                        'size-5 ml-[2px] starting:opacity-0 starting:-translate-x-2 translate-x-0 opacity-100 motion-safe:transition-all [transition-behavior:allow-discrete] duration-100',
+                        'starting:opacity-0 starting:-translate-x-2 ml-[2px] size-5 translate-x-0 opacity-100 duration-100 [transition-behavior:allow-discrete] motion-safe:transition-all',
                         {
                             // Hide the checkbox if...
                             // - the item is disabled from being checked AND
@@ -110,7 +110,7 @@ export const TreeNodeDisplayIcon = ({
 
     return (
         <div
-            className={cn('h-[var(--lemon-tree-button-height)] flex gap-1 relative items-start ', {
+            className={cn('relative flex h-[var(--lemon-tree-button-height)] items-start gap-1', {
                 '-ml-px': size === 'default',
             })}
         >
@@ -118,10 +118,10 @@ export const TreeNodeDisplayIcon = ({
                 <div
                     className={cn(
                         ICON_CLASSES,
-                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150'
+                        'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/lemon-tree-button-group:opacity-100'
                     )}
                 >
-                    <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
+                    <IconChevronRight className={cn('size-4 transition-transform', isOpen ? 'rotate-90' : '')} />
                 </div>
             )}
             <div
@@ -131,7 +131,7 @@ export const TreeNodeDisplayIcon = ({
                         'text-tertiary': item.disabledReason,
                         'group-hover/lemon-tree-button-group:opacity-0': isFolder,
                     },
-                    'transition-opacity duration-150 top-[var(--lemon-tree-button-icon-offset-top)]'
+                    'top-[var(--lemon-tree-button-icon-offset-top)] transition-opacity duration-150'
                 )}
             >
                 {iconElement}
@@ -208,9 +208,9 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
         <div
             ref={setNodeRef}
             className={cn(
-                'flex flex-col transition-all duration-150 rounded relative z-2 ',
+                'z-2 relative flex flex-col rounded transition-all duration-150',
                 props.className,
-                props.isDroppable && isOver && 'ring-2 ring-inset ring-accent bg-accent-highlight-secondary',
+                props.isDroppable && isOver && 'ring-accent bg-accent-highlight-secondary ring-2 ring-inset',
                 // If the item is a root item and it's dragging, make it take up the full height
                 props.isRoot && props.isDragging && 'h-full'
             )}
@@ -269,7 +269,7 @@ export const InlineEditField = ({
         >
             {/* Spacer to offset button padding */}
             <div
-                className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                className="duration-50 pointer-events-none h-[var(--lemon-tree-button-height)] flex-shrink-0 bg-transparent transition-[width]"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={style}
             />

@@ -65,9 +65,9 @@ const ExpandableDataCell: QueryContextColumnComponent = ({ value }: { value: unk
             <div className="flex flex-col items-center justify-center">
                 <div className="flex flex-1">
                     {isExpanded ? (
-                        <ul className="flex-1 flex flex-col">
+                        <ul className="flex flex-1 flex-col">
                             {value.map((url) => (
-                                <li className="flex-1 mb-1 break-all" key={url}>
+                                <li className="mb-1 flex-1 break-all" key={url}>
                                     {url}
                                 </li>
                             ))}
@@ -196,8 +196,8 @@ export function SessionAttributionExplorer(): JSX.Element {
     return (
         <div>
             <LemonBanner type="info" className="my-4">
-                <div className="flex items-center flex-wrap gap-2 justify-between">
-                    <div className="flex-1 min-w-full sm:min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-full flex-1 sm:min-w-0">
                         <p>
                             You can use the Session attribution explorer (beta) to understand how your sessions are
                             attributed. We use the referring domain, <code>utm_source</code>, <code>utm_medium</code>,{' '}

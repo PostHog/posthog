@@ -104,10 +104,10 @@ export const OnboardingProductConfiguration = ({
                 {combinedList.map((item, idx) => (
                     <React.Fragment key={idx}>
                         <LemonDivider className="my-4" />
-                        <div className="grid gap-4 grid-cols-3">
+                        <div className="grid grid-cols-3 gap-4">
                             <div className="col-span-2">
                                 <label className="text-base font-semibold">{item.title}</label>
-                                <p className="prompt-text mt-2 mb-0 ">{item.description}</p>
+                                <p className="prompt-text mb-0 mt-2">{item.description}</p>
                             </div>
                             <div className="flex justify-end">
                                 {item.type === 'toggle' ? (
@@ -125,7 +125,7 @@ export const OnboardingProductConfiguration = ({
                                         checked={item.value || false}
                                     />
                                 ) : (
-                                    <div className="flex justify-end items-center mb-1 gap-x-4">
+                                    <div className="mb-1 flex items-center justify-end gap-x-4">
                                         <LemonSelect
                                             dropdownMatchSelectWidth={false}
                                             onChange={item.onChange}

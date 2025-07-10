@@ -51,7 +51,7 @@ const DropdownMenuItemIndicator = React.forwardRef<
             <DropdownMenuPrimitive.ItemIndicator ref={ref} className={cn(classes[intent], className)} {...props}>
                 {intent === 'checkbox' && <IconCheck />}
                 {intent === 'radio' && (
-                    <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 h-2 w-2 rounded-full bg-black dark:bg-white" />
+                    <div className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black dark:bg-white" />
                 )}
             </DropdownMenuPrimitive.ItemIndicator>
         </div>
@@ -201,7 +201,7 @@ const DropdownMenuSeparator = React.forwardRef<
     ({ className, ...props }, ref): JSX.Element => (
         <DropdownMenuPrimitive.Separator
             ref={ref}
-            className={cn('-mx-1 my-1 h-px bg-border-primary', className)}
+            className={cn('bg-border-primary -mx-1 my-1 h-px', className)}
             {...props}
         />
     )

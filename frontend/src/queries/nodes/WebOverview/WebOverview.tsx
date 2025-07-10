@@ -68,7 +68,7 @@ export function WebOverview(props: {
     return (
         <>
             <EvenlyDistributedRows
-                className="flex justify-center items-center flex-wrap w-full gap-2"
+                className="flex w-full flex-wrap items-center justify-center gap-2"
                 minWidthRems={OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS + 2}
             >
                 {responseLoading
@@ -150,16 +150,16 @@ const WebOverviewItemCell = ({
         <Tooltip title={tooltip}>
             <div
                 className={clsx(OVERVIEW_ITEM_CELL_CLASSES, {
-                    'border border-dotted border-success': usedPreAggregatedTables,
+                    'border-success border border-dotted': usedPreAggregatedTables,
                 })}
             >
-                <div className="flex flex-row w-full">
-                    <div className="flex flex-row items-start justify-start flex-1">
+                <div className="flex w-full flex-row">
+                    <div className="flex flex-1 flex-row items-start justify-start">
                         {/* NOTE: If we ever decide to remove the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
                         {isBeta && <LemonTag type="warning">BETA</LemonTag>}
                     </div>
-                    <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
-                    <div className="flex flex-1 flex-row justify-end items-start">
+                    <div className="py-1 text-xs font-bold uppercase">{label}&nbsp;&nbsp;</div>
+                    <div className="flex flex-1 flex-row items-start justify-end">
                         {dashboardUrl && (
                             <Tooltip title={`Access dedicated ${item.key} dashboard`}>
                                 <LemonButton to={dashboardUrl} icon={<IconDashboard />} size="xsmall" />
@@ -172,7 +172,7 @@ const WebOverviewItemCell = ({
                         )}
                     </div>
                 </div>
-                <div className="w-full flex-1 flex items-center justify-center">
+                <div className="flex w-full flex-1 items-center justify-center">
                     <div className="text-2xl">{formatItem(item.value, item.kind, { currency: baseCurrency })}</div>
                 </div>
                 {trend && isNotNil(item.changeFromPreviousPct) ? (

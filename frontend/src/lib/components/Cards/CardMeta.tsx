@@ -74,7 +74,7 @@ export function CardMeta({
                                     placement="right"
                                 >
                                     <IconPieChart
-                                        className="ml-1.5 text-base align-[-0.25em]"
+                                        className="ml-1.5 align-[-0.25em] text-base"
                                         style={{ color: 'var(--primary-3000-hover)' }}
                                     />
                                 </Tooltip>
