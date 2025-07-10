@@ -33,7 +33,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         supportsPercentStackView,
         showPercentStackView,
         pieChartVizOptions,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
@@ -135,7 +135,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                             showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}
-                            onClick={isDataWarehouseSeries ? undefined : onClick}
+                            onClick={hasDataWarehouseSeries ? undefined : onClick}
                             disableHoverOffset={pieChartVizOptions?.disableHoverOffset}
                         />
                     </div>

@@ -10,9 +10,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { API_KEY_SCOPE_PRESETS } from '~/lib/scopes'
-import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType } from '~/types'
+import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } from '~/types'
+import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
@@ -138,6 +140,157 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             (user): OrganizationBasicType[] => {
                 return user?.organizations ?? []
             },
+        ],
+
+        canUsePersonalApiKeys: [
+            (s) => [s.user],
+            (user: UserType | null): boolean => {
+                const currentOrg = user?.organization
+                if (!currentOrg) {
+                    return true
+                }
+
+                if (currentOrg.membership_level && currentOrg.membership_level >= OrganizationMembershipLevel.Admin) {
+                    return true
+                }
+
+                return organizationAllowsPersonalApiKeysForMembers(currentOrg)
+            },
+        ],
+
+        isPersonalApiKeyIdDisabled: [
+            (s) => [s.allOrganizations, s.allTeams, s.keys, s.getRestrictedOrganizationsForKey],
+            (
+                    allOrganizations: OrganizationBasicType[],
+                    allTeams: TeamBasicType[] | null,
+                    keys: PersonalAPIKeyType[],
+                    getRestrictedOrganizationsForKey: (keyId: PersonalAPIKeyType['id']) => OrganizationBasicType[]
+                ) =>
+                (keyId: PersonalAPIKeyType['id']): boolean => {
+                    const key = keys.find((k) => k.id === keyId)
+                    if (!key) {
+                        return false
+                    }
+
+                    const restrictedOrgs = getRestrictedOrganizationsForKey(keyId)
+
+                    // If key is scoped to specific organizations
+                    if (key.scoped_organizations?.length) {
+                        // Key is disabled if ALL scoped organizations are restricted
+                        return restrictedOrgs.length === key.scoped_organizations.length
+                    }
+
+                    // If key is scoped to specific teams
+                    if (key.scoped_teams?.length && allTeams) {
+                        // Get unique organization IDs from scoped teams
+                        const teamOrgIds = new Set<string>()
+                        key.scoped_teams.forEach((teamId) => {
+                            const team = allTeams.find((t) => t.id === teamId)
+                            if (team?.organization) {
+                                teamOrgIds.add(team.organization)
+                            }
+                        })
+
+                        // Key is disabled if ALL team organizations are restricted
+                        return restrictedOrgs.length === teamOrgIds.size
+                    }
+
+                    // If key has all access, it's disabled if ALL user's organizations are restricted
+                    return restrictedOrgs.length === allOrganizations.length
+                },
+        ],
+
+        getRestrictedOrganizationsForKey: [
+            (s) => [s.allOrganizations, s.keys, s.getRestrictedTeamsForKey],
+            (
+                    allOrganizations: OrganizationBasicType[],
+                    keys: PersonalAPIKeyType[],
+                    getRestrictedTeamsForKey: (keyId: PersonalAPIKeyType['id']) => TeamBasicType[]
+                ) =>
+                (keyId: PersonalAPIKeyType['id']): OrganizationBasicType[] => {
+                    let restrictedOrgs: OrganizationBasicType[] = []
+                    const key = keys.find((k) => k.id === keyId)
+
+                    if (!key) {
+                        return []
+                    }
+
+                    // If key is scoped to specific organizations
+                    if (key.scoped_organizations?.length) {
+                        restrictedOrgs = (key.scoped_organizations || [])
+                            .map((orgId) => {
+                                const org = allOrganizations.find((o) => o.id === orgId)
+                                if (
+                                    org &&
+                                    !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
+                                    !organizationAllowsPersonalApiKeysForMembers(org)
+                                ) {
+                                    return org
+                                }
+                            })
+                            .filter((x) => x) as OrganizationBasicType[]
+
+                        return restrictedOrgs
+                    }
+
+                    // If key is scoped to specific teams
+                    if (key.scoped_teams?.length) {
+                        const restrictedTeams = getRestrictedTeamsForKey(keyId)
+                        const orgIds = new Set<string>()
+
+                        restrictedTeams.forEach((team) => {
+                            if (team.organization) {
+                                orgIds.add(team.organization)
+                            }
+                        })
+
+                        restrictedOrgs = Array.from(orgIds)
+                            .map((orgId) => allOrganizations.find((o) => o.id === orgId))
+                            .filter((org) => org) as OrganizationBasicType[]
+
+                        return restrictedOrgs
+                    }
+
+                    // If key has all access, check all user's organizations
+                    allOrganizations.forEach((org) => {
+                        if (
+                            !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
+                            !organizationAllowsPersonalApiKeysForMembers(org)
+                        ) {
+                            restrictedOrgs.push(org)
+                        }
+                    })
+
+                    return restrictedOrgs
+                },
+        ],
+
+        getRestrictedTeamsForKey: [
+            (s) => [s.allOrganizations, s.allTeams, s.keys],
+            (allOrganizations: OrganizationBasicType[], allTeams: TeamBasicType[] | null, keys: PersonalAPIKeyType[]) =>
+                (keyId: PersonalAPIKeyType['id']): TeamBasicType[] => {
+                    const key = keys.find((k) => k.id === keyId)
+
+                    if (!key || !allTeams || !key.scoped_teams?.length) {
+                        return []
+                    }
+
+                    return key.scoped_teams
+                        .map((teamId) => {
+                            const team = allTeams.find((t: TeamBasicType) => t.id === teamId)
+                            if (team?.organization) {
+                                const org = allOrganizations.find((o) => o.id === team.organization)
+                                if (
+                                    org &&
+                                    !hasMembershipLevelOrHigher(org, OrganizationMembershipLevel.Admin) &&
+                                    !organizationAllowsPersonalApiKeysForMembers(org)
+                                ) {
+                                    return team
+                                }
+                            }
+                        })
+                        .filter((team) => team) as TeamBasicType[]
+                },
         ],
     })),
     listeners(({ actions, values }) => ({
