@@ -24,7 +24,6 @@ import { isDefinitionStale } from 'lib/utils/definitions'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import { MaxContextOption } from 'scenes/max/maxTypes'
 
 import { EventDefinition, PropertyDefinition } from '~/types'
 
@@ -150,7 +149,7 @@ const selectedItemHasPopover = (
     return (
         // NB: also update "renderItemContents" above
         TaxonomicFilterGroupType.EventMetadata,
-        (!!item &&
+        !!item &&
             !!group?.getValue?.(item) &&
             !!listGroupType &&
             ([
@@ -172,10 +171,7 @@ const selectedItemHasPopover = (
                 TaxonomicFilterGroupType.Metadata,
                 TaxonomicFilterGroupType.SessionProperties,
             ].includes(listGroupType) ||
-                listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))) ||
-            (!!item &&
-                listGroupType === TaxonomicFilterGroupType.MaxAIContext &&
-                (item as MaxContextOption).value === 'current_page')
+                listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
 }
 

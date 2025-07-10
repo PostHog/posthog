@@ -309,20 +309,25 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
                     logger.exception("PostHog $web_vitals event didn't match expected structure")
                     dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
                 else:
-                    dumped = orjson.dumps(d, default=str) + b"\n"
+                    dumped = dump_dict(d)
 
             else:
                 # In this case, we fallback to the slower but more permissive stdlib
                 # json.
                 logger.exception("Orjson detected a deeply nested dict: %s", d)
                 dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
+        elif str(err) == "Integer exceeds 64-bit range":
+            logger.warning("Failed to encode with orjson: Integer exceeds 64-bit range: %s", d)
+            # Orjson doesn't support integers exceeding 64-bit range, so we fall back to json.dumps
+            # see https://github.com/ijl/orjson/issues/301
+            dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
         else:
             # Orjson is very strict about invalid unicode. This slow path protects us
             # against things we've observed in practice, like single surrogate codes, e.g.
             # "\ud83d"
             logger.exception("Failed to encode with orjson: %s", d)
             cleaned_content = replace_broken_unicode(d)
-            dumped = orjson.dumps(cleaned_content, default=str) + b"\n"
+            dumped = dump_dict(cleaned_content)
 
     return dumped
 
@@ -336,17 +341,6 @@ def replace_broken_unicode(obj):
         return {replace_broken_unicode(key): replace_broken_unicode(value) for key, value in obj.items()}
     else:
         return obj
-
-
-def json_dumps_bytes(d) -> bytes:
-    try:
-        return orjson.dumps(d, default=str)
-    except orjson.JSONEncodeError:
-        # orjson is very strict about invalid unicode. This slow path protects us against
-        # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
-        logger.exception("Failed to encode with orjson: %s", d)
-        cleaned_d = replace_broken_unicode(d)
-        return orjson.dumps(cleaned_d, default=str)
 
 
 class ParquetStreamTransformer:

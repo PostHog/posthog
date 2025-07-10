@@ -48,6 +48,8 @@ from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_REPLAY_INTERNAL_URL,
     CAPTURE_INTERNAL_MAX_WORKERS,
+    NEW_ANALYTICS_CAPTURE_ENDPOINT,
+    REPLAY_CAPTURE_ENDPOINT,
 )
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
@@ -950,9 +952,9 @@ def new_capture_internal(
 
     event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event, process_person_profile)
     # determine if this is a recordings or events type, route to correct capture endpoint
-    resolved_capture_url = CAPTURE_INTERNAL_URL
+    resolved_capture_url = f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}"
     if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
-        resolved_capture_url = CAPTURE_REPLAY_INTERNAL_URL
+        resolved_capture_url = f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}"
 
     with Session() as s:
         s.mount(
