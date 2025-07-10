@@ -27,7 +27,11 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import bind_contextvars, get_logger
+from posthog.temporal.common.logger import (
+    bind_contextvars,
+    get_external_logger,
+    get_logger,
+)
 from products.batch_exports.backend.temporal.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
@@ -43,7 +47,8 @@ from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
 )
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
+EXTERNAL_LOGGER = get_external_logger()
 
 BytesGenerator = collections.abc.Generator[bytes, None, None]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
@@ -419,6 +424,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     """
     bind_contextvars(team_id=inputs.team_id, batch_export_id=inputs.batch_export_id, status=inputs.status)
     logger = LOGGER.bind()
+    external_logger = EXTERNAL_LOGGER.bind()
 
     not_model_params = ("id", "team_id", "batch_export_id", "failure_threshold", "failure_check_window")
     update_params = {
@@ -441,10 +447,23 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     )
 
     if batch_export_run.status == BatchExportRun.Status.FAILED_RETRYABLE:
-        logger.error("Batch export failed with error: %s", batch_export_run.latest_error)
+        # We should never get here as we do not have a retry limit.
+        # So, users should never be asked to retry for things we can retry ourselves.
+        # However, I am covering my bases if something like that indeed happens.
+        external_logger.error(
+            "Batch export for range %s - %s failed with an error that can be retried: %s",
+            batch_export_run.data_interval_start or "START",
+            batch_export_run.data_interval_end or "END",
+            batch_export_run.latest_error,
+        )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        logger.error("Batch export failed with non-recoverable error: %s", batch_export_run.latest_error)
+        external_logger.error(
+            "Batch export for range %s - %s failed with a non-recoverable error: %s",
+            batch_export_run.data_interval_start or "START",
+            batch_export_run.data_interval_end or "END",
+            batch_export_run.latest_error,
+        )
 
         from posthog.tasks.email import send_batch_export_run_failure
 
@@ -453,7 +472,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         except Exception:
             logger.exception("Failure email notification could not be sent")
         else:
-            logger.info("Failure notification email for run %s has been sent", inputs.id)
+            external_logger.info("Failure notification email for run '%s' has been sent", inputs.id)
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -473,7 +492,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             logger.exception("Batch export could not be automatically paused")
         else:
             if was_paused:
-                logger.warning(
+                external_logger.warning(
                     "Batch export was automatically paused due to exceeding failure threshold and exhausting "
                     "all automated retries."
                     "The batch export can be unpaused after addressing any errors."
@@ -484,10 +503,10 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 inputs.batch_export_id,
             )
         except Exception:
-            logger.aexception("Ongoing backfills could not be automatically cancelled")
+            logger.exception("Ongoing backfills could not be automatically cancelled")
         else:
             if total_cancelled > 0:
-                logger.warning(
+                external_logger.warning(
                     f"{total_cancelled} ongoing batch export backfill{'s' if total_cancelled > 1 else ''} "
                     f"{'were' if total_cancelled > 1 else 'was'} cancelled due to exceeding failure threshold "
                     " and exhausting all automated retries."
@@ -495,13 +514,18 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                 )
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
-        logger.warning("Batch export was cancelled")
+        external_logger.warning(
+            "Batch export for range %s - %s was cancelled",
+            batch_export_run.data_interval_start or "START",
+            batch_export_run.data_interval_end or "END",
+        )
 
     else:
-        logger.info(
-            "Successfully finished exporting batch %s - %s",
-            batch_export_run.data_interval_start,
-            batch_export_run.data_interval_end,
+        external_logger.info(
+            "Batch export for range %s - %s finished successfully with %s records exported",
+            batch_export_run.data_interval_start or "START",
+            batch_export_run.data_interval_end or "END",
+            inputs.records_completed if inputs.records_completed is not None else "no",
         )
 
 

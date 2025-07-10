@@ -1,7 +1,7 @@
 import './LemonTextArea.scss'
 
 import clsx from 'clsx'
-import React, { useRef, useState, useEffect } from 'react'
+import React, { ReactElement, useRef, useState, useEffect } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 import { cn } from 'lib/utils/css-classes'
 
@@ -25,6 +25,8 @@ interface LemonTextAreaPropsBase
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
     'data-attr'?: string
+    /** content displayed below the text area, note if `maxLength` is set that will be to the right of the footer content */
+    footer?: ReactElement
 }
 
 interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
@@ -42,7 +44,17 @@ export type LemonTextAreaProps = LemonTextAreaWithEnterProps | LemonTextAreaWith
 
 /** A `textarea` component for multi-line text. */
 export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function LemonTextArea(
-    { className, onChange, onPressEnter, onPressCmdEnter, minRows = 3, onKeyDown, stopPropagation, ...textProps },
+    {
+        className,
+        onChange,
+        onPressEnter,
+        onPressCmdEnter,
+        minRows = 3,
+        onKeyDown,
+        stopPropagation,
+        footer,
+        ...textProps
+    },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLTextAreaElement | null>(null)
@@ -87,14 +99,19 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                 }}
                 {...textProps}
             />
-            {textProps.maxLength !== undefined ? (
-                <div
-                    className={cn(
-                        'flex flex-row justify-end text-sm',
-                        textLength >= textProps.maxLength && 'text-error'
-                    )}
-                >
-                    {textLength} / {textProps.maxLength}
+            {footer || textProps.maxLength ? (
+                <div className="flex flex-row gap-x-2 justify-between">
+                    {footer}
+                    {textProps.maxLength !== undefined ? (
+                        <div
+                            className={cn(
+                                'flex flex-row justify-end flex-grow text-sm',
+                                textLength >= textProps.maxLength && 'text-error'
+                            )}
+                        >
+                            {textLength} / {textProps.maxLength}
+                        </div>
+                    ) : null}
                 </div>
             ) : null}
         </div>
