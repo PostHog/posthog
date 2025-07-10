@@ -2,16 +2,15 @@ import {
     IconArrowLeft,
     IconChevronLeft,
     IconClockRewind,
-    IconExternal,
     IconCornerDownRight,
+    IconExternal,
     IconMinus,
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -26,6 +25,8 @@ import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/componen
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
+import clsx from 'clsx'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
@@ -37,8 +38,6 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
 import { Thread } from './Thread'
-import clsx from 'clsx'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: Max,
@@ -107,7 +106,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
-    const { currentLocation } = useValues(router)
 
     const [wasUserAutoEnrolled, setWasUserAutoEnrolled] = useState(false)
     useEffect(() => {
@@ -239,17 +237,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 onClose={() => setWasUserAutoEnrolled(false)}
                             >
                                 PostHog AI feature preview{' '}
-                                <Link
-                                    to={
-                                        combineUrl(currentLocation.pathname, currentLocation.search, {
-                                            ...currentLocation.hashParams,
-                                            panel: `${SidePanelTab.FeaturePreviews}:${FEATURE_FLAGS.ARTIFICIAL_HOG}`,
-                                        }).url
-                                    }
-                                >
-                                    activated
-                                </Link>
-                                !
+                                <Link to={urls.settings('user-feature-previews')}>activated</Link>!
                             </LemonBanner>
                         )}
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
