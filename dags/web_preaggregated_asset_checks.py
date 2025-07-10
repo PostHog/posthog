@@ -78,8 +78,7 @@ def table_has_data(table_name: str, tags: DagsterTags = None) -> AssetCheckResul
     description="Check if web_bounces_daily table has data",
 )
 def bounces_daily_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    dagster_tags = DagsterTags.from_context(context)
-    return table_has_data("web_bounces_daily", dagster_tags=dagster_tags)
+    return table_has_data("web_bounces_daily", dagster_tags(context))
 
 
 @asset_check(
@@ -106,7 +105,6 @@ def bounces_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckRe
     description="Check if web_stats_hourly table has data",
 )
 def stats_hourly_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    dagster_tags = DagsterTags.from_context(context)
     return table_has_data("web_stats_hourly", dagster_tags(context))
 
 
