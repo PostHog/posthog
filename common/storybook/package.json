@@ -43,6 +43,7 @@
         "stream-http": "^3.2.0",
         "style-loader": "^2.0.0",
         "timers-browserify": "^2.0.12",
+        "https-browserify": "^1.0.0",
         "webpack": "^5.88.2",
         "webpack-cli": "^5.1.4"
     },

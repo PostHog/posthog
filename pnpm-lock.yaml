@@ -309,6 +309,9 @@ importers:
       html-webpack-plugin:
         specifier: ^5.5.3
         version: 5.5.3(webpack@5.88.2)
+      https-browserify:
+        specifier: ^1.0.0
+        version: 1.0.0
       less-loader:
         specifier: ^7.0.2
         version: 7.3.0(less@4.2.2)(webpack@5.88.2)

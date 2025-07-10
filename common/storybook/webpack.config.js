@@ -70,6 +70,7 @@ function createEntry(entry) {
                 buffer: require.resolve('buffer/'),
                 timers: require.resolve('timers-browserify'),
                 http: require.resolve('stream-http'),
+                https: require.resolve('https-browserify'),
             },
         },
         module: {
