@@ -228,7 +228,6 @@ def sync_execute(
                 tags.clickhouse_exception_type = exception_type
                 tags.workload = str(workload)
                 continue
-
             raise err from e
         finally:
             execution_time = perf_counter() - start_time
