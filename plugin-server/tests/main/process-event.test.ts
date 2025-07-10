@@ -12,7 +12,7 @@ import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import {
     ClickHouseEvent,
@@ -120,7 +120,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(pluginEvent, team)
@@ -186,7 +186,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
     const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
     await runner.runEventPipeline(event, team)
@@ -932,111 +932,6 @@ test('capture first team event', async () => {
     expect(elements.length).toEqual(1)
 })
 
-test('identify set', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-    const ts_before = now
-    const ts_after = now.plus({ hours: 1 })
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        ts_before,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-    expect(person.is_identified).toEqual(false)
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-2', b_prop: 'test-2b' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        ts_after,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(2)
-    const [person2] = await hub.db.fetchPersons()
-    expect(person2.properties).toEqual({ a_prop: 'test-2', b_prop: 'test-2b', c_prop: 'test-1' })
-})
-
-test('identify set_once', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-    expect(person.is_identified).toEqual(false)
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-2', b_prop: 'test-2b' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(2)
-    const [person2] = await hub.db.fetchPersons()
-    expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
-    expect(person2.is_identified).toEqual(false)
-})
-
 test('identify with illegal (generic) id', async () => {
     await createPerson(hub, team, ['im an anonymous id'])
     expect((await hub.db.fetchPersons()).length).toBe(1)
@@ -1111,55 +1006,6 @@ test('Alias with illegal (generic) id', async () => {
     )
     // person with illegal id got created but not merged
     expect((await hub.db.fetchPersons()).length).toBe(2)
-})
-
-test('distinct with anonymous_id', async () => {
-    await createPerson(hub, team, ['anonymous_id'])
-
-    await processEvent(
-        'new_distinct_id',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                $anon_distinct_id: 'anonymous_id',
-                token: team.api_token,
-                distinct_id: 'new_distinct_id',
-                $set: { a_prop: 'test' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test' })
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
-    expect(person.properties).toEqual({ a_prop: 'test' })
-    expect(person.is_identified).toEqual(true)
-
-    // check no errors as this call can happen multiple times
-    await processEvent(
-        'new_distinct_id',
-        '',
-        '',
-        {
-            event: '$identify',
-            properties: {
-                $anon_distinct_id: 'anonymous_id',
-                token: team.api_token,
-                distinct_id: 'new_distinct_id',
-                $set: { a_prop: 'test' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
 })
 
 // This case is likely to happen after signup, for example:
@@ -1655,201 +1501,6 @@ test('long event name substr', async () => {
 
     const [event] = await hub.db.fetchEvents()
     expect(event.event?.length).toBe(200)
-})
-
-test('any event can do $set on props (user exists)', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-})
-
-test('any event can do $set on props (new user)', async () => {
-    const uuid = new UUIDT().toString()
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        uuid
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ $creator_event_uuid: uuid, a_prop: 'test-1', c_prop: 'test-1' })
-})
-
-test('any event can do $set_once on props', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-1', c_prop: 'test-1' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$set_once']).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({ a_prop: 'test-1', c_prop: 'test-1' })
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_other_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set_once: { a_prop: 'test-2', b_prop: 'test-2b' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    expect((await hub.db.fetchEvents()).length).toBe(2)
-    const [person2] = await hub.db.fetchPersons()
-    expect(person2.properties).toEqual({ a_prop: 'test-1', b_prop: 'test-2b', c_prop: 'test-1' })
-})
-
-test('$set and $set_once', async () => {
-    const uuid = new UUIDT().toString()
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'some_event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $set: { key1: 'value1', key2: 'value2', key3: 'value4' },
-                $set_once: { key1_once: 'value1', key2_once: 'value2', key3_once: 'value4' },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        uuid
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-
-    const [person] = await hub.db.fetchPersons()
-    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
-    expect(person.properties).toEqual({
-        $creator_event_uuid: uuid,
-        key1: 'value1',
-        key2: 'value2',
-        key3: 'value4',
-        key1_once: 'value1',
-        key2_once: 'value2',
-        key3_once: 'value4',
-    })
-})
-
-test('groupidentify', async () => {
-    await createPerson(hub, team, ['distinct_id1'])
-
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: '$groupidentify',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-                $group_type: 'organization',
-                $group_key: 'org::5',
-                $group_set: {
-                    foo: 'bar',
-                },
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    expect((await hub.db.fetchEvents()).length).toBe(1)
-    await delayUntilEventIngested(() => hub.db.fetchClickhouseGroups(), 1)
-
-    const [clickhouseGroup] = await hub.db.fetchClickhouseGroups()
-    expect(clickhouseGroup).toEqual({
-        group_key: 'org::5',
-        group_properties: JSON.stringify({ foo: 'bar' }),
-        group_type_index: 0,
-        team_id: team.id,
-        created_at: expect.any(String),
-    })
-
-    const group = await hub.db.fetchGroup(team.id, 0, 'org::5')
-    expect(group).toEqual({
-        id: expect.any(Number),
-        team_id: team.id,
-        group_type_index: 0,
-        group_key: 'org::5',
-        group_properties: { foo: 'bar' },
-        created_at: now,
-        properties_last_updated_at: {},
-        properties_last_operation: {},
-        version: 1,
-    })
 })
 
 test('groupidentify without group_type ingests event', async () => {

@@ -169,8 +169,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
     INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of either tokens or token:distinct_id combinations to force events to route to overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
-    PERSON_CACHE_ENABLED_FOR_UPDATES: boolean // whether to cache persons for fetchForUpdate calls
-    PERSON_CACHE_ENABLED_FOR_CHECKS: boolean // whether to cache persons for fetchForChecking calls
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode // the mode of db batch writes to use for person batch writing
     PERSON_BATCH_WRITING_MODE: PersonBatchWritingMode // whether to batch write persons Postgres updates/inserts
     PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: number // percentage of person batches to use shadow mode for
@@ -874,8 +872,8 @@ export interface BasePerson {
     is_user_id: number | null
     is_identified: boolean
     uuid: string
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation | null
+    properties_last_updated_at?: PropertiesLastUpdatedAt
+    properties_last_operation?: PropertiesLastOperation
 }
 
 /** Raw Person row from database. */

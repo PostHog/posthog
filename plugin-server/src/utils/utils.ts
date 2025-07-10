@@ -82,11 +82,11 @@ export function cloneObject<T>(obj: T): T {
     if (Array.isArray(obj)) {
         return (obj as any[]).map(cloneObject) as unknown as T
     }
+    if (obj instanceof DateTime) {
+        return obj
+    }
     if (obj instanceof Date) {
         return new Date(obj.getTime()) as T
-    }
-    if (obj instanceof DateTime) {
-        return obj.toUTC() as T
     }
     const clone: Record<string, any> = {}
     for (const i in obj) {

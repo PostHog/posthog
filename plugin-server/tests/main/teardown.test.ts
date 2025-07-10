@@ -14,10 +14,10 @@ import {
     Team,
 } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { MeasuringPersonsStoreForBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
 import { resetTestDatabase } from '../helpers/sql'
 import { v4 } from 'uuid'
 import { BatchWritingGroupStoreForBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 jest.setTimeout(10000)
 
@@ -69,7 +69,7 @@ describe('teardown', () => {
     })
 
     const processEvent = async (hub: Hub, event: PluginEvent) => {
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(hub.db)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
         const result = await new EventPipelineRunner(
             hub,

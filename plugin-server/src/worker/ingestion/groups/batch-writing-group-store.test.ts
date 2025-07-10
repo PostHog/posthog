@@ -35,8 +35,6 @@ describe('BatchWritingGroupStore', () => {
             group_properties: { test: 'test' },
             created_at: DateTime.now(),
             version: 1,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
         }
 
         let dbCounter = 0
