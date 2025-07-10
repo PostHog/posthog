@@ -9,6 +9,16 @@
         flex: 1;
         width: 100%;
         overflow: hidden;
+        
+        // Allow MaxTool buttons to be visible in insights
+        &:has(.EditorFiltersWrapper) {
+            overflow: visible;
+        }
+        
+        // Fallback for browsers that don't support :has()
+        &.NotebookEditor--with-max-tool {
+            overflow: visible;
+        }
 
         .ProseMirror {
             &-focused {
