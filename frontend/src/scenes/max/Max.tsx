@@ -8,7 +8,7 @@ import {
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
-import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -107,7 +107,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     const { featureFlags } = useValues(featureFlagLogic)
     const { updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
 
-    const [wasUserAutoEnrolled, setWasUserAutoEnrolled] = useState(false)
+    const [, setWasUserAutoEnrolled] = useState(false)
     useEffect(() => {
         if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
             updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.ARTIFICIAL_HOG, true)
@@ -229,17 +229,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
                     <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
-                        {wasUserAutoEnrolled && (
-                            <LemonBanner
-                                type="info"
-                                className="mt-3"
-                                hideIcon={false}
-                                onClose={() => setWasUserAutoEnrolled(false)}
-                            >
-                                PostHog AI feature preview{' '}
-                                <Link to={urls.settings('user-feature-previews')}>activated</Link>!
-                            </LemonBanner>
-                        )}
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />
