@@ -145,7 +145,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert res.json() == {
             "access_controls": [],
-            "available_access_levels": ["none", "viewer", "editor"],
+            "available_access_levels": ["none", "viewer", "editor", "manage"],
             "user_access_level": "editor",
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,

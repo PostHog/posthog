@@ -454,6 +454,28 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
         self.assertCountEqual([self.file_b], filtered_for_other)
 
+    def test_setting_explicit_manage_access(self):
+        """
+        Test that the new 'manage' access level works correctly and is above 'editor' in the hierarchy.
+        """
+        # Set "def" => "manage" for self.user
+        self._create_access_control(resource_id="def", access_level="manage", resource="my_resource")
+        # Set "abc" => "editor" globally
+        self._create_access_control(resource_id="abc", access_level="editor", resource="my_resource")
+
+        queryset = FileSystem.objects.all()
+        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
+
+        # Both files should be visible since 'manage' is higher than 'editor'
+        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
+
+        # Test that 'manage' level satisfies 'editor' requirement
+        assert self.user_access_control.check_access_level_for_object(self.file_b, "editor") is True
+        # Test that 'manage' level satisfies 'manage' requirement
+        assert self.user_access_control.check_access_level_for_object(self.file_b, "manage") is True
+        # Test that 'editor' level does NOT satisfy 'manage' requirement
+        assert self.user_access_control.check_access_level_for_object(self.file_a, "manage") is False
+
     def test_project_admin_allows_visibility_even_if_none(self):
         """
         If the user is an 'admin' at the project level, they can see items even if there's
@@ -537,6 +559,12 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         # No access controls at all
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
         assert serializer.get_user_access_level(self.dashboard) == "editor"  # falls to default_access_level
+
+    def test_manage_access_level_serializer(self):
+        # Test that the new 'manage' level works in serializers
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="manage")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "manage"
 
 
 class TestUserAccessControlAccessSource(BaseUserAccessControlTest):

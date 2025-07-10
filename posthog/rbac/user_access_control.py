@@ -45,7 +45,7 @@ class AccessSource(Enum):
 
 AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
-AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor"]
+AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manage"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
 
 NO_ACCESS_LEVEL = "none"
