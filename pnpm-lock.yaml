@@ -327,6 +327,9 @@ importers:
       storybook-addon-pseudo-states:
         specifier: 2.1.2
         version: 2.1.2(@storybook/components@7.6.4(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(@storybook/core-events@7.6.20)(@storybook/manager-api@7.6.20(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(@storybook/preview-api@7.6.20)(@storybook/theming@7.6.20(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      stream-http:
+        specifier: ^3.2.0
+        version: 3.2.0
       style-loader:
         specifier: ^2.0.0
         version: 2.0.0(webpack@5.88.2)
