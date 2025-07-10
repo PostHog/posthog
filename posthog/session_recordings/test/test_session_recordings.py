@@ -1629,8 +1629,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_snapshots_blobby_v2_from_lts(
-        self, mock_list_objects: MagicMock, _mock_exists: MagicMock, _mock_v2_list_blocks: MagicMock
+        self,
+        _mock_feature_enabled: MagicMock,
+        mock_list_objects: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_v2_list_blocks: MagicMock,
     ) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
