@@ -5013,12 +5013,13 @@ export enum SidePanelTab {
     Support = 'support',
     Docs = 'docs',
     Activation = 'activation',
-    Settings = 'settings',
-    Activity = 'activity',
-    Discussion = 'discussion',
+    // Settings = 'settings',
+    // Activity = 'activity',
+    // Discussion = 'discussion',
     Status = 'status',
     Exports = 'exports',
-    AccessControl = 'access-control',
+    // AccessControl = 'access-control',
+    SceneInfo = 'scene-info',
 }
 
 export interface ProductPricingTierSubrows {

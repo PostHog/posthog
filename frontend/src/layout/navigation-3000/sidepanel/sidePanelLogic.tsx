@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { AvailableFeature, SidePanelTab } from '~/types'
+import { SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
@@ -70,7 +70,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-                tabs.push(SidePanelTab.Activity)
+                // tabs.push(SidePanelTab.Activity)
 
                 if (currentTeam?.created_at) {
                     const teamCreatedAt = dayjs(currentTeam.created_at)
@@ -80,15 +80,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
-                    tabs.push(SidePanelTab.Discussion)
-                }
+                // if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
+                //     tabs.push(SidePanelTab.Discussion)
+                // }
+                tabs.push(SidePanelTab.SceneInfo)
 
-                if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
-                    tabs.push(SidePanelTab.AccessControl)
-                }
+                // if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
+                //     tabs.push(SidePanelTab.AccessControl)
+                // }
                 tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.Settings)
+                // tabs.push(SidePanelTab.Settings)
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)
@@ -103,18 +104,18 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.enabledTabs,
                 s.selectedTab,
                 s.sidePanelOpen,
-                s.unreadCount,
+                // s.unreadCount,
                 s.status,
-                s.hasAvailableFeature,
+                // s.hasAvailableFeature,
                 s.shouldShowActivationTab,
             ],
             (
                 enabledTabs,
                 selectedTab,
                 sidePanelOpen,
-                unreadCount,
+                // unreadCount,
                 status,
-                hasAvailableFeature,
+                // hasAvailableFeature,
                 shouldShowActivationTab
             ): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
@@ -122,13 +123,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
-                    if (
-                        tab === SidePanelTab.Activity &&
-                        unreadCount &&
-                        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
-                    ) {
-                        return true
-                    }
+                    // if (
+                    //     tab === SidePanelTab.Activity &&
+                    //     unreadCount &&
+                    //     hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+                    // ) {
+                    //     return true
+                    // }
 
                     if (tab === SidePanelTab.Status && status !== 'operational') {
                         return true
