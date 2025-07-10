@@ -45,7 +45,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                 props={logicProps}
                 formKey="emailTemplate"
             >
-                {['from', 'to', 'subject'].map((field) => (
+                {(logicProps.emailMetaFields || ['from', 'to', 'subject']).map((field) => (
                     <LemonField
                         key={field}
                         name={field}
