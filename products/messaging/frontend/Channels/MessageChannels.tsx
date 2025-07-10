@@ -38,7 +38,7 @@ function MessageChannel({ integration }: { integration: IntegrationType }): JSX.
         <div className="rounded border bg-surface-primary">
             <div className="flex justify-between items-center p-2">
                 <div className="flex gap-4 items-center ml-2">
-                    <div>
+                    <div className="flex flex-col gap-[1px]">
                         <div className="flex gap-2 items-center">
                             <strong>{displayName}</strong>
                             {isVerificationRequired && (
