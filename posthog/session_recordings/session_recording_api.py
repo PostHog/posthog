@@ -718,13 +718,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         source = validated_data.get("source")
         source_log_label = source or "listing"
 
-        is_v2_enabled = validated_data.get("blob_v2", False)
-        user_distinct_id = isinstance(request.user, User) and cast(User, request.user).distinct_id
-        is_v2_lts_enabled = (
+        is_v2_enabled: bool = validated_data.get("blob_v2", False)
+        user_distinct_id: str = isinstance(request.user, User) and cast(User, request.user).distinct_id
+        is_v2_lts_enabled: bool = (
             (user_distinct_id or "")
             and posthoganalytics.feature_enabled(
                 USE_BLOB_V2_LTS,
-                cast(User, request.user).distinct_id,
+                user_distinct_id,
                 groups={
                     "organization": str(self.team.organization_id),
                     "project": str(self.team_id),
