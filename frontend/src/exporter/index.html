@@ -28,23 +28,6 @@
         <meta property="og:image" content="{{ asset_opengraph_image_url }}" />
         <meta property="og:image:alt" content="A screenshot of the PostHog asset" />
         <meta name="twitter:card" content="summary_large_image" />
-        {% endif %}
-        {% if debug %}
-            <script type="module">
-                import RefreshRuntime from 'http://localhost:8234/@react-refresh'
-                RefreshRuntime.injectIntoGlobalHook(window)
-                window.$RefreshReg$ = () => {}
-                window.$RefreshSig$ = () => (type) => type
-                window.__vite_plugin_react_preamble_installed__ = true
-            </script>
-            <!-- Vite dev server integration -->
-            <script type="module" src="http://localhost:8234/@vite/client"></script>
-            <script type="module" src="http://localhost:8234/src/exporter/index.tsx"></script>
-        {% else %}
-            <!-- Production build with manifest -->
-            {% load static %}
-            <script type="module" src="{% static 'exporter.js' %}"></script>
-        {% endif %}
     </head>
     <body class="ExporterBody">
         <script>

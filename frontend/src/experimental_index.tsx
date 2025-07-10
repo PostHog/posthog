@@ -1,3 +1,11 @@
+// Add the beginning of your app entry - required for Vite backend integration
+import 'vite/modulepreload-polyfill'
+
+// Buffer polyfill for browser compatibility
+import { Buffer } from 'buffer'
+globalThis.Buffer = Buffer
+globalThis.global = globalThis
+
 import '~/styles'
 
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'

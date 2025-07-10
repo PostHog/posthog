@@ -16,24 +16,6 @@
             posthog.init(posthogJSApiKey, {api_host: posthogHost, persistence: 'localStorage+cookie'})
         </script>
         
-        {% if debug %}
-            <script type="module">
-                import RefreshRuntime from 'http://localhost:8234/@react-refresh'
-                RefreshRuntime.injectIntoGlobalHook(window)
-                window.$RefreshReg$ = () => {}
-                window.$RefreshSig$ = () => (type) => type
-                window.__vite_plugin_react_preamble_installed__ = true
-            </script>
-            <!-- Vite dev server integration -->
-            <script type="module" src="http://localhost:8234/@vite/client"></script>
-            <script type="module" src="http://localhost:8234/src/index.tsx"></script>
-        {% else %}
-            <!-- Production build with manifest -->
-            <%= htmlWebpackPlugin.tags.headTags %><%/* This adds the main.css file! */%>
-            {% load static %}
-            <script type="module" src="{% static 'index.js' %}"></script>
-        {% endif %}
-        
         <link
             href="https://stackpath.bootstrapcdn.com/bootstrap/4.4.1/css/bootstrap.min.css"
             rel="stylesheet"
