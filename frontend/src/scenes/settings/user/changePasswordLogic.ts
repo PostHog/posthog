@@ -40,7 +40,10 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                     actions.resetChangePassword({ password: '', current_password: '' })
                     lemonToast.success('Password changed')
                 } catch (e: any) {
-                    actions.setChangePasswordManualErrors({ [e.attr]: e.detail })
+                    setTimeout(() => {
+                        // TRICKY: We want to run on the next tick otherwise the errors don't show (possibly because of the async wait in the submit)
+                        actions.setChangePasswordManualErrors({ [e.attr]: e.detail })
+                    }, 1)
                 }
             },
         },
