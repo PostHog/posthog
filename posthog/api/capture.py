@@ -466,16 +466,28 @@ def get_csp_event(request):
         )
 
     csp_report, error_response = process_csp_report(request)
-
     if error_response:
         return error_response
 
-    distinct_id = csp_report.get("distinct_id", None)
-    if posthoganalytics.feature_enabled("ingestion-new-capture-internal-csp", distinct_id):
+    if csp_report and isinstance(csp_report, list):
+        # For list of reports, use the first one's distinct_id for feature flag check
+        first_distinct_id = csp_report[0].get("distinct_id", None)
+    else:
+        # For single report, use the distinct_id for the same
+        first_distinct_id = csp_report.get("distinct_id", None)
+
+    if first_distinct_id and posthoganalytics.feature_enabled("ingestion-new-capture-internal-csp", first_distinct_id):
         try:
             token = get_token(csp_report, request)
-            resp = new_capture_internal(token, distinct_id, csp_report, False)
-            resp.raise_for_status()
+
+            if isinstance(csp_report, list):
+                futures = new_capture_batch_internal(csp_report, token, False)
+                for future in futures:
+                    result = future.result()
+                    result.raise_for_status()
+            else:
+                resp = new_capture_internal(token, first_distinct_id, csp_report, False)
+                resp.raise_for_status()
 
             return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
@@ -1014,7 +1026,7 @@ def new_capture_batch_internal(
     events: list[dict[str, Any]],
     token: Optional[str] = None,
     process_person_profile: bool = False,
-) -> list[Future[Response]]:
+) -> list[Future]:
     """
     new_capture_batch_internal submits multiple capture request payloads to
     PostHog (capture-rs backend) concurrently using ThreadPoolExecutor.
@@ -1034,7 +1046,7 @@ def new_capture_batch_internal(
         process_person_profile=process_person_profile,
     )
 
-    futures: list[Future[Response]] = []
+    futures: list[Future] = []
 
     with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
         # Note:
