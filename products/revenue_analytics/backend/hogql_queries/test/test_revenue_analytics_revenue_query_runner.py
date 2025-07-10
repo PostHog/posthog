@@ -705,7 +705,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results
@@ -714,14 +714,14 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results.gross,
             [
                 {
-                    "label": "revenue_analytics.purchase",
+                    "label": "revenue_analytics.events.purchase",
                     "days": LAST_6_MONTHS_DAYS,
                     "labels": LAST_6_MONTHS_LABELS,
                     "data": [0, Decimal("33.474"), Decimal("5.5629321819"), 0, 0, 0, 0],
                     "action": {
                         "days": LAST_6_MONTHS_FAKEDATETIMES,
-                        "id": "revenue_analytics.purchase",
-                        "name": "revenue_analytics.purchase",
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
                     },
                 }
             ],
@@ -730,14 +730,14 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results.mrr,
             [
                 {
-                    "label": "revenue_analytics.purchase",
+                    "label": "revenue_analytics.events.purchase",
                     "days": LAST_6_MONTHS_DAYS,
                     "labels": LAST_6_MONTHS_LABELS,
                     "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring
                     "action": {
                         "days": LAST_6_MONTHS_FAKEDATETIMES,
-                        "id": "revenue_analytics.purchase",
-                        "name": "revenue_analytics.purchase",
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
                     },
                 }
             ],
@@ -763,7 +763,7 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 RevenueAnalyticsPropertyFilter(
                     key="source",
                     operator=PropertyOperator.EXACT,
-                    value=["revenue_analytics.purchase"],
+                    value=["revenue_analytics.events.purchase"],
                 )
             ],
         ).results
@@ -772,14 +772,14 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results.gross,
             [
                 {
-                    "label": "revenue_analytics.purchase",
+                    "label": "revenue_analytics.events.purchase",
                     "days": LAST_6_MONTHS_DAYS,
                     "labels": LAST_6_MONTHS_LABELS,
                     "data": [0, Decimal("0.33474"), Decimal("0.0556293217"), 0, 0, 0, 0],
                     "action": {
                         "days": LAST_6_MONTHS_FAKEDATETIMES,
-                        "id": "revenue_analytics.purchase",
-                        "name": "revenue_analytics.purchase",
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
                     },
                 }
             ],
@@ -788,14 +788,14 @@ class TestRevenueAnalyticsRevenueQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results.mrr,
             [
                 {
-                    "label": "revenue_analytics.purchase",
+                    "label": "revenue_analytics.events.purchase",
                     "days": LAST_6_MONTHS_DAYS,
                     "labels": LAST_6_MONTHS_LABELS,
                     "data": [0, 0, 0, 0, 0, 0, 0],  # No MRR data because events aren"t recurring
                     "action": {
                         "days": LAST_6_MONTHS_FAKEDATETIMES,
-                        "id": "revenue_analytics.purchase",
-                        "name": "revenue_analytics.purchase",
+                        "id": "revenue_analytics.events.purchase",
+                        "name": "revenue_analytics.events.purchase",
                     },
                 }
             ],
