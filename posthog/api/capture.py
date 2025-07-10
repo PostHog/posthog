@@ -469,6 +469,7 @@ def get_csp_event(request):
     if error_response:
         return error_response
 
+    first_distinct_id = None  # temp: only used for feature flag check
     if csp_report and isinstance(csp_report, list):
         # For list of reports, use the first one's distinct_id for feature flag check
         first_distinct_id = csp_report[0].get("distinct_id", None)
@@ -476,8 +477,17 @@ def get_csp_event(request):
         # For single report, use the distinct_id for the same
         first_distinct_id = csp_report.get("distinct_id", None)
     else:
-        # if a CSP report is submitted without one of the two accepted Content-Types, we bail
-        return cors_response(request, HttpResponse(status=status.HTTP_400_BAD_REQUEST))
+        # mimic what get_event does if no data is returned from process_csp_report
+        cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                f"Failed to submit CSP report",
+                code="invalid_payload",
+                type="invalid_payload",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
 
     if first_distinct_id and posthoganalytics.feature_enabled("ingestion-new-capture-internal-csp", first_distinct_id):
         try:
