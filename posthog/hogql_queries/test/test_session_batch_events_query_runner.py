@@ -9,6 +9,7 @@ from posthog.hogql_queries.ai.session_events_query_runner import (
     create_session_batch_events_query,
 )
 from posthog.schema import (
+    CachedEventsQueryResponse,
     CachedSessionBatchEventsQueryResponse,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
@@ -73,6 +74,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = EventsQueryRunner(query=query, team=self.team)
             response = runner.run()
         # Verify results
+        assert isinstance(response, CachedEventsQueryResponse)
         assert len(response.results) == 3
         assert response.results[0][0]["distinct_id"] == "user1"
         assert response.results[1][0]["distinct_id"] == "user2"
