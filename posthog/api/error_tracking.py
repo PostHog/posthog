@@ -116,7 +116,6 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
             issue=issue,
             integration=integration,
             external_context=external_context,
-            provider=integration.kind,
         )
         return instance
 
