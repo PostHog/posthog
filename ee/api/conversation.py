@@ -62,15 +62,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
-        # Only allow access to conversations created by the current user
-        qs = queryset.filter(user=self.request.user)
-
-        # Allow sending messages to any conversation
-        if self.action == "create":
-            return qs
-
-        # But retrieval must only return conversations from the assistant and with a title.
-        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
+        # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
+        if self.action != "retrieve":
+            queryset = queryset.filter(user=self.request.user)
+        # For listing or single retrieval, conversations must be from the assistant and have a title
+        if self.action in ("list", "retrieve"):
+            queryset = queryset.filter(title__isnull=False, type=Conversation.Type.ASSISTANT).order_by("-updated_at")
+        return queryset
 
     def get_throttles(self):
         if (

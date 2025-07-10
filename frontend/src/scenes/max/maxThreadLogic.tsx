@@ -38,6 +38,7 @@ import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -418,6 +419,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (conversation, propsConversationId) => conversation?.id || propsConversationId,
         ],
 
+        isSharedThread: [
+            (s) => [s.conversation, userLogic.selectors.user],
+            (conversation, user): boolean => !!conversation && !!user && conversation.user.uuid !== user.uuid,
+        ],
+
         threadLoading: [
             (s) => [s.conversationLoading, s.streamingActive],
             (conversationLoading, streamingActive) => conversationLoading || streamingActive,
@@ -504,12 +510,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         inputDisabled: [
-            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted],
-            (formPending, threadLoading, dataProcessingAccepted) =>
+            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted, s.isSharedThread],
+            (formPending, threadLoading, dataProcessingAccepted, isSharedThread) =>
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
                 // - We are awaiting user to approve or reject external AI processing data
-                formPending || (threadLoading && !dataProcessingAccepted),
+                isSharedThread || formPending || (threadLoading && !dataProcessingAccepted),
         ],
 
         submissionDisabledReason: [

@@ -141,6 +141,7 @@ interface MessageGroupProps {
 function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { tools } = useValues(maxGlobalLogic)
+    const { isSharedThread } = useValues(maxThreadLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
     const isEditingInsight = tools?.some((tool) => tool.name === 'create_and_query_insight')
@@ -198,7 +199,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={messageIndex === messages.length - 1}
+                                interactable={!isSharedThread && messageIndex === messages.length - 1}
                                 isFinalGroup={isFinalGroup}
                             />
                         )
