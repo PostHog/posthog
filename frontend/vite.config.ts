@@ -78,7 +78,7 @@ export default defineConfig(({ command, mode }) => {
       devSourcemap: true,
     },
     optimizeDeps: {
-      include: ['react', 'react-dom'],
+      include: ['react', 'react-dom', 'buffer'],
     },
   }
 }) 
