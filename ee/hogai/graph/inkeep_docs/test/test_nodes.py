@@ -167,7 +167,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertNotEqual(first_message.id, second_message.id)
 
     def test_model_has_correct_max_retries(self) -> None:
-        with patch("ee.hogai.graph.inkeep_docs.nodes.ChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.inkeep_docs.nodes.MaxChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_chat_openai.return_value = mock_model
 

@@ -451,7 +451,7 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         self.assertIn("pydanticexception", state.intermediate_steps[0][1])
 
     def test_model_has_correct_max_retries(self):
-        with patch("ee.hogai.graph.schema_generator.nodes.ChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.schema_generator.nodes.MaxChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.with_structured_output.return_value = mock_model
             mock_chat_openai.return_value = mock_model

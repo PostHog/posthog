@@ -269,7 +269,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         mock_with_tokens.get_num_tokens_from_messages = MagicMock(return_value=1)
 
         with patch(
-            "ee.hogai.graph.root.nodes.ChatOpenAI",
+            "ee.hogai.graph.root.nodes.MaxChatOpenAI",
             return_value=mock_with_tokens,
         ):
             node = RootNode(self.team, self.user)
@@ -433,7 +433,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
 
     def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -522,7 +522,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             # prompt template construction. However, LangChain's chaining mechanics make it even more painful to
             # mock the "right" thing, so going for a kludge here.
             patch("ee.hogai.graph.root.nodes.ChatPromptTemplate.from_messages") as mock_chat_prompt_template,
-            patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai,
+            patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai,
             patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
         ):
             mock_model = MagicMock()
@@ -541,7 +541,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("The user's name appears to be ", system_content)
 
     def test_model_has_correct_max_retries(self):
-        with patch("ee.hogai.graph.root.nodes.ChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
