@@ -18,7 +18,7 @@ export const messageChannelsLogic = kea<messageChannelsLogicType>([
             integration,
             channelType,
         }),
-        closeNewChannelModal: () => null,
+        closeNewChannelModal: true,
     }),
     reducers(() => ({
         isNewChannelModalOpen: [
