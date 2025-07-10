@@ -174,7 +174,7 @@ class Command(BaseCommand):
             options["client_key"] = "--SECRET--"
 
         structlog.reset_defaults()
-        logging.basicConfig(level=settings.TEMPORAL_LOG_LEVEL)
+        logging.disable(level=max(logging.getLevelNamesMapping()[settings.TEMPORAL_LOG_LEVEL] - 1, 0))
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
@@ -248,3 +248,4 @@ class Command(BaseCommand):
                 logger.info("Waiting on shutdown_task")
                 _ = runner.run(asyncio.wait([shutdown_task]))
                 logger.info("Finished Temporal worker shutdown")
+                logging.flush()
