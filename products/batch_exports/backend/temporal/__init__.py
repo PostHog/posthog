@@ -42,8 +42,8 @@ from products.batch_exports.backend.temporal.monitoring import (
     update_batch_export_runs,
 )
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
-from products.batch_exports.backend.temporal.pre_export_stage import (
-    insert_into_s3_stage_activity,
+from products.batch_exports.backend.temporal.pipeline.internal_stage import (
+    insert_into_internal_stage_activity,
 )
 
 WORKFLOWS = [
@@ -76,6 +76,6 @@ ACTIVITIES = [
     get_event_counts,
     update_batch_export_runs,
     check_for_missing_batch_export_runs,
-    insert_into_s3_stage_activity,
+    insert_into_internal_stage_activity,
     insert_into_s3_activity_from_stage,
 ]
