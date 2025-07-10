@@ -387,6 +387,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         raise NotImplementedError()
 
+    @extend_schema(exclude=True)
     @action(
         methods=["POST", "DELETE"],
         detail=True,
