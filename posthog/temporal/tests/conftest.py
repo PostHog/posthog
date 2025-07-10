@@ -108,7 +108,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.batch_exports import WORKFLOWS
+        from products.batch_exports.backend.temporal import WORKFLOWS
 
         return WORKFLOWS
 
@@ -123,7 +123,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.batch_exports import ACTIVITIES
+        from products.batch_exports.backend.temporal import ACTIVITIES
 
         return ACTIVITIES
 

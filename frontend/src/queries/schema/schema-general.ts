@@ -722,8 +722,6 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
-    /** Use recent_events table (last 7 days) for better performance when querying recent data */
-    useRecentEventsTable?: boolean
 }
 
 /**
@@ -2032,6 +2030,14 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     withFirstEvent?: boolean
     limit?: integer
     offset?: integer
+}
+
+export interface ErrorTrackingSceneToolOutput
+    extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
+    newFilters?: AnyPropertyFilter[]
+    removedFilterIndexes?: integer[]
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
 }
 
 export interface ErrorTrackingIssueAssignee {

@@ -498,8 +498,9 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         }
     }
 
-    async flush(): Promise<void> {
+    async flush(): Promise<TopicMessage[]> {
         await Promise.resolve(this.compareFinalStates())
+        return []
     }
 
     compareFinalStates(): void {
