@@ -1147,22 +1147,6 @@
             "label": "Sentry event ID",
             "system": true
         },
-        "$sentry_exception": {
-            "description": "Raw Sentry exception data.",
-            "label": "Sentry exception",
-            "system": true
-        },
-        "$sentry_exception_message": {
-            "label": "Sentry exception message"
-        },
-        "$sentry_exception_type": {
-            "description": "Class name of the exception object.",
-            "label": "Sentry exception type"
-        },
-        "$sentry_tags": {
-            "description": "Tags sent to Sentry along with the exception.",
-            "label": "Sentry tags"
-        },
         "$sentry_url": {
             "description": "Direct link to the exception in Sentry",
             "examples": ["https://sentry.io/..."],
@@ -3253,22 +3237,6 @@
             "examples": ["byroc2ar9ee4ijqp"],
             "label": "Sentry event ID",
             "system": true
-        },
-        "$sentry_exception": {
-            "description": "Raw Sentry exception data.",
-            "label": "Sentry exception",
-            "system": true
-        },
-        "$sentry_exception_message": {
-            "label": "Sentry exception message"
-        },
-        "$sentry_exception_type": {
-            "description": "Class name of the exception object.",
-            "label": "Sentry exception type"
-        },
-        "$sentry_tags": {
-            "description": "Tags sent to Sentry along with the exception.",
-            "label": "Sentry tags"
         },
         "$sentry_url": {
             "description": "Direct link to the exception in Sentry",

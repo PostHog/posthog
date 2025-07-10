@@ -40,7 +40,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
     connect((props: TaxonomicBreakdownFilterLogicProps) => ({
         values: [
             insightVizDataLogic(props.insightProps),
-            ['currentDataWarehouseSchemaColumns', 'isDataWarehouseSeries'],
+            ['currentDataWarehouseSchemaColumns', 'hasDataWarehouseSeries'],
             propertyDefinitionsModel,
             ['getPropertyDefinition'],
             featureFlagLogic,
@@ -136,12 +136,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         isAddBreakdownDisabled: [
-            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.isDataWarehouseSeries],
-            ({ breakdown, breakdowns, breakdown_type }, isMultipleBreakdownsEnabled, isDataWarehouseSeries) => {
+            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.hasDataWarehouseSeries],
+            ({ breakdown, breakdowns, breakdown_type }, isMultipleBreakdownsEnabled, hasDataWarehouseSeries) => {
                 // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
                 if (
                     isMultipleBreakdownsEnabled &&
-                    !isDataWarehouseSeries &&
+                    !hasDataWarehouseSeries &&
                     (!breakdown_type || isMultipleBreakdownType(breakdown_type))
                 ) {
                     return !!breakdowns && breakdowns.length >= 3
