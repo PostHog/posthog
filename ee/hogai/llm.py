@@ -1,8 +1,8 @@
 import datetime
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.outputs import LLMResult
 from langchain_core.messages import BaseMessage, SystemMessage
-from langchain_core.outputs import ChatResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
 import pytz
@@ -68,8 +68,8 @@ class MaxChatOpenAI(ChatOpenAI):
         self,
         messages: list[list[BaseMessage]],
         *args,
-        **kwargs: Any,
-    ) -> ChatResult:
+        **kwargs,
+    ) -> LLMResult:
         project_org_user_variables = self._get_project_org_user_variables()
         self._enrich_messages(messages, project_org_user_variables)
         return super().generate(messages, *args, **kwargs)
@@ -78,8 +78,8 @@ class MaxChatOpenAI(ChatOpenAI):
         self,
         messages: list[list[BaseMessage]],
         *args,
-        **kwargs: Any,
-    ) -> ChatResult:
+        **kwargs,
+    ) -> LLMResult:
         project_org_user_variables = await sync_to_async(self._get_project_org_user_variables)()
         self._enrich_messages(messages, project_org_user_variables)
         return await super().agenerate(messages, *args, **kwargs)
