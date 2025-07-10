@@ -472,9 +472,12 @@ def get_csp_event(request):
     if csp_report and isinstance(csp_report, list):
         # For list of reports, use the first one's distinct_id for feature flag check
         first_distinct_id = csp_report[0].get("distinct_id", None)
-    else:
+    elif csp_report and isinstance(csp_report, dict):
         # For single report, use the distinct_id for the same
         first_distinct_id = csp_report.get("distinct_id", None)
+    else:
+        # if a CSP report is submitted without one of the two accepted Content-Types, we bail
+        return cors_response(request, HttpResponse(status=status.HTTP_400_BAD_REQUEST))
 
     if first_distinct_id and posthoganalytics.feature_enabled("ingestion-new-capture-internal-csp", first_distinct_id):
         try:
