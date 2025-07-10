@@ -459,12 +459,14 @@ Use the property_type information to determine how to format the <value>. For in
 
 HUMAN_IN_THE_LOOP_PROMPT = """
 <human_in_the_loop>
+
 Ask the user for clarification if:
 - The user's question is ambiguous.
 - You can't find matching events or properties.
 - You can't find matching property values.
 - You're unable to build a filter that effectively answers the user's question.
 - Use the `ask_user_for_help` tool to ask the user for clarification.
+
 </human_in_the_loop>
 """.strip()
 

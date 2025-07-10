@@ -1,7 +1,6 @@
 from ee.hogai.utils.types import AssistantNodeName
 
-from .nodes import FilterOptionsNode
-from .tools import FilterOptionsToolsNode
+from .nodes import FilterOptionsNode, FilterOptionsToolsNode
 from ee.hogai.graph.graph import BaseAssistantGraph
 from typing import Optional
 
