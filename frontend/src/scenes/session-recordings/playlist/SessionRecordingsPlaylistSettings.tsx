@@ -6,7 +6,7 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { ReplayTabs } from '~/types'
-import { LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonBadge, LemonCheckbox } from '@posthog/lemon-ui'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -108,32 +108,11 @@ export function SessionRecordingsPlaylistTopSettings({
     const { selectedRecordings, sessionRecordings } = useValues(sessionRecordingsPlaylistLogic)
     const { handleAddToPlaylist, handleSelectUnselectAll } = useActions(sessionRecordingsPlaylistLogic)
 
-    const menuItems = [
-        {
-            label: 'Autoplay',
-            items: [
-                {
-                    label: 'Off',
-                    onClick: () => setAutoplayDirection(null),
-                    active: !autoplayDirection,
-                },
-                {
-                    label: 'Newer recordings',
-                    onClick: () => setAutoplayDirection('newer'),
-                    active: autoplayDirection === 'newer',
-                },
-                {
-                    label: 'Older recordings',
-                    onClick: () => setAutoplayDirection('older'),
-                    active: autoplayDirection === 'older',
-                },
-            ],
-        },
-        ...(!playlistsLoading && playlists.results.length > 0 && selectedRecordings.length > 0
+    const actionsMenuItems =
+        !playlistsLoading && playlists.results.length > 0
             ? [
                   {
                       label: 'Add to collection',
-                      active: selectedRecordings.length > 0,
                       items: playlists.results.map((playlist) => ({
                           label: (
                               <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>
@@ -142,8 +121,7 @@ export function SessionRecordingsPlaylistTopSettings({
                       })),
                   },
               ]
-            : []),
-    ]
+            : []
 
     return (
         <SettingsBar border="none" className="justify-between">
@@ -162,7 +140,39 @@ export function SessionRecordingsPlaylistTopSettings({
                     </span>
                 ) : null}
             </div>
-            <SettingsMenu items={menuItems} icon={<IconEllipsis className="rotate-90" />} />
+            <div className="flex items-center">
+                {selectedRecordings.length > 0 && (
+                    <SettingsMenu
+                        items={actionsMenuItems}
+                        label={<LemonBadge.Number count={selectedRecordings.length} size="small" />}
+                    />
+                )}
+                <SettingsMenu
+                    items={[
+                        {
+                            label: 'Autoplay',
+                            items: [
+                                {
+                                    label: 'Off',
+                                    onClick: () => setAutoplayDirection(null),
+                                    active: !autoplayDirection,
+                                },
+                                {
+                                    label: 'Newer recordings',
+                                    onClick: () => setAutoplayDirection('newer'),
+                                    active: autoplayDirection === 'newer',
+                                },
+                                {
+                                    label: 'Older recordings',
+                                    onClick: () => setAutoplayDirection('older'),
+                                    active: autoplayDirection === 'older',
+                                },
+                            ],
+                        },
+                    ]}
+                    icon={<IconEllipsis className="rotate-90" />}
+                />
+            </div>
         </SettingsBar>
     )
 }
