@@ -366,7 +366,6 @@ async def start_job_modeling_run(
 ) -> DataModelingJob:
     """Create a DataModelingJob record in an async-safe way."""
     job_create = database_sync_to_async(DataModelingJob.objects.create)
-
     return await job_create(
         team=team,
         saved_query=saved_query,
@@ -545,7 +544,7 @@ async def materialize_model(
     await logger.adebug("Copying query files in S3")
     prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
 
-    # await update_table_row_count(saved_query, row_count, logger)
+    await update_table_row_count(saved_query, row_count, logger)
 
     # Update the job record with the row count and completed status
     job.rows_materialized = row_count
@@ -1009,30 +1008,39 @@ class CreateTableActivityInputs:
 
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
-    """Activity that creates tables for a list of saved queries."""
+    """Create/attach tables and persist their row-count."""
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    logger = await bind_temporal_worker_logger(inputs.team_id)
+
+    async def _get_saved_query(model: str) -> DataWarehouseSavedQuery:
+        try:  # UUID?
+            return await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(
+                id=uuid.UUID(model), team_id=inputs.team_id
+            )
+        except ValueError:  # name
+            return await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(name=model, team_id=inputs.team_id)
+
     for model in inputs.models:
+        # ensure the table exists
         await create_table_from_saved_query(model, inputs.team_id)
+        saved_query = await _get_saved_query(model)
+        saved_query_table_id = getattr(saved_query, "table_id", None)
+        if not saved_query_table_id:
+            continue  # should never happen, but stay safe
 
-        # Fetch team and saved_query
-        team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
-        saved_query = await get_saved_query(team, model)
+        table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query_table_id)
 
-        # Get the most recent DataModelingJob for this saved_query
-        job = await database_sync_to_async(
-            DataModelingJob.objects.filter(saved_query=saved_query).order_by("-created_at").first
-        )()
-
-        if job and job.rows_materialized is not None:
-            await database_sync_to_async(update_table_row_count_sync)(saved_query, job)
-
-
-# Moved out of create_table_activity: update_table_row_count_sync
-def update_table_row_count_sync(saved_query, job):
-    table = saved_query.table
-    if table:
-        table.row_count = job.rows_materialized
-        table.save()
+        try:
+            if not table.row.url_pattern.startswith("s3://"):
+                raise ValueError("Table URL pattern does not start with s3://")
+            delta = deltalake.DeltaTable(
+                table.url_pattern,
+                storage_options=_get_credentials(),
+            )
+            table.row_count = delta.num_rows
+            await database_sync_to_async(table.save)()
+        except Exception as err:
+            await logger.aexception(f"Failed to update table row count for {model}: {err}")
 
 
 async def update_saved_query_status(

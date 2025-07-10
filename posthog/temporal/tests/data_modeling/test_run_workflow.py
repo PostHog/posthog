@@ -16,6 +16,7 @@ from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
 import pyarrow as pa
+import pandas as pd
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -150,7 +151,7 @@ async def test_create_table_activity(minio_client, activity_environment, ateam, 
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
 
-    table = await DataWarehouseTable.objects.aget(name=saved_query.name)
+    table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, name=saved_query.name)
     assert table.name == saved_query.name
     assert saved_query.normalized_name in table.url_pattern
 
@@ -809,10 +810,6 @@ async def test_run_workflow_with_minio_bucket(
                 # Verify row count was updated in the DataWarehouseTable
                 warehouse_table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, id=query.table_id)
                 assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
-                # Patch: Set row_count if it is None before asserting
-                if warehouse_table.row_count is None:
-                    warehouse_table.row_count = len(expected_data)
-                    await database_sync_to_async(warehouse_table.save)()
                 # Match the 50 page_view events defined above
                 assert warehouse_table.row_count == len(
                     expected_data
@@ -1151,3 +1148,37 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert new_job.status == DataModelingJob.Status.RUNNING
     assert new_job.workflow_id == "new-workflow"
     assert new_job.workflow_run_id == "new-run"
+
+
+def test_manual_delta_write():
+    bucket = os.environ.get("TEST_BUCKET", "test-data-modeling-9506f5af-9c6a-415f-9b5d-1e5dd7302fc5")
+    path = f"s3://{bucket}/manual_delta_write_test"
+    access_key = "object_storage_root_user"
+    secret_key = "object_storage_root_password"
+    endpoint_url = "http://objectstorage:19000"
+
+    # Make a DataFrame
+    df = pd.DataFrame({"foo": [1, 2, 3]})
+
+    # Try to write
+    deltalake.write_deltalake(
+        path,
+        df,
+        mode="overwrite",
+        storage_options={
+            "aws_access_key_id": access_key,
+            "aws_secret_access_key": secret_key,
+            "endpoint_url": endpoint_url,
+            "region_name": "us-east-1",
+            "AWS_ALLOW_HTTP": "true",
+        },
+    )
+
+    # Now check if the _delta_log/ exists
+    import fsspec
+
+    fs = fsspec.filesystem(
+        "s3", key=access_key, secret=secret_key, client_kwargs={"endpoint_url": endpoint_url}, use_ssl=False
+    )
+    delta_log_files = fs.glob(f"{bucket}/manual_delta_write_test/_delta_log/*.json")
+    assert delta_log_files, "No _delta_log/ files written, manual Delta write failed"
