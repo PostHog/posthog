@@ -719,10 +719,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         source_log_label = source or "listing"
 
         is_v2_enabled: bool = validated_data.get("blob_v2", False)
-        user_distinct_id: str = isinstance(request.user, User) and cast(User, request.user).distinct_id
+        user_distinct_id: str = str(cast(User, request.user).distinct_id) if isinstance(request.user, User) else "anon"
         is_v2_lts_enabled: bool = (
-            (user_distinct_id or "")
-            and posthoganalytics.feature_enabled(
+            posthoganalytics.feature_enabled(
                 USE_BLOB_V2_LTS,
                 user_distinct_id,
                 groups={
@@ -922,7 +921,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     if might_have_realtime:
                         might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
 
-                if might_have_realtime:
+                if might_have_realtime and not is_v2_enabled:
                     sources.append(
                         {
                             "source": "realtime",
@@ -930,12 +929,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             "end_timestamp": None,
                         }
                     )
-                    if not is_v2_enabled:
-                        # the UI will use this to try to load realtime snapshots
-                        # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                        # it takes a short while for the subscription to be sync'd into redis
-                        # let's use the network round trip time to get started
-                        publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+
+                    # the UI will use this to try to load realtime snapshots
+                    # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                    # it takes a short while for the subscription to be sync'd into redis
+                    # let's use the network round trip time to get started
+                    publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
                 response_data["sources"] = sources
 
