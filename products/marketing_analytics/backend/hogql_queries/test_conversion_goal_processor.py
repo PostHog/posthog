@@ -2399,7 +2399,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         campaign, source, count = spring_sale_result[0], spring_sale_result[1], spring_sale_result[2]
         assert campaign == "spring_sale", f"Expected spring_sale for April purchase, got {campaign}"
         assert source == "google", f"Expected google source for April, got {source}"
-        assert count >= 1, f"Expected at least 1 conversion attributed to spring_sale, got {count}"
+        assert count == 1, f"Expected 1 conversion attributed to spring_sale, got {count}"
 
         # Test May conversion attribution (should use mothers_day)
         processor_may = ConversionGoalProcessor(
@@ -2419,7 +2419,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         cte_query_may = processor_may.generate_cte_query(additional_conditions_may)
         response_may = execute_hogql_query(query=cte_query_may, team=self.team)
 
-        # Find the mothers_day attribution (May conversion should be attributed to mothers_day)
+        # Find the mothers_day attribution (May+ conversions should be attributed to mothers_day)
         assert (
             response_may.results is not None and len(response_may.results) > 0
         ), "Should have attribution results for May"
@@ -2436,7 +2436,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         may_campaign, may_source, may_count = mothers_day_result[0], mothers_day_result[1], mothers_day_result[2]
         assert may_campaign == "mothers_day", f"Expected mothers_day for May purchase, got {may_campaign}"
         assert may_source == "facebook", f"Expected facebook source for May, got {may_source}"
-        assert may_count >= 1, f"Expected at least 1 conversion attributed to mothers_day, got {may_count}"
+        assert may_count == 2, f"Expected 2 conversions attributed to mothers_day, got {may_count}"
 
         # Test June conversion attribution (should still use mothers_day - no new ads)
         processor_june = ConversionGoalProcessor(
@@ -2477,7 +2477,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         )
         assert june_campaign == "mothers_day", f"Expected mothers_day for June purchase, got {june_campaign}"
         assert june_source == "facebook", f"Expected facebook source for June, got {june_source}"
-        assert june_count >= 1, f"Expected at least 1 conversion attributed to mothers_day in June, got {june_count}"
+        assert june_count == 1, f"Expected 1 conversion attributed to mothers_day in June, got {june_count}"
 
     # ================================================================
     # 11. SAME-DAY TEMPORAL ATTRIBUTION TESTS - Intraday timing precision
@@ -4376,7 +4376,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         retarget_campaign, retarget_source, retarget_count = retarget_result[0], retarget_result[1], retarget_result[2]
         assert retarget_campaign == "retarget_feb", f"Expected retarget_feb for first purchase, got {retarget_campaign}"
         assert retarget_source == "facebook", f"Expected facebook source, got {retarget_source}"
-        assert retarget_count >= 1, f"Expected at least 1 conversion attributed to retarget_feb, got {retarget_count}"
+        assert retarget_count == 1, f"Expected 1 conversion attributed to retarget_feb, got {retarget_count}"
 
         # Second purchase should be attributed to upsell_campaign (Feb 22 ad before Mar 8 purchase)
         assert (
@@ -4387,7 +4387,7 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
             upsell_campaign == "upsell_campaign"
         ), f"Expected upsell_campaign for second purchase, got {upsell_campaign}"
         assert upsell_source == "email", f"Expected email source for second purchase, got {upsell_source}"
-        assert upsell_count >= 1, f"Expected at least 1 conversion attributed to upsell_campaign, got {upsell_count}"
+        assert upsell_count == 1, f"Expected 1 conversion attributed to upsell_campaign, got {upsell_count}"
 
     def test_cross_device_multi_distinct_id_attribution(self):
         """
@@ -4853,3 +4853,592 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert (
             "email_campaign/newsletter" not in results_dict
         ), f"email_campaign should not be attributed (outside 30-day window). Results: {results_dict}"
+
+    # ================================================================
+    # 16. ACTIONS WITH MULTIPLE EVENTS TESTS
+    # ================================================================
+
+    def test_actions_multiple_events_simple_count(self):
+        """
+        Test Case: Action with multiple events - TOTAL math counts all events
+
+        Scenario: Action defined with multiple events, user triggers both
+        Timeline:
+        - April 10: User sees ad (UTM pageview)
+        - April 15: User signs up (event 1 of action)
+        - April 20: User activates account (event 2 of action)
+
+        Expected: TOTAL math should count both events (2 conversions)
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["multi_event_user"], team=self.team)
+            _create_event(
+                distinct_id="multi_event_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "conversion_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            _create_event(distinct_id="multi_event_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-20"):
+            _create_event(distinct_id="multi_event_user", event="activate_account", team=self.team)
+            flush_persons_and_events()
+
+        # Create action with multiple events
+        action = Action.objects.create(
+            team=self.team, name="User Conversion", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
+        )
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="multi_events_total",
+            conversion_goal_name="Multi Events Total",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        campaign_name, source_name, conversion_count = response.results[0]
+
+        # Validation: TOTAL should count both events (2 conversions)
+        assert conversion_count == 2, f"Expected 2 conversions for TOTAL math, got {conversion_count}"
+        assert campaign_name == "conversion_campaign", f"Expected conversion_campaign, got {campaign_name}"
+        assert source_name == "google", f"Expected google source, got {source_name}"
+
+    def test_actions_multiple_events_unique_users(self):
+        """
+        Test Case: Action with multiple events - multiple unique users
+
+        Scenario: Action with multiple events, different users trigger different events
+        Timeline:
+        - April 10: Ad campaign (all users see it)
+        - April 15: User A signs up (event 1)
+        - April 20: User B activates account (event 2)
+        - April 25: User C signs up (event 1)
+        - April 30: User A activates account (event 2)
+
+        Expected: TOTAL = 4 conversions, DAU = 3 unique users
+        """
+        with freeze_time("2023-04-10"):
+            # Create users and show them the ad
+            for user_id in ["user_a", "user_b", "user_c"]:
+                _create_person(distinct_ids=[user_id], team=self.team)
+                _create_event(
+                    distinct_id=user_id,
+                    event="$pageview",
+                    team=self.team,
+                    properties={"utm_campaign": "multi_user_campaign", "utm_source": "facebook"},
+                )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            # User A signs up
+            _create_event(
+                distinct_id="user_a",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "ad_click"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-20"):
+            # User B activates account (without signing up in our data)
+            _create_event(
+                distinct_id="user_b",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "email_verification"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-25"):
+            # User C signs up
+            _create_event(
+                distinct_id="user_c",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "ad_click"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-30"):
+            # User A activates account (second event from same user)
+            _create_event(
+                distinct_id="user_a",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "email_verification"},
+            )
+            flush_persons_and_events()
+
+        # Create action with multiple events
+        action = Action.objects.create(
+            team=self.team,
+            name="User Conversion Steps",
+            steps_json=[{"event": "sign_up"}, {"event": "activate_account"}],
+        )
+
+        # Test with TOTAL math
+        goal_total = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="multi_users_total",
+            conversion_goal_name="Multi Users Total",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor_total = ConversionGoalProcessor(goal=goal_total, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor_total.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result for TOTAL, got {len(response.results)}"
+
+        # Validation: TOTAL should count all events (4 conversions total)
+        campaign_name, source_name, conversion_count = response.results[0]
+        assert conversion_count == 4, f"Expected 4 total conversions, got {conversion_count}"
+
+        # Test with DAU math
+        goal_dau = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="multi_users_dau",
+            conversion_goal_name="Multi Users DAU",
+            math=BaseMathType.DAU,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor_dau = ConversionGoalProcessor(goal=goal_dau, index=0, team=self.team)
+        cte_query_dau = processor_dau.generate_cte_query(additional_conditions)
+        response_dau = execute_hogql_query(query=cte_query_dau, team=self.team)
+
+        assert len(response_dau.results) == 1, f"Expected 1 result for DAU, got {len(response_dau.results)}"
+
+        # Validation: DAU should count unique users (3 unique users)
+        campaign_name_dau, source_name_dau, conversion_count_dau = response_dau.results[0]
+        assert conversion_count_dau == 3, f"Expected 3 unique users for DAU, got {conversion_count_dau}"
+
+    def test_actions_multiple_events_with_property_filters(self):
+        """
+        Test Case: Action with multiple events and property filters
+
+        Scenario: Action with multiple events, each with different property filters
+        Only events matching the property filters should be counted
+        Timeline:
+        - April 10: UTM pageview
+        - April 15: User signs up with source=ad_click (matches filter) ✅
+        - April 20: User activates with activation_type=email (matches filter) ✅
+        - April 25: User signs up with source=organic (doesn't match filter) ❌
+        - April 30: User activates with activation_type=phone (doesn't match filter) ❌
+
+        Expected: Should only count events that match the property filters (2 conversions)
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["filter_user"], team=self.team)
+            _create_event(
+                distinct_id="filter_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "property_filter_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            # Sign up with matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "ad_click"},  # This should match
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-20"):
+            # Activate with matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "email_verification"},  # This should match
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-25"):
+            # Sign up with non-matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="sign_up",
+                team=self.team,
+                properties={"source": "organic"},  # This should NOT match
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-30"):
+            # Activate with non-matching property
+            _create_event(
+                distinct_id="filter_user",
+                event="activate_account",
+                team=self.team,
+                properties={"activation_type": "phone_verification"},  # This should NOT match
+            )
+            flush_persons_and_events()
+
+        # Create action with multiple events and property filters
+        action = Action.objects.create(
+            team=self.team,
+            name="Filtered User Conversion",
+            steps_json=[
+                {"event": "sign_up", "properties": [{"key": "source", "value": "ad_click", "operator": "exact"}]},
+                {
+                    "event": "activate_account",
+                    "properties": [{"key": "activation_type", "value": "email_verification", "operator": "exact"}],
+                },
+            ],
+        )
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="filtered_multi_events",
+            conversion_goal_name="Filtered Multi Events",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Validation: Should only count events that match property filters (2 conversions)
+        campaign_name, source_name, conversion_count = response.results[0]
+        assert conversion_count == 2, f"Expected 2 matching conversions, got {conversion_count}"
+        assert campaign_name == "property_filter_campaign", f"Expected property_filter_campaign, got {campaign_name}"
+        assert source_name == "google", f"Expected google source, got {source_name}"
+
+    def test_actions_multiple_events_and_vs_or_semantics(self):
+        """
+        Test Case: Understanding AND vs OR semantics for actions with multiple events
+
+        Question: If an action has 2 events, and a user triggers both, is that:
+        - 1 conversion (AND logic - both events needed for 1 conversion)
+        - 2 conversions (OR logic - each event is a separate conversion)
+
+        This test clarifies the current behavior.
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["semantics_user"], team=self.team)
+            _create_event(
+                distinct_id="semantics_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "test_campaign", "utm_source": "google"},
+            )
+            flush_persons_and_events()
+
+        # User triggers ONLY the first event
+        with freeze_time("2023-04-15"):
+            _create_event(
+                distinct_id="semantics_user",
+                event="sign_up",
+                team=self.team,
+            )
+            flush_persons_and_events()
+
+        # Create action with 2 events
+        action_both_events = Action.objects.create(
+            team=self.team, name="Two Event Action", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
+        )
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action_both_events.id),
+            conversion_goal_id="semantics_test",
+            conversion_goal_name="Semantics Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        # Test with only first event triggered
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        first_event_only_count = response.results[0][2] if response.results else 0
+
+        # Now user triggers the second event too
+        with freeze_time("2023-04-20"):
+            _create_event(distinct_id="semantics_user", event="activate_account", team=self.team)
+            flush_persons_and_events()
+
+        # Test again with both events triggered
+        response_both = execute_hogql_query(query=cte_query, team=self.team)
+        both_events_count = response_both.results[0][2] if response_both.results else 0
+
+        # Validation: Multi-event actions use OR logic - each matching event is a separate conversion
+        assert first_event_only_count == 1, f"Expected 1 conversion after first event, got {first_event_only_count}"
+        assert both_events_count == 2, f"Expected 2 conversions (OR logic), got {both_events_count}"
+
+    def test_action_attribution_behavior_detailed(self):
+        """
+        Test Case: Actions with temporal attribution correctly attribute to prior UTM pageviews
+
+        Scenario: UTM pageview → action event
+        Expected: Action should attribute to the prior pageview UTM parameters
+        """
+        with freeze_time("2023-04-10"):
+            _create_person(distinct_ids=["attribution_test_user"], team=self.team)
+            _create_event(
+                distinct_id="attribution_test_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "paid_campaign", "utm_source": "google_ads"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-04-15"):
+            _create_event(distinct_id="attribution_test_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        action = Action.objects.create(team=self.team, name="Sign Up Action", steps_json=[{"event": "sign_up"}])
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="attribution_test",
+            conversion_goal_name="Attribution Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-04-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        campaign, source, count = response.results[0]
+        assert campaign == "paid_campaign", f"Expected paid_campaign, got {campaign}"
+        assert source == "google_ads", f"Expected google_ads, got {source}"
+        assert count == 1, f"Expected 1 conversion, got {count}"
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_integration_multi_event_actions_temporal_attribution(self):
+        """
+        Integration test: Multi-event ActionsNode temporal attribution vs EventsNode
+
+        Validates:
+        - Multi-event actions correctly attribute to prior pageview UTMs
+        - ActionsNode vs EventsNode SQL generation differences
+        - OR logic for actions containing multiple events
+
+        Scenario: UTM pageview → sign_up event → activate_account event
+        Expected: Both action events attribute to same pageview UTMs
+        """
+        # Create test data with temporal attribution scenario
+        with freeze_time("2023-06-01 10:00:00"):
+            _create_person(distinct_ids=["test_user"], team=self.team)
+            _create_event(
+                distinct_id="test_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "summer_launch", "utm_source": "twitter_ads"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-06-01 10:05:00"):
+            _create_event(distinct_id="test_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        with freeze_time("2023-06-01 10:10:00"):
+            _create_event(distinct_id="test_user", event="activate_account", team=self.team)
+            flush_persons_and_events()
+
+        # Create multi-event action
+        action = Action.objects.create(
+            team=self.team, name="User Onboarding", steps_json=[{"event": "sign_up"}, {"event": "activate_account"}]
+        )
+
+        # Configure processors for comparison
+        schema_map = {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"}
+
+        events_goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="sign_up",
+            conversion_goal_id="events_test",
+            conversion_goal_name="Events Test",
+            math=BaseMathType.TOTAL,
+            schema_map=schema_map,
+        )
+
+        actions_goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="actions_test",
+            conversion_goal_name="Actions Test",
+            math=BaseMathType.TOTAL,
+            schema_map=schema_map,
+        )
+
+        date_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-06-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-06-02")]),
+            ),
+        ]
+
+        # Execute queries
+        events_processor = ConversionGoalProcessor(goal=events_goal, index=0, team=self.team)
+        actions_processor = ConversionGoalProcessor(goal=actions_goal, index=1, team=self.team)
+
+        events_query = events_processor.generate_cte_query(date_conditions)
+        actions_query = actions_processor.generate_cte_query(date_conditions)
+
+        events_response = execute_hogql_query(query=events_query, team=self.team)
+        actions_response = execute_hogql_query(query=actions_query, team=self.team)
+
+        # Validate attribution results
+        assert len(events_response.results) == 1
+        assert len(actions_response.results) == 1
+
+        events_campaign, events_source, events_count = events_response.results[0]
+        actions_campaign, actions_source, actions_count = actions_response.results[0]
+
+        # Both should attribute to same UTM source
+        assert events_campaign == actions_campaign == "summer_launch"
+        assert events_source == actions_source == "twitter_ads"
+
+        # ActionsNode should count both events, EventsNode only one
+        assert events_count == 1
+        assert actions_count == 2
+
+        assert pretty_print_in_tests(actions_response.hogql, self.team.pk) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_integration_actions_node_temporal_attribution_sql_validation(self):
+        """
+        Integration test: ActionsNode temporal attribution with SQL structure validation
+
+        Validates:
+        - End-to-end ActionsNode temporal attribution functionality
+        - Correct SQL generation with OR logic for temporal UTM lookup
+        - Action condition distribution across array collection queries
+
+        Scenario: UTM pageview → action event
+        Expected: Action correctly attributes to prior pageview UTMs
+        """
+        # Create temporal attribution test data
+        with freeze_time("2023-05-01"):
+            _create_person(distinct_ids=["test_user"], team=self.team)
+            _create_event(
+                distinct_id="test_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_campaign", "utm_source": "facebook"},
+            )
+            flush_persons_and_events()
+
+        with freeze_time("2023-05-02"):
+            _create_event(distinct_id="test_user", event="sign_up", team=self.team)
+            flush_persons_and_events()
+
+        # Create action and processor
+        action = _create_action(team=self.team, name="User Signup Action", event_name="sign_up")
+
+        goal = ConversionGoalFilter2(
+            kind=NodeKind.ACTIONS_NODE,
+            id=str(action.id),
+            conversion_goal_id="signup_test",
+            conversion_goal_name="Signup Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team)
+
+        date_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-05-03")]),
+            ),
+        ]
+
+        # Execute query and validate attribution results
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        assert len(response.results) == 1
+        campaign_name, source_name, conversion_count = response.results[0]
+
+        assert campaign_name == "spring_campaign"
+        assert source_name == "facebook"
+        assert conversion_count == 1
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot

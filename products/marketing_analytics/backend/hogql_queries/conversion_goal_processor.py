@@ -63,7 +63,7 @@ class ConversionGoalProcessor:
 
     def get_utm_expressions(self) -> tuple[ast.Expr, ast.Expr]:
         """Build UTM campaign and source expressions for different node types"""
-        schema_map = getattr(self.goal, "schema_map", {}) or {}
+        schema_map = self.goal.schema_map
         campaign_field = schema_map.get("utm_campaign_name", "utm_campaign")
         source_field = schema_map.get("utm_source_name", "utm_source")
 
@@ -94,14 +94,14 @@ class ConversionGoalProcessor:
     def _build_dau_select(self) -> ast.Expr:
         """Build DAU (Daily Active Users) select expression"""
         if self.goal.kind == "DataWarehouseNode":
-            schema_map = getattr(self.goal, "schema_map", {}) or {}
+            schema_map = self.goal.schema_map
             distinct_id_field = schema_map.get("distinct_id_field", "distinct_id")
             return ast.Call(name="uniq", args=[ast.Field(chain=[distinct_id_field])])
         return ast.Call(name="uniq", args=[ast.Field(chain=["events", "distinct_id"])])
 
     def _build_sum_select(self) -> ast.Expr:
         """Build SUM aggregation select expression"""
-        math_property = getattr(self.goal, "math_property", None)
+        math_property = self.goal.math_property
         if not math_property:
             return ast.Constant(value=0)
 
@@ -123,7 +123,7 @@ class ConversionGoalProcessor:
         conditions: list[ast.Expr] = []
 
         if self.goal.kind == "EventsNode":
-            event_name = getattr(self.goal, "event", None)
+            event_name = self.goal.event
             if event_name:
                 conditions.append(
                     ast.CompareOperation(
@@ -133,7 +133,7 @@ class ConversionGoalProcessor:
                     )
                 )
         elif self.goal.kind == "ActionsNode":
-            action_id = getattr(self.goal, "id", None)
+            action_id = self.goal.id
             if action_id:
                 action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
                 conditions.append(action_to_expr(action))
@@ -143,7 +143,7 @@ class ConversionGoalProcessor:
     def get_date_field(self) -> str:
         """Get appropriate timestamp field based on goal type"""
         if self.goal.kind == "DataWarehouseNode":
-            schema_map = getattr(self.goal, "schema_map", {}) or {}
+            schema_map = self.goal.schema_map
             return schema_map.get("timestamp_field", "timestamp")
         return "events.timestamp"
 
@@ -165,7 +165,7 @@ class ConversionGoalProcessor:
 
     def _generate_funnel_query(self, additional_conditions: list[ast.Expr]) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window"""
-        conversion_event: Optional[str] = getattr(self.goal, "event", None) if self.goal.kind == "EventsNode" else None
+        conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
 
         # Build complete WHERE conditions
         where_conditions = self.get_base_where_conditions()
@@ -184,7 +184,7 @@ class ConversionGoalProcessor:
         self, conversion_event: Optional[str], where_conditions: list[ast.Expr]
     ) -> ast.SelectQuery:
         """Build subquery that collects arrays of conversion and UTM data per person"""
-        schema_map = getattr(self.goal, "schema_map", {}) or {}
+        schema_map = self.goal.schema_map
         utm_campaign_field = schema_map.get("utm_campaign_name", "utm_campaign")
         utm_source_field = schema_map.get("utm_source_name", "utm_source")
 
@@ -247,6 +247,12 @@ class ConversionGoalProcessor:
                     self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
                 ]
             )
+        elif self.goal.kind == "ActionsNode" and self.attribution_window_days > 0:
+            # For ActionsNode with attribution, we need both action events and pageview events
+            action_conditions = self.get_base_where_conditions()
+            action_filter = self._build_action_event_filter(action_conditions, date_conditions)
+            pageview_filter = self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field)
+            event_filter = ast.Or(exprs=[action_filter, pageview_filter])
         else:
             # For general queries, apply date conditions to all events
             event_filter = self._build_general_event_filter(date_conditions)
@@ -254,6 +260,28 @@ class ConversionGoalProcessor:
         # Combine all conditions
         all_conditions = [event_filter, *non_event_conditions]
         return ast.And(exprs=all_conditions) if len(all_conditions) > 1 else all_conditions[0]
+
+    def _build_action_event_filter(
+        self, action_conditions: list[ast.Expr], date_conditions: list[ast.Expr]
+    ) -> ast.Expr:
+        """Build filter for action events with their specific date constraints"""
+        conditions: list[ast.Expr] = []
+
+        # Add action conditions (this includes the action_to_expr logic)
+        conditions.extend(action_conditions)
+
+        # Apply regular date conditions to action events
+        for date_condition in date_conditions:
+            if isinstance(date_condition, ast.CompareOperation):
+                conditions.append(
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["events", "timestamp"]),
+                        op=date_condition.op,
+                        right=self._ensure_datetime_call(date_condition.right),
+                    )
+                )
+
+        return ast.And(exprs=conditions) if conditions else ast.Constant(value=True)
 
     def _build_conversion_event_filter(self, conversion_event: str, date_conditions: list[ast.Expr]) -> ast.Expr:
         """Build filter for conversion events with their specific date constraints"""
@@ -426,13 +454,26 @@ class ConversionGoalProcessor:
 
     def _build_conversion_event_condition(self, conversion_event: Optional[str]) -> ast.Expr:
         """Build condition for conversion event matching"""
-        if not conversion_event:
-            return ast.Constant(value=True)
-        return ast.CompareOperation(
-            left=ast.Field(chain=["events", "event"]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=conversion_event),
-        )
+        if conversion_event:
+            return ast.CompareOperation(
+                left=ast.Field(chain=["events", "event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=conversion_event),
+            )
+
+        # For ActionsNode (when conversion_event is None), we need to use the action condition
+        # instead of matching all events
+        if self.goal.kind == "ActionsNode":
+            action_id = self.goal.id
+            if action_id:
+                try:
+                    action = Action.objects.get(pk=int(action_id), team__project_id=self.team.project_id)
+                    return action_to_expr(action)
+                except Action.DoesNotExist:
+                    return ast.Constant(value=False)
+
+        # Fallback for other cases
+        return ast.Constant(value=True)
 
     def _get_conversion_value_expr(self) -> ast.Expr:
         """Get conversion value expression for array collection"""
@@ -441,7 +482,7 @@ class ConversionGoalProcessor:
         if math_type in [BaseMathType.DAU, "dau"]:
             return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
         elif math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
-            math_property = getattr(self.goal, "math_property", None)
+            math_property = self.goal.math_property
             if math_property:
                 property_field = ast.Field(chain=["events", "properties", math_property])
                 to_float_expr = ast.Call(name="toFloat", args=[property_field])
@@ -646,10 +687,9 @@ class ConversionGoalProcessor:
             expr=ast.Call(
                 name="if",
                 args=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["last_utm_timestamp"]),
-                        op=ast.CompareOperationOp.NotEq,
-                        right=ast.Constant(value=None),
+                    ast.Call(
+                        name="isNotNull",
+                        args=[ast.Field(chain=["last_utm_timestamp"])],
                     ),
                     ast.ArrayAccess(
                         array=ast.Field(chain=[utm_array_field]),
@@ -894,6 +934,16 @@ class ConversionGoalProcessor:
 
     def _is_event_condition(self, condition: ast.Expr, conversion_event: Optional[str]) -> bool:
         """Check if condition filters on event types that we handle explicitly"""
+        # For ActionsNode, we need to check if this is an action condition
+        if self.goal.kind == "ActionsNode" and conversion_event is None:
+            # Check if this condition comes from action_to_expr (complex action conditions)
+            # Action conditions can be complex AST expressions, not just simple event comparisons
+            # We identify them by checking if they're in our base conditions
+            base_conditions = self.get_base_where_conditions()
+            for base_condition in base_conditions:
+                if condition == base_condition:
+                    return True
+
         if isinstance(condition, ast.CompareOperation):
             if (
                 isinstance(condition.left, ast.Field)
@@ -914,7 +964,7 @@ def add_conversion_goal_property_filters(
     team: Team,
 ) -> list[ast.Expr]:
     """Add property filters for conversion goals"""
-    conversion_goal_properties = getattr(conversion_goal, "properties", None)
+    conversion_goal_properties = conversion_goal.properties
     if conversion_goal_properties:
         property_expr = property_to_expr(conversion_goal_properties, team=team, scope="event")
         if property_expr:
