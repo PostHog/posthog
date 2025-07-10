@@ -313,14 +313,14 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             EmailVerifier.create_token_and_send_email_verification(instance)
 
+        if validated_data.get("notification_settings"):
+            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
+
         # Update password
         current_password = validated_data.pop("current_password", None)
         password = self.validate_password_change(
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
-
-        if validated_data.get("notification_settings"):
-            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
 
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))
