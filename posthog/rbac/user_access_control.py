@@ -378,16 +378,19 @@ class UserAccessControl:
         Unlike check_access_level_for_object, this requires that one of these conditions is true:
         1. The user is the creator of the object
         2. The user is explicitly a project admin
-        2. The user is an org admin
+        3. The user is an org admin
+        4. The user has "manage" access to the resource
         """
 
         if getattr(obj, "created_by", None) == self._user:
             # TODO: Should this always be the case, even for projects?
             return True
 
-        # If they aren't the creator then they need to be a project admin or org admin
+        # If they aren't the creator then they need to be a project admin, org admin, or have "manage" access to the resource
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
-        return self.check_access_level_for_object(self._team or obj, required_level="admin", explicit=True)
+        return self.check_access_level_for_object(
+            self._team, required_level="admin", explicit=True
+        ) or self.check_access_level_for_object(obj, required_level="manage", explicit=True)
 
     def get_access_source_for_object(
         self, obj: Model, resource: Optional[APIScopeObject] = None
