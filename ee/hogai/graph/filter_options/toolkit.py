@@ -220,7 +220,6 @@ class FilterOptionsToolkit:
                     if prop.get("type") is not None
                 ],
             )
-            # props = self._enrich_props_with_descriptions("session", qs)
         elif entity == "event":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.EVENT).values_list(
                 "name", "property_type"
