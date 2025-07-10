@@ -161,7 +161,7 @@ export function MetricRowGroup({
 
                 {/* Details column - with rowspan */}
                 <td
-                    className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative overflow-hidden ${
+                    className={`w-1/5 border-r border-border-bold p-3 align-top relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
                     rowSpan={totalRows}
@@ -170,7 +170,9 @@ export function MetricRowGroup({
                         maxHeight: `${CELL_HEIGHT * totalRows}px`,
                     }}
                 >
-                    <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                    <div className="flex justify-end">
+                        <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                    </div>
                     <DetailsModal
                         isOpen={isModalOpen}
                         onClose={() => setIsModalOpen(false)}
