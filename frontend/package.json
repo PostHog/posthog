@@ -29,6 +29,7 @@
         "start": "if [ -n \"$SKIP_TYPEGEN\" ]; then pnpm start-no-typegen; else pnpm start-all; fi",
         "start-all": "concurrently -n VITE,TYPEGEN,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\" \"pnpm watch:tailwind\"",
         "start-no-typegen": "concurrently -n VITE,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"pnpm watch:tailwind\"",
+        "start-hmr": "concurrently -n VITE,TAILWIND -c yellow,blue \"pnpm start-http\" \"pnpm watch:tailwind\"",
         "start-http": "pnpm clean && pnpm copy-scripts && pnpm dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
         "dev": "vite --host 0.0.0.0",
