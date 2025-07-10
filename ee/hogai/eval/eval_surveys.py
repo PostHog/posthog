@@ -187,19 +187,19 @@ async def eval_surveys(call_surveys_max_tool):
             # Test case 1: NPS survey should have rating question first
             EvalCase(
                 input="Create an NPS survey to measure customer loyalty",
-                expected={"first_question_type": "rating", "min_questions": 1, "survey_intent": "nps"},
+                expected={"first_question_type": "rating", "min_questions": 1},
                 metadata={"test_type": "nps_survey"},
             ),
             # Test case 2: PMF survey should have single choice question first
             EvalCase(
                 input="Create a PMF survey to measure product-market fit",
-                expected={"first_question_type": "single_choice", "min_questions": 1, "survey_intent": "pmf"},
+                expected={"first_question_type": "single_choice", "min_questions": 1},
                 metadata={"test_type": "pmf_survey"},
             ),
             # Test case 3: Open feedback survey should have open text question first
             EvalCase(
                 input="Create an open feedback survey for general customer insights",
-                expected={"first_question_type": "open", "min_questions": 1, "survey_intent": "open_feedback"},
+                expected={"first_question_type": "open", "min_questions": 1},
                 metadata={"test_type": "open_feedback_survey"},
             ),
         ],
