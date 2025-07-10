@@ -2,8 +2,10 @@ from typing import Any, Optional
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedSessionBatchEventsQueryResponse,
+    EventsQuery,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
     SessionEventsItem,
@@ -15,8 +17,8 @@ from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVE
 SessionEventsResults = dict[str, list[list[Any]]]  # session_id -> events mapping
 
 
-class SessionBatchEventsQueryRunner(EventsQueryRunner):
-    """Extended EventsQueryRunner for batch session event queries."""
+class SessionBatchEventsQueryRunner(QueryRunner):
+    """Query runner for batch session event queries using composition with EventsQueryRunner."""
 
     query: SessionBatchEventsQuery
     response: SessionBatchEventsQueryResponse
@@ -24,10 +26,52 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Create an EventsQueryRunner for delegation
+        self._events_runner = self._create_events_runner()
         # Override the paginator to use our query's limit and offset
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
+
+    def _create_events_runner(self) -> EventsQueryRunner:
+        """
+        Use composition instead of inheritance to avoid type issues.
+        - Initial implementation has `SessionBatchEventsQuery` inherit from `EventsQuery`.
+        - As it's auto-generated from the schema, inheritance is not possible, while types are compatible.
+        - To avoid duplicating lots of code and type issues, use EventsQueryRunner methods where's applicable.
+        """
+        events_query = EventsQuery(
+            kind="EventsQuery",
+            select=self.query.select,
+            where=self.query.where,
+            properties=self.query.properties,
+            fixedProperties=self.query.fixedProperties,
+            orderBy=self.query.orderBy,
+            limit=self.query.limit,
+            offset=self.query.offset,
+            after=self.query.after,
+            before=self.query.before,
+            event=self.query.event,
+            actionId=self.query.actionId,
+            personId=self.query.personId,
+            filterTestAccounts=self.query.filterTestAccounts,
+            source=self.query.source,
+        )
+        return EventsQueryRunner(
+            query=events_query,
+            team=self.team,
+            timings=self.timings,
+            limit_context=self.limit_context,
+            modifiers=self.modifiers,
+        )
+
+    def to_query(self):
+        """Delegate to EventsQueryRunner."""
+        return self._events_runner.to_query()
+
+    def columns(self, result_columns):
+        """Delegate to EventsQueryRunner."""
+        return self._events_runner.columns(result_columns)
 
     def calculate(self) -> SessionBatchEventsQueryResponse:
         """
