@@ -740,7 +740,7 @@ describe('PersonState.processEvent()', () => {
     })
 
     describe('on person update', () => {
-        it('updates person properties xx', async () => {
+        it('updates person properties', async () => {
             await createPerson(hub, timestamp, { b: 3, c: 4, toString: {} }, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
