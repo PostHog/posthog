@@ -62,7 +62,10 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  throw Error('Bad response:', res.status, res.body)
+  print('Bad response:', res.status, res.body)
+  throw Error('Bad response')
+} else {
+  print('Success:', res.status, res.body)
 }
 """.strip(),
     inputs_schema=[
@@ -147,7 +150,10 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  throw Error('Bad response:', res.status, res.body)
+  print('Bad response:', res.status, res.body)
+  throw Error('Bad response)
+} else {
+  print('Success:', res.status, res.body)
 }
 """.strip(),
     inputs_schema=[
