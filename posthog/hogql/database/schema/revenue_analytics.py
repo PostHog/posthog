@@ -147,7 +147,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
     elif len(queries) == 1:
         return queries[0]
     else:
-        ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 
 
 class RawPersonsRevenueAnalyticsTable(LazyTable):
