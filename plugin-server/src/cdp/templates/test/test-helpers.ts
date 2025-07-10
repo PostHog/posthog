@@ -154,6 +154,10 @@ export class TemplateTester {
         this.executor = new HogExecutorService(this.mockHub)
     }
 
+    createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
+        return createGlobals(globals)
+    }
+
     async invoke(
         _inputs: Record<string, any>,
         _globals?: DeepPartialHogFunctionInvocationGlobals
@@ -163,7 +167,7 @@ export class TemplateTester {
         }
 
         const compiledInputs = await compileInputs(this.template, _inputs)
-        const globals = createGlobals(_globals)
+        const globals = this.createGlobals(_globals)
 
         const hogFunction: HogFunctionType = {
             ...this.template,
@@ -237,7 +241,7 @@ export class TemplateTester {
 
         compiledMappingInputs.inputs = inputsObj
 
-        const globalsWithInputs = await buildGlobalsWithInputs(createGlobals(_globals), {
+        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(_globals), {
             ...compiledInputs,
             ...compiledMappingInputs.inputs,
         })
