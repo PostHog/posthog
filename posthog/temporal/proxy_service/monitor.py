@@ -413,7 +413,12 @@ Issues have been detected with the proxy
                 ),
             )
         except ActivityError as e:
-            if hasattr(e, "cause") and e.cause and e.cause.type != "RecordDeletedException":
+            if (
+                hasattr(e, "cause")
+                and e.cause
+                and hasattr(e.cause, "type")
+                and e.cause.type != "RecordDeletedException"
+            ):
                 raise
 
             # cleanup the monitor schedule if the record's been deleted

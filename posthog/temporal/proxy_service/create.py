@@ -420,7 +420,12 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
             )
 
         except ActivityError as e:
-            if hasattr(e, "cause") and e.cause and e.cause.type != "RecordDeletedException":
+            if (
+                hasattr(e, "cause")
+                and e.cause
+                and hasattr(e.cause, "type")
+                and e.cause.type != "RecordDeletedException"
+            ):
                 raise
 
             logger.info(
