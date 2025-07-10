@@ -75,6 +75,7 @@ export class HogFlowExecutorService {
             this.hogFunctionExecutor,
             this.hogFunctionTemplateManager
         )
+        handlers.set('function', hogFunctionHandler)
         handlers.set('function_sms', hogFunctionHandler)
         handlers.set('function_slack', hogFunctionHandler)
         handlers.set('function_email', hogFunctionHandler)
