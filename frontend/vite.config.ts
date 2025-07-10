@@ -51,7 +51,7 @@ export default defineConfig(({ command }) => {
             outDir: 'dist',
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/index.tsx'),
+                    index: resolve(__dirname, 'src/experimental_index.tsx'),
                     exporter: resolve(__dirname, 'src/exporter/index.tsx'),
                     toolbar: resolve(__dirname, 'src/toolbar/index.tsx'),
                 },

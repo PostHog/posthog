@@ -1,8 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import posthog, { CaptureResult } from 'posthog-js'
-
-// Inline specific feature flags to avoid circular dependency with lib/constants
-const TRACK_MEMORY_USAGE = 'track-memory-usage'
-const SESSION_RESET_ON_LOAD = 'session-reset-on-load'
 
 interface WindowWithCypressCaptures extends Window {
     // our Cypress tests will use this to check what events were sent to PostHog
@@ -41,7 +38,7 @@ export function loadPostHogJS(): void {
                 } else {
                     loadedInstance.opt_in_capturing()
 
-                    if (loadedInstance.getFeatureFlag(TRACK_MEMORY_USAGE)) {
+                    if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
                         // no point in tracking memory if it's not available
                         const hasMemory = 'memory' in window.performance
                         if (!hasMemory) {
@@ -77,7 +74,7 @@ export function loadPostHogJS(): void {
                 }
 
                 // This is a helpful flag to set to automatically reset the recording session on load for testing multiple recordings
-                const shouldResetSessionOnLoad = loadedInstance.getFeatureFlag(SESSION_RESET_ON_LOAD)
+                const shouldResetSessionOnLoad = loadedInstance.getFeatureFlag(FEATURE_FLAGS.SESSION_RESET_ON_LOAD)
                 if (shouldResetSessionOnLoad) {
                     loadedInstance.sessionManager?.resetSessionId()
                 }
