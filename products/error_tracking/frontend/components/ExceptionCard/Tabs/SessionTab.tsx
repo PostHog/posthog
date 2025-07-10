@@ -55,7 +55,7 @@ export function SessionTabContentNoRecording(): JSX.Element {
     return (
         <div className="flex justify-center w-full h-[300px] items-center">
             <EmptyMessage
-                title="Session recording not enabled"
+                title="Session recording disabled"
                 description="Enable session recordings to see what happened before the error occurred."
                 buttonText="Enable"
                 buttonTo={urls.replay()}
