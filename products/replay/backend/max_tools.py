@@ -8,6 +8,13 @@ from langgraph.config import get_stream_writer
 from ee.hogai.utils.types import AssistantState
 from collections.abc import AsyncIterator
 
+# Import the prompts you want to pass to the graph
+from .prompts import (
+    PRODUCT_DESCRIPTION_PROMPT,
+    SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+    SESSION_REPLAY_EXAMPLES_PROMPT,
+)
+
 
 class SearchSessionRecordingsArgs(BaseModel):
     change: str = Field(description="The specific change to be made to recordings filters, briefly described.")
@@ -29,7 +36,16 @@ class SearchSessionRecordingsTool(MaxTool):
         if not self._team or not self._user:
             raise ValueError("Team and User are required for the `search_session_recordings` tool")
 
-        graph = FilterOptionsGraph(team=self._team, user=self._user).compile_full_graph()
+        # Create graph with injected prompts
+        injected_prompts = {
+            "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
+            "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
+            "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
+        }
+
+        graph = FilterOptionsGraph(
+            team=self._team, user=self._user, injected_prompts=injected_prompts
+        ).compile_full_graph()
 
         graph_input = {
             "change": change,
@@ -62,7 +78,7 @@ class SearchSessionRecordingsTool(MaxTool):
                 help_content = str(content)
 
             current_filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
-            self._state = state
+
             return help_content, current_filters
 
         # Convert to the expected type

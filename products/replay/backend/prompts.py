@@ -2,6 +2,222 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN
 import json
 from datetime import datetime
 
+SESSION_REPLAY_RESPONSE_FORMATS_PROMPT = """
+<response_formats>
+Formats of responses
+1. Question Response Format
+When you need clarification or determines that additional information is required, you should return a response in the following format:
+{
+    "result": "question",
+    "data": {
+        "question": "Your clarifying question here."
+    }
+}
+2. Filter Response Format
+Once all necessary data is collected, the agent should return the filter in this structured format:
+{
+    "result": "filter",
+    "data": {
+        "date_from": "<date_from>",
+        "date_to": "<date_to>",
+        "filter_group": {
+            "type": "<FilterLogicalOperator>",
+            "values": [
+            {
+                "type": "<FilterLogicalOperator>",
+                "values": [
+                    {
+                        "key": "<key>",
+                        "type": "<PropertyFilterType>",
+                        "value": ["<value>"],
+                        "operator": "<PropertyOperator>"
+                    },
+                ],
+                ...
+            },
+        ]
+    }
+}
+
+Notes:
+1. Replace <date_from> and <date_to> with valid date strings.
+2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
+3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
+4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
+
+WHEN GENERATING A FILTER BASED ON MORE THAN ONE PROPERTY ALWAYS MAKE SURE TO KEEP THE OLD FILTERS. NEVER REMOVE ANY FILTERS.
+</response_formats>
+
+""".strip()
+
+
+SESSION_REPLAY_EXAMPLES_PROMPT = """
+<examples_and_rules>
+## Examples and Rules
+
+1. Combining Filters with the AND Operator
+
+If you need to combine multiple filter conditions using the AND operator, structure them as follows:
+
+json
+{
+"result": "filter",
+"data": {
+    "date_from": "<date_from>",
+    "date_to": "<date_to>",
+    "filter_group": {
+    "type": FilterLogicalOperator.AND,
+    "values": [
+        {
+        "type": FilterLogicalOperator.AND,
+        "values": [
+            {
+            "key": "<key>",
+            "type": PropertyFilterType.<Type>,  // e.g., PropertyFilterType.Person
+            "value": ["<value>"],
+            "operator": PropertyOperator.<Operator>  // e.g., PropertyOperator.Exact or PropertyOperator.IContains
+            }
+        ]
+        }
+    ]
+    }
+}
+}
+Notes
+- Use FilterLogicalOperator.AND to ensure that all specified conditions must be met.
+- The inner "values": [] array can include multiple filter items if needed.
+
+2. Combining Filters with the OR Operator
+
+When multiple conditions are acceptable (i.e., at least one must match), use the OR operator. The structure is similar, but with multiple groups in the outer array:
+
+json
+{
+"result": "filter",
+"data": {
+    "date_from": "<date_from>",
+    "date_to": "<date_to>",
+            "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],  // Use "gt", "lt", "gte", "lte"
+    "filter_group": {
+    "type": FilterLogicalOperator.OR,
+    "values": [
+        {
+        "type": FilterLogicalOperator.AND,
+        "values": [
+            {
+            "key": "<key>",
+            "type": PropertyFilterType.<Type>,
+            "value": ["<value>"],
+            "operator": PropertyOperator.<Operator>
+            }
+        ]
+        },
+        {
+        "type": FilterLogicalOperator.AND,
+        "values": [
+            {
+            "key": "<key>",
+            "type": PropertyFilterType.<Type>,
+            "value": ["<value>"],
+            "operator": PropertyOperator.<Operator>
+            }
+        ]
+        }
+    ]
+    }
+}
+}
+Notes:
+- The outer group uses FilterLogicalOperator.OR, while each nested group uses FilterLogicalOperator.AND for its individual conditions.
+- Multiple nested groups allow combining different filter criteria.
+
+3. Operator Selection Guidelines
+
+- Default Operators:
+In most cases, the operator can be either exact or contains:
+- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator ("PropertyOperator.IContains") since the URL may include parameters.
+
+- Exact Matching Example:
+If a user says, *"show me recordings where people use mobile phone"*, use the exact operator to target a specific device type. For example:
+
+json
+{
+    "result": "filter",
+    "data": {
+    "date_from": "<date_from>",
+    "date_to": "<date_to>",
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+    "filter_test_accounts": "<boolean>",
+    "filter_group": {
+        "type": FilterLogicalOperator.AND,
+        "values": [
+        {
+            "type": FilterLogicalOperator.AND,
+            "values": [
+            {
+                "key": "$device_type",
+                "type": PropertyFilterType.Person,
+                "value": ["Mobile"],
+                "operator": PropertyOperator.Exact
+            }
+            ]
+        }
+        ]
+    }
+    }
+}
+
+4. Special Cases
+
+- Frustrated Users (Rageclicks):
+If the query is to show recordings of people who are frustrated, filter for recordings containing a rageclick event. For example, use the event with:
+- "id": "$rageclick", "name": "$rageclick", "type": "event"
+
+- Users Facing Bugs/Errors/Problems:
+For queries asking for recordings of users experiencing bugs or errors, target recordings with many console errors. An example filter might look like:
+- Key: "level", Type: PropertyFilterType.Log_entry, Value: ["error"], Operator: PropertyOperator.Exact.
+
+- Default Filter Group:
+The blank, default `filter_group` value you can use is:
+
+json
+{
+    "type": FilterLogicalOperator.AND,
+    "values": [
+        {
+            "type": FilterLogicalOperator.AND,
+            "values": []
+        }
+    ]
+}
+
+- Show all recordings / clean filters:
+Return a default filter with default date range and no duration.
+
+json
+{
+    "result": "filter",
+    "data":
+    {
+            "order": "start_time",
+            "date_to": "null",
+            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+            "date_from": "-3d",
+            "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "filter_test_accounts": "true",
+        }
+}
+
+5. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
+6. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
+</examples_and_rules>
+""".strip()
+
+PRODUCT_DESCRIPTION_PROMPT = """
+PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings.
+""".strip()
+
+
 AI_FILTER_INITIAL_PROMPT = """
 PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings. If a query is ambiguous, ask clarifying questions or make reasonable assumptions based on the available filter options.
 

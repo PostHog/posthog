@@ -1,6 +1,6 @@
 from datetime import datetime
 
-SESSION_REPLAY_RESPONSE_FORMATS_PROMPT = """
+RESPONSE_FORMATS_PROMPT = """
 <response_formats>
 Formats of responses
 1. Question Response Format
@@ -42,9 +42,11 @@ Notes:
 2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
 3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
 4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the filtering process.
+
+WHEN GENERATING A FILTER BASED ON MORE THAN ONE PROPERTY ALWAYS MAKE SURE TO KEEP THE OLD FILTERS. NEVER REMOVE ANY FILTERS.
 </response_formats>
 
-"""
+""".strip()
 
 TOOL_USAGE_PROMPT = """
 <tool_usage_rules>
@@ -72,7 +74,7 @@ Example: If user mentions "account property 'team size'":
 3. After you find the property, use the tool `retrieve_entity_property_values` to get possible values of this property.
 3. If you could generate a filter then use the `final_answer` tool. ONLY USE `final_answer` if you have all the information you need to build the filter, if you don't have all the information you need then use the `ask_user_for_help` tool to clarify.
 </tool_usage_rules>
-"""
+""".strip()
 
 ALGORITHM_PROMPT = """
 <algorithm>
@@ -87,7 +89,7 @@ Strictly follow this algorithm:
 7. Return Structured Filter: Once all required data is collected, return a response with result containing the correctly structured answer as per the answer structure guidelines below.
 </algorithm>
 
-"""
+""".strip()
 
 GROUP_PROPERTY_FILTER_TYPES_PROMPT = """
 PostHog users can filter their data using various properties and values.
@@ -120,7 +122,7 @@ This is the list of all the groups that this user can generate filters for:
 {{#groups}}, {{.}}{{/groups}}
 If the user mentions a group that is not in this list you MUST infer the most similar group to the one the user is referring to.
 
-"""
+""".strip()
 
 FILTER_LOGICAL_OPERATORS_PROMPT = """
 <filter_logical_operator>
@@ -171,7 +173,7 @@ Property Operator
     --NotIn for 'not_in'
 
 </filter_logical_operator>
-"""
+""".strip()
 
 DATE_FIELDS_PROMPT = """
 <date_fields>
@@ -187,9 +189,9 @@ date_to:
 - Default Value: Set as null when the date range extends to today.
 - Custom Date: If a specific end date is required, use the format "YYYY-MM-DD".
 </date_fields>
-"""
+""".strip()
 
-SESSION_REPLAY_EXAMPLES_PROMPT = """
+EXAMPLES_PROMPT = """
 <examples_and_rules>
 ## Examples and Rules
 
@@ -349,12 +351,12 @@ json
 5. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
 6. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
 </examples_and_rules>
-"""
+""".strip()
 
 
 PRODUCT_DESCRIPTION_PROMPT = """
 PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings.
-"""
+""".strip()
 
 FILTER_INITIAL_PROMPT = """
 
@@ -364,7 +366,7 @@ FILTER_INITIAL_PROMPT = """
 {{{group_property_filter_types_prompt}}}
 
 
-{{{session_replay_response_formats_prompt}}}
+{{{response_formats_prompt}}}
 
 
 {{{date_fields_prompt}}}
@@ -373,11 +375,11 @@ FILTER_INITIAL_PROMPT = """
 {{{filter_logical_operators_prompt}}}
 
 
-{{{session_replay_examples_prompt}}}
+{{{examples_prompt}}}
 
 {{{tool_usage_prompt}}}
 
-"""
+""".strip()
 
 day = datetime.now().day
 today_date = datetime.now().strftime(f"{day} %B %Y")
@@ -454,7 +456,6 @@ Use the property_type information to determine how to format the <value>. For in
 
 """.strip()
 
-
 HUMAN_IN_THE_LOOP_PROMPT = """
 <human_in_the_loop>
 Ask the user for clarification if:
@@ -474,13 +475,8 @@ FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """I've tried several approaches but hav
 REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """I encountered an error while validating the tool input. Here's what went wrong:
 {{{exception}}}
 
-Please help me understand what you're looking for more clearly, and I'll try again."""
+Please help me understand what you're looking for more clearly, and I'll try again.""".strip()
 
-FILTER_SET_PROMPT = """
-The user has already set the following filters:
-
-{{{current_filters}}}
-"""
 
 USER_FILTER_OPTIONS_PROMPT = """
 Goal: {{{change}}}
@@ -489,6 +485,5 @@ Current filters: {{{current_filters}}}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 
-BE CAREFUL WITH THE OPERATORS. USE THE CORRECT OPERATORS FOR THE PROPERTY TYPE.
 Always use the enum format. For example PropertyOperator.Exact or directly 'exact'. DO NOT USE 'Exact' THE FILTER WILL FAIL IF YOU DO.
-"""
+""".strip()
