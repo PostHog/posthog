@@ -521,7 +521,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                             <i>How do I see ALL recordings for a specific user?</i>
                         </b>
                         <p>
-                            Go to People → <Link to={urls.persons()}>Persons</Link> , click on the user, then open the
+                            Go to People → <Link to={urls.persons()}>Persons</Link>, click on the user, then open the
                             Recordings tab.
                         </p>
                     </div>
