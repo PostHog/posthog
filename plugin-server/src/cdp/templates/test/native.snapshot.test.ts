@@ -1,4 +1,4 @@
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 
 import { SAMPLE_GLOBALS } from '~/cdp/_tests/fixtures'
 
@@ -10,8 +10,14 @@ for (const template of NATIVE_HOG_FUNCTIONS) {
 
     describe(`Testing snapshots for ${template.id} destination:`, () => {
         beforeEach(() => {
+            Settings.defaultZone = 'UTC'
             const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
             jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+        })
+
+        afterEach(() => {
+            Settings.defaultZone = 'system'
+            jest.useRealTimers()
         })
 
         for (const mapping of template.mapping_templates) {
