@@ -6996,7 +6996,7 @@ class ErrorTrackingIssue(BaseModel):
     aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
-    external_issues: list[ErrorTrackingExternalReference]
+    external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_event: Optional[FirstEvent] = None
     first_seen: datetime
     id: str
@@ -7037,7 +7037,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
-    external_issues: list[ErrorTrackingExternalReference]
+    external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_seen: datetime
     id: str
     name: Optional[str] = None
