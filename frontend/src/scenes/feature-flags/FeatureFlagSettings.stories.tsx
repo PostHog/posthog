@@ -151,7 +151,8 @@ export const Loading: Story = {
                 '/api/projects/:id': async (req, res, ctx) => {
                     // Simulate slow response
                     await new Promise((resolve) => setTimeout(resolve, 1000))
-                    return res(ctx.json({ ...MOCK_DEFAULT_TEAM, ...(await req.json()) }))
+                    const requestData = await req.json()
+                    return res(ctx.json({ ...MOCK_DEFAULT_TEAM, ...requestData }))
                 },
             },
         })
