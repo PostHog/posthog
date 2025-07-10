@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 
-import { findActionByType } from '~/cdp/services/hogflows/actions/utils'
+import { findActionByType } from '~/cdp/services/hogflows/hogflow-utils'
 import { HogFlow, HogFlowAction, HogFlowEdge } from '~/schema/hogflow'
 import { logger } from '~/utils/logger'
 

@@ -22,7 +22,9 @@ describe('CDP Internal Events Consumer', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+        })
         team = await getFirstTeam(hub)
 
         processor = new CdpInternalEventsConsumer(hub)

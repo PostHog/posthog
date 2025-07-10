@@ -1,5 +1,27 @@
 import { DateTime, DurationLike } from 'luxon'
 
+import { HogFlowAction } from '../../../../schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '../../../types'
+import { findContinueAction } from '../hogflow-utils'
+import { ActionHandler, ActionHandlerResult } from './action.interface'
+
+export class DelayHandler implements ActionHandler {
+    execute(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'delay' }>
+    ): ActionHandlerResult {
+        const nextScheduledAt = calculatedScheduledAt(
+            action.config.delay_duration,
+            invocation.state.currentAction?.startedAtTimestamp
+        )
+
+        return {
+            nextAction: findContinueAction(invocation),
+            scheduledAt: nextScheduledAt ?? undefined,
+        }
+    }
+}
+
 // Value is expected to be like `10d` or `1.5h` or `10m`
 
 const DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
