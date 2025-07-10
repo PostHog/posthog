@@ -873,15 +873,15 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-        # Test too many recordings (over 100 limit)
-        too_many_ids = [f"session_{i}" for i in range(101)]
+        # Test too many recordings (over 20 limit)
+        too_many_ids = [f"session_{i}" for i in range(21)]
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk",
             {"session_recording_ids": too_many_ids},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Cannot process more than 100 recordings at once" in response.json()["detail"]
+        assert "Cannot process more than 20 recordings at once" in response.json()["detail"]
 
     def test_cannot_bulk_add_to_filters_playlist(self):
         playlist = SessionRecordingPlaylist.objects.create(

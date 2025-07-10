@@ -407,8 +407,8 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
         if not session_recording_ids or not isinstance(session_recording_ids, list):
             raise ValidationError("session_recording_ids must be provided as a non-empty array")
 
-        if len(session_recording_ids) > 100:  # I think we should have a reasonable limit here
-            raise ValidationError("Cannot process more than 100 recordings at once")
+        if len(session_recording_ids) > 20:  # I think we should have a reasonable limit here
+            raise ValidationError("Cannot process more than 20 recordings at once")
 
         if request.method == "POST":
             if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
