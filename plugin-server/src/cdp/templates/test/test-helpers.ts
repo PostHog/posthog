@@ -293,6 +293,10 @@ export class DestinationTester {
         })
     }
 
+    createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
+        return createGlobals(globals)
+    }
+
     async invokeMapping(
         mapping_name: string,
         globals: HogFunctionInvocationGlobals,
@@ -337,7 +341,7 @@ export class DestinationTester {
 
         compiledMappingInputs.inputs = inputsObj
 
-        const globalsWithInputs = await buildGlobalsWithInputs(createGlobals(globals), {
+        const globalsWithInputs = await buildGlobalsWithInputs(this.createGlobals(globals), {
             ...compiledInputs,
             ...compiledMappingInputs.inputs,
         })
