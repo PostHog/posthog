@@ -38,15 +38,3 @@ class TwilioProvider:
                 f"Phone number {phone_number} could not be verified found in Twilio account {self.account_sid}: {e}"
             )
             return False
-
-    def send_sms(self, to_number: str, from_number: str, body: str):
-        """
-        Send an SMS message.
-        """
-        endpoint = "/Messages.json"
-        data = {
-            "To": to_number,
-            "From": from_number,
-            "Body": body,
-        }
-        return self._make_request("POST", endpoint, data=data)
