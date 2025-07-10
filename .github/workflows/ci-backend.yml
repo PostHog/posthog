@@ -602,7 +602,9 @@ jobs:
               uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               with:
                   path: /tmp/.test_durations
-                  key: tests-durations
+                  key: tests-durations-${{ github.sha }}
+                  restore-keys: |
+                      tests-durations-
                   fail-on-cache-miss: false
 
             - name: Copy test durations to working directory
@@ -866,7 +868,7 @@ jobs:
               continue-on-error: true
               with:
                   path: /tmp/.test_durations
-                  key: tests-durations
+                  key: tests-durations-${{ github.sha }}
 
     posthog-analytics:
         name: PostHog CI analytics
