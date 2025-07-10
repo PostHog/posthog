@@ -16,6 +16,8 @@ import { generateBurstPoints } from './utils'
 interface MaxToolProps extends ToolDefinition {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
+    /** Whether MaxTool functionality is active. When false, just renders children without MaxTool wrapper. */
+    active?: boolean
     initialMaxPrompt?: string
     onMaxOpen?: () => void
     className?: string
@@ -31,6 +33,7 @@ export function MaxTool({
     introOverride,
     callback,
     children: Children,
+    active = true,
     initialMaxPrompt,
     onMaxOpen,
     className,
@@ -45,11 +48,14 @@ export function MaxTool({
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, description, icon, context, introOverride, callback })
-        return () => {
-            deregisterTool(name)
+        if (active) {
+            registerTool({ name, displayName, description, icon, context, introOverride, callback })
+            return () => {
+                deregisterTool(name)
+            }
         }
     }, [
+        active,
         name,
         displayName,
         description,
@@ -60,6 +66,11 @@ export function MaxTool({
         registerTool,
         deregisterTool,
     ])
+
+    // If not active, just render children without MaxTool functionality
+    if (!active) {
+        return typeof Children === 'function' ? <Children toolAvailable={false} /> : Children
+    }
 
     let content: JSX.Element
     if (!isMaxAvailable) {
