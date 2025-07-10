@@ -9206,17 +9206,7 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "assignee",
-                "description",
-                "external_issues",
-                "first_seen",
-                "id",
-                "last_seen",
-                "library",
-                "name",
-                "status"
-            ],
+            "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
@@ -9450,7 +9440,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "description", "assignee", "status", "first_seen", "external_issues"],
+            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
         "ErrorTrackingSceneToolOutput": {

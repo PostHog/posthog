@@ -558,8 +558,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (s) => [s.joins],
             (joins: DataWarehouseViewLink[]): Record<string, DataWarehouseViewLink> => {
                 return joins.reduce((acc, join) => {
-                    if (join.field_name) {
-                        acc[join.field_name] = join
+                    if (join.field_name && join.source_table_name) {
+                        acc[`${join.source_table_name}.${join.field_name}`] = join
                     }
                     return acc
                 }, {} as Record<string, DataWarehouseViewLink>)
@@ -568,19 +568,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         sidebarOverlayTreeItems: [
             (s) => [
                 s.selectedSchema,
-                s.joins,
                 s.posthogTablesMap,
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
                 s.viewsMapById,
+                s.joinsByFieldName,
             ],
             (
                 selectedSchema,
-                joins,
                 posthogTablesMap,
                 dataWarehouseTablesMap,
                 dataWarehouseSavedQueryMapById,
-                viewsMapById
+                viewsMapById,
+                joinsByFieldName
             ): TreeItem[] => {
                 if (selectedSchema === null) {
                     return []
@@ -601,28 +601,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return []
                 }
 
-                const relevantJoins = joins.filter((join) => join.source_table_name === table!.name)
-                const joinsByFieldName = relevantJoins.reduce((acc, join) => {
-                    if (join.field_name) {
-                        acc[join.field_name] = join
-                    }
-                    return acc
-                }, {} as Record<string, DataWarehouseViewLink>)
-
-                const menuItems = (field: DatabaseSchemaField): LemonMenuItem[] => {
-                    return isJoined(field) && joinsByFieldName[field.name]
+                const menuItems = (field: DatabaseSchemaField, tableName: string): LemonMenuItem[] => {
+                    return isJoined(field) && joinsByFieldName[`${tableName}.${field.name}`]
                         ? [
                               {
                                   label: 'Edit',
                                   onClick: () => {
-                                      actions.toggleEditJoinModal(joinsByFieldName[field.name])
+                                      actions.toggleEditJoinModal(joinsByFieldName[`${tableName}.${field.name}`])
                                   },
                               },
                               {
                                   label: 'Delete join',
                                   status: 'danger',
                                   onClick: () => {
-                                      const join = joinsByFieldName[field.name]
+                                      const join = joinsByFieldName[`${tableName}.${field.name}`]
                                       void deleteWithUndo({
                                           endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
                                           object: {
@@ -642,19 +634,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         : []
                 }
 
-                if ('fields' in table) {
+                if ('fields' in table && table !== null) {
                     return Object.values(table.fields).map((field) => ({
                         name: field.name,
                         type: field.type,
-                        menuItems: menuItems(field),
+                        menuItems: menuItems(field, table?.name ?? ''), // table cant be null, but the typechecker is confused
                     }))
                 }
 
-                if ('columns' in table) {
+                if ('columns' in table && table !== null) {
                     return Object.values(table.columns).map((column) => ({
                         name: column.name,
                         type: column.type,
-                        menuItems: menuItems(column),
+                        menuItems: menuItems(column, table?.name ?? ''), // table cant be null, but the typechecker is confused
                     }))
                 }
                 return []
