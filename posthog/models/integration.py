@@ -969,8 +969,8 @@ class GitHubIntegration:
     def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
         jwt_token = jwt.encode(
             {
-                "iat": int(time.time()),
-                "exp": int(time.time()) + 600,  # 10 minutes
+                "iat": int(time.time()) - 300,  # 5 minutes in the past
+                "exp": int(time.time()) + 300,  # 5 minutes in the future
                 "iss": settings.GITHUB_APP_CLIENT_ID,
             },
             settings.GITHUB_APP_PRIVATE_KEY,
