@@ -516,9 +516,6 @@ class TestInsertIntoS3Activity:
         ):
             pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
-        if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
-            pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
-
         if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
             pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
 
@@ -1243,9 +1240,6 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
     """
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
-
-    if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
-        pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
 
     destination_config = s3_batch_export.destination.config | {
         "endpoint_url": None,
