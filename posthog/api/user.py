@@ -67,6 +67,7 @@ from posthog.tasks.email import (
     send_email_change_emails,
     send_two_factor_auth_disabled_email,
     send_two_factor_auth_enabled_email,
+    send_password_changed_email,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -331,6 +332,7 @@ class UserSerializer(serializers.ModelSerializer):
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
 
+            send_password_changed_email.delay(instance.id)
         report_user_updated(instance, updated_attrs)
 
         return instance
