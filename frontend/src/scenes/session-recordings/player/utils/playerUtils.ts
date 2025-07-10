@@ -50,6 +50,25 @@ export async function addRecordingToPlaylist(
     }
 }
 
+export async function bulkAddRecordingsToPlaylist(
+    playlistId: SessionRecordingPlaylistType['short_id'],
+    sessionRecordingIds: SessionRecordingType['id'][],
+    silent = false
+): Promise<void> {
+    await api.recordings.bulkAddRecordingsToPlaylist(playlistId, sessionRecordingIds)
+    if (!silent) {
+        lemonToast.success(
+            `${sessionRecordingIds.length} recording${sessionRecordingIds.length > 1 ? 's' : ''} added to playlist`,
+            {
+                button: {
+                    label: 'View playlist',
+                    action: () => router.actions.push(urls.replayPlaylist(playlistId)),
+                },
+            }
+        )
+    }
+}
+
 export async function removeRecordingFromPlaylist(
     playlistId: SessionRecordingPlaylistType['short_id'],
     sessionRecordingId: SessionRecordingType['id'],

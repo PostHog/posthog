@@ -2690,6 +2690,17 @@ const api = {
                 .create()
         },
 
+        async bulkAddRecordingsToPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_ids: SessionRecordingType['id'][]
+        ): Promise<{ success: boolean; added_count: number; total_requested: number }> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction('bulk')
+                .create({ data: { session_recording_ids } })
+        },
+
         async removeRecordingFromPlaylist(
             playlistId: SessionRecordingPlaylistType['short_id'],
             session_recording_id: SessionRecordingType['id']

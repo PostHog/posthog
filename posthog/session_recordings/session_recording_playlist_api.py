@@ -387,6 +387,82 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
         raise NotImplementedError()
 
+    @action(
+        methods=["POST", "DELETE"],
+        detail=True,
+        url_path="recordings/bulk",
+    )
+    def bulk_modify_recordings(
+        self,
+        request: request.Request,
+        *args: Any,
+        **kwargs: Any,
+    ) -> response.Response:
+        playlist = self.get_object()
+
+        # Get session_recording_ids from request body
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > 100:  # I think we should have a reasonable limit here
+            raise ValidationError("Cannot process more than 100 recordings at once")
+
+        if request.method == "POST":
+            if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
+                raise ValidationError("Cannot add recordings to a playlist that is type 'filters'.")
+
+            added_count = 0
+            for session_recording_id in session_recording_ids:
+                try:
+                    recording, _ = SessionRecording.objects.get_or_create(
+                        session_id=session_recording_id,
+                        team=self.team,
+                        defaults={"deleted": False},
+                    )
+                    playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
+                        playlist=playlist, recording=recording
+                    )
+                    if created:
+                        added_count += 1
+                except Exception as e:
+                    logger.warning(
+                        "failed_to_add_recording_to_playlist",
+                        session_recording_id=session_recording_id,
+                        playlist_id=playlist.short_id,
+                        error=str(e),
+                    )
+
+            logger.info(
+                "bulk_recordings_added_to_playlist",
+                playlist_id=playlist.short_id,
+                added_count=added_count,
+                total_requested=len(session_recording_ids),
+            )
+
+            return response.Response(
+                {"success": True, "added_count": added_count, "total_requested": len(session_recording_ids)}
+            )
+
+        if request.method == "DELETE":
+            deleted_count = 0
+            for session_recording_id in session_recording_ids:
+                try:
+                    playlist_item = SessionRecordingPlaylistItem.objects.get(
+                        playlist=playlist, recording=session_recording_id
+                    )
+                    playlist_item.delete()
+                    deleted_count += 1
+                except SessionRecordingPlaylistItem.DoesNotExist:
+                    pass  # Already deleted or never existed
+
+            return response.Response(
+                {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
+            )
+
+        raise NotImplementedError()
+
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
     def playlist_viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:

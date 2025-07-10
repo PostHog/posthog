@@ -42,7 +42,7 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
-import { addRecordingToPlaylist } from '../player/utils/playerUtils'
+import { bulkAddRecordingsToPlaylist } from '../player/utils/playerUtils'
 import { lemonToast } from '@posthog/lemon-ui'
 export type PersonUUID = string
 
@@ -645,14 +645,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         handleAddToPlaylist: async ({ short_id }: { short_id: string }) => {
             await lemonToast.promise(
                 (async () => {
-                    for (const recordingId of values.selectedRecordingsIds) {
-                        try {
-                            await addRecordingToPlaylist(short_id, recordingId, true)
-                        } catch (e) {
-                            posthog.captureException(e)
-                        }
+                    try {
+                        await bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds, true)
+                        actions.setSelectedRecordingsIds([])
+                    } catch (e) {
+                        posthog.captureException(e)
                     }
-                    actions.setSelectedRecordingsIds([])
                 })(),
                 {
                     success: `${values.selectedRecordingsIds.length} recording${
