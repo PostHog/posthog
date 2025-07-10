@@ -3542,6 +3542,7 @@ const api = {
                 ui_context?: MaxUIContext
                 conversation?: string | null
                 trace_id: string
+                deep_research_mode?: boolean
             },
             options?: ApiMethodOptions
         ): Promise<Response> {

@@ -6,6 +6,7 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDModel
+from posthog.models.notebook.notebook import Notebook
 
 
 class Conversation(UUIDModel):
@@ -30,6 +31,9 @@ class Conversation(UUIDModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
+    internal = models.BooleanField(default=False, help_text="Whether the conversation is internal to the assistant.")
+    notebook = models.ForeignKey(Notebook, on_delete=models.CASCADE, null=True, blank=True)
+    deep_research_plan = models.JSONField(null=True)
 
     @property
     def is_locked(self) -> bool:

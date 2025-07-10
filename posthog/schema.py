@@ -122,6 +122,7 @@ class AssistantEventType(StrEnum):
     STATUS = "status"
     MESSAGE = "message"
     CONVERSATION = "conversation"
+    NOTEBOOK = "notebook"
 
 
 class AssistantFormOption(BaseModel):
@@ -208,6 +209,7 @@ class AssistantMessageType(StrEnum):
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_FAILURE = "ai/failure"
+    AI_NOTEBOOK = "ai/notebook"
 
 
 class AssistantNavigateUrls(StrEnum):
@@ -1723,6 +1725,15 @@ class NodeKind(StrEnum):
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
+
+
+class NotebookUpdateMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: Optional[str] = None
+    notebook_id: str
+    type: Literal["ai/notebook"] = "ai/notebook"
 
 
 class PageURL(BaseModel):
@@ -12763,12 +12774,19 @@ class RootAssistantMessage(
             AssistantMessage,
             HumanMessage,
             FailureMessage,
+            NotebookUpdateMessage,
             RootAssistantMessage1,
         ]
     ]
 ):
     root: Union[
-        VisualizationMessage, ReasoningMessage, AssistantMessage, HumanMessage, FailureMessage, RootAssistantMessage1
+        VisualizationMessage,
+        ReasoningMessage,
+        AssistantMessage,
+        HumanMessage,
+        FailureMessage,
+        NotebookUpdateMessage,
+        RootAssistantMessage1,
     ]
 
 

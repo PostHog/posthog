@@ -25,6 +25,7 @@ from ee.hogai.graph import (
     SchemaGeneratorNode,
     SQLGeneratorNode,
     TrendsGeneratorNode,
+    DeepResearchAssistantGraph,
 )
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
@@ -32,10 +33,12 @@ from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context, should_output_assistant_message
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
+    GraphTaskResultUpdateTuple,
     GraphTaskStartedUpdateTuple,
     GraphValueUpdateTuple,
     is_message_update,
     is_state_update,
+    is_task_result_update,
     is_task_started_update,
     is_value_update,
     validate_state_update,
@@ -60,6 +63,7 @@ from posthog.schema import (
     AssistantMessageType,
     FailureMessage,
     HumanMessage,
+    NotebookUpdateMessage,
     ReasoningMessage,
     VisualizationMessage,
 )
@@ -91,6 +95,7 @@ STREAMING_NODES: set[AssistantNodeName] = {
 VERBOSE_NODES = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT_TOOLS,
+    AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS,
 }
 """Nodes that can send messages to the client."""
 
@@ -133,6 +138,8 @@ class Assistant:
         match mode:
             case AssistantMode.ASSISTANT:
                 self._graph = AssistantGraph(team, user).compile_full_graph()
+            case AssistantMode.DEEP_RESEARCH:
+                self._graph = DeepResearchAssistantGraph(team, user).compile_full_graph()
             case AssistantMode.INSIGHTS_TOOL:
                 self._graph = InsightsAssistantGraph(team, user).compile_full_graph()
             case _:
@@ -188,6 +195,8 @@ class Assistant:
             # Assign the conversation id to the client.
             if self._is_new_conversation:
                 yield AssistantEventType.CONVERSATION, self._conversation
+                if self._conversation.notebook:
+                    yield AssistantEventType.NOTEBOOK, self._conversation.notebook.short_id
 
             if self._latest_message and self._mode == AssistantMode.ASSISTANT:
                 # Send the last message with the initialized id.
@@ -257,7 +266,7 @@ class Assistant:
 
     @property
     def _initial_state(self) -> AssistantState:
-        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+        if self._latest_message and self._mode in [AssistantMode.ASSISTANT, AssistantMode.DEEP_RESEARCH]:
             return AssistantState(
                 messages=[self._latest_message],
                 start_id=self._latest_message.id,
@@ -302,6 +311,12 @@ class Assistant:
         if self._tool_call_partial_state:
             for key, value in self._tool_call_partial_state.model_dump().items():
                 setattr(initial_state, key, value)
+
+        if self._conversation.notebook:
+            initial_state.notebook = self._conversation.notebook.short_id
+        if self._conversation.deep_research_plan:
+            initial_state.deep_research_plan = self._conversation.deep_research_plan
+
         self._state = initial_state
         return initial_state
 
@@ -390,14 +405,28 @@ class Assistant:
                 if ui_context and (ui_context.dashboards or ui_context.insights):
                     return ReasoningMessage(content="Calculating context")
                 return None
+            case AssistantNodeName.DEEP_RESEARCH_PLANNER:
+                return ReasoningMessage(content="Deep thinking")
             case _:
                 return None
+
+    async def _node_to_notebook_update(self, node_name: AssistantNodeName) -> Optional[NotebookUpdateMessage]:
+        if node_name in [
+            AssistantNodeName.DEEP_RESEARCH_AGENT_SUBGRAPH,
+            AssistantNodeName.DEEP_RESEARCH_FINAL_SUMMARIZER,
+            AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_TITLE_GENERATOR,
+        ]:
+            if self._conversation.notebook:
+                return NotebookUpdateMessage(notebook_id=self._conversation.notebook.short_id)
+        return None
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
         if update[1] == "custom":
             # Custom streams come from a tool call
             update = update[2]
+
         update = update[1:]  # we remove the first element, which is the node/subgraph node name
+
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state)
@@ -406,6 +435,8 @@ class Assistant:
         elif is_message_update(update) and (new_message := self._process_message_update(update)):
             return [new_message]
         elif is_task_started_update(update) and (new_message := await self._process_task_started_update(update)):
+            return [new_message]
+        elif is_task_result_update(update) and (new_message := await self._process_task_result_update(update)):
             return [new_message]
         return None
 
@@ -467,20 +498,35 @@ class Assistant:
             return reasoning_message
         return None
 
+    async def _process_task_result_update(self, update: GraphTaskResultUpdateTuple) -> BaseModel | None:
+        _, task_update = update
+        node_name = task_update["payload"]["name"]  # type: ignore
+        if notebook_update := await self._node_to_notebook_update(node_name):
+            return notebook_update
+        return None
+
     async def _report_conversation_state(self, message: Optional[VisualizationMessage]):
         if not (self._user and message):
             return
 
         response = message.model_dump_json(exclude_none=True)
 
-        if self._mode == AssistantMode.ASSISTANT:
-            if self._latest_message:
+        if self._latest_message:
+            if self._mode == AssistantMode.ASSISTANT:
                 await database_sync_to_async(report_user_action)(
                     self._user,
                     "chat with ai",
                     {"prompt": self._latest_message.content, "response": response},
                 )
-            return
+                return
+
+            if self._mode == AssistantMode.DEEP_RESEARCH:
+                await database_sync_to_async(report_user_action)(
+                    self._user,
+                    "deep research",
+                    {"prompt": self._latest_message.content, "response": response},
+                )
+                return
 
         if self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
             await database_sync_to_async(report_user_action)(

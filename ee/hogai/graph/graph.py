@@ -5,10 +5,15 @@ from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.deep_research.agent_subgraph.nodes import DeepResearchAgentSubgraphNode
+from ee.hogai.graph.deep_research.final_summarizer.nodes import DeepResearchFinalSummarizerNode
+from ee.hogai.graph.deep_research.title_generator.nodes import DeepResearchNotebookTitleGeneratorNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
 from posthog.models.user import User
+
+from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 
 from .funnels.nodes import (
     FunnelGeneratorNode,
@@ -466,4 +471,66 @@ class AssistantGraph(BaseAssistantGraph):
             .add_insights()
             .add_inkeep_docs()
             .compile(checkpointer=checkpointer)
+        )
+
+
+class DeepResearchAssistantGraph(AssistantGraph):
+    def add_notebook_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        self._has_start_node = True
+
+        title_generator = DeepResearchNotebookTitleGeneratorNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_TITLE_GENERATOR, title_generator)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_TITLE_GENERATOR)
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_NOTEBOOK_TITLE_GENERATOR, end_node)
+        return self
+
+    def add_agent_subgraph(self):
+        builder = self._graph
+        builder.add_node(
+            AssistantNodeName.DEEP_RESEARCH_AGENT_SUBGRAPH, DeepResearchAgentSubgraphNode(self._team, self._user)
+        )
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_AGENT_SUBGRAPH, AssistantNodeName.DEEP_RESEARCH_PLANNER)
+        return self
+
+    def add_final_summarizer(
+        self,
+    ):
+        builder = self._graph
+        builder.add_node(
+            AssistantNodeName.DEEP_RESEARCH_FINAL_SUMMARIZER, DeepResearchFinalSummarizerNode(self._team, self._user)
+        )
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_FINAL_SUMMARIZER, AssistantNodeName.END)
+        return self
+
+    def add_planner(self, next_node: AssistantNodeName = AssistantNodeName.DEEP_RESEARCH_AGENT_SUBGRAPH):
+        builder = self._graph
+        self._has_start_node = True
+
+        deep_research_planner = DeepResearchPlannerNode(self._team, self._user)
+        deep_research_planner_tools = DeepResearchPlannerToolsNode(self._team, self._user)
+        builder.add_edge(AssistantNodeName.START, AssistantNodeName.DEEP_RESEARCH_PLANNER)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_PLANNER, deep_research_planner)
+        builder.add_node(AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS, deep_research_planner_tools)
+        builder.add_edge(AssistantNodeName.DEEP_RESEARCH_PLANNER, AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS)
+        builder.add_conditional_edges(
+            AssistantNodeName.DEEP_RESEARCH_PLANNER_TOOLS,
+            deep_research_planner_tools.router,
+            path_map={
+                "continue": next_node,
+                "complete_research": AssistantNodeName.DEEP_RESEARCH_FINAL_SUMMARIZER,
+                "end": AssistantNodeName.END,
+            },
+        )
+
+        return self
+
+    def compile_full_graph(self):
+        return (
+            self.add_title_generator()
+            .add_notebook_title_generator()
+            .add_planner()
+            .add_agent_subgraph()
+            .add_final_summarizer()
+            .compile()
         )

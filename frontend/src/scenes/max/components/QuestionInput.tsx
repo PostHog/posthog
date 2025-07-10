@@ -1,6 +1,6 @@
 import { offset } from '@floating-ui/react'
 import { IconArrowRight, IconStopFilled, IconWrench } from '@posthog/icons'
-import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
@@ -47,8 +47,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { tools, dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
+    const { threadLoading, inputDisabled, submissionDisabledReason, deepResearchMode } = useValues(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
 
     return (
         <div
@@ -180,6 +180,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             ))}
                         </div>
                     )}
+                    <div className="flex justify-end gap-1 w-full p-1">
+                        <LemonSwitch
+                            checked={deepResearchMode}
+                            label="Think harder"
+                            disabled={threadLoading}
+                            onChange={(checked) => setDeepResearchMode(checked)}
+                            size="xxsmall"
+                            tooltip="This will make Max think harder about your question"
+                        />
+                    </div>
                     <div className="ml-auto">{bottomActions}</div>
                 </div>
             </div>
