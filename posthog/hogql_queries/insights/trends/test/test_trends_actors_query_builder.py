@@ -2,8 +2,9 @@ from datetime import UTC, datetime
 from typing import Optional, cast
 
 from freezegun import freeze_time
-
 from hogql_parser import parse_select
+
+from posthog.constants import UNIQUE_GROUPS
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
@@ -21,6 +22,7 @@ from posthog.schema import (
     IntervalType,
     TrendsFilter,
     TrendsQuery,
+    MathGroupTypeIndex,
 )
 from posthog.test.base import BaseTest
 
@@ -379,3 +381,30 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-08"),
                 "greaterOrEquals(timestamp, greatest(minus(toDateTime('2024-05-07 22:00:00.000000'), toIntervalDay(29)), toDateTime('2024-05-08 14:29:13.634000'))), less(timestamp, least(toDateTime('2024-05-08 22:00:00.000000'), toDateTime('2024-05-08 14:32:57.692000')))",
             )
+
+    def test_actor_id_expr_for_groups_math(self):
+        maths = [BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE]
+        for math in maths:
+            with self.subTest(math=math):
+                trends_query = default_query.model_copy(
+                    update={
+                        "series": [
+                            EventsNode(event="$pageview", math=math, math_group_type_index=MathGroupTypeIndex.NUMBER_0)
+                        ]
+                    }
+                )
+
+                builder = self._get_builder(trends_query=trends_query)
+
+                self.assertEqual(builder._actor_id_expr(), ast.Field(chain=["e", "$group_0"]))
+                self.assertIsNone(builder._actor_distinct_id_expr())
+                self.assertEqual(
+                    builder._filter_empty_actors_expr(),
+                    [
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.NotEq,
+                            left=ast.Field(chain=["e", "$group_0"]),
+                            right=ast.Constant(value=""),
+                        )
+                    ],
+                )
