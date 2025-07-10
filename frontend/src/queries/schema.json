@@ -9111,6 +9111,38 @@
             "enum": ["actions", "events", "data_warehouse", "new_entity"],
             "type": "string"
         },
+        "ErrorTrackingExternalReference": {
+            "additionalProperties": false,
+            "properties": {
+                "external_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "integration": {
+                    "$ref": "#/definitions/ErrorTrackingExternalReferenceIntegration"
+                }
+            },
+            "required": ["id", "external_url", "integration"],
+            "type": "object"
+        },
+        "ErrorTrackingExternalReferenceIntegration": {
+            "additionalProperties": false,
+            "properties": {
+                "display_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "kind": {
+                    "$ref": "#/definitions/IntegrationKind"
+                }
+            },
+            "required": ["id", "kind", "display_name"],
+            "type": "object"
+        },
         "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
@@ -9129,6 +9161,12 @@
                 },
                 "description": {
                     "type": ["string", "null"]
+                },
+                "external_issues": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingExternalReference"
+                    },
+                    "type": "array"
                 },
                 "first_event": {
                     "additionalProperties": false,
@@ -9168,7 +9206,17 @@
                     "type": "string"
                 }
             },
-            "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
+            "required": [
+                "assignee",
+                "description",
+                "external_issues",
+                "first_seen",
+                "id",
+                "last_seen",
+                "library",
+                "name",
+                "status"
+            ],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
@@ -9381,6 +9429,12 @@
                 "description": {
                     "type": ["string", "null"]
                 },
+                "external_issues": {
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingExternalReference"
+                    },
+                    "type": "array"
+                },
                 "first_seen": {
                     "format": "date-time",
                     "type": "string"
@@ -9396,7 +9450,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
+            "required": ["id", "name", "description", "assignee", "status", "first_seen", "external_issues"],
             "type": "object"
         },
         "ErrorTrackingSceneToolOutput": {
@@ -13650,6 +13704,23 @@
                 }
             },
             "type": "object"
+        },
+        "IntegrationKind": {
+            "enum": [
+                "slack",
+                "salesforce",
+                "hubspot",
+                "google-pubsub",
+                "google-cloud-storage",
+                "google-ads",
+                "linkedin-ads",
+                "snapchat",
+                "intercom",
+                "email",
+                "linear",
+                "github"
+            ],
+            "type": "string"
         },
         "IntervalType": {
             "enum": ["minute", "hour", "day", "week", "month"],
