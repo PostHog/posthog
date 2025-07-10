@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from langchain_core.outputs import ChatResult, ChatGeneration
+from langchain_core.messages import AIMessage
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
@@ -519,12 +521,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     def test_node_includes_project_org_user_context_in_prompt_template(self):
         with (
+            patch("os.environ", {"OPENAI_API_KEY": "foo"}),
             patch("langchain_openai.chat_models.base.ChatOpenAI._generate") as mock_generate,
             patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
         ):
-            from langchain_core.outputs import ChatResult, ChatGeneration
-            from langchain_core.messages import AIMessage
-
             mock_generate.return_value = ChatResult(
                 generations=[ChatGeneration(message=AIMessage(content="Test response"))],
                 llm_output={},
