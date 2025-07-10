@@ -529,6 +529,7 @@ jobs:
         runs-on: ubuntu-latest
         needs: [changes, playwright]
         if: needs.changes.outputs.shouldRun == 'true'
+        continue-on-error: true
         steps:
             - name: Calculate run time and send to PostHog
               run: |
