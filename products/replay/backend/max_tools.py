@@ -26,9 +26,6 @@ class SearchSessionRecordingsTool(MaxTool):
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
     async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
-        if "current_filters" not in self.context:
-            raise ValueError("Context `current_filters` is required for the `search_session_recordings` tool")
-
         # Create graph with injected prompts
         injected_prompts = {
             "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
