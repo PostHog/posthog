@@ -1556,6 +1556,17 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     }
 }
 
+export function timeZoneLabel(timeZone: string, offset: number): string {
+    const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
+    const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    const hours = Math.floor(Math.abs(offset))
+    const minutes = Math.round((Math.abs(offset) % 1) * 60)
+        .toString()
+        .padStart(2, '0')
+
+    return `${formattedZone} (UTC${sign}${hours}:${minutes})`
+}
+
 export function humanTzOffset(timezone?: string): string {
     const offset = dayjs().tz(timezone).utcOffset() / 60
     if (!offset) {
