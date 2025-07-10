@@ -39,7 +39,12 @@ def replace_broken_unicode(obj):
 def json_dumps_bytes(d) -> bytes:
     try:
         return orjson.dumps(d, default=str)
-    except orjson.JSONEncodeError:
+    except orjson.JSONEncodeError as e:
+        if str(e) == "Integer exceeds 64-bit range":
+            logger.warning("Failed to encode with orjson: Integer exceeds 64-bit range: %s", d)
+            # orjson doesn't support integers exceeding 64-bit range, so we fall back to json.dumps
+            # see https://github.com/ijl/orjson/issues/301
+            return json.dumps(d, default=str).encode("utf-8")
         # orjson is very strict about invalid unicode. This slow path protects us against
         # things we've observed in practice, like single surrogate codes, e.g. "\ud83d"
         logger.exception("Failed to encode with orjson: %s", d)
