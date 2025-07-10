@@ -2058,6 +2058,7 @@ export interface DashboardBasicType extends WithAccessControl {
     pinned: boolean
     created_at: string
     created_by: UserBasicType | null
+    last_accessed_at: string | null
     is_shared: boolean
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate'
