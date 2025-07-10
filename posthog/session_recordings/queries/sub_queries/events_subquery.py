@@ -10,8 +10,6 @@ from posthog.schema import (
     RecordingsQuery,
     HogQLQueryModifiers,
     NodeKind,
-    PropertyGroupFilterValue,
-    FilterLogicalOperator,
 )
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import (
@@ -23,6 +21,7 @@ from posthog.session_recordings.queries.utils import (
     is_group_property,
     is_person_property,
 )
+from posthog.types import AnyPropertyFilter
 
 
 class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
@@ -87,18 +86,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 # we only query positive properties here, since negative properties we need to query over the session
                 gathered_exprs.append(
                     property_to_expr(
-                        p,
+                        [p],
                         team=self._team,
                         scope="replay",
                     )
                 )
 
         for p in self.group_properties:
-            gathered_exprs.append(property_to_expr(p, team=self._team))
+            gathered_exprs.append(property_to_expr([p], team=self._team))
 
         if self._team.person_on_events_mode and self.person_properties:
             for p in self.person_properties:
-                gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
+                gathered_exprs.append(property_to_expr([p], team=self._team, scope="event"))
 
         queries: list[ast.SelectQuery] = []
         for expr in gathered_exprs:
@@ -258,13 +257,5 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return [g for g in (self._query.properties or []) if is_group_property(g)]
 
     @property
-    def person_properties(self) -> PropertyGroupFilterValue | None:
-        person_property_groups = [g for g in (self._query.properties or []) if is_person_property(g)]
-        return (
-            PropertyGroupFilterValue(
-                type=FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_,
-                values=person_property_groups,
-            )
-            if person_property_groups
-            else None
-        )
+    def person_properties(self) -> list[AnyPropertyFilter] | None:
+        return [g for g in (self._query.properties or []) if is_person_property(g)]

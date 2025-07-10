@@ -135,13 +135,13 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
 
         @snapshot_clickhouse_queries
         def test_positive_and_negative_anded(self):
-            target_vip_session = self._a_session_with_properties_on_pageviews(
+            _target_vip_session = self._a_session_with_properties_on_pageviews(
                 {"$pathname": "/my-target-page", "vip": True}
             )
             _target_non_vip_session = self._a_session_with_properties_on_pageviews(
                 {"$pathname": "/my-target-page", "vip": False}
             )
-            _non_target_vip_session = self._a_session_with_properties_on_pageviews(
+            non_target_vip_session = self._a_session_with_properties_on_pageviews(
                 {"$pathname": "/my-other-page", "vip": True}
             )
             _non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
@@ -163,10 +163,10 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                             "name": "$pageview",
                             "type": "events",
                             "properties": [
-                                {"key": "$pathname", "type": "event", "value": "target", "operator": "icontains"}
+                                {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
                             ],
                         },
                     ],
                 },
-                [target_vip_session],
+                [non_target_vip_session],
             )
