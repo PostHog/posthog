@@ -84,8 +84,8 @@ export function SessionTabContent({
 
     useLayoutEffect(() => {
         if (timestamp) {
-            const five_seconds_before = dayjs(timestamp).valueOf() - 5000
-            seekToTimestamp(five_seconds_before, false)
+            const fiveSecondsBefore = dayjs(timestamp).valueOf() - 5000
+            seekToTimestamp(fiveSecondsBefore, false)
         }
     }, [timestamp, seekToTimestamp, setPlay])
 
