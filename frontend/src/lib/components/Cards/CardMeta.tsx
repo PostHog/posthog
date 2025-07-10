@@ -27,7 +27,12 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     showDetailsControls?: boolean
     content?: JSX.Element | null
     metaDetails?: JSX.Element | null
-    moreButtons?: JSX.Element | null
+    /** Buttons to show in the editing controls dropdown. */
+    moreButtons: JSX.Element
+    /** Tooltip for the editing controls dropdown. */
+    moreTooltip?: string
+    /** Tooltip for the details button. */
+    detailsTooltip?: string
     topHeading?: JSX.Element | null
     samplingFactor?: number | null
 }
@@ -39,9 +44,11 @@ export function CardMeta({
     content: meta,
     metaDetails,
     moreButtons,
+    moreTooltip,
     topHeading,
     areDetailsShown,
     setAreDetailsShown,
+    detailsTooltip,
     className,
     samplingFactor,
 }: CardMetaProps): JSX.Element {
@@ -76,16 +83,25 @@ export function CardMeta({
                         </h5>
                         <div className="CardMeta__controls">
                             {showDetailsControls && setAreDetailsShown && (
-                                <LemonButton
-                                    icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
-                                    onClick={() => setAreDetailsShown((state) => !state)}
-                                    size="small"
-                                    active={areDetailsShown}
-                                >
-                                    {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
-                                </LemonButton>
+                                <Tooltip title={detailsTooltip}>
+                                    <LemonButton
+                                        icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
+                                        onClick={() => setAreDetailsShown((state) => !state)}
+                                        size="small"
+                                        active={areDetailsShown}
+                                    >
+                                        {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                    </LemonButton>
+                                </Tooltip>
                             )}
-                            {showEditingControls && <More overlay={moreButtons} />}
+                            {showEditingControls &&
+                                (moreTooltip ? (
+                                    <Tooltip title={moreTooltip}>
+                                        <More overlay={moreButtons} />
+                                    </Tooltip>
+                                ) : (
+                                    <More overlay={moreButtons} />
+                                ))}
                         </div>
                     </div>
                     {meta}

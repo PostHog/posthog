@@ -99,6 +99,7 @@ export function InsightMeta({
             showDetailsControls={showDetailsControls}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
+            detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
             topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
             content={
                 <InsightMetaContent
@@ -274,6 +275,9 @@ export function InsightMeta({
                         </>
                     )}
                 </>
+            }
+            moreTooltip={
+                editable ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
         />
     )
