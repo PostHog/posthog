@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
@@ -60,7 +60,7 @@ if (inputs.debug) {
             key: 'twilio_config',
             type: 'integration',
             integration: 'twilio',
-            label: 'Twilio Configuration',
+            label: 'Twilio phone number',
             secret: false,
             required: true,
             description: 'Twilio account configuration for sending SMS messages.',
@@ -68,7 +68,7 @@ if (inputs.debug) {
         {
             key: 'to_number',
             type: 'string',
-            label: 'Recipient Phone Number',
+            label: 'Recipient phone number',
             secret: false,
             required: true,
             description: 'Phone number to send the SMS to (in E.164 format, e.g., +1234567890).',
@@ -77,7 +77,7 @@ if (inputs.debug) {
         {
             key: 'message',
             type: 'string',
-            label: 'SMS Message',
+            label: 'Message',
             secret: false,
             required: true,
             description: 'SMS message content (max 1600 characters).',
