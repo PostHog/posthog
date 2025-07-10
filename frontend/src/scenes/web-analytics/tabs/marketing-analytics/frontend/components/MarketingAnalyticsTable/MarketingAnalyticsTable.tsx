@@ -85,11 +85,11 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 }, [isSortedByMyField, isAscending, isDescending])
 
                 return (
-                    <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
+                    <span onClick={onClick} className="group inline-flex cursor-pointer items-center">
                         {name}
                         <IconChevronDown
                             fontSize="20px"
-                            className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
+                            className={clsx('text-muted-alt -mr-1 ml-1 opacity-0 group-hover:opacity-100', {
                                 'text-primary opacity-100': isSortedByMyField,
                                 'rotate-180': isSortedByMyField && isAscending,
                             })}
@@ -152,7 +152,7 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
 
     return (
         <div className="bg-surface-primary">
-            <div className="p-4 border-b border-border bg-bg-light">
+            <div className="border-border bg-bg-light border-b p-4">
                 <DynamicConversionGoalControls />
             </div>
             <Query query={queryWithOrderBy} readOnly={false} context={marketingAnalyticsContext} />

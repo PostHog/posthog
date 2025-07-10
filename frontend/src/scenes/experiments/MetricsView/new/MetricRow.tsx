@@ -64,10 +64,10 @@ export function MetricRow({
 
     return (
         <div
-            className={`w-full border border-primary bg-light ${metricIndex === metrics.length - 1 ? 'rounded-b' : ''}`}
+            className={`border-primary bg-light w-full border ${metricIndex === metrics.length - 1 ? 'rounded-b' : ''}`}
         >
             <div className="flex">
-                <div className="w-1/5 border-r border-primary">
+                <div className="border-primary w-1/5 border-r">
                     <div
                         className="p-2"
                         // eslint-disable-next-line react/forbid-dom-props

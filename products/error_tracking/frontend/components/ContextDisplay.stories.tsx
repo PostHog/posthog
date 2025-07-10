@@ -44,7 +44,7 @@ function ContextWrapperAllEvents({ children }: { children: (props: ContextDispla
             {eventNames.map((name: TestEventName) => {
                 const props = getProps(name)
                 return (
-                    <LemonCard hoverEffect={false} className="p-0 w-[900px]">
+                    <LemonCard hoverEffect={false} className="w-[900px] p-0">
                         {children(props)}
                     </LemonCard>
                 )

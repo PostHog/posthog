@@ -46,7 +46,7 @@ function HogFlowEditorContent(): JSX.Element {
     }, [reactFlowInstance, setReactFlowInstance])
 
     return (
-        <div ref={reactFlowWrapper} className="w-full h-full">
+        <div ref={reactFlowWrapper} className="h-full w-full">
             <ReactFlow<HogFlowActionNode, Edge>
                 fitView
                 nodes={[...nodes, ...(dropzoneNodes as unknown as HogFlowActionNode[])]}

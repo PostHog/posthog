@@ -39,7 +39,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
     return (
         <div
             className={clsx(
-                'flex flex-col relative px-1 min-h-24 overflow-y-auto',
+                'relative flex min-h-24 flex-col overflow-y-auto px-1',
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}
         >
@@ -52,7 +52,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                         key: 'beta',
                         label: <div className="px-2">Previews</div>,
                         content: (
-                            <div className="flex flex-col flex-1 p-2 overflow-y-auto">
+                            <div className="flex flex-1 flex-col overflow-y-auto p-2">
                                 <LemonBanner type="info" className="mb-2">
                                     Get early access to these upcoming features. Let us know what you think!
                                 </LemonBanner>
@@ -62,7 +62,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                                 </LemonBanner>
                                 {betaFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                                        {i > 0 && <LemonDivider className="mt-3 mb-2" />}
+                                        {i > 0 && <LemonDivider className="mb-2 mt-3" />}
                                         <FeaturePreview feature={feature} />
                                     </div>
                                 ))}
@@ -78,13 +78,13 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                             </div>
                         ),
                         content: (
-                            <div className="flex flex-col flex-1 p-2 overflow-y-auto">
+                            <div className="flex flex-1 flex-col overflow-y-auto p-2">
                                 <LemonBanner type="info" className="mb-2">
                                     Get notified when upcoming features are ready!
                                 </LemonBanner>
                                 {conceptFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                                        {i > 0 && <LemonDivider className="mt-3 mb-2" />}
+                                        {i > 0 && <LemonDivider className="mb-2 mt-3" />}
                                         <ConceptPreview feature={feature} />
                                     </div>
                                 ))}
@@ -96,7 +96,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
             {rawEarlyAccessFeaturesLoading ? (
                 <SpinnerOverlay />
             ) : earlyAccessFeatures.length === 0 ? (
-                <i className="text-center mt-2">
+                <i className="mt-2 text-center">
                     No feature previews currently available.
                     <br />
                     Check back later!
@@ -115,7 +115,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
         <div>
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
-                    <h4 className="font-semibold mb-0">{name}</h4>
+                    <h4 className="mb-0 font-semibold">{name}</h4>
                     <LemonButton
                         icon={<IconLink />}
                         size="small"
@@ -158,7 +158,7 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
         <div>
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1">
-                    <h4 className="font-semibold mb-0">{name}</h4>
+                    <h4 className="mb-0 font-semibold">{name}</h4>
                     <LemonButton
                         icon={<IconLink />}
                         size="small"

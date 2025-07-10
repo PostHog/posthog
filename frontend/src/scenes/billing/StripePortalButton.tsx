@@ -12,7 +12,7 @@ export const StripePortalButton = (): JSX.Element | null => {
     }
 
     return (
-        <div className="w-fit mt-4">
+        <div className="mt-4 w-fit">
             <LemonButton
                 type="primary"
                 htmlType="submit"

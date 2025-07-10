@@ -295,7 +295,7 @@ export function Editor(): JSX.Element {
 
     return (
         <>
-            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1">
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-1 flex-col">
                 {_editor && <FloatingSuggestions editor={_editor} />}
                 {_editor && <InlineMenu editor={_editor} />}
             </EditorContent>

@@ -34,7 +34,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttri
     }
 
     return (
-        <div className="py-2 px-4 text-xs">
+        <div className="px-4 py-2 text-xs">
             {Object.entries(person.properties).map(([key, value], index) => {
                 const isLast = index === numProperties - 1
 
@@ -43,7 +43,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePropertiesAttri
                         <LemonLabel className="leading-4">
                             <PropertyKeyInfo value={key} />
                         </LemonLabel>
-                        <div className={`${!isLast && 'border-b border-primary pb-1'}`}>
+                        <div className={`${!isLast && 'border-primary border-b pb-1'}`}>
                             <PropertiesTable properties={value} rootKey={key} type={PropertyDefinitionType.Person} />
                         </div>
                     </div>

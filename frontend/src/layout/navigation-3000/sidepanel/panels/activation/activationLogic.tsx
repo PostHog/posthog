@@ -516,7 +516,7 @@ export enum ActivationSection {
 export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: ReactNode }> = {
     [ActivationSection.QuickStart]: {
         title: 'Get Started',
-        icon: <IconFeatures className="h-5 w-5 text-accent" />,
+        icon: <IconFeatures className="text-accent h-5 w-5" />,
     },
     [ActivationSection.ProductAnalytics]: {
         title: 'Product analytics',
@@ -530,7 +530,7 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
         title: 'Session replay',
         icon: (
             <IconRewindPlay
-                className="h-5 w-5 text-brand-yellow"
+                className="text-brand-yellow h-5 w-5"
                 color={availableOnboardingProducts.session_replay.iconColor}
             />
         ),
@@ -538,24 +538,24 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
     [ActivationSection.FeatureFlags]: {
         title: 'Feature flags',
         icon: (
-            <IconToggle className="h-5 w-5 text-seagreen" color={availableOnboardingProducts.feature_flags.iconColor} />
+            <IconToggle className="text-seagreen h-5 w-5" color={availableOnboardingProducts.feature_flags.iconColor} />
         ),
     },
     [ActivationSection.Experiments]: {
         title: 'Experiments',
         icon: (
-            <IconTestTube className="h-5 w-5 text-purple" color={availableOnboardingProducts.experiments.iconColor} />
+            <IconTestTube className="text-purple h-5 w-5" color={availableOnboardingProducts.experiments.iconColor} />
         ),
     },
     [ActivationSection.DataWarehouse]: {
         title: 'Data warehouse',
         icon: (
-            <IconDatabase className="h-5 w-5 text-lilac" color={availableOnboardingProducts.data_warehouse.iconColor} />
+            <IconDatabase className="text-lilac h-5 w-5" color={availableOnboardingProducts.data_warehouse.iconColor} />
         ),
     },
     [ActivationSection.Surveys]: {
         title: 'Surveys',
-        icon: <IconMessage className="h-5 w-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
+        icon: <IconMessage className="text-salmon h-5 w-5" color={availableOnboardingProducts.surveys.iconColor} />,
     },
 }
 

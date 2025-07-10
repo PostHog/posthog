@@ -19,7 +19,7 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
     const formulaModeButtonDisabled = hasFormula && !canDisableFormula
 
     return (
-        <div className="flex items-center justify-between w-full">
+        <div className="flex w-full items-center justify-between">
             <span>{hasFormula ? 'Variables' : 'Series'}</span>
             <Tooltip
                 title={

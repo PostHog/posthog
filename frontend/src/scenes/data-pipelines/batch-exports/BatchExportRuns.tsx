@@ -58,7 +58,7 @@ function BatchExportRunsFilters({ id }: { id: string }): JSX.Element {
     const { setDateRange, switchLatestRuns, loadRuns } = useActions(logic)
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
             <LemonButton onClick={loadRuns} loading={loading} type="secondary" icon={<IconRefresh />} size="small">
                 Refresh
             </LemonButton>
@@ -104,7 +104,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                 loadingSkeletonRows={5}
                 footer={
                     hasMoreRunsToLoad && (
-                        <div className="flex items-center m-2">
+                        <div className="m-2 flex items-center">
                             <LemonButton center fullWidth onClick={loadOlderRuns} loading={loading}>
                                 Load more rows
                             </LemonButton>
@@ -221,7 +221,7 @@ export function BatchExportRunsGrouped({
                 loadingSkeletonRows={5}
                 footer={
                     hasMoreRunsToLoad && (
-                        <div className="flex items-center m-2">
+                        <div className="m-2 flex items-center">
                             <LemonButton center fullWidth onClick={loadOlderRuns} loading={loading}>
                                 Load more rows
                             </LemonButton>
@@ -334,7 +334,7 @@ export function BatchExportRunsGrouped({
 
 function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Element {
     return (
-        <span className="flex gap-1 items-center">
+        <span className="flex items-center gap-1">
             <LemonButton
                 size="small"
                 type="secondary"
@@ -370,7 +370,7 @@ function RunRetryButton({ run, retryRun }: { run: any; retryRun: any }): JSX.Ele
 
 function RunCancelButton({ run, cancelRun }: { run: BatchExportRun; cancelRun: any }): JSX.Element {
     return (
-        <span className="flex gap-1 items-center">
+        <span className="flex items-center gap-1">
             <LemonButton
                 size="small"
                 type="secondary"
@@ -432,7 +432,7 @@ export function BatchExportRunIcon({
         >
             <span
                 className={clsx(
-                    `BatchExportRunIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`,
+                    `BatchExportRunIcon flex h-6 items-center justify-center rounded-full border-2 p-2 text-xs font-semibold border-${color} text-${color}-dark select-none`,
                     color === 'primary' && 'BatchExportRunIcon--pulse',
                     showLabel ? '' : 'w-6'
                 )}

@@ -24,7 +24,7 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
         <div className="flex items-center">
             <span>{team.name}</span>
-            {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
+            {team.is_demo ? <LemonSnack className="ml-2 shrink-0 text-xs">Demo</LemonSnack> : null}
         </div>
     )
 }

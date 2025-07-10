@@ -30,7 +30,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
     return (
         <>
             {props.context?.showQueryHelp ? (
-                <div className="mb-2 flex flex-row flex-wrap justify-between items-center">
+                <div className="mb-2 flex flex-row flex-wrap items-center justify-between">
                     <div>
                         Insight configurations follow a declarative schema. Edit them as code here. Open under{' '}
                         <Link to={urls.debugQuery(queryInput)}>/debug</Link>.
@@ -40,7 +40,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             <div
                 data-attr="query-editor"
                 className={clsx(
-                    'flex flex-col p-2 bg-primary deprecated-space-y-2 resize-y overflow-auto h-80 rounded',
+                    'bg-primary deprecated-space-y-2 flex h-80 resize-y flex-col overflow-auto rounded p-2',
                     props.className
                 )}
             >
@@ -59,7 +59,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                     </AutoSizer>
                 </div>
                 {error ? (
-                    <div className="bg-danger text-white p-2">
+                    <div className="bg-danger p-2 text-white">
                         <strong>Error parsing JSON:</strong> {error}
                     </div>
                 ) : null}

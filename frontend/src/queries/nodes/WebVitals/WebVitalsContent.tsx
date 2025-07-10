@@ -44,7 +44,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     // NOTE: `band` will only return `none` if the value is undefined,
     // so this is basically the same check twice, but we need that to make TS happy
     if (value === undefined || band === 'none') {
-        return <LemonSkeleton fade className="w-full h-full rounded sm:w-[30%]" />
+        return <LemonSkeleton fade className="h-full w-full rounded sm:w-[30%]" />
     }
 
     const grade = GRADE_PER_BAND[band]
@@ -60,7 +60,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     const unit = webVitalsTab === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
+        <div className="bg-surface-primary flex w-full flex-col gap-2 rounded border p-4 sm:w-[30%]">
             <span className="text-lg">
                 <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>
@@ -80,16 +80,16 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
                     }
                 >
                     <strong>{grade}</strong>
-                    <IconInfo className="inline-block ml-1" />
+                    <IconInfo className="ml-1 inline-block" />
                 </Tooltip>
 
                 <span>
-                    <Icon className="inline-block mr-1" style={{ color }} />
+                    <Icon className="mr-1 inline-block" style={{ color }} />
                     {positioning} {values}
                 </span>
             </div>
 
-            <div className="text-xs text-secondary-foreground">
+            <div className="text-secondary-foreground text-xs">
                 {quantifier} {experience}
             </div>
 

@@ -13,7 +13,7 @@ function IframeErrorOverlay({ userIntent }: { userIntent?: string }): JSX.Elemen
     const logic = iframedToolbarBrowserLogic()
     const { iframeBanner } = useValues(logic)
     return iframeBanner ? (
-        <div className="absolute flex flex-col w-full h-full bg-blend-overlay items-start py-4 px-8 pointer-events-none">
+        <div className="pointer-events-none absolute flex h-full w-full flex-col items-start px-8 py-4 bg-blend-overlay">
             <LemonBanner className="w-full" type={iframeBanner.level}>
                 {iframeBanner.message}. Your site might not allow being embedded in an iframe. You can click "Open in
                 toolbar" above to visit your site and {UserIntentVerb[userIntent as ToolbarUserIntent]} there.
@@ -26,7 +26,7 @@ function LoadingOverlay(): JSX.Element | null {
     const logic = iframedToolbarBrowserLogic()
     const { loading } = useValues(logic)
     return loading ? (
-        <div className="absolute flex flex-col w-full h-full items-center justify-center pointer-events-none">
+        <div className="pointer-events-none absolute flex h-full w-full flex-col items-center justify-center">
             <Spinner className="text-5xl" textColored={true} />
         </div>
     ) : null
@@ -50,12 +50,12 @@ export function IframedToolbarBrowser({
     }, [iframeWidth])
 
     return browserUrl ? (
-        <div className="relative flex-1 w-full h-full">
+        <div className="relative h-full w-full flex-1">
             <IframeErrorOverlay userIntent={userIntent} />
             <LoadingOverlay />
             <iframe
                 ref={iframeRef}
-                className="w-full h-full bg-white"
+                className="h-full w-full bg-white"
                 src={appEditorUrl(browserUrl + '/' + initialPath, {
                     userIntent: userIntent,
                 })}

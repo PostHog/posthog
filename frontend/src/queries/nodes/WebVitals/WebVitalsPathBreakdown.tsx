@@ -48,7 +48,7 @@ export function WebVitalsPathBreakdown(props: {
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+        <div className="bg-surface-primary grid h-full min-h-60 grid-cols-1 divide-y rounded border md:grid-cols-3 md:divide-x md:divide-y-0">
             <div className="p-4">
                 <Header band="good" label="Good" />
                 <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
@@ -114,11 +114,11 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
     return (
         <div className="flex flex-row justify-between">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span className="flex flex-row gap-1 items-center font-semibold" style={{ color: WEB_VITALS_COLORS[band] }}>
-                <Icon className="w-6 h-6" />
+            <span className="flex flex-row items-center gap-1 font-semibold" style={{ color: WEB_VITALS_COLORS[band] }}>
+                <Icon className="h-6 w-6" />
                 {label}
             </span>
-            <span className="text-sm text-secondary">{thresholdText}</span>
+            <span className="text-secondary text-sm">{thresholdText}</span>
         </div>
     )
 }
@@ -159,17 +159,17 @@ const Content = ({
 
                         return (
                             <div
-                                className="flex flex-row items-center justify-between relative w-full p-2 py-1"
+                                className="relative flex w-full flex-row items-center justify-between p-2 py-1"
                                 key={path}
                             >
                                 <div
-                                    className="absolute top-0 left-0 h-full opacity-80 bg-surface-secondary"
+                                    className="bg-surface-secondary absolute left-0 top-0 h-full opacity-80"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width }}
                                 />
                                 <span
                                     title={path}
-                                    className="relative z-10 truncate mr-2 flex-1 cursor-pointer hover:underline"
+                                    className="relative z-10 mr-2 flex-1 cursor-pointer truncate hover:underline"
                                     onClick={() => {
                                         togglePropertyFilter(PropertyFilterType.Event, '$pathname', path)
                                     }}

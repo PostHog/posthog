@@ -67,7 +67,7 @@ export const InsightCard: Story = (args) => {
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+        <div className="grid min-w-[50rem] grid-cols-2 gap-4">
             {!wasItemRemoved && (
                 <InsightCardComponent
                     insight={

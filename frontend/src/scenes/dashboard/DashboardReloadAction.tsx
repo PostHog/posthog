@@ -85,7 +85,7 @@ export function DashboardReloadAction(): JSX.Element {
                                                 label="Auto refresh while on page"
                                                 checked={autoRefresh.enabled}
                                                 fullWidth
-                                                className="mt-1 mb-2"
+                                                className="mb-2 mt-1"
                                             />
                                         ),
                                     },

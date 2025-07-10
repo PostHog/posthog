@@ -30,12 +30,12 @@ const AutoTab = ({ value, onChange, onKeyDown, onBlur, autoFocus }: AutoTabProps
 
     return (
         <div className="relative inline-block">
-            <span ref={spanRef} className="pointer-events-none absolute invisible whitespace-pre" aria-hidden="true">
+            <span ref={spanRef} className="pointer-events-none invisible absolute whitespace-pre" aria-hidden="true">
                 {value}
             </span>
             <input
                 ref={inputRef}
-                className="bg-transparent border-none focus:outline-hidden p-0"
+                className="focus:outline-hidden border-none bg-transparent p-0"
                 value={value}
                 onChange={handleChange}
                 onKeyDown={onKeyDown}

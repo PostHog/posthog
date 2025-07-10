@@ -34,10 +34,10 @@ export const IssueStatusSelect = ({
     return (
         <DropdownMenu open={showPopover} onOpenChange={setShowPopover}>
             <DropdownMenuTrigger
-                className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                className="hover:bg-fill-button-tertiary-hover flex cursor-pointer items-center rounded p-[0.1rem]"
                 role="button"
             >
-                <StatusIndicator status={status} className="ml-1 text-xs text-secondary" />
+                <StatusIndicator status={status} className="text-secondary ml-1 text-xs" />
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <IssueStatusDropdown status={status} options={options} onChange={_onChange} />
@@ -59,7 +59,7 @@ function IssueStatusDropdown({
             {options.map((option) => (
                 <DropdownMenuItem
                     key={option}
-                    className="text-base text-secondary hover:bg-fill-button-tertiary-hover hover:text-fill-button-tertiary px-1"
+                    className="text-secondary hover:bg-fill-button-tertiary-hover hover:text-fill-button-tertiary px-1 text-base"
                     asChild
                 >
                     <LemonButton

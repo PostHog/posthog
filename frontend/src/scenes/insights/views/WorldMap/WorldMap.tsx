@@ -60,7 +60,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                             renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
                                 typeof datum.breakdown_value === 'string' && (
                                     <div className="flex items-center font-semibold">
-                                        <span className="text-xl mr-2">{countryCodeToFlag(datum.breakdown_value)}</span>
+                                        <span className="mr-2 text-xl">{countryCodeToFlag(datum.breakdown_value)}</span>
                                         <span className="whitespace-nowrap">
                                             {COUNTRY_CODE_TO_LONG_NAME[datum.breakdown_value]}
                                         </span>

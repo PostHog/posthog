@@ -162,7 +162,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     }, [updatingDataWarehouseSavedQuery, changesToSave, response])
 
     return (
-        <div className="flex flex-1 flex-col h-full overflow-hidden">
+        <div className="flex h-full flex-1 flex-col overflow-hidden">
             <div className="flex flex-row overflow-x-auto">
                 {renderSidebarButton()}
                 <QueryTabs
@@ -175,7 +175,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 />
             </div>
             {(editingView || editingInsight) && (
-                <div className="h-5 bg-warning-highlight">
+                <div className="bg-warning-highlight h-5">
                     <span className="pl-2 text-xs">
                         {editingView && (
                             <>
@@ -191,7 +191,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </span>
                 </div>
             )}
-            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
+            <div className="align-center flex w-full flex-row justify-start border-b bg-white pl-2 pr-2 dark:bg-black">
                 <RunButton />
                 <LemonDivider vertical />
                 {editingView && (

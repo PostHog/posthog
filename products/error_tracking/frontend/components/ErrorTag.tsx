@@ -18,7 +18,7 @@ export function ErrorTag({ color, label }: ErrorTagProps): JSX.Element {
         <LemonTag
             size="small"
             className={cn(
-                'font-semibold text-white border-gray-100/20 px-1 py-[0.1rem] text-[11px] rounded-sm inline',
+                'inline rounded-sm border-gray-100/20 px-1 py-[0.1rem] text-[11px] font-semibold text-white',
                 tagColor[color]
             )}
         >

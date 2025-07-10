@@ -57,9 +57,9 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
+                <div className={`text-secondary mx-auto max-w-screen-md ${hideHeader && 'hidden'}`}>
                     <div
-                        className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
+                        className="flex w-full shrink-0 items-center justify-start gap-x-3 px-2"
                         data-attr="onboarding-breadcrumbs"
                     >
                         {breadcrumbStepKeys.map((stepName, idx) => {
@@ -86,17 +86,17 @@ export const OnboardingStep = ({
                             )
                         })}
                     </div>
-                    <div className="flex flex-row justify-between items-center gap-2 mt-3">
-                        <h1 className={`font-bold m-0 px-2 ${fullWidth && 'text-center'}`}>
+                    <div className="mt-3 flex flex-row items-center justify-between gap-2">
+                        <h1 className={`m-0 px-2 font-bold ${fullWidth && 'text-center'}`}>
                             {title || stepKeyToTitle(currentOnboardingStep?.props.stepKey)}
                         </h1>
                         {actions && <div className="flex flex-row gap-2">{actions}</div>}
                     </div>
                 </div>
             </div>
-            <div className={clsx('p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
+            <div className={clsx('p-2', !fullWidth && 'mx-auto max-w-screen-md')}>
                 {subtitle && (
-                    <div className="max-w-screen-md mx-auto">
+                    <div className="mx-auto max-w-screen-md">
                         <p>{subtitle}</p>
                     </div>
                 )}

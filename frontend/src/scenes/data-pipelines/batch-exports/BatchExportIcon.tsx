@@ -34,7 +34,7 @@ export function RenderBatchExportIcon({
     const sizePx = size === 'small' ? 30 : 60
 
     return (
-        <div className="flex gap-4 items-center">
+        <div className="flex items-center gap-4">
             <Tooltip
                 title={
                     <>

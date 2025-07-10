@@ -65,7 +65,7 @@ export function _SimpleTimeLabel({
     return (
         <div
             className={clsx(
-                'overflow-hidden text-ellipsis shrink-0',
+                'shrink-0 overflow-hidden text-ellipsis',
                 muted && 'text-muted',
                 size === 'xsmall' && 'text-xs',
                 size === 'small' && 'text-sm'

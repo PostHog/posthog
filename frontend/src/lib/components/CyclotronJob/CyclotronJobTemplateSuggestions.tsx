@@ -27,9 +27,9 @@ function CyclotronJobTemplateSuggestionsItem({
 }): JSX.Element {
     return (
         <LemonButton fullWidth role="menuitem" size="small" onClick={() => onSelect(option)}>
-            <div className="flex-col flex-1">
-                <code className="text-sm font-semibold font-monospace">{option.example}</code>
-                <div className="text-xs text-secondary">{option.description}</div>
+            <div className="flex-1 flex-col">
+                <code className="font-monospace text-sm font-semibold">{option.example}</code>
+                <div className="text-secondary text-xs">{option.description}</div>
             </div>
         </LemonButton>
     )
@@ -50,8 +50,8 @@ export function CyclotronJobTemplateSuggestions({
     // * Have the last selected text selection be passed in so we can fill it in the appropriate place
 
     return (
-        <div className="flex overflow-hidden flex-col flex-1 gap-1 max-w-100">
-            <div className="flex flex-col gap-1 p-2 flex-0">
+        <div className="max-w-100 flex flex-1 flex-col gap-1 overflow-hidden">
+            <div className="flex-0 flex flex-col gap-1 p-2">
                 <div className="flex gap-1">
                     <LemonInput
                         type="search"
@@ -76,14 +76,14 @@ export function CyclotronJobTemplateSuggestions({
                         </FlaggedFeature>
                     ) : null}
                 </div>
-                <div className="text-xs text-secondary">
+                <div className="text-secondary text-xs">
                     Below are a list of available functions for templating your inputs using <b>{templating}</b>.{' '}
                     <Link to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload">
                         Learn more
                     </Link>
                 </div>
             </div>
-            <ul className="flex overflow-y-auto flex-col flex-1 gap-px p-2 border-t max-w-100">
+            <ul className="max-w-100 flex flex-1 flex-col gap-px overflow-y-auto border-t p-2">
                 {optionsFiltered.map((value) => (
                     <li key={value.key}>
                         <CyclotronJobTemplateSuggestionsItem option={value} onSelect={onOptionSelect} />

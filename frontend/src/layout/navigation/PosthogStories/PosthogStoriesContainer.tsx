@@ -30,20 +30,20 @@ export const PosthogStoriesContainer = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex items-center gap-2 mb-2 px-1">
+            <div className="mb-2 flex items-center gap-2 px-1">
                 <button
                     onClick={toggleStoriesCollapsed}
-                    className="flex items-center gap-2 hover:opacity-70 transition-opacity cursor-pointer"
+                    className="flex cursor-pointer items-center gap-2 transition-opacity hover:opacity-70"
                     title={storiesCollapsed ? 'Show stories' : 'Hide stories'}
                 >
                     <IconChevronRight
-                        className={`w-3 h-3 opacity-80 transition-transform ${storiesCollapsed ? '' : 'rotate-90'}`}
+                        className={`h-3 w-3 opacity-80 transition-transform ${storiesCollapsed ? '' : 'rotate-90'}`}
                     />
-                    <span className="text-sm font-medium text-text-3000">Stories</span>
+                    <span className="text-text-3000 text-sm font-medium">Stories</span>
                 </button>
             </div>
             {!storiesCollapsed && (
-                <div className="PosthogStoriesContainer flex flex-row gap-4 px-4 overflow-x-auto">
+                <div className="PosthogStoriesContainer flex flex-row gap-4 overflow-x-auto px-4">
                     {sortedStories.map((storyGroup) => {
                         const { hasViewedEntireGroup } = storyGroup
                         const nextStoryIndex = hasViewedEntireGroup
@@ -57,7 +57,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                         return (
                             <div
                                 key={storyGroup.id}
-                                className={`flex flex-col items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity ${
+                                className={`flex cursor-pointer flex-col items-center gap-2 transition-opacity hover:opacity-80 ${
                                     hasViewedEntireGroup ? 'opacity-75' : ''
                                 }`}
                                 onClick={() => {
@@ -73,21 +73,21 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                 }}
                             >
                                 <div
-                                    className={`w-15 h-15 rounded-full relative ${
+                                    className={`w-15 h-15 relative rounded-full ${
                                         hasViewedEntireGroup ? 'bg-gray-300 p-[1px]' : 'bg-orange-500 p-[2px]'
                                     }`}
                                 >
-                                    <div className="w-full h-full rounded-full overflow-hidden bg-bg-light p-[2px]">
-                                        <div className="w-full h-full rounded-full overflow-hidden relative">
+                                    <div className="bg-bg-light h-full w-full overflow-hidden rounded-full p-[2px]">
+                                        <div className="relative h-full w-full overflow-hidden rounded-full">
                                             <img
                                                 src={nextStory.thumbnailUrl}
                                                 alt={storyGroup.title}
-                                                className="w-full h-full object-cover"
+                                                className="h-full w-full object-cover"
                                             />
                                             {nextStory.type === 'video' && (
-                                                <div className="absolute inset-0 flex items-center justify-center bg-black/20 video-icon">
+                                                <div className="video-icon absolute inset-0 flex items-center justify-center bg-black/20">
                                                     <svg
-                                                        className="w-6 h-6 text-white"
+                                                        className="h-6 w-6 text-white"
                                                         fill="currentColor"
                                                         viewBox="0 0 24 24"
                                                     >
@@ -98,7 +98,7 @@ export const PosthogStoriesContainer = (): JSX.Element => {
                                         </div>
                                     </div>
                                 </div>
-                                <span className="text-xs line-clamp-2 text-center max-w-[64px]">
+                                <span className="line-clamp-2 max-w-[64px] text-center text-xs">
                                     {storyGroup.title}
                                 </span>
                             </div>

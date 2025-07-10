@@ -56,19 +56,19 @@ export function ManagedMigration(): JSX.Element {
                             icon: (
                                 <img
                                     src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico"
-                                    className="w-4 h-4"
+                                    className="h-4 w-4"
                                 />
                             ),
                         },
                         {
                             value: 'mixpanel',
                             label: 'Mixpanel',
-                            icon: <img src="https://mixpanel.com/favicon.ico" className="w-4 h-4" />,
+                            icon: <img src="https://mixpanel.com/favicon.ico" className="h-4 w-4" />,
                         },
                         {
                             value: 'amplitude',
                             label: 'Amplitude',
-                            icon: <img src="https://amplitude.com/favicon.ico" className="w-4 h-4" />,
+                            icon: <img src="https://amplitude.com/favicon.ico" className="h-4 w-4" />,
                         },
                     ]}
                 />
@@ -232,7 +232,7 @@ export function ManagedMigrations(): JSX.Element {
 
                             return (
                                 <div className="flex items-center gap-2">
-                                    <img src={config.icon} alt={config.alt} className="w-4 h-4" />
+                                    <img src={config.icon} alt={config.alt} className="h-4 w-4" />
                                     {config.label}
                                 </div>
                             )
@@ -265,7 +265,7 @@ export function ManagedMigrations(): JSX.Element {
 
                             return (
                                 <div className="flex items-center justify-center gap-2">
-                                    <img src={config.icon} alt={config.alt} className="w-4 h-4" />
+                                    <img src={config.icon} alt={config.alt} className="h-4 w-4" />
                                 </div>
                             )
                         },
@@ -286,7 +286,7 @@ export function ManagedMigrations(): JSX.Element {
                                         percent={progress}
                                         strokeColor={migration.status === 'paused' ? 'var(--danger)' : undefined}
                                     />
-                                    <span className="text-xs text-muted">
+                                    <span className="text-muted text-xs">
                                         {migration.status === 'completed'
                                             ? 'Complete'
                                             : migration.status === 'paused'
@@ -302,7 +302,7 @@ export function ManagedMigrations(): JSX.Element {
                         dataIndex: 'created_by',
                         render: function Render(_: any, migration: ManagedMigration) {
                             return (
-                                <div className="flex flex-row items-center flex-nowrap">
+                                <div className="flex flex-row flex-nowrap items-center">
                                     {migration.created_by && (
                                         <ProfilePicture user={migration.created_by} size="md" showName />
                                     )}

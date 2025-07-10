@@ -38,7 +38,7 @@ function SurveyPreview({
 
     const currentDimensions = screenDimensions[activeScreenSize]
     return (
-        <div className="flex flex-[1.5] flex-col items-center justify-start rounded overflow-hidden gap-2">
+        <div className="flex flex-[1.5] flex-col items-center justify-start gap-2 overflow-hidden rounded">
             <LemonTabs
                 activeKey={activeScreenSize}
                 onChange={(key) => setActiveScreenSize(key as PreviewScreenSize)}
@@ -49,16 +49,16 @@ function SurveyPreview({
                 ]}
                 barClassName="mb-0"
             />
-            <div className="flex flex-col md:flex-row gap-2 md:items-center md:justify-between min-w-full">
+            <div className="flex min-w-full flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 {setSelectedPageIndex && (
                     <LemonField.Pure
                         label="Current question"
-                        className="gap-1 max-w-full md:max-w-sm"
+                        className="max-w-full gap-1 md:max-w-sm"
                         htmlFor="survey-preview-question-select"
                     >
                         <LemonSelect
                             onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
-                            className="whitespace-nowrap max-w-fit"
+                            className="max-w-fit whitespace-nowrap"
                             value={selectedPageIndex || 0}
                             id="survey-preview-question-select"
                             options={[
@@ -87,7 +87,7 @@ function SurveyPreview({
             </div>
             <div
                 className={clsx(
-                    'border border-border max-w-full overflow-hidden rounded-md shadow-lg flex items-center justify-center relative transition-[width,height,max-height] duration-300 ease-in-out',
+                    'border-border relative flex max-w-full items-center justify-center overflow-hidden rounded-md border shadow-lg transition-[width,height,max-height] duration-300 ease-in-out',
                     surveyPreviewBackground === 'light' ? 'bg-white' : 'bg-black'
                 )}
                 // easier to use inline-styles for this very specific case
@@ -172,8 +172,8 @@ export function SurveyAppearanceModal({
             </LemonButton>
             <LemonModal isOpen={isAppearanceModalOpen} onClose={onClose} fullScreen simple>
                 <LemonModal.Header>Customize Survey Appearance</LemonModal.Header>
-                <LemonModal.Content className="flex flex-col md:flex-row flex-1 h-full gap-4 overflow-hidden">
-                    <div className="flex-1 overflow-y-auto flex flex-col gap-2 pr-1">
+                <LemonModal.Content className="flex h-full flex-1 flex-col gap-4 overflow-hidden md:flex-row">
+                    <div className="flex flex-1 flex-col gap-2 overflow-y-auto pr-1">
                         {!surveysStylingAvailable && (
                             <PayGateMini feature={AvailableFeature.SURVEYS_STYLING} className="mb-4">
                                 <></>

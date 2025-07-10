@@ -25,7 +25,7 @@ export default meta
 
 export function Default(): JSX.Element {
     return (
-        <div className="flex flex-col gap-4 max-w-lg">
+        <div className="flex max-w-lg flex-col gap-4">
             <ButtonPrimitive variant="outline" size="base">
                 Button base
             </ButtonPrimitive>

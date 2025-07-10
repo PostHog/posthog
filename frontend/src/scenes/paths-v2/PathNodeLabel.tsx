@@ -56,7 +56,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
         >
             <div className="flex items-center">
                 <Tooltip title={pageUrl(node)} placement="right">
-                    <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
+                    <div className="max-h-16 overflow-hidden break-words text-xs font-semibold">
                         {pageUrl(node, isPath)}
                     </div>
                 </Tooltip>
@@ -74,7 +74,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                             { label: 'Copy path item name', onClick: copyName },
                         ]}
                     >
-                        <IconEllipsis className="ml-1 cursor-pointer text-muted hover:text-default" />
+                        <IconEllipsis className="text-muted hover:text-default ml-1 cursor-pointer" />
                     </LemonMenu>
                 )}
             </div>

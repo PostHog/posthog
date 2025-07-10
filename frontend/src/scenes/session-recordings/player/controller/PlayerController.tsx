@@ -95,16 +95,16 @@ export function PlayerController(): JSX.Element {
     })
 
     return (
-        <div className="bg-surface-primary flex flex-col select-none">
+        <div className="bg-surface-primary flex select-none flex-col">
             <Seekbar />
-            <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
+            <div className="relative flex w-full items-center justify-between px-2 py-1" ref={ref}>
                 <Timestamp size={size} />
-                <div className="flex gap-0.5 items-center justify-center">
+                <div className="flex items-center justify-center gap-0.5">
                     <SeekSkip direction="backward" />
                     <PlayPauseButton />
                     <SeekSkip direction="forward" />
                 </div>
-                <div className="flex justify-end items-center">
+                <div className="flex items-center justify-end">
                     {!isZenMode && (
                         <>
                             <CommentOnRecordingButton />

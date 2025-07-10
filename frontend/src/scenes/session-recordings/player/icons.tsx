@@ -12,15 +12,15 @@ export function IconWindow({ value, className = '', size = 'medium' }: IconWindo
     return (
         <div
             className={clsx(
-                'flex justify-center items-center shrink-0 bg-muted-alt text-white rounded',
-                size === 'medium' && 'w-5 h-5',
-                size === 'small' && 'w-4 h-4',
+                'bg-muted-alt flex shrink-0 items-center justify-center rounded text-white',
+                size === 'medium' && 'h-5 w-5',
+                size === 'small' && 'h-4 w-4',
                 className
             )}
         >
             <span
                 className={clsx(
-                    'font-bold select-none',
+                    'select-none font-bold',
                     size === 'medium' && 'text-xs',
                     size === 'small' && 'text-xxs'
                 )}

@@ -39,11 +39,11 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
     }, [activity])
 
     return (
-        <div className="flex flex-col flex-1 overflow-hidden">
-            <ul className="flex-1 overflow-y-auto p-2 deprecated-space-y-px">
+        <div className="flex flex-1 flex-col overflow-hidden">
+            <ul className="deprecated-space-y-px flex-1 overflow-y-auto p-2">
                 {activityLoading ? (
                     <div className="deprecated-space-y-px">
-                        <LemonSkeleton className="w-full h-10" repeat={10} />
+                        <LemonSkeleton className="h-10 w-full" repeat={10} />
                     </div>
                 ) : (
                     activityWithChangedContent?.map((logItem: ActivityLogItem) => {
@@ -53,7 +53,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         const isButton = changedContent && !isCurrent
 
                         const buttonContent = (
-                            <span className="flex flex-1 gap-2 items-center p-2">
+                            <span className="flex flex-1 items-center gap-2 p-2">
                                 <ProfilePicture
                                     user={{
                                         first_name: name,
@@ -145,8 +145,8 @@ export function NotebookHistoryWarning(): JSX.Element | null {
 
     return (
         <LemonBanner type="info" className="my-4">
-            <span className="flex items-center gap-2 flex-wrap overflow-auto">
-                <span className="flex-1 min-w-120">
+            <span className="flex flex-wrap items-center gap-2 overflow-auto">
+                <span className="min-w-120 flex-1">
                     <b>Hello time traveller!</b>
                     <br /> You are viewing an older revision of this Notebook. You can choose to revert to this version,
                     or create a copy of it.

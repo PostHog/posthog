@@ -52,7 +52,7 @@ export function SavedFilters({
                                     setAppliedSavedFilter(filter)
                                 }
                             }}
-                            className="cursor-pointer text-current hover:text-accent"
+                            className="hover:text-accent cursor-pointer text-current"
                         >
                             {name || derived_name || 'Unnamed'}
                         </div>

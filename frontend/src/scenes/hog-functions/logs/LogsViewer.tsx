@@ -56,10 +56,10 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
     const { revealHiddenLogs, loadMoreLogs, setFilters, setRowExpanded } = useActions(logic)
 
     return (
-        <div className="flex-1 deprecated-space-y-2 ph-no-capture">
+        <div className="deprecated-space-y-2 ph-no-capture flex-1">
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
-                    className="flex-1 min-w-120"
+                    className="min-w-120 flex-1"
                     type="search"
                     placeholder="Search for messages containing…"
                     fullWidth
@@ -77,7 +77,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         matchWidth={false}
                         placement="right-end"
                         overlay={
-                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
+                            <div className="deprecated-space-y-2 max-w-100 overflow-hidden">
                                 {ALL_LOG_LEVELS.map((level) => {
                                     return (
                                         <LemonButton
@@ -204,7 +204,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                                         {entries.length > 1 && (
                                             <>
                                                 <br />
-                                                <span className="text-xs text-muted-alt">
+                                                <span className="text-muted-alt text-xs">
                                                     + {entries.length - 1} more
                                                 </span>
                                             </>

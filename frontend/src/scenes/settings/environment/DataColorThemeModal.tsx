@@ -24,8 +24,8 @@ export function DataColorThemeModal(): JSX.Element {
             width={768}
             footer={
                 isOfficial ? (
-                    <div className="flex justify-between items-center w-full">
-                        <span className="italic text-secondary">Official themes can't be edited.</span>
+                    <div className="flex w-full items-center justify-between">
+                        <span className="text-secondary italic">Official themes can't be edited.</span>
                         <LemonButton type="secondary" onClick={closeModal}>
                             Close
                         </LemonButton>

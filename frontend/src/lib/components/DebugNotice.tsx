@@ -61,7 +61,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
         )
     }
     return (
-        <div className="border rounded bg-primary overflow-hidden w-full font-mono text-xs *:flex *:items-center *:gap-2 *:pl-2 *:pr-0.5 *:h-7 *:border-l-4">
+        <div className="bg-primary w-full overflow-hidden rounded border font-mono text-xs *:flex *:h-7 *:items-center *:gap-2 *:border-l-4 *:pl-2 *:pr-0.5">
             <div className="border-brand-blue justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton
@@ -73,13 +73,13 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                 />
             </div>
             <Tooltip title="Branch" placement="right">
-                <div className="w-fit border-brand-red truncate max-w-full">
+                <div className="border-brand-red w-fit max-w-full truncate">
                     <IconBranch className="text-base" />
                     <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.branch}</span>
                 </div>
             </Tooltip>
             <Tooltip title="Revision" placement="right">
-                <div className="w-fit border-brand-yellow">
+                <div className="border-brand-yellow w-fit">
                     <IconCode className="text-base" />
                     <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.revision}</span>
                 </div>
@@ -97,11 +97,11 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                     }
                     placement="right"
                 >
-                    <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-key">
+                    <div className="border-brand-key flex h-8 w-fit items-center gap-2 border-l-4 px-2">
                         <IconWarning className="text-lg" />
                         <Link
                             to={window.location.href.replace(`:${window.location.port}`, ':8010')}
-                            className="font-semibold text-default underline min-w-0 flex-1 truncate"
+                            className="text-default min-w-0 flex-1 truncate font-semibold underline"
                         >
                             Click here to fix port!
                         </Link>

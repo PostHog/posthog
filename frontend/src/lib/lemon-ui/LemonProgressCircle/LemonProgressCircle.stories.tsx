@@ -92,7 +92,7 @@ export const Overview = (): JSX.Element => {
             </span>
 
             <LemonProgressCircle progress={progress} size={40}>
-                <span className="font-semibold text-sm">{(100 * progress).toFixed(0)}</span>
+                <span className="text-sm font-semibold">{(100 * progress).toFixed(0)}</span>
             </LemonProgressCircle>
 
             <span>

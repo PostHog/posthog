@@ -6,7 +6,7 @@ export type ToolbarMenuProps = {
 }
 
 export function ToolbarMenu({ children, className }: ToolbarMenuProps): JSX.Element {
-    return <div className={clsx('w-full h-full flex flex-col overflow-hidden', className)}>{children}</div>
+    return <div className={clsx('flex h-full w-full flex-col overflow-hidden', className)}>{children}</div>
 }
 
 ToolbarMenu.Header = function ToolbarMenuHeader({ children, className }: ToolbarMenuProps): JSX.Element {
@@ -15,12 +15,12 @@ ToolbarMenu.Header = function ToolbarMenuHeader({ children, className }: Toolbar
 
 ToolbarMenu.Body = function ToolbarMenuBody({ children, className }: ToolbarMenuProps): JSX.Element {
     return (
-        <div className={clsx('flex flex-col flex-1 h-full overflow-y-auto min-h-20 px-2 py-1', className)}>
+        <div className={clsx('flex h-full min-h-20 flex-1 flex-col overflow-y-auto px-2 py-1', className)}>
             {children}
         </div>
     )
 }
 
 ToolbarMenu.Footer = function ToolbarMenuFooter({ children, className }: ToolbarMenuProps): JSX.Element {
-    return <div className={clsx('flex flex-row items-center border-t gap-2 px-2 py-1', className)}>{children}</div>
+    return <div className={clsx('flex flex-row items-center gap-2 border-t px-2 py-1', className)}>{children}</div>
 }

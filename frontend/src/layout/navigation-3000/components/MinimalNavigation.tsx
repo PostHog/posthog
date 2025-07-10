@@ -23,8 +23,8 @@ export function MinimalNavigation(): JSX.Element {
         useActions(navigationLogic)
 
     return (
-        <nav className="flex items-center justify-between gap-2 p-2 border-b">
-            <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={urls.projectHomepage()} />
+        <nav className="flex items-center justify-between gap-2 border-b p-2">
+            <LemonButton noPadding icon={<IconLogomark className="mx-2 text-3xl" />} to={urls.projectHomepage()} />
             <div className="flex-1" />
             {(currentOrganization?.teams?.length ?? 0 > 1) ? (
                 <Popover

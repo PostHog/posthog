@@ -18,8 +18,8 @@ const SetupWizardBanner = ({ integrationName }: { integrationName: string }): JS
                 <LemonTag type="completion">ALPHA</LemonTag> AI setup wizard
             </h3>
             <div className="flex flex-col p-2">
-                <p className="font-normal pb-1">Try using the AI setup wizard to automatically install PostHog.</p>
-                <p className="font-normal pb-2">
+                <p className="pb-1 font-normal">Try using the AI setup wizard to automatically install PostHog.</p>
+                <p className="pb-2 font-normal">
                     Run the following command from the root of your {integrationName} project.
                 </p>
                 <CodeSnippet language={Language.Bash}>{wizardCommand}</CodeSnippet>

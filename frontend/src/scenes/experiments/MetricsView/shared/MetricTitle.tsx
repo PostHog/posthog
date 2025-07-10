@@ -48,12 +48,12 @@ export const MetricTitle = ({ metric, metricType }: { metric: any; metricType?: 
             const lastStep = series[series.length - 1]?.name
 
             return (
-                <div className="inline-flex flex-wrap items-center gap-1 min-w-0">
-                    <div className="inline-flex items-center gap-1 min-w-0">
+                <div className="inline-flex min-w-0 flex-wrap items-center gap-1">
+                    <div className="inline-flex min-w-0 items-center gap-1">
                         <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
                         {wrapWithTooltip(firstStep, <span className={getTextClassName(firstStep)}>{firstStep}</span>)}
                     </div>
-                    <div className="inline-flex items-center gap-1 min-w-0 @max-[200px]:ml-5">
+                    <div className="@max-[200px]:ml-5 inline-flex min-w-0 items-center gap-1">
                         <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
                         {wrapWithTooltip(lastStep, <span className={getTextClassName(lastStep)}>{lastStep}</span>)}
                     </div>

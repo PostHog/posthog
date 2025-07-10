@@ -8,7 +8,7 @@ export function NotebookConflictWarning(): JSX.Element {
     const { loadNotebook } = useActions(notebookLogic)
 
     return (
-        <div className="flex flex-col items-center text-secondary m-10">
+        <div className="text-secondary m-10 flex flex-col items-center">
             <h2 className="text-secondary">This Notebook has been edited elsewhere</h2>
 
             <p>

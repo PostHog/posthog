@@ -29,10 +29,10 @@ export function WinningVariantText({
         const { probability } = result
 
         return (
-            <div className="items-center inline-flex flex-wrap">
+            <div className="inline-flex flex-wrap items-center">
                 <VariantTag experimentId={experimentId} variantKey={highestProbabilityVariant} />
                 <span>&nbsp;is winning with a&nbsp;</span>
-                <span className="font-semibold items-center">
+                <span className="items-center font-semibold">
                     {`${(probability[highestProbabilityVariant] * 100).toFixed(2)}% probability`}&nbsp;
                 </span>
                 <span>of being best.&nbsp;</span>
@@ -80,7 +80,7 @@ export function Overview({ metricIndex = 0 }: { metricIndex?: number }): JSX.Ele
 
     return (
         <div>
-            <div className="items-center inline-flex flex-wrap">
+            <div className="inline-flex flex-wrap items-center">
                 <WinningVariantText result={result} experimentId={experimentId} />
                 <SignificanceText metricIndex={metricIndex} />
             </div>

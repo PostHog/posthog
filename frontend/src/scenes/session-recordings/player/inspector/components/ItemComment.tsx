@@ -21,7 +21,7 @@ export interface ItemCommentProps {
 
 function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment }): JSX.Element {
     return (
-        <div data-attr="item-notebook-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
+        <div data-attr="item-notebook-comment" className="w-full truncate text-ellipsis px-2 py-1 text-xs font-light">
             {item.data.comment.trim().length > 30 ? (
                 <Tooltip title={item.data.comment}>{item.data.comment}</Tooltip>
             ) : (
@@ -33,7 +33,7 @@ function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment 
 
 function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
     return (
-        <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
+        <div data-attr="item-annotation-comment" className="w-full truncate text-ellipsis px-2 py-1 text-xs font-light">
             {(item.data.content || '').trim().length > 30 ? (
                 <Tooltip title={item.data.content}>{item.data.content}</Tooltip>
             ) : (
@@ -59,8 +59,8 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
     const { selectNotebook } = useActions(notebookPanelLogic)
 
     return (
-        <div data-attr="item-notebook-comment" className="font-light w-full">
-            <div className="px-2 py-1 text-xs border-t w-full flex justify-end">
+        <div data-attr="item-notebook-comment" className="w-full font-light">
+            <div className="flex w-full justify-end border-t px-2 py-1 text-xs">
                 <LemonButton
                     type="secondary"
                     onClick={(e) => {
@@ -74,7 +74,7 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
                 </LemonButton>
             </div>
 
-            <div className="px-2 py-1 text-xs border-t text-wrap">{item.data.comment}</div>
+            <div className="text-wrap border-t px-2 py-1 text-xs">{item.data.comment}</div>
         </div>
     )
 }
@@ -82,8 +82,8 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
 function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
     const { startCommenting } = useActions(playerCommentModel)
     return (
-        <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
-            <div className="px-2 py-1 text-xs border-t w-full flex justify-between items-center">
+        <div data-attr="item-annotation-comment" className="flex w-full flex-col gap-y-1 font-light">
+            <div className="flex w-full items-center justify-between border-t px-2 py-1 text-xs">
                 <Tooltip title="Annotations can be scoped to the project or organization, or to individual insights or dashboards. Project and organization scoped annotations are shown in the recording timeline.">
                     <div className="flex flex-row items-center gap-2">
                         <IconInfo className="text-muted text-xs" />
@@ -114,7 +114,7 @@ function ItemCommentAnnotationDetail({ item }: { item: InspectorListItemAnnotati
                 </LemonButton>
             </div>
 
-            <div className="p-2 text-xs border-t cursor-pointer text-wrap">{item.data.content}</div>
+            <div className="cursor-pointer text-wrap border-t p-2 text-xs">{item.data.content}</div>
 
             <ProfilePicture
                 user={item.data.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : item.data.created_by}

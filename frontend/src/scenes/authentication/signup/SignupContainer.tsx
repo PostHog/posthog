@@ -31,9 +31,9 @@ export function SignupContainer(): JSX.Element | null {
         <BridgePage
             view="signup"
             footer={
-                <div className="sm:flex sm:justify-center w-full gap-[10%]">
+                <div className="w-full gap-[10%] sm:flex sm:justify-center">
                     {footerHighlights[preflight?.cloud ? 'cloud' : 'selfHosted'].map((val, idx) => (
-                        <p key={idx} className="text-center mb-2">
+                        <p key={idx} className="mb-2 text-center">
                             {val}
                         </p>
                     ))}
@@ -72,11 +72,11 @@ export function SignupLeftContainer(): JSX.Element {
 
     return (
         <>
-            <div className="mb-16 max-w-100">
+            <div className="max-w-100 mb-16">
                 {productBenefits.map((benefit, i) => (
-                    <div className="flex flex-row gap-3 mb-4" key={i}>
+                    <div className="mb-4 flex flex-row gap-3" key={i}>
                         <div>
-                            <IconCheckCircle className="mt-0.5 w-5 h-5 text-link" />
+                            <IconCheckCircle className="text-link mt-0.5 h-5 w-5" />
                         </div>
                         <div>
                             <h3 className="mb-1 font-bold leading-6">{benefit.benefit}</h3>
@@ -85,7 +85,7 @@ export function SignupLeftContainer(): JSX.Element {
                     </div>
                 ))}
             </div>
-            <div className="BridgePage__cta border rounded p-4 mt-8 text-center">
+            <div className="BridgePage__cta mt-8 rounded border p-4 text-center">
                 Did you know?
                 {preflight?.cloud ? (
                     <span>

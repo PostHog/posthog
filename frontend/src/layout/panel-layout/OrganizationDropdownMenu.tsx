@@ -64,7 +64,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 <span className="truncate font-semibold">
                                     {currentOrganization ? currentOrganization.name : 'Select organization'}
                                 </span>
-                                <IconChevronRight className="size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none" />
+                                <IconChevronRight className="text-secondary group-data-[state=open]/button-primitive:rotate-270 prefers-reduced-motion:transition-none size-3 rotate-90 transition-transform duration-200" />
                             </>
                         )}
                     </ButtonPrimitive>
@@ -79,7 +79,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             <Label intent="menu" className="px-2">
                                 Organizations
                             </Label>
-                            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                            <div className="bg-border-primary -mx-1 my-1 h-px shrink-0" />
 
                             <Combobox.Empty>No organizations found</Combobox.Empty>
 
@@ -100,7 +100,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                                 entityId={currentOrganization.id}
                                                 mediaId={currentOrganization.logo_media_id}
                                             />
-                                            <span className="truncate max-w-full">{currentOrganization.name}</span>
+                                            <span className="max-w-full truncate">{currentOrganization.name}</span>
                                             <div className="ml-auto">
                                                 <AccessLevelIndicator organization={currentOrganization} />
                                             </div>
@@ -126,7 +126,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                                 entityId={otherOrganization.id}
                                                 mediaId={otherOrganization.logo_media_id}
                                             />
-                                            <span className="truncate max-w-full">{otherOrganization.name}</span>
+                                            <span className="max-w-full truncate">{otherOrganization.name}</span>
                                             <div className="ml-auto">
                                                 <AccessLevelIndicator organization={otherOrganization} />
                                             </div>

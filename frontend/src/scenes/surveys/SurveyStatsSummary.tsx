@@ -20,8 +20,8 @@ interface StatCardProps {
 
 function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.Element {
     return (
-        <div className="p-4 border rounded bg-bg-light flex-1 min-w-[180px] flex flex-col gap-1">
-            <div className="text-xs font-semibold uppercase text-text-secondary">{title}</div>
+        <div className="bg-bg-light flex min-w-[180px] flex-1 flex-col gap-1 rounded border p-4">
+            <div className="text-text-secondary text-xs font-semibold uppercase">{title}</div>
             {isLoading ? (
                 <>
                     <LemonSkeleton className="h-9 w-16" />
@@ -30,7 +30,7 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
             ) : (
                 <>
                     <div className="text-3xl font-bold">{value}</div>
-                    <div className="text-sm text-text-secondary">{description}</div>
+                    <div className="text-text-secondary text-sm">{description}</div>
                 </>
             )}
         </div>
@@ -165,7 +165,7 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 justify-between">
+            <div className="flex items-center justify-between gap-2">
                 <h3 className="mb-0">Survey performance</h3>
                 {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
                     <div className="flex items-center gap-2">
@@ -181,20 +181,20 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                 )}
             </div>
             {survey.start_date && (
-                <div className="flex items-center text-sm text-secondary">
-                    <div className="flex gap-2 items-center">
+                <div className="text-secondary flex items-center text-sm">
+                    <div className="flex items-center gap-2">
                         <span className="inline-flex items-center gap-1">
                             Started: <TZLabel time={survey.start_date} />
                         </span>
                         <span className="text-border-dark">•</span>
                         {survey.end_date ? (
                             <span className="inline-flex items-center gap-1">
-                                <span className="h-2 w-2 rounded-full bg-danger/50" />
+                                <span className="bg-danger/50 h-2 w-2 rounded-full" />
                                 Ended: <TZLabel time={survey.end_date} />
                             </span>
                         ) : (
-                            <span className="inline-flex items-center gap-1 text-success">
-                                <span className="h-2 w-2 rounded-full bg-success animate-pulse" />
+                            <span className="text-success inline-flex items-center gap-1">
+                                <span className="bg-success h-2 w-2 animate-pulse rounded-full" />
                                 Active
                             </span>
                         )}

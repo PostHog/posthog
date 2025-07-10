@@ -21,7 +21,7 @@ const ScrollDepthJSWarning = (): JSX.Element | null => {
     }
 
     return (
-        <p className="my-2 bg-danger-highlight border border-danger rounded p-2">
+        <p className="bg-danger-highlight border-danger my-2 rounded border p-2">
             {scrollDepthPosthogJsError === 'version' ? (
                 <>This feature requires a newer version of posthog-js</>
             ) : scrollDepthPosthogJsError === 'disabled' ? (
@@ -102,7 +102,7 @@ export const HeatmapsSettings = ({
                     </>
                 }
             >
-                <div className="flex gap-2 justify-between items-center">
+                <div className="flex items-center justify-between gap-2">
                     <LemonSelect
                         onChange={(e) => patchHeatmapFilters?.({ type: e })}
                         value={heatmapFilters?.type ?? undefined}
@@ -144,7 +144,7 @@ export const HeatmapsSettings = ({
                     </>
                 }
             >
-                <div className="flex gap-2 justify-between items-center">
+                <div className="flex items-center justify-between gap-2">
                     <LemonSegmentedButton
                         onChange={(e) => patchHeatmapFilters?.({ aggregation: e })}
                         value={heatmapFilters?.aggregation ?? 'total_count'}
@@ -177,7 +177,7 @@ export const HeatmapsSettings = ({
                     </>
                 }
             >
-                <div className="flex gap-2 justify-between items-center">
+                <div className="flex items-center justify-between gap-2">
                     <LemonSlider
                         className="flex-1"
                         min={0}
@@ -186,7 +186,7 @@ export const HeatmapsSettings = ({
                         value={heatmapFilters?.viewportAccuracy ?? 0}
                         onChange={(value) => patchHeatmapFilters?.({ viewportAccuracy: value })}
                     />
-                    <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
+                    <code className="whitsepace-nowrap w-[12rem] text-right text-xs">
                         {`${Math.round((heatmapFilters?.viewportAccuracy ?? 1) * 100)}% (${viewportRange?.min}px - ${
                             viewportRange?.max
                         }px)`}

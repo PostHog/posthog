@@ -25,7 +25,7 @@ Default.args = {
 
 export const Pill = (): JSX.Element => {
     return (
-        <div className="flex flex-row deprecated-space-x-2">
+        <div className="deprecated-space-x-2 flex flex-row">
             <LemonSnack type="pill">Pill</LemonSnack>
             <LemonSnack type="pill" onClick={() => alert('onClick')}>
                 Clickable
@@ -43,7 +43,7 @@ export const Pill = (): JSX.Element => {
 export const ComplexContent: Story = BasicTemplate.bind({})
 ComplexContent.args = {
     children: (
-        <span className="flex gap-2 items-center">
+        <span className="flex items-center gap-2">
             <ProfilePicture name="ben" size="sm" />
             <span>
                 Look at me I'm <b>bold!</b>
@@ -57,7 +57,7 @@ export const OverflowOptions = (): JSX.Element => {
     return (
         <>
             <p>By default the LemonSnack does not wrap content but this can be changed with the wrap property</p>
-            <div className="bg-border p-2 deprecated-space-y-2 w-60">
+            <div className="bg-border deprecated-space-y-2 w-60 p-2">
                 <LemonSnack onClose={() => {}}>qwertzuiopasdfghjklyxcvbnm1234567890</LemonSnack>
                 <LemonSnack onClose={() => {}} wrap>
                     Overflow-qwertzuiopasdfghjklyxcvbnm1234567890

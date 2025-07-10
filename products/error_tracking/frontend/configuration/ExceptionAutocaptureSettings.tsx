@@ -76,8 +76,8 @@ function ErrorTrackingClientSuppression(): JSX.Element {
             {({ rule, editable }) => {
                 return (
                     <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
-                        <div className="flex gap-2 justify-between px-2 py-3">
-                            <div className="flex gap-1 items-center">
+                        <div className="flex justify-between gap-2 px-2 py-3">
+                            <div className="flex items-center gap-1">
                                 <div>Ignore exceptions that match </div>
                                 <ErrorTrackingRules.Operator rule={rule} editable={editable} />
                                 <div>of the following filters:</div>

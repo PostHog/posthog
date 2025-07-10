@@ -28,13 +28,13 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 ref={ref}
-                className="w-full bg-primary-alt-highlight rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
+                className="bg-primary-alt-highlight flex w-full items-center justify-center gap-2 rounded-lg p-4 font-bold"
                 onDragStart={reportBookmarkletDragged}
             >
                 <IconBookmarkBorder fontSize="1.5rem" />
                 <span className="text-base">PostHog Bookmarklet</span>
             </a>
-            <p className="text-center text-secondary font-medium mt-2">
+            <p className="text-secondary mt-2 text-center font-medium">
                 Drag to your bookmarks. Do not click on this link. The bookmarklet only works for the current browser
                 session.
             </p>

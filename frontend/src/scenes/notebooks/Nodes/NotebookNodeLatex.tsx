@@ -88,7 +88,7 @@ const LatexComponent = ({
             {/* Display mode: Render the div that MathJax will populate, hidden when editing */}
             <div
                 ref={containerRef} // This ref is for the display div
-                className={`NotebookLatex text-center cursor-pointer hover:bg-border p-1 rounded ${
+                className={`NotebookLatex hover:bg-border cursor-pointer rounded p-1 text-center ${
                     selected ? 'NotebookNode--selected' : ''
                 } ${editing ? 'hidden' : ''}`}
                 data-latex-block
@@ -103,7 +103,7 @@ const LatexComponent = ({
             />
 
             {editing && (
-                <div className="p-2 w-full" data-nodrag="true">
+                <div className="w-full p-2" data-nodrag="true">
                     <LemonTextArea
                         ref={textareaRef}
                         value={localContent}

@@ -26,7 +26,7 @@ function checkableMenuItem(
 ): LemonMenuItem {
     return {
         label: (
-            <div className="w-full flex flex-row justify-between items-center">
+            <div className="flex w-full flex-row items-center justify-between">
                 <div className="flex flex-row items-center gap-1">
                     {isActive ? <IconCheck /> : <BaseIcon />}
                     {icon}
@@ -115,8 +115,8 @@ export const EventDebugMenu = (): JSX.Element => {
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
-                <div className="flex flex-col pb-2 deprecated-space-y-1">
-                    <div className="flex justify-center flex-col">
+                <div className="deprecated-space-y-1 flex flex-col pb-2">
+                    <div className="flex flex-col justify-center">
                         <LemonInput
                             autoFocus={true}
                             fullWidth={true}
@@ -129,8 +129,8 @@ export const EventDebugMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="flex flex-col deprecated-space-y-1">
-                    <div className="flex-1 text-sm pl-1">
+                <div className="deprecated-space-y-1 flex flex-col">
+                    <div className="flex-1 pl-1 text-sm">
                         View all events sent from this page as they are sent to PostHog.
                     </div>
                     {activeFilteredEvents.length ? (
@@ -139,13 +139,13 @@ export const EventDebugMenu = (): JSX.Element => {
 
                             return (
                                 <div
-                                    className="-mx-1 py-1 px-2 cursor-pointer"
+                                    className="-mx-1 cursor-pointer px-2 py-1"
                                     key={e.uuid}
                                     onClick={() => {
                                         expanded ? markExpanded(null) : markExpanded(e.uuid || null)
                                     }}
                                 >
-                                    <div className="flex flex-row justify-between hover:bg-surface-primary hover:text-accent-highlight">
+                                    <div className="hover:bg-surface-primary hover:text-accent-highlight flex flex-row justify-between">
                                         <EventTimestamp e={e} />
 
                                         <div className="flex flex-row items-end gap-1">
@@ -158,7 +158,7 @@ export const EventDebugMenu = (): JSX.Element => {
                                         </div>
                                     </div>
                                     {expanded && (
-                                        <div className="my-1 ml-1 pl-2 border-l-2">
+                                        <div className="my-1 ml-1 border-l-2 pl-2">
                                             <SimpleKeyValueList
                                                 item={expandedProperties}
                                                 emptyMessage={searchText ? 'No matching properties' : 'No properties'}

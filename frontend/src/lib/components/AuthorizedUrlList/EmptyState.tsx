@@ -73,7 +73,7 @@ export function EmptyState({
         }
 
         return (
-            <div className="flex flex-row items-center justify-between w-full">
+            <div className="flex w-full flex-row items-center justify-between">
                 <p>
                     <span className="font-bold">There are no authorized {domainOrUrl}s.</span>
                     <br />
@@ -119,5 +119,5 @@ export function EmptyState({
         displaySuggestions,
     ])
 
-    return children ? <div className="border rounded p-4 text-secondary">{children}</div> : null
+    return children ? <div className="text-secondary rounded border p-4">{children}</div> : null
 }

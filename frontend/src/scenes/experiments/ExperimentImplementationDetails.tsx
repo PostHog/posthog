@@ -154,7 +154,7 @@ export function CodeLanguageSelect({
                         value,
                         label: value,
                         labelInMenu: (
-                            <div className="flex items-center deprecated-space-x-2">
+                            <div className="deprecated-space-x-2 flex items-center">
                                 <Icon />
                                 <span>{value}</span>
                             </div>
@@ -167,7 +167,7 @@ export function CodeLanguageSelect({
                         value,
                         label: value,
                         labelInMenu: (
-                            <div className="flex items-center deprecated-space-x-2">
+                            <div className="deprecated-space-x-2 flex items-center">
                                 <Icon />
                                 <span>{value}</span>
                             </div>
@@ -195,9 +195,9 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
 
     return (
         <div className="mb-4">
-            <h2 className="font-semibold text-lg mb-2">Implementation</h2>
-            <div className="border rounded bg-surface-primary">
-                <div className="p-6 deprecated-space-y-4">
+            <h2 className="mb-2 text-lg font-semibold">Implementation</h2>
+            <div className="bg-surface-primary rounded border">
+                <div className="deprecated-space-y-4 p-6">
                     <div className="flex justify-between">
                         <div className="flex items-center">
                             <span className="mr-2">Variant group</span>

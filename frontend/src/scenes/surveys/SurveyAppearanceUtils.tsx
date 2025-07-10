@@ -29,16 +29,16 @@ export function PresentationTypeCard({
     return (
         <div
             className={clsx(
-                'border rounded relative px-4 py-2 overflow-hidden h-[180px] w-[200px]',
+                'relative h-[180px] w-[200px] overflow-hidden rounded border px-4 py-2',
                 active ? 'border-accent' : 'border-primary'
             )}
         >
-            <p className="font-semibold m-0">{title}</p>
+            <p className="m-0 font-semibold">{title}</p>
             {description && <p className="m-0 text-xs">{description}</p>}
-            <div className="relative mt-2 presentation-preview">{children}</div>
+            <div className="presentation-preview relative mt-2">{children}</div>
             <input
                 onClick={onClick}
-                className="opacity-0 absolute inset-0 h-full w-full cursor-pointer"
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                 name="type"
                 value={value}
                 type="radio"

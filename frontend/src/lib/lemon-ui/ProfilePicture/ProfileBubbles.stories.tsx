@@ -32,7 +32,7 @@ export function OneBubble(props: any): JSX.Element {
 
 export function MultipleBubblesWithTooltip(props: any): JSX.Element {
     return (
-        <div className="flex flex-start">
+        <div className="flex-start flex">
             <ProfileBubblesComponent {...props} tooltip="Cool people." />
         </div>
     )

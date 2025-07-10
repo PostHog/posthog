@@ -94,10 +94,10 @@ export function Exporter(props: ExportedData): JSX.Element {
                     noInspector={!showInspector}
                 />
             ) : (
-                <h1 className="text-center p-4">Something went wrong...</h1>
+                <h1 className="p-4 text-center">Something went wrong...</h1>
             )}
             {!whitelabel && dashboard && (
-                <div className="text-center pb-4">
+                <div className="pb-4 text-center">
                     {type === ExportType.Image ? <Logo className="text-lg" /> : null}
                     <div>
                         Made with{' '}

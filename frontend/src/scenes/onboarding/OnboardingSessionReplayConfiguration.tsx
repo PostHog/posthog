@@ -28,12 +28,12 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
                 </p>
             </div>
 
-            <div className="flex flex-col md:flex-row items-center gap-6">
-                <div className="hidden md:block flex-shrink-0">
-                    <FilmCameraHog className="w-36 h-auto" />
+            <div className="flex flex-col items-center gap-6 md:flex-row">
+                <div className="hidden flex-shrink-0 md:block">
+                    <FilmCameraHog className="h-auto w-36" />
                 </div>
-                <div className="flex-1 border border-gray-200 rounded-lg bg-bg-light dark:bg-bg-depth p-4">
-                    <h4 className="text-lg font-semibold mb-2">Why enable Session Replay?</h4>
+                <div className="bg-bg-light dark:bg-bg-depth flex-1 rounded-lg border border-gray-200 p-4">
+                    <h4 className="mb-2 text-lg font-semibold">Why enable Session Replay?</h4>
                     <ul className="deprecated-space-y-2 text-secondary">
                         <li>
                             <strong>Understand user behavior:</strong> Get a clear view of how people navigate and
@@ -49,7 +49,7 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
                     </ul>
                 </div>
             </div>
-            <div className="mt-6 w-full flex justify-end gap-2">
+            <div className="mt-6 flex w-full justify-end gap-2">
                 <LemonButton type="secondary" data-attr="skip-session-replay" onClick={() => handleNext(false)}>
                     No, thanks
                 </LemonButton>

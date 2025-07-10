@@ -67,11 +67,11 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
     const commonTickValues = getNiceTickValues(chartBound)
 
     return (
-        <div className="mb-4 -mt-2">
+        <div className="-mt-2 mb-4">
             <div className="flex">
                 <div className="w-1/2 pt-5">
-                    <div className="inline-flex items-center deprecated-space-x-2 mb-0">
-                        <h2 className="mb-0 font-semibold text-lg leading-6">
+                    <div className="deprecated-space-x-2 mb-0 inline-flex items-center">
+                        <h2 className="mb-0 text-lg font-semibold leading-6">
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
                         {metrics.length > 0 && (
@@ -127,14 +127,14 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                                         </div>
                                     }
                                 >
-                                    <span className="text-xs text-secondary cursor-help">How to read</span>
+                                    <span className="text-secondary cursor-help text-xs">How to read</span>
                                 </Tooltip>
                             </>
                         )}
                     </div>
                 </div>
 
-                <div className="w-1/2 flex flex-col justify-end">
+                <div className="flex w-1/2 flex-col justify-end">
                     <div className="ml-auto">
                         {metrics.length > 0 && (
                             <div className="mb-2 mt-4 justify-end">
@@ -154,7 +154,7 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                             return (
                                 <div
                                     key={metricIndex}
-                                    className={`w-full border border-primary bg-light ${
+                                    className={`border-primary bg-light w-full border ${
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric
@@ -182,10 +182,10 @@ export function MetricsViewLegacy({ isSecondary }: { isSecondary?: boolean }): J
                     </div>
                 </div>
             ) : (
-                <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
-                    <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
+                <div className="bg-surface-primary text-secondary mt-2 rounded border pb-8 pt-6">
+                    <div className="deprecated-space-y-3 mx-auto flex flex-col items-center">
                         <IconAreaChart fontSize="30" />
-                        <div className="text-sm text-center text-balance max-w-sm">
+                        <div className="max-w-sm text-balance text-center text-sm">
                             <p>
                                 {`Add up to ${
                                     isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS

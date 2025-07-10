@@ -47,7 +47,7 @@ export function PlaylistPopoverButton({
                 actionable
                 overlay={
                     <div className="deprecated-space-y-1 w-100">
-                        <div className="shrink-0 deprecated-space-y-1">
+                        <div className="deprecated-space-y-1 shrink-0">
                             {newFormShowing ? (
                                 <Form
                                     formKey="newPlaylist"
@@ -59,7 +59,7 @@ export function PlaylistPopoverButton({
                                     <LemonField name="name">
                                         <LemonInput placeholder="Collection name" fullWidth />
                                     </LemonField>
-                                    <div className="flex items-center gap-2 justify-end">
+                                    <div className="flex items-center justify-end gap-2">
                                         <LemonButton
                                             type="secondary"
                                             status="danger"
@@ -129,7 +129,7 @@ export function PlaylistPopoverButton({
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
-                            <div className="p-2 text-center text-secondary">No collections found</div>
+                            <div className="text-secondary p-2 text-center">No collections found</div>
                         )}
                     </div>
                 }

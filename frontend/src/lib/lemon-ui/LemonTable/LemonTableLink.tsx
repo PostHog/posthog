@@ -12,10 +12,10 @@ export function LemonTableLink({
     return (
         <Link subtle {...props}>
             <div className="flex flex-col py-1">
-                <div className="flex flex-row items-center font-semibold text-sm gap-1">{title}</div>
+                <div className="flex flex-row items-center gap-1 text-sm font-semibold">{title}</div>
 
                 {description ? (
-                    <div className="text-xs text-tertiary mt-1">
+                    <div className="text-tertiary mt-1 text-xs">
                         {typeof description === 'string' ? (
                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                                 {description}

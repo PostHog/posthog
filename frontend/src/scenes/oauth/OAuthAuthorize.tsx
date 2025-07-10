@@ -12,10 +12,10 @@ import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
-        <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
+        <div className="flex h-full flex-col items-center justify-center gap-4 py-12">
             <IconWarning className="text-muted-alt text-4xl" />
             <div className="text-xl font-semibold">{title}</div>
-            <div className="text-sm text-muted">{description}</div>
+            <div className="text-muted text-sm">{description}</div>
         </div>
     )
 }
@@ -35,7 +35,7 @@ export const OAuthAuthorize = (): JSX.Element => {
 
     if (oauthApplicationLoading) {
         return (
-            <div className="flex items-center justify-center h-full py-12">
+            <div className="flex h-full items-center justify-center py-12">
                 <Spinner />
             </div>
         )
@@ -51,9 +51,9 @@ export const OAuthAuthorize = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col items-center justify-center h-full">
-            <div className="max-w-2xl mx-auto py-12 px-6">
-                <div className="text-center mb-8">
+        <div className="flex h-full flex-col items-center justify-center">
+            <div className="mx-auto max-w-2xl px-6 py-12">
+                <div className="mb-8 text-center">
                     <h2 className="text-2xl font-semibold">
                         Authorize <strong>{oauthApplication.name}</strong>
                     </h2>
@@ -61,22 +61,22 @@ export const OAuthAuthorize = (): JSX.Element => {
                 </div>
 
                 <Form logic={oauthAuthorizeLogic} formKey="oauthAuthorization">
-                    <div className="flex flex-col gap-6 bg-bg-light border border-border rounded p-6 shadow">
+                    <div className="bg-bg-light border-border flex flex-col gap-6 rounded border p-6 shadow">
                         <ScopeAccessSelector
                             accessType={oauthAuthorization.access_type}
                             organizations={allOrganizations}
                             teams={allTeams ?? undefined}
                         />
                         <div>
-                            <div className="text-sm font-semibold uppercase text-muted mb-2">Requested Permissions</div>
+                            <div className="text-muted mb-2 text-sm font-semibold uppercase">Requested Permissions</div>
                             <ul className="space-y-2">
                                 {scopeDescriptions.map((scopeDescription, idx) => (
-                                    <li key={idx} className="flex items-center space-x-2 text-large">
+                                    <li key={idx} className="text-large flex items-center space-x-2">
                                         <IconCheck color="var(--success)" />
                                         <span className="font-medium">{scopeDescription}</span>
                                     </li>
                                 ))}
-                                <li className="flex items-center space-x-2 text-large">
+                                <li className="text-large flex items-center space-x-2">
                                     <IconX color="var(--danger)" />
                                     <span className="font-medium">Replace your dashboards with hedgehog memes</span>
                                 </li>
@@ -84,7 +84,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         </div>
 
                         {redirectDomain && (
-                            <div className="text-xs text-muted">
+                            <div className="text-muted text-xs">
                                 <p>
                                     Once you authorize, you will be redirected to <strong>{redirectDomain}</strong>
                                 </p>

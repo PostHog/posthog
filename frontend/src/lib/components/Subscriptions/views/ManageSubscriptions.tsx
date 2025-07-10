@@ -48,10 +48,10 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                 },
             }}
         >
-            <div className="flex justify-between flex-auto items-center p-2">
+            <div className="flex flex-auto items-center justify-between p-2">
                 <div>
                     <div className="text-link font-medium">{subscription.title}</div>
-                    <div className="text-sm text-text-3000">{capitalizeFirstLetter(subscription.summary)}</div>
+                    <div className="text-text-3000 text-sm">{capitalizeFirstLetter(subscription.summary)}</div>
                 </div>
                 {subscription.target_type === 'email' ? (
                     <ProfileBubbles
@@ -92,7 +92,7 @@ export function ManageSubscriptions({
             <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
                     <div className="deprecated-space-y-2">
-                        <LemonSkeleton className="w-1/2 h-4" />
+                        <LemonSkeleton className="h-4 w-1/2" />
                         <LemonSkeleton.Row repeat={2} />
                     </div>
                 ) : subscriptions.length ? (
@@ -113,7 +113,7 @@ export function ManageSubscriptions({
                         ))}
                     </div>
                 ) : (
-                    <div className="flex flex-col p-4 items-center text-center">
+                    <div className="flex flex-col items-center p-4 text-center">
                         <h3>There are no subscriptions for this insight</h3>
 
                         <p>Once subscriptions are created they will display here. </p>

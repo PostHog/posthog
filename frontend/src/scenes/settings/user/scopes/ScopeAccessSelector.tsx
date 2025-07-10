@@ -14,9 +14,9 @@ type Props = {
 const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
-            <LemonField name="access_type" className="mt-4 mb-2">
+            <LemonField name="access_type" className="mb-2 mt-4">
                 {({ value, onChange }) => (
-                    <div className="flex flex-col gap-2 md:flex-row items-start md:items-center justify-between">
+                    <div className="flex flex-col items-start justify-between gap-2 md:flex-row md:items-center">
                         <LemonLabel>Organization & project access</LemonLabel>
                         <LemonSegmentedButton
                             onChange={onChange}
@@ -59,7 +59,7 @@ const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.E
                                             title={
                                                 <div>
                                                     <div className="font-semibold">{org.name}</div>
-                                                    <div className="text-xs whitespace-nowrap">ID: {org.id}</div>
+                                                    <div className="whitespace-nowrap text-xs">ID: {org.id}</div>
                                                 </div>
                                             }
                                         >
@@ -92,10 +92,10 @@ const ScopeAccessSelector = ({ accessType, organizations, teams }: Props): JSX.E
                                                 title={
                                                     <div>
                                                         <div className="font-semibold">{team.name}</div>
-                                                        <div className="text-xs whitespace-nowrap">
+                                                        <div className="whitespace-nowrap text-xs">
                                                             Token: {team.api_token}
                                                         </div>
-                                                        <div className="text-xs whitespace-nowrap">
+                                                        <div className="whitespace-nowrap text-xs">
                                                             Organization ID: {team.organization}
                                                         </div>
                                                     </div>

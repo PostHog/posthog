@@ -114,10 +114,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                         <LemonSkeleton className="h-6 flex-1" />
                     ) : (
                         <>
-                            <span className="flex-1 font-semibold truncate">{featureFlag.key}</span>
+                            <span className="flex-1 truncate font-semibold">{featureFlag.key}</span>
                             <span
                                 className={clsx(
-                                    'text-white rounded px-1',
+                                    'rounded px-1 text-white',
                                     featureFlag.active ? 'bg-success' : 'bg-muted-alt'
                                 )}
                             >

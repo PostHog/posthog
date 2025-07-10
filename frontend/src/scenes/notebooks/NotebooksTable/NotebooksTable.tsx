@@ -29,7 +29,7 @@ function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
                 <Link
                     data-attr="notebook-title"
                     to={urls.notebook(short_id)}
-                    className="font-semibold flex items-center gap-2"
+                    className="flex items-center gap-2 font-semibold"
                 >
                     {title || 'Untitled'}
                     {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
@@ -106,7 +106,7 @@ export function NotebooksTable(): JSX.Element {
                 <b>Welcome to Notebooks</b> - a great way to bring Insights, Replays, Feature Flags and many more
                 PostHog products together into one place.
             </LemonBanner>
-            <div className="flex justify-between gap-2 flex-wrap">
+            <div className="flex flex-wrap justify-between gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for notebooks"
@@ -116,7 +116,7 @@ export function NotebooksTable(): JSX.Element {
                     value={filters.search}
                     data-attr="notebooks-search"
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex flex-wrap items-center gap-4">
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>

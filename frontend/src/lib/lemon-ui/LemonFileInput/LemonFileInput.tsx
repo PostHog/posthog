@@ -150,7 +150,7 @@ export const LemonFileInput = ({
             >
                 <label
                     className={clsx(
-                        'text-secondary inline-flex flow-row items-center gap-1',
+                        'text-secondary flow-row inline-flex items-center gap-1',
                         disabled ? 'cursor-not-allowed' : 'cursor-pointer'
                     )}
                 >

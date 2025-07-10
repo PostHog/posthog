@@ -38,7 +38,7 @@ export function ClickToInspectActors({
                 </div>
             )}
             <div className="table-subtext-click-to-inspect">
-                <IconHandClick className="mr-1 mb-0.5" />
+                <IconHandClick className="mb-0.5 mr-1" />
                 Click to view {groupTypeLabel}
             </div>
         </div>

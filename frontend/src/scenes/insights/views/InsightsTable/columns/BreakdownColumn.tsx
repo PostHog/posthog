@@ -34,7 +34,7 @@ export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: Breakdow
     const formattedLabel = stringWithWBR(breakdownLabel, 20)
 
     return (
-        <div className="flex justify-between items-center">
+        <div className="flex items-center justify-between">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (

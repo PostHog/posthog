@@ -81,7 +81,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
             </div>
 
             {/* Add New Conversion Goal Form */}
-            <div className="border rounded p-4 space-y-4">
+            <div className="space-y-4 rounded border p-4">
                 <h4 className="font-medium">Add new conversion goal</h4>
 
                 <div className="space-y-3">
@@ -121,7 +121,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
 
             {/* Existing Conversion Goals Table */}
             <div>
-                <h4 className="font-medium mb-3">Configured conversion goals ({conversion_goals.length})</h4>
+                <h4 className="mb-3 font-medium">Configured conversion goals ({conversion_goals.length})</h4>
 
                 <LemonTable
                     rowKey={(item) => item.conversion_goal_id}
@@ -173,7 +173,7 @@ export function ConversionGoalsConfiguration(): JSX.Element {
                             title: 'Schema mapping',
                             render: (_, goal: ConversionGoalFilter) =>
                                 goal.schema_map ? (
-                                    <div className="text-xs text-muted">
+                                    <div className="text-muted text-xs">
                                         <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
                                         <div>Source: {goal.schema_map.utm_source_name}</div>
                                         {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (

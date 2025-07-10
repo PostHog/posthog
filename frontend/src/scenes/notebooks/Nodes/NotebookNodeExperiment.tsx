@@ -57,7 +57,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                         <LemonSkeleton className="h-6 flex-1" />
                     ) : (
                         <>
-                            <span className="flex-1 font-semibold truncate">{experiment.name}</span>
+                            <span className="flex-1 truncate font-semibold">{experiment.name}</span>
                             <StatusTag experiment={experiment} />
                             <ResultsTag />
                         </>

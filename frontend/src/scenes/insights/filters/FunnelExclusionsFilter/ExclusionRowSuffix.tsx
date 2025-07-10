@@ -67,7 +67,7 @@ export function ExclusionRowSuffix({
     )
 
     return (
-        <div className="flex items-center gap-2 w-full p-1 my-1">
+        <div className="my-1 flex w-full items-center gap-2 p-1">
             <span>between</span>
             <LemonSelect
                 className="min-w-0 flex-shrink"
@@ -90,7 +90,7 @@ export function ExclusionRowSuffix({
                     .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
                 disabled={!isFunnelWithEnoughSteps}
             />
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="ml-auto flex items-center gap-1">
                 {propertyFiltersButton}
                 <LemonButton
                     size="small"

@@ -80,13 +80,13 @@ export function IframeHeatmapBrowser({
     }
 
     return (
-        <div className="flex flex-row gap-x-2 w-full">
+        <div className="flex w-full flex-row gap-x-2">
             <FilterPanel {...fixedReplayFilterPanelProps} isEmpty={heatmapEmpty} />
-            <div className="relative flex-1 w-full h-full mt-2">
+            <div className="relative mt-2 h-full w-full flex-1">
                 {featureFlags[FEATURE_FLAGS.SCREENSHOT_EDITOR] ? (
                     <>
                         <ScreenShotEditor screenshotKey="heatmaps" />
-                        <div className="flex justify-between items-center">
+                        <div className="flex items-center justify-between">
                             <ViewportChooser />
                             <LemonButton
                                 className="mb-2 mr-2"
@@ -101,7 +101,7 @@ export function IframeHeatmapBrowser({
                 ) : (
                     <ViewportChooser />
                 )}
-                <div className="flex justify-center h-full w-full">
+                <div className="flex h-full w-full justify-center">
                     <div
                         className="relative h-full"
                         // eslint-disable-next-line react/forbid-dom-props

@@ -25,9 +25,9 @@ export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
                         <LemonSkeleton className="h-10 w-full" />
                     </div>
                 ) : !commentsWithReplies?.length ? (
-                    <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">
+                    <div className="max-w-160 deprecated-space-y-4 mx-auto mt-8 p-8">
                         <div className="max-w-120 mx-auto">
-                            <PhonePairHogs className="w-full h-full" />
+                            <PhonePairHogs className="h-full w-full" />
                         </div>
                         <h2>Start the discussion!</h2>
                         <p>

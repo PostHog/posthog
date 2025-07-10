@@ -93,7 +93,7 @@ export function CustomCssScene(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col deprecated-space-y-2">
+        <div className="deprecated-space-y-2 flex flex-col">
             <PageHeader
                 buttons={
                     <>

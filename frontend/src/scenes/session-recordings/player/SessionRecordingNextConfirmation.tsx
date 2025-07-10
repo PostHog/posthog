@@ -32,7 +32,7 @@ export function SessionRecordingNextConfirmation(): JSX.Element {
                 <p>
                     Would you like to mark <strong>{similarRecordingsCount}</strong> similar recordings as viewed?
                 </p>
-                <div className="overflow-y-auto max-h-80 border rounded">
+                <div className="max-h-80 overflow-y-auto rounded border">
                     <ul className="deprecated-space-y-px m-0">
                         {similarRecordings.map((recording, i) => (
                             <Fragment key={recording}>

@@ -45,7 +45,7 @@ export const SeriesTab = (): JSX.Element => {
 
     if (showTableSettings) {
         return (
-            <div className="flex flex-col w-full">
+            <div className="flex w-full flex-col">
                 <LemonLabel>Columns</LemonLabel>
                 {tabularColumns.map((series, index) => (
                     <YSeries series={series} index={index} key={`${series.column.name}-${index}`} />
@@ -57,7 +57,7 @@ export const SeriesTab = (): JSX.Element => {
     const options = columns.map(({ name, type }) => ({
         value: name,
         label: (
-            <div className="items-center flex-1">
+            <div className="flex-1 items-center">
                 {name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
@@ -67,7 +67,7 @@ export const SeriesTab = (): JSX.Element => {
     }))
 
     return (
-        <div className="flex flex-col w-full">
+        <div className="flex w-full flex-col">
             <LemonLabel className="mb-1">X-axis</LemonLabel>
             <LemonSelect
                 className="w-full"
@@ -94,7 +94,7 @@ export const SeriesTab = (): JSX.Element => {
             )}
             {showSeriesBreakdown && <SeriesBreakdownSelector />}
 
-            <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
+            <LemonLabel className="mb-1 mt-4">Y-axis</LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
@@ -132,7 +132,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const options = columnsInOptions.map(({ name, type }) => ({
         value: name,
         label: (
-            <div className="items-center flex flex-1">
+            <div className="flex flex-1 items-center">
                 {showSeriesColor && <LemonColorGlyph className="mr-2" color={seriesColor} />}
                 {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
@@ -143,9 +143,9 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     }))
 
     return (
-        <div className="flex gap-1 mb-1">
+        <div className="mb-1 flex gap-1">
             <LemonSelect
-                className="grow flex-1 break-all"
+                className="flex-1 grow break-all"
                 value={series !== null ? series.column.name : 'None'}
                 options={options}
                 disabledReason={responseLoading ? 'Query loading...' : undefined}
@@ -339,7 +339,7 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
         .map(({ name, type }) => ({
             value: name,
             label: (
-                <div className="items-center flex-1">
+                <div className="flex-1 items-center">
                     {name}
                     <LemonTag className="ml-2" type="default">
                         {type.name}
@@ -351,7 +351,7 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex gap-1 my-1">
+            <div className="my-1 flex gap-1">
                 <LemonSelect
                     className="grow"
                     value={selectedSeriesBreakdownColumn !== null ? selectedSeriesBreakdownColumn : 'None'}
@@ -375,7 +375,7 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
             </div>
             <div className="ml-4 mt-2">
                 {seriesBreakdownData.error ? (
-                    <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
+                    <div className="text-danger mt-1 font-bold">{seriesBreakdownData.error}</div>
                 ) : (
                     seriesBreakdownData.seriesData.map((series, index) => (
                         <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
@@ -390,7 +390,7 @@ const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
-        <div className="flex gap-1 mb-2">
+        <div className="mb-2 flex gap-1">
             <div className="flex gap-2">
                 <LemonColorGlyph color={seriesColor} className="mr-2" />
                 <span>{series.name ? series.name : '[No value]'}</span>

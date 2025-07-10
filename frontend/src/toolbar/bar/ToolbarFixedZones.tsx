@@ -11,7 +11,7 @@ export function ToolbarFixedZones(): JSX.Element | null {
     }
 
     return (
-        <div className="w-full h-full absolute top-0 left-0 pointer-events-none overflow-hidden">
+        <div className="pointer-events-none absolute left-0 top-0 h-full w-full overflow-hidden">
             {Object.entries(fixedPositions).map(([key, { x, y }]) => (
                 <ToolbarFixedZone key={key} id={key} position={{ x, y }} />
             ))}
@@ -27,7 +27,7 @@ function ToolbarFixedZone({ id, position }: { id: string; position: { x: number;
     return (
         <div
             className={clsx(
-                'transition-all absolute border rounded-lg bg-primary',
+                'bg-primary absolute rounded-lg border transition-all',
                 selected ? 'opacity-50' : 'opacity-20'
             )}
             // eslint-disable-next-line react/forbid-dom-props

@@ -52,10 +52,10 @@ export function ConfirmUpgradeModal(): JSX.Element {
                 </p>
                 {upgradePlan && upgradePlan?.features?.length > 1 && (
                     <div>
-                        <p className="ml-0 mb-2 max-w-200">Here are the features included:</p>
+                        <p className="max-w-200 mb-2 ml-0">Here are the features included:</p>
                         <div className="grid grid-cols-2 gap-x-4">
                             {upgradePlan?.features.map((feature, index) => (
-                                <div className="flex gap-x-2 items-center mb-2" key={'addon-features-' + index}>
+                                <div className="mb-2 flex items-center gap-x-2" key={'addon-features-' + index}>
                                     <IconCheckCircle className="text-success" />
                                     <Tooltip key={feature.key} title={feature.description}>
                                         <b>

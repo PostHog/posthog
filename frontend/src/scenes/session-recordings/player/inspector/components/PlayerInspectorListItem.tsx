@@ -134,7 +134,7 @@ function IconWithOptionalBadge({
     // If TypeIcon is already a JSX element (like the LemonBadge case), return as-is
     const iconElement = isValidElement(TypeIcon) ? TypeIcon : <TypeIcon />
     return showBadge ? (
-        <div className="text-white bg-brand-blue rounded-full flex items-center p-0.5">{iconElement}</div>
+        <div className="bg-brand-blue flex items-center rounded-full p-0.5 text-white">{iconElement}</div>
     ) : (
         <div className="flex items-center p-0.5">{iconElement}</div>
     )
@@ -148,7 +148,7 @@ function RowItemTitle({
     finalTimestamp: Dayjs | null
 }): JSX.Element {
     return (
-        <div className="flex items-center text-text-3000" data-attr="row-item-title">
+        <div className="text-text-3000 flex items-center" data-attr="row-item-title">
             {item.type === 'network' ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
@@ -156,11 +156,11 @@ function RowItemTitle({
             ) : item.type === 'events' ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
-                <div className="flex w-full items-start p-2 text-xs font-light font-mono">
+                <div className="flex w-full items-start p-2 font-mono text-xs font-light">
                     {item.offline ? 'Browser went offline' : 'Browser returned online'}
                 </div>
             ) : item.type === 'browser-visibility' ? (
-                <div className="flex w-full items-start px-2 py-1 font-light font-mono text-xs">
+                <div className="flex w-full items-start px-2 py-1 font-mono text-xs font-light">
                     Window became {item.status}
                 </div>
             ) : item.type === 'doctor' ? (
@@ -269,7 +269,7 @@ export function PlayerInspectorListItem({
             ref={ref}
             className={clsx(
                 'ml-1 flex flex-col items-center',
-                isExpanded && 'border border-accent',
+                isExpanded && 'border-accent border',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
                 isHovering && 'bg-surface-primary'
             )}
@@ -278,9 +278,9 @@ export function PlayerInspectorListItem({
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            <div className="flex flex-row items-center w-full px-1">
+            <div className="flex w-full flex-row items-center px-1">
                 <div
-                    className="flex flex-row flex-1 items-center overflow-hidden cursor-pointer"
+                    className="flex flex-1 cursor-pointer flex-row items-center overflow-hidden"
                     ref={hoverRef}
                     onClick={() => seekToEvent()}
                 >
@@ -350,7 +350,7 @@ export function PlayerInspectorListItem({
             {isExpanded ? (
                 <div
                     className={clsx(
-                        'w-full mx-2 overflow-hidden',
+                        'mx-2 w-full overflow-hidden',
                         item.highlightColor && `bg-${item.highlightColor}-highlight`
                     )}
                 >
@@ -359,7 +359,7 @@ export function PlayerInspectorListItem({
                         <LemonDivider dashed />
 
                         <div
-                            className="flex justify-end cursor-pointer mx-2 my-1"
+                            className="mx-2 my-1 flex cursor-pointer justify-end"
                             onClick={() => setItemExpanded(index, false)}
                         >
                             <span className="text-secondary">Collapse</span>

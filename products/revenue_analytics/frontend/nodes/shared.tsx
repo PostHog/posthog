@@ -54,7 +54,7 @@ export const TileWrapper = ({
     return (
         <div className="flex flex-col gap-2">
             <div className="flex justify-between">
-                <span className="text-lg font-semibold flex items-center gap-1">
+                <span className="flex items-center gap-1 text-lg font-semibold">
                     {title}
                     <Tooltip title={tooltip}>
                         <IconInfo />

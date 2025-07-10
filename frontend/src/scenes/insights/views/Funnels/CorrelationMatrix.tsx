@@ -188,7 +188,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 <Tooltip
                                     title={`Positive correlation means this ${actor} is correlated with a successful conversion.`}
                                 >
-                                    <span className="cursor-help text-success">
+                                    <span className="text-success cursor-help">
                                         <IconTrendingFlat /> positive correlation
                                     </span>
                                 </Tooltip>
@@ -196,7 +196,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 <Tooltip
                                     title={`Negative correlation means this ${actor} is correlated with an unsuccessful conversion (user dropped off).`}
                                 >
-                                    <strong className="cursor-help text-danger">
+                                    <strong className="text-danger cursor-help">
                                         <IconTrendingFlatDown /> negative correlation
                                     </strong>
                                 </Tooltip>

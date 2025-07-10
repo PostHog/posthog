@@ -65,10 +65,10 @@ export const AddVariableButton = ({
                               ]
                             : variables.map((n) => ({
                                   label: (
-                                      <span className="flex items-center justify-between w-full gap-2 group">
+                                      <span className="group flex w-full items-center justify-between gap-2">
                                           <span className="flex items-center gap-2">
                                               <span>{n.name}</span>
-                                              <span className="text-xs text-muted-alt">{n.type}</span>
+                                              <span className="text-muted-alt text-xs">{n.type}</span>
                                           </span>
                                       </span>
                                   ),

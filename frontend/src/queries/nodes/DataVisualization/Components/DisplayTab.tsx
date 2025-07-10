@@ -20,10 +20,10 @@ export const DisplayTab = (): JSX.Element => {
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
 
     return (
-        <div className="flex flex-col w-full">
-            <div className="mt-1 mb-2 flex flex-col">
+        <div className="flex w-full flex-col">
+            <div className="mb-2 mt-1 flex flex-col">
                 <LemonSwitch
-                    className="flex-1 mb-3 w-full"
+                    className="mb-3 w-full flex-1"
                     label="Show legend"
                     checked={chartSettings.showLegend ?? false}
                     onChange={(value) => {
@@ -31,7 +31,7 @@ export const DisplayTab = (): JSX.Element => {
                     }}
                 />
                 <LemonSwitch
-                    className="flex-1 mb-3 w-full"
+                    className="mb-3 w-full flex-1"
                     label="Show total row"
                     checked={chartSettings.showTotalRow ?? true}
                     onChange={(value) => {
@@ -40,9 +40,9 @@ export const DisplayTab = (): JSX.Element => {
                 />
             </div>
 
-            <div className="mt-1 mb-2 flex flex-col">
+            <div className="mb-2 mt-1 flex flex-col">
                 <h3>Left Y-axis</h3>
-                <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                <LemonField.Pure label="Scale" className="mb-3 gap-0">
                     <LemonSelect
                         value={chartSettings.leftYAxisSettings?.scale ?? 'linear'}
                         options={[
@@ -55,7 +55,7 @@ export const DisplayTab = (): JSX.Element => {
                     />
                 </LemonField.Pure>
                 <LemonSwitch
-                    className="flex-1 mb-3 w-full"
+                    className="mb-3 w-full flex-1"
                     label="Begin Y-axis at zero"
                     checked={chartSettings.leftYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
@@ -64,9 +64,9 @@ export const DisplayTab = (): JSX.Element => {
                 />
             </div>
 
-            <div className="mt-1 mb-2 flex flex-col">
+            <div className="mb-2 mt-1 flex flex-col">
                 <h3>Right Y-axis</h3>
-                <LemonField.Pure label="Scale" className="gap-0 mb-3">
+                <LemonField.Pure label="Scale" className="mb-3 gap-0">
                     <LemonSelect
                         value={chartSettings.rightYAxisSettings?.scale ?? 'linear'}
                         options={[
@@ -79,7 +79,7 @@ export const DisplayTab = (): JSX.Element => {
                     />
                 </LemonField.Pure>
                 <LemonSwitch
-                    className="flex-1 mb-3 w-full"
+                    className="mb-3 w-full flex-1"
                     label="Begin Y-axis at zero"
                     checked={chartSettings.rightYAxisSettings?.startAtZero ?? chartSettings.yAxisAtZero ?? true}
                     onChange={(value) => {
@@ -89,7 +89,7 @@ export const DisplayTab = (): JSX.Element => {
             </div>
 
             {isStackedBarChart && (
-                <div className="mt-1 mb-2 flex">
+                <div className="mb-2 mt-1 flex">
                     <LemonSwitch
                         className="flex-1"
                         label="Stack bars 100%"
@@ -101,11 +101,11 @@ export const DisplayTab = (): JSX.Element => {
                 </div>
             )}
 
-            <div className="mt-1 mb-2">
+            <div className="mb-2 mt-1">
                 <LemonLabel className="mb-1">Goals</LemonLabel>
 
                 {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
-                    <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
+                    <div className="mb-1 flex flex-1 gap-1" key={`${goalLineIndex}`}>
                         <SeriesLetter className="self-center" hasBreakdown={false} seriesIndex={goalLineIndex} />
                         <LemonInput
                             placeholder="Label"

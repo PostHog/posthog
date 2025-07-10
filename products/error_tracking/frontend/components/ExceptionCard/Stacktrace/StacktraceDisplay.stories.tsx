@@ -22,7 +22,7 @@ const meta: Meta = {
         (Story: React.FC): JSX.Element => {
             sceneLogic.mount()
             return (
-                <LemonCard hoverEffect={false} className="p-2 px-3 w-[900px]">
+                <LemonCard hoverEffect={false} className="w-[900px] p-2 px-3">
                     <Story />
                 </LemonCard>
             )

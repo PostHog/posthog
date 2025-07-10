@@ -251,7 +251,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     fullWidth
                     className={clsx(
                         'taxonomic-list-row',
-                        'border border-dashed border-secondary border rounded min-h-9 justify-center'
+                        'border-secondary min-h-9 justify-center rounded border border-dashed'
                     )}
                     outlined={false}
                     onKeyDown={(e) => {
@@ -361,8 +361,8 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     return (
         <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list', 'h-full')}>
             {showEmptyState ? (
-                <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
-                    <IconArchive className="text-5xl text-tertiary" />
+                <div className="no-infinite-results deprecated-space-y-1 flex flex-col items-center">
+                    <IconArchive className="text-tertiary text-5xl" />
                     <span>
                         {searchQuery ? (
                             <>
@@ -377,7 +377,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
               (!results ||
                   results.length === 0 ||
                   (results.length === 1 && (!results[0].id || results[0].id === ''))) ? (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex h-full items-center justify-center">
                     <Spinner className="text-3xl" />
                 </div>
             ) : (

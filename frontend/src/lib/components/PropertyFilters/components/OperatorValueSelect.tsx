@@ -191,7 +191,7 @@ export function OperatorValueSelect({
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
                     // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                    className="shrink grow-[1000] min-w-[10rem]"
+                    className="min-w-[10rem] shrink grow-[1000]"
                     data-attr="taxonomic-value-select"
                 >
                     <PropertyValue

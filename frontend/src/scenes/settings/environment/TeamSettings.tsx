@@ -63,7 +63,7 @@ export function WebSnippet(): JSX.Element {
             </p>
             {currentTeamLoading && !currentTeam ? (
                 <div className="deprecated-space-y-4">
-                    <LemonSkeleton className="w-1/2 h-4" />
+                    <LemonSkeleton className="h-4 w-1/2" />
                     <LemonSkeleton repeat={3} />
                 </div>
             ) : (
@@ -81,7 +81,7 @@ export function WebSnippet(): JSX.Element {
                 </p>
                 {currentTeamLoading && !currentTeam ? (
                     <div className="deprecated-space-y-4">
-                        <LemonSkeleton className="w-1/2 h-4" />
+                        <LemonSkeleton className="h-4 w-1/2" />
                         <LemonSkeleton repeat={3} />
                     </div>
                 ) : (
@@ -139,7 +139,7 @@ export function TeamVariables(): JSX.Element {
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <div className="flex items-start gap-4 flex-wrap">
+        <div className="flex flex-wrap items-start gap-4">
             <div className="flex-1">
                 <h3 id="project-api-key" className="min-w-[25rem]">
                     {capitalizeFirstLetter(displayNoun)} API key
@@ -183,7 +183,7 @@ export function TeamVariables(): JSX.Element {
                 </div>
             ) : null}
             {region && currentOrganization && currentTeam ? (
-                <div className="flex-1 max-w-full">
+                <div className="max-w-full flex-1">
                     <h3 id="debug-info" className="min-w-[25rem]">
                         Debug information
                     </h3>

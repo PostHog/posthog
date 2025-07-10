@@ -32,16 +32,16 @@ export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoun
     return (
         <>
             {match([loading, time])
-                .with([true, P.any], () => <LemonSkeleton className="w-[50px] h-2" />)
-                .with([false, P.nullish], () => <span className="text-xs text-muted">-</span>)
+                .with([true, P.any], () => <LemonSkeleton className="h-2 w-[50px]" />)
+                .with([false, P.nullish], () => <span className="text-muted text-xs">-</span>)
                 .with([false, P.any], () => (
                     <span
                         onClick={onClick}
-                        className="hover:bg-fill-button-tertiary-hover px-1 rounded flex items-center cursor-pointer"
+                        className="hover:bg-fill-button-tertiary-hover flex cursor-pointer items-center rounded px-1"
                     >
                         <TZLabel
                             time={time as Dayjs}
-                            className="border-dotted border-b text-xs text-muted"
+                            className="text-muted border-b border-dotted text-xs"
                             title={label}
                         />
                     </span>

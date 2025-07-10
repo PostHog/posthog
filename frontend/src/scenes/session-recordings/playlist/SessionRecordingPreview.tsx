@@ -34,14 +34,14 @@ export interface SessionRecordingPreviewProps {
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
     if (recordingDuration === undefined) {
-        return <div className="flex text-secondary text-xs">-</div>
+        return <div className="text-secondary flex text-xs">-</div>
     }
 
     const formattedDuration = colonDelimitedDuration(recordingDuration)
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex text-secondary text-xs">
+        <div className="text-secondary flex text-xs">
             {hours != '00' && <span>{hours}:</span>}
             <span>
                 {minutes}:{seconds}
@@ -58,11 +58,11 @@ function ErrorCount({
     errorCount: number | undefined
 }): JSX.Element {
     if (errorCount === undefined) {
-        return <div className="flex items-center flex-1 justify-end font-semibold">-</div>
+        return <div className="flex flex-1 items-center justify-end font-semibold">-</div>
     }
 
     return (
-        <div className="flex items-center flex-1 deprecated-space-x-1 justify-end font-semibold">
+        <div className="deprecated-space-x-1 flex flex-1 items-center justify-end font-semibold">
             <IconBug className={iconClassNames} />
             <span>{errorCount}</span>
         </div>
@@ -110,9 +110,9 @@ export interface PropertyIconsProps {
 
 export function PropertyIcons({ recordingProperties, loading, iconClassNames }: PropertyIconsProps): JSX.Element {
     return (
-        <div className="flex deprecated-space-x-1 ph-no-capture">
+        <div className="deprecated-space-x-1 ph-no-capture flex">
             {loading ? (
-                <LemonSkeleton className="w-16 h-3" />
+                <LemonSkeleton className="h-3 w-16" />
             ) : (
                 recordingProperties.map(({ property, value, label }) => (
                     <Tooltip key={property} title={label}>
@@ -127,7 +127,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
 function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
     return (
-        <span className="flex overflow-hidden text-secondary text-xs">
+        <span className="text-secondary flex overflow-hidden text-xs">
             <span title={`First URL: ${props.startUrl}`} className="truncate">
                 {firstPath}
             </span>
@@ -138,7 +138,7 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 function PinnedIndicator(): JSX.Element | null {
     return (
         <Tooltip placement="top-end" title={<>This recording is pinned to this list.</>}>
-            <IconPinFilled className="text-sm text-orange shrink-0" />
+            <IconPinFilled className="text-orange shrink-0 text-sm" />
         </Tooltip>
     )
 }
@@ -146,7 +146,7 @@ function PinnedIndicator(): JSX.Element | null {
 function RecordingOngoingIndicator(): JSX.Element {
     return (
         <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
-            <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
+            <IconLive className="text-primary-3000 animate-[pulse_1s_ease-out_infinite]" />
         </Tooltip>
     )
 }
@@ -172,7 +172,7 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
         <Tooltip title={tooltip}>
             <div
                 className={clsx(
-                    'UnwatchedIndicator w-2 h-2 rounded-full',
+                    'UnwatchedIndicator h-2 w-2 rounded-full',
                     isExcludedFromHideRecordingsMenu
                         ? 'UnwatchedIndicator--primary'
                         : otherViewersCount
@@ -221,20 +221,20 @@ export function SessionRecordingPreview({
             <div
                 key={recording.id}
                 className={clsx(
-                    'SessionRecordingPreview flex overflow-hidden cursor-pointer py-0.5 px-1 text-xs',
+                    'SessionRecordingPreview flex cursor-pointer overflow-hidden px-1 py-0.5 text-xs',
                     isActive && 'SessionRecordingPreview--active'
                 )}
                 onClick={() => onClick?.()}
             >
-                <div className="grow overflow-hidden deprecated-space-y-1">
+                <div className="deprecated-space-y-1 grow overflow-hidden">
                     <div className="flex items-center justify-between gap-x-0.5">
-                        <div className="flex overflow-hidden font-medium ph-no-capture">
+                        <div className="ph-no-capture flex overflow-hidden font-medium">
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
 
                         {playlistTimestampFormat === TimestampFormat.Relative ? (
                             <TZLabel
-                                className="overflow-hidden text-ellipsis text-xs text-secondary shrink-0"
+                                className="text-secondary shrink-0 overflow-hidden text-ellipsis text-xs"
                                 time={recording.start_time}
                                 placement="right"
                             />
@@ -246,8 +246,8 @@ export function SessionRecordingPreview({
                         )}
                     </div>
 
-                    <div className="flex justify-between items-center gap-x-0.5">
-                        <div className="flex deprecated-space-x-2 text-secondary text-sm">
+                    <div className="flex items-center justify-between gap-x-0.5">
+                        <div className="deprecated-space-x-2 text-secondary flex text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}
@@ -287,7 +287,7 @@ export function SessionRecordingPreview({
 
                 <div
                     className={clsx(
-                        'min-w-6 flex flex-col gap-x-0.5 items-center',
+                        'flex min-w-6 flex-col items-center gap-x-0.5',
                         // need different margin if the first item is an icon
                         recording.ongoing || pinned ? 'mt-1' : 'mt-2'
                     )}
@@ -305,9 +305,9 @@ export function SessionRecordingPreview({
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
-        <div className="p-4 deprecated-space-y-2">
-            <LemonSkeleton className="w-1/2 h-4" />
-            <LemonSkeleton className="w-1/3 h-4" />
+        <div className="deprecated-space-y-2 p-4">
+            <LemonSkeleton className="h-4 w-1/2" />
+            <LemonSkeleton className="h-4 w-1/3" />
         </div>
     )
 }

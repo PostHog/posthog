@@ -4,7 +4,9 @@
     "semi": false,
     "singleQuote": true,
     "printWidth": 120,
-    "plugins": ["@trivago/prettier-plugin-sort-imports"],
+    "tailwindStylesheet": "./common/tailwind/tailwind.css",
+    "tailwindFunctions": ["twMerge", "clsx", "cn"],
+    "plugins": ["@trivago/prettier-plugin-sort-imports", "prettier-plugin-tailwindcss"],
     "importOrder": [
         "~/styles$",
         "\\.s?css$",

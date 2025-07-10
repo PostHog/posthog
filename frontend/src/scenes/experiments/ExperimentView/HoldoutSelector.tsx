@@ -17,8 +17,8 @@ export function HoldoutSelector(): JSX.Element {
 
     return (
         <div className="mt-3">
-            <div className="inline-flex deprecated-space-x-1">
-                <h4 className="font-semibold mb-0">Holdout group</h4>
+            <div className="deprecated-space-x-1 inline-flex">
+                <h4 className="mb-0 font-semibold">Holdout group</h4>
                 <Tooltip title="Exclude a stable group of users from the experiment. This cannot be changed once the experiment is launched.">
                     <IconInfo className="text-secondary text-base" />
                 </Tooltip>

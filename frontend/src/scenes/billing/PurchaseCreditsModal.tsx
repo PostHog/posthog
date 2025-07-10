@@ -169,7 +169,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                     />
 
                     <div>
-                        <p className="mb-1 text-md font-semibold">Payment details</p>
+                        <p className="text-md mb-1 font-semibold">Payment details</p>
                         <p className="mb-0">Choose how you'd like to pay for your credits.</p>
                     </div>
                     <LemonField name="collectionMethod">
@@ -198,7 +198,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                     <LemonDivider />
 
                     <div>
-                        <p className="mb-1 text-md font-semibold">Summary</p>
+                        <p className="text-md mb-1 font-semibold">Summary</p>
                         <p className="mb-0">Here's a summary of what you'll pay.</p>
                     </div>
                     <LemonTable
@@ -217,7 +217,7 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                             {
                                 item: "Credits you'll receive",
                                 value: (
-                                    <span className="flex deprecated-space-x-2">
+                                    <span className="deprecated-space-x-2 flex">
                                         <span className="line-through">
                                             $
                                             {creditInputValue.toLocaleString('en-US', {

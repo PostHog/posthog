@@ -34,7 +34,7 @@ export function QueryVariables(): JSX.Element {
             </div>
             <div
                 className={clsx(
-                    'flex gap-4 flex-col items-start',
+                    'flex flex-col items-start gap-4',
                     variablesForInsight.length === 0 && 'h-full items-center justify-center'
                 )}
             >

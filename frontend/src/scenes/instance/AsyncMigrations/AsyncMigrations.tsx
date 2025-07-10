@@ -280,7 +280,7 @@ export function AsyncMigrations(): JSX.Element {
 
                     {[AsyncMigrationsTab.Management, AsyncMigrationsTab.FutureMigrations].includes(activeTab) ? (
                         <>
-                            <div className="mb-4 float-right">
+                            <div className="float-right mb-4">
                                 <LemonButton
                                     icon={asyncMigrationsLoading ? <Spinner /> : <IconRefresh />}
                                     onClick={loadAsyncMigrations}

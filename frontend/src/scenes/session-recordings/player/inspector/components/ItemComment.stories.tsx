@@ -88,7 +88,7 @@ const BasicTemplate: StoryFn<typeof ItemComment> = (props: Partial<ItemCommentPr
     const propsToUse = props as ItemCommentProps
 
     return (
-        <div className="flex flex-col gap-2 min-w-96">
+        <div className="flex min-w-96 flex-col gap-2">
             <h3>Collapsed</h3>
             <ItemComment {...propsToUse} />
             <LemonDivider />

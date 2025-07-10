@@ -176,12 +176,12 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
     return (
         <>
             {user?.uuid ? (
-                <div className="flex items-center flex-row">
+                <div className="flex flex-row items-center">
                     <ProfilePicture user={user} size="sm" />
-                    <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
+                    <span className="inline-flex whitespace-nowrap pl-1 pl-2 font-semibold">{user.first_name}</span>
                 </div>
             ) : (
-                <span className="text-secondary italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>
+                <span className="text-secondary inline-flex whitespace-nowrap pl-1 font-semibold italic">No owner</span>
             )}
         </>
     )
@@ -190,7 +190,7 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
 function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
     return (
         <LemonDivider
-            className={clsx('DefinitionPopover items-start my-4', className)}
+            className={clsx('DefinitionPopover my-4 items-start', className)}
             label={label && <span className="DefinitionPopover__label">{label}</span>}
         />
     )

@@ -85,10 +85,10 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
             {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
             <div className="ProjectHomepage__dashboardheader">
                 <div className="ProjectHomepage__dashboardheader__title">
-                    {!dashboard && <LemonSkeleton className="w-20 h-4" />}
+                    {!dashboard && <LemonSkeleton className="h-4 w-20" />}
                     {dashboard?.name && (
                         <>
-                            <Link className="font-semibold text-xl text-text-3000" to={urls.dashboard(dashboard.id)}>
+                            <Link className="text-text-3000 text-xl font-semibold" to={urls.dashboard(dashboard.id)}>
                                 <IconHome className="mr-2 text-2xl opacity-50" />
                                 {dashboard?.name}
                             </Link>
@@ -96,7 +96,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                     )}
                 </div>
             </div>
-            <LemonDivider className="mt-3 mb-4" />
+            <LemonDivider className="mb-4 mt-3" />
             <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />
         </>
     )

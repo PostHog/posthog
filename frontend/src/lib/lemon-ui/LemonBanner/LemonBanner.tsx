@@ -65,15 +65,15 @@ export function LemonBanner({
                 square && 'LemonBanner--square'
             )}
         >
-            <div className="flex items-center gap-2 grow @md:!px-1">
+            <div className="@md:!px-1 flex grow items-center gap-2">
                 {!hideIcon &&
                     (type === 'warning' || type === 'error' ? (
-                        <IconWarning className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
+                        <IconWarning className={clsx('LemonBanner__icon', hideIcon !== false && '@md:!block hidden')} />
                     ) : (
-                        <IconInfo className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
+                        <IconInfo className={clsx('LemonBanner__icon', hideIcon !== false && '@md:!block hidden')} />
                     ))}
                 <div className="grow overflow-hidden">{children}</div>
-                {action && <LemonButton className="!hidden @md:!flex" type="secondary" {...action} />}
+                {action && <LemonButton className="@md:!flex !hidden" type="secondary" {...action} />}
                 {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
             </div>
             {action && <LemonButton className="@md:!hidden" type="secondary" fullWidth {...action} />}

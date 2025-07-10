@@ -19,11 +19,11 @@ const columns: LemonTableColumns<LiveEvent> = [
                 <span className="flex items-center gap-x-2">
                     <span className="relative flex h-2.5 w-2.5">
                         <span
-                            className={clsx('absolute inline-flex h-full w-full rounded-full bg-success animate-ping')}
+                            className={clsx('bg-success absolute inline-flex h-full w-full animate-ping rounded-full')}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ opacity: 0.75 }}
                         />
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success" />
+                        <span className="bg-success relative inline-flex h-2.5 w-2.5 rounded-full" />
                     </span>
                     <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
                 </span>

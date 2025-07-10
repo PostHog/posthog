@@ -73,7 +73,7 @@ export function SupportedPlatforms(props: {
     flutter?: false | { note?: ReactNode; version?: string }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
+        <div className="bg-primary mb-2 inline-flex w-fit flex-row items-center overflow-hidden rounded border text-xs">
             <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
@@ -320,7 +320,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     web={{ version: '1.104.4' }}
                     reactNative={false}
                 />
-                <div className="flex flex-row deprecated-space-x-2">
+                <div className="deprecated-space-x-2 flex flex-row">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {

@@ -80,14 +80,14 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                             {cohortGroupIndex <
                                 Math.min(cohort.filters.properties.values.length, MAX_CRITERIA_GROUPS) - 1 && (
                                 <DefinitionPopover.HorizontalLine
-                                    className="mt-1 mb-3"
+                                    className="mb-3 mt-1"
                                     label={cohort.filters.properties.type}
                                 />
                             )}
                             {cohort.filters.properties.values.length > MAX_CRITERIA_GROUPS &&
                                 cohortGroupIndex === MAX_CRITERIA_GROUPS - 1 && (
                                     <DefinitionPopover.HorizontalLine
-                                        className="mt-1 mb-3"
+                                        className="mb-3 mt-1"
                                         label={`${
                                             cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS
                                         } more criteria ${pluralize(
@@ -149,7 +149,7 @@ export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Eleme
                             />
                         )}
                         {cohort.groups && index < cohort.groups.length - 1 && (
-                            <DefinitionPopover.HorizontalLine className="mt-1 mb-3" label="OR" />
+                            <DefinitionPopover.HorizontalLine className="mb-3 mt-1" label="OR" />
                         )}
                     </DefinitionPopover.Section>
                 ))}

@@ -18,10 +18,10 @@ export function IntegrationView({
     const errors = (integration.errors && integration.errors?.split(',')) || []
 
     return (
-        <div className="rounded border bg-surface-primary">
-            <div className="flex justify-between items-center p-2">
-                <div className="flex gap-4 items-center ml-2">
-                    <img src={integration.icon_url} className="w-10 h-10 rounded" />
+        <div className="bg-surface-primary rounded border">
+            <div className="flex items-center justify-between p-2">
+                <div className="ml-2 flex items-center gap-4">
+                    <img src={integration.icon_url} className="h-10 w-10 rounded" />
                     <div>
                         <div>
                             Connected to <strong>{integration.display_name}</strong>

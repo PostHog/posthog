@@ -126,8 +126,8 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
             <SurveyPopupToggle />
             <LemonDivider className="m-0" />
 
-            <div className="flex items-center gap-1 flex-1 justify-between">
-                <LemonField.Pure label="Appearance" className="text-base gap-1">
+            <div className="flex flex-1 items-center justify-between gap-1">
+                <LemonField.Pure label="Appearance" className="gap-1 text-base">
                     <span className="text-sm">These settings apply to new surveys in this organization.</span>
                 </LemonField.Pure>
                 {globalSurveyAppearanceConfigAvailable && (
@@ -161,7 +161,7 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
                     />
                 </div>
                 {globalSurveyAppearanceConfigAvailable && (
-                    <div className="max-w-1/2 pt-8 pr-8 overflow-auto">
+                    <div className="max-w-1/2 overflow-auto pr-8 pt-8">
                         <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
                     </div>
                 )}

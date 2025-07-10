@@ -78,11 +78,11 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
     return (
         <div
             className={cn(
-                'sticky z-20 bg-primary border-b py-2',
+                'bg-primary sticky z-20 border-b py-2',
                 mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
             )}
         >
-            <div className="flex flex-row w-full justify-between gap-1">
+            <div className="flex w-full flex-row justify-between gap-1">
                 <div className="flex flex-row gap-1">
                     <Tooltip title="Refresh data">
                         <ReloadAll iconOnly />
@@ -134,7 +134,7 @@ const RevenueAnalyticsBreakdownBy = (): JSX.Element => {
     const { setGroupBy } = useActions(revenueAnalyticsLogic)
 
     return (
-        <div className="flex items-center gap-1 text-muted-alt">
+        <div className="text-muted-alt flex items-center gap-1">
             <span>{groupBy.length > 0 && 'Breakdown by'}</span>
             <LemonInputSelect
                 options={BREAKDOWN_BY_OPTIONS}

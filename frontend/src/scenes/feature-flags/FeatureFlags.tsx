@@ -187,7 +187,7 @@ export function OverViewTab({
                                 placement="left"
                             >
                                 <span>
-                                    <LemonTag type="warning" className="uppercase cursor-default">
+                                    <LemonTag type="warning" className="cursor-default uppercase">
                                         Stale
                                     </LemonTag>
                                 </span>
@@ -322,7 +322,7 @@ export function OverViewTab({
     ]
 
     const filtersSection = (
-        <div className="flex justify-between mb-4 gap-2 flex-wrap">
+        <div className="mb-4 flex flex-wrap justify-between gap-2">
             <LemonInput
                 className="w-60"
                 type="search"
@@ -429,7 +429,7 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-4" />
             <div className="mb-4">
-                <span className="text-secondary ">
+                <span className="text-secondary">
                     {count
                         ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
                               count === 1 ? '' : 's'
@@ -545,7 +545,7 @@ export function groupFilters(
                 `${rollout_percentage ?? 100}% of one group`
             ) : (
                 <div className="flex items-center">
-                    <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
+                    <span className="mr-2 shrink-0">{rollout_percentage ?? 100}% of</span>
                     <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
                 </div>
             )

@@ -37,7 +37,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
         <>
             <div
                 // height is hardcoded to match implicit height from tree view nav bar
-                className="flex flex-row overflow-auto hide-scrollbar h-[39px]"
+                className="hide-scrollbar flex h-[39px] flex-row overflow-auto"
                 ref={containerRef}
             >
                 {models.map((model: QueryTab) => (
@@ -86,9 +86,9 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
         <div
             onClick={() => onClick?.(model)}
             className={clsx(
-                'deprecated-space-y-px p-1 flex border-b-2 flex-row items-center gap-1 hover:bg-surface-primary cursor-pointer',
+                'deprecated-space-y-px hover:bg-surface-primary flex cursor-pointer flex-row items-center gap-1 border-b-2 p-1',
                 active
-                    ? 'bg-surface-primary border-b-2 !border-brand-yellow'
+                    ? 'bg-surface-primary !border-brand-yellow border-b-2'
                     : 'bg-surface-secondary border-transparent',
                 onClear ? 'pl-3 pr-2' : 'px-3'
             )}
@@ -116,7 +116,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                         }
                         setIsEditing(!isEditing)
                     }}
-                    className="flex-grow text-left whitespace-pre"
+                    className="flex-grow whitespace-pre text-left"
                 >
                     {tabName}
                 </div>

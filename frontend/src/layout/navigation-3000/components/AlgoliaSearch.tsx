@@ -17,20 +17,20 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
     const { slug, title, type, resolved } = hits[index]
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <li key={key} style={style} role="listitem" tabIndex={-1} className="p-1 border-b last:border-b-0">
+        <li key={key} style={style} role="listitem" tabIndex={-1} className="border-b p-1 last:border-b-0">
             <LemonButton
                 active={activeOption === index}
                 to={`https://posthog.com/${slug}`}
-                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:deprecated-space-y-1"
+                className="[&_>span>span]:deprecated-space-y-1 [&_>span>span]:flex-col [&_>span>span]:items-start"
             >
                 <span>
-                    <span className="flex deprecated-space-x-2 items-center">
-                        <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
+                    <span className="deprecated-space-x-2 flex items-center">
+                        <p className="m-0 line-clamp-1 font-sans font-bold">{title}</p>
                         {type === 'question' && resolved && (
                             <IconCheckCircle className="text-success size-4 flex-shrink-0" />
                         )}
                     </span>
-                    <p className="text-xs m-0 opacity-80 font-normal font-sans line-clamp-1">/{slug}</p>
+                    <p className="m-0 line-clamp-1 font-sans text-xs font-normal opacity-80">/{slug}</p>
                 </span>
             </LemonButton>
         </li>
@@ -40,7 +40,7 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
 const Hits = ({ activeOption }: { activeOption?: number }): JSX.Element => {
     const { hits } = useHits()
     return (
-        <ol role="listbox" className="list-none m-0 p-0 h-[80vh]">
+        <ol role="listbox" className="m-0 h-[80vh] list-none p-0">
             <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                     <List
@@ -117,7 +117,7 @@ const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Elemen
     }, [])
 
     return (
-        <button className="p-0 cursor-pointer bg-surface-primary" onClick={handleClick}>
+        <button className="bg-surface-primary cursor-pointer p-0" onClick={handleClick}>
             <LemonTag size="medium" type={active ? 'primary' : 'option'}>
                 <span>{label}</span>
                 {type !== 'all' && <span>({itemCount ?? 0})</span>}
@@ -138,7 +138,7 @@ const Tags = ({
     }
 
     return (
-        <ul className="list-none m-0 p-0 flex deprecated-space-x-1 mt-1 mb-0.5 pb-1.5 border-b px-2">
+        <ul className="deprecated-space-x-1 m-0 mb-0.5 mt-1 flex list-none border-b p-0 px-2 pb-1.5">
             {tags.map((tag) => {
                 const { type } = tag
                 return (
@@ -251,7 +251,7 @@ const Search = (): JSX.Element => {
         <div className="relative" ref={ref} onKeyDown={handleKeyDown}>
             <SearchInput value={searchValue} setValue={setSearchValue} />
             {searchOpen && (
-                <div className="absolute w-full bg-surface-primary z-50 border rounded-lg shadow-xl mt-0.5">
+                <div className="bg-surface-primary absolute z-50 mt-0.5 w-full rounded-lg border shadow-xl">
                     <Tags activeTag={activeTag} setActiveTag={setActiveTag} />
                     <Hits activeOption={activeOption} />
                 </div>

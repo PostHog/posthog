@@ -11,15 +11,15 @@ import { sidePanelDocsLogic } from './sidePanelDocsLogic'
 
 export function SidePanelDocsSkeleton(): JSX.Element {
     return (
-        <div className="absolute inset-0 p-4 deprecated-space-y-2">
-            <LemonSkeleton className="w-full h-10 mb-12" />
-            <LemonSkeleton className="w-1/3 h-8" />
-            <LemonSkeleton className="w-1/2 h-4 mb-10" />
-            <LemonSkeleton className="w-full h-4" />
-            <LemonSkeleton className="w-full h-4 opacity-80" />
-            <LemonSkeleton className="w-full h-4 opacity-60" />
-            <LemonSkeleton className="w-full h-4 opacity-40" />
-            <LemonSkeleton className="w-1/2 h-4 opacity-20" />
+        <div className="deprecated-space-y-2 absolute inset-0 p-4">
+            <LemonSkeleton className="mb-12 h-10 w-full" />
+            <LemonSkeleton className="h-8 w-1/3" />
+            <LemonSkeleton className="mb-10 h-4 w-1/2" />
+            <LemonSkeleton className="h-4 w-full" />
+            <LemonSkeleton className="h-4 w-full opacity-80" />
+            <LemonSkeleton className="h-4 w-full opacity-60" />
+            <LemonSkeleton className="h-4 w-full opacity-40" />
+            <LemonSkeleton className="h-4 w-1/2 opacity-20" />
         </div>
     )
 }
@@ -77,7 +77,7 @@ export const SidePanelDocs = (): JSX.Element => {
                         size="small"
                         value={activeMenuName ?? ''}
                         options={menuOptions.map(({ name, url }) => ({ label: name, value: url }))}
-                        className="shrink whitespace-nowrap overflow-hidden"
+                        className="shrink overflow-hidden whitespace-nowrap"
                     />
                 )}
 
@@ -99,7 +99,7 @@ export const SidePanelDocs = (): JSX.Element => {
                 <iframe
                     src={iframeSrc}
                     title="Docs"
-                    className={clsx('w-full h-full', !iframeReady && 'hidden')}
+                    className={clsx('h-full w-full', !iframeReady && 'hidden')}
                     ref={ref}
                 />
 

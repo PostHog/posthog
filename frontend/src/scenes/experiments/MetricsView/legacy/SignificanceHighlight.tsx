@@ -26,12 +26,12 @@ export function SignificanceHighlight({
         : { color: 'primary', label: 'Not significant' }
 
     const inner = isSignificant ? (
-        <div className="bg-success-highlight text-success-light px-1.5 py-0.5 flex items-center gap-1 rounded border border-success-light">
+        <div className="bg-success-highlight text-success-light border-success-light flex items-center gap-1 rounded border px-1.5 py-0.5">
             <IconTrending fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>
     ) : (
-        <div className="bg-warning-highlight text-warning-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-warning">
+        <div className="bg-warning-highlight text-warning-dark border-warning flex items-center gap-1 rounded border px-1.5 py-0.5">
             <IconMinus fontSize={20} fontWeight={600} />
             <span className="text-xs font-semibold">{result.label}</span>
         </div>

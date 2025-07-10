@@ -28,7 +28,7 @@ export function ItemTimeDisplay({
     const fixedUnits = isLongerThanAnHour ? 3 : 2
 
     return (
-        <div className={cn('px-2 py-1 text-xs min-w-18 text-center', className)}>
+        <div className={cn('min-w-18 px-2 py-1 text-center text-xs', className)}>
             {timestampFormat !== TimestampFormat.Relative ? (
                 (timestampFormat === TimestampFormat.UTC ? timestamp.tz('UTC') : timestamp).format('DD, MMM HH:mm:ss')
             ) : (

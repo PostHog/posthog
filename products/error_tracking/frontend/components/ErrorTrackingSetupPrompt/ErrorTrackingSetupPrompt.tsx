@@ -54,7 +54,7 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                     </LemonButton>
                     <LemonButton
                         targetBlank
-                        sideIcon={<IconExternal className="w-5 h-5" />}
+                        sideIcon={<IconExternal className="h-5 w-5" />}
                         to="https://posthog.com/docs/error-tracking/installation"
                         onClick={() => {
                             addProductIntent({

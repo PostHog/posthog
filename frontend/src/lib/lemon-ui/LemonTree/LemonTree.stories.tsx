@@ -216,10 +216,10 @@ const BasicTemplate: StoryFn<typeof LemonTree> = (props: LemonTreeProps) => {
                 </p>
             </div>
 
-            <div className="w-full h-full grid grid-cols-[250px_1fr]">
+            <div className="grid h-full w-full grid-cols-[250px_1fr]">
                 <LemonTree {...props} contentRef={ref} />
                 <main
-                    className="p-4 focus-visible:ring-2 ring-accent ring-offset-1"
+                    className="ring-accent p-4 ring-offset-1 focus-visible:ring-2"
                     ref={ref}
                     role="main"
                     tabIndex={-1}

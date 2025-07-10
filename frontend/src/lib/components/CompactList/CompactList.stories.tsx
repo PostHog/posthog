@@ -44,7 +44,7 @@ export function CompactList_({ loading }: { loading: boolean }): JSX.Element {
                     )}
                 />
             </div>
-            <div className="w-80 ml-8">
+            <div className="ml-8 w-80">
                 <CompactList
                     loading={loading}
                     title="Recordings"

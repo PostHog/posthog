@@ -20,7 +20,7 @@ export const DateRangeFilter = ({
     const { dateRange } = useValues(errorFiltersLogic)
     const { setDateRange } = useActions(errorFiltersLogic)
     return (
-        <span className={cn('rounded bg-surface-primary', className)}>
+        <span className={cn('bg-surface-primary rounded', className)}>
             <DateFilter
                 size={size}
                 dateFrom={dateRange.date_from}

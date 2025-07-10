@@ -36,8 +36,8 @@ const IconTemplate = ({ icons }: { icons: { name: string; icon: any }[] }): JSX.
                 return (
                     <div onClick={() => onClick(name)} key={name} className="flex justify-center">
                         <Tooltip title="Click to copy">
-                            <div className="flex flex-col items-center deprecated-space-y-2 max-w-24 py-2 px-4 cursor-pointer rounded hover:bg-secondary-3000">
-                                <Icon className="w-10 h-10" />
+                            <div className="deprecated-space-y-2 hover:bg-secondary-3000 flex max-w-24 cursor-pointer flex-col items-center rounded px-4 py-2">
+                                <Icon className="h-10 w-10" />
                                 <span className="text-xs">{name}</span>
                             </div>
                         </Tooltip>

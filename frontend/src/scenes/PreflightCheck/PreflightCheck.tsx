@@ -69,7 +69,7 @@ export function PreflightCheck(): JSX.Element {
         <BridgePage
             view="preflight-check"
             footer={
-                <p className="text-center mt-4 mb-0">
+                <p className="mb-0 mt-4 text-center">
                     Need help? Take a look at our{' '}
                     <Link
                         to="https://posthog.com/docs/self-host/deploy/troubleshooting"
@@ -119,7 +119,7 @@ export function PreflightCheck(): JSX.Element {
                             Just experimenting
                         </LemonButton>
                         <LemonDivider thick dashed className="my-6" />
-                        <p className="text-secondary text-center mb-0">
+                        <p className="text-secondary mb-0 text-center">
                             We will not enforce some security requirements in experimentation mode.
                         </p>
                     </>
@@ -208,8 +208,8 @@ export function PreflightCheck(): JSX.Element {
                                 Continue
                             </LemonButton>
                         ) : (
-                            <LemonRow fullWidth center className="mt-2 Preflight__cannot-continue" size="large">
-                                <p className="text-center text-secondary">
+                            <LemonRow fullWidth center className="Preflight__cannot-continue mt-2" size="large">
+                                <p className="text-secondary text-center">
                                     All required checks must pass before you can continue
                                 </p>
                             </LemonRow>

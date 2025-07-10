@@ -97,7 +97,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
     const mainContent = (
         <div
             className={clsx(
-                'deprecated-space-y-2 rounded bg-surface-primary',
+                'deprecated-space-y-2 bg-surface-primary rounded',
                 !embedded && 'border p-3',
                 embedded && 'p-2'
             )}
@@ -118,7 +118,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                     return (
                         <>
                             {useMapping && (
-                                <p className="mb-0 text-sm text-secondary">
+                                <p className="text-secondary mb-0 text-sm">
                                     Filters here apply for all events that could trigger this function, regardless of
                                     mappings.
                                 </p>
@@ -154,12 +154,12 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
 
                             {!useMapping ? (
                                 <>
-                                    <div className="flex gap-2 justify-between w-full">
+                                    <div className="flex w-full justify-between gap-2">
                                         <LemonLabel>
                                             {isTransformation ? 'Match events' : 'Match events and actions'}
                                         </LemonLabel>
                                     </div>
-                                    <p className="mb-0 text-xs text-secondary">
+                                    <p className="text-secondary mb-0 text-xs">
                                         If set, the {type} will only run if the <b>event matches any</b> of the below.
                                     </p>
                                     <ActionFilter
@@ -198,7 +198,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                     {showDropEvents && (
                                         <>
                                             <LemonLabel>
-                                                <span className="flex flex-1 gap-2 justify-between items-center">
+                                                <span className="flex flex-1 items-center justify-between gap-2">
                                                     Drop events that don't match
                                                     <LemonSwitch
                                                         checked={currentFilters?.drop_events ?? false}
@@ -230,7 +230,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (
-                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                <div className="bg-surface-secondary mt-4 flex items-center gap-2 rounded border border-dashed p-2">
                                     <div className="flex-1 text-center">
                                         <span className="text-sm font-medium">Suggested by Max</span>
                                     </div>
@@ -279,7 +279,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (
-                        <div className="flex flex-wrap gap-1 items-center">
+                        <div className="flex flex-wrap items-center gap-1">
                             <LemonSelect
                                 options={[
                                     {
@@ -309,7 +309,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                             />
                             {configuration.masking?.hash ? (
                                 <>
-                                    <div className="flex flex-wrap gap-1 items-center">
+                                    <div className="flex flex-wrap items-center gap-1">
                                         <span>of</span>
                                         <LemonSelect
                                             value={value?.ttl}
@@ -354,7 +354,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
                                             ]}
                                         />
                                     </div>
-                                    <div className="flex flex-wrap gap-1 items-center">
+                                    <div className="flex flex-wrap items-center gap-1">
                                         <span>or until</span>
                                         <LemonSelect
                                             value={value?.threshold}

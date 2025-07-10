@@ -40,8 +40,8 @@ Basic.args = {
 function ExplanationModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {
     return (
         <LemonModal title="Let me explain you the label" isOpen={open} onClose={() => setOpen(false)}>
-            <div className="bg-surface-primary w-full max-w-248 h-full ml-auto relative z-10 overflow-auto">
-                <h3 className="text-lg text-semibold opacity-50 m-0">Labels are awesome.</h3>
+            <div className="bg-surface-primary max-w-248 relative z-10 ml-auto h-full w-full overflow-auto">
+                <h3 className="text-semibold m-0 text-lg opacity-50">Labels are awesome.</h3>
                 <p>They truly are.</p>
             </div>
         </LemonModal>

@@ -27,7 +27,7 @@ const MinimalTransformationView = ({
         <div
             ref={setNodeRef}
             className={clsx(
-                'relative flex items-center gap-2 p-2 border rounded cursor-move bg-bg-light',
+                'bg-bg-light relative flex cursor-move items-center gap-2 rounded border p-2',
                 isDragging && 'z-[999999]'
             )}
             // eslint-disable-next-line react/forbid-dom-props

@@ -38,12 +38,12 @@ const BillingGaugeItem = ({
                     'BillingGaugeItem--within-usage-limit': isWithinUsageLimit,
                     'BillingGaugeItem--addon': isAddon,
                 },
-                'absolute top-0 left-0 bottom-0 h-2'
+                'absolute bottom-0 left-0 top-0 h-2'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
-            <div className="absolute right-0 w-px h-full bg-surface-primary" />
+            <div className="bg-surface-primary absolute right-0 h-full w-px" />
             <Tooltip
                 title={item.prefix ? `${item.prefix}${item.value.toLocaleString()}` : item.value.toLocaleString()}
                 placement="right"
@@ -81,7 +81,7 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
     }, [items])
 
     return (
-        <div className="relative h-2 bg-border-light my-16">
+        <div className="bg-border-light relative my-16 h-2">
             {sortedItems.map((item, i) => (
                 <BillingGaugeItem
                     key={i}

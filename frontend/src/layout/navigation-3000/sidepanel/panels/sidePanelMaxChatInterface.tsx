@@ -127,11 +127,11 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
         const displayMessages = currentMessages.filter((message) => message.content !== '__GREETING__')
 
         return (
-            <div ref={ref} className="flex flex-col h-full">
-                <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
-                    <div className="bg-surface-primary dark:bg-transparent rounded p-1">
+            <div ref={ref} className="flex h-full flex-col">
+                <div className="deprecated-space-y-4 flex-1 overflow-y-auto p-3 [overflow-anchor:none]">
+                    <div className="bg-surface-primary rounded p-1 dark:bg-transparent">
                         <h4 className="mb-2">Tips for chatting with Max:</h4>
-                        <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
+                        <ul className="deprecated-space-y-2 text-secondary list-disc pl-4">
                             <li>Max can't handle files or images (yet.)</li>
                             <li>
                                 Max can't see what page you're on, or the contents. Copy/paste error messages or queries
@@ -143,7 +143,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                     </div>
 
                     {displayMessages.length === 0 ? (
-                        <div className="flex items-center gap-2 text-secondary">
+                        <div className="text-secondary flex items-center gap-2">
                             <span>Max is crawling out of his burrow and shaking off his quills...</span>
                             <Spinner className="text-lg" />
                         </div>
@@ -155,17 +155,17 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                     className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                 >
                                     {message.role === 'user' && (
-                                        <div className="text-sm text-secondary mr-2 mt-2">You</div>
+                                        <div className="text-secondary mr-2 mt-2 text-sm">You</div>
                                     )}
 
                                     <div
                                         className={`${message.role === 'assistant' ? 'flex flex-col' : ''} max-w-full`}
                                     >
                                         {message.role === 'assistant' && (
-                                            <div className="text-sm text-primary-alt mb-1">Max</div>
+                                            <div className="text-primary-alt mb-1 text-sm">Max</div>
                                         )}
                                         <div
-                                            className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
+                                            className={`min-w-[90%] whitespace-pre-wrap rounded-lg p-2 ${
                                                 message.role === 'assistant'
                                                     ? 'bg-surface-primary dark:bg-surface-primary text-default'
                                                     : 'bg-surface-primary dark:bg-surface-secondary text-default'
@@ -344,8 +344,8 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                     {(hasServerError || isRateLimited) && (
                         <div className="flex justify-start">
                             <div className="flex flex-col">
-                                <div className="text-sm text-primary-alt mb-1">Max</div>
-                                <div className="p-2 rounded-lg bg-surface-primary dark:bg-surface-primary text-default">
+                                <div className="text-primary-alt mb-1 text-sm">Max</div>
+                                <div className="bg-surface-primary dark:bg-surface-primary text-default rounded-lg p-2">
                                     <div className="flex items-center gap-2">
                                         <span>
                                             {hasServerError
@@ -369,7 +369,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                 {showInput && (
                     <>
                         {isSearchingThinking && (
-                            <div className="flex items-center gap-2 p-2 text-secondary justify-center">
+                            <div className="text-secondary flex items-center justify-center gap-2 p-2">
                                 <span>Max is searching and thinking...</span>
                                 <Spinner className="text-sm" />
                             </div>
@@ -385,7 +385,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                 className="w-full"
                                 data-attr="max-chat-input"
                             />
-                            <div className="px-0 text-xs text-secondary mt-1 mb-2">
+                            <div className="text-secondary mb-2 mt-1 px-0 text-xs">
                                 `enter` to send, `shift+enter` for a new line
                             </div>
                             <LemonButton

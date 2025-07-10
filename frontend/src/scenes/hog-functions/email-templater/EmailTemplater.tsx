@@ -42,7 +42,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                 />
             )}
             <Form
-                className="flex overflow-hidden flex-col flex-1 rounded border"
+                className="flex flex-1 flex-col overflow-hidden rounded border"
                 logic={emailTemplaterLogic}
                 props={logicProps}
                 formKey="emailTemplate"
@@ -51,7 +51,7 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                     <LemonField
                         key={field}
                         name={field}
-                        className="gap-1 pl-2 border-b shrink-0"
+                        className="shrink-0 gap-1 border-b pl-2"
                         // We will handle the error display ourselves
                         renderError={() => null}
                     >
@@ -89,11 +89,11 @@ function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element
                         }}
                     />
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col">
+                    <LemonField name="html" className="relative flex flex-col">
                         {({ value }) => (
                             <>
-                                <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                <div className="absolute inset-0 flex items-end justify-center p-2 opacity-0 transition-opacity hover:opacity-100">
+                                    <div className="bg-surface-primary absolute inset-0 opacity-50" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content
                                     </LemonButton>
@@ -120,13 +120,13 @@ function EmailTemplaterModal(): JSX.Element {
             onClose={() => closeWithConfirmation()}
             hasUnsavedInput={emailTemplateChanged}
         >
-            <div className="h-[80vh] flex">
-                <div className="flex flex-col flex-1">
+            <div className="flex h-[80vh]">
+                <div className="flex flex-1 flex-col">
                     <div className="shrink-0">
                         <h2>Editing email template</h2>
                     </div>
                     <EmailTemplaterForm mode="full" />
-                    <div className="flex gap-2 items-center mt-2">
+                    <div className="mt-2 flex items-center gap-2">
                         <div className="flex-1" />
                         <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
                         <LemonButton
@@ -146,7 +146,7 @@ function EmailTemplaterModal(): JSX.Element {
 export function EmailTemplater(props: EmailTemplaterLogicProps): JSX.Element {
     return (
         <BindLogic logic={emailTemplaterLogic} props={props}>
-            <div className="flex flex-col flex-1">
+            <div className="flex flex-1 flex-col">
                 <EmailTemplaterForm mode="preview" />
                 <EmailTemplaterModal />
             </div>

@@ -18,7 +18,7 @@ export function LemonWidget({ title, onClose, actions, children, className }: Le
     return (
         <Widget className={className}>
             <Header>
-                <span className="flex-1 text-primary-alt px-2 truncate">{title}</span>
+                <span className="text-primary-alt flex-1 truncate px-2">{title}</span>
                 {actions}
 
                 {onClose && <LemonButton status="danger" onClick={onClose} size="small" icon={<IconX />} />}
@@ -37,5 +37,5 @@ const Header = ({ children, className }: { children: React.ReactNode; className?
 }
 
 const Content = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    return <div className="LemonWidget__content border-t border-primary">{children}</div>
+    return <div className="LemonWidget__content border-primary border-t">{children}</div>
 }

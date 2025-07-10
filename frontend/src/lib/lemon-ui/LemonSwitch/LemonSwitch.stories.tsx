@@ -68,7 +68,7 @@ Disabled.args = { disabled: true }
 
 const SwitchCell = ({ size, bordered }: { size: LemonSwitchProps['size']; bordered: boolean }): JSX.Element => {
     return (
-        <td className="border border-bg-3000 border-4 p-2">
+        <td className="border-bg-3000 border border-4 p-2">
             <LemonSwitch label={size} size={size} bordered={bordered} />
         </td>
     )
@@ -76,7 +76,7 @@ const SwitchCell = ({ size, bordered }: { size: LemonSwitchProps['size']; border
 
 export const Sizes = (): JSX.Element => {
     return (
-        <table className="table-auto border-collapse border border-bg-3000 border-4">
+        <table className="border-bg-3000 table-auto border-collapse border border-4">
             <tbody>
                 <tr>
                     <SwitchCell size="xxsmall" bordered={false} />

@@ -71,7 +71,7 @@ function VariableSelector({
                 </LemonBanner>
             )}
             {variable.touched && !activeVariableCustomEventName && (
-                <div className="flex justify-between items-center bg-primary-light p-2 pl-3 rounded mb-4">
+                <div className="bg-primary-light mb-4 flex items-center justify-between rounded p-2 pl-3">
                     <div>
                         <p className="mb-2">
                             <IconCheckCircle className="text-success font-bold" />{' '}
@@ -123,7 +123,7 @@ function VariableSelector({
                         Set the name that you'll use for a custom event (eg. a backend event) instead of selecting an
                         event from your site. You can change this later if needed.
                     </p>
-                    <div className="flex gap-x-2 w-full">
+                    <div className="flex w-full gap-x-2">
                         <LemonInput
                             className="grow"
                             value={activeVariableCustomEventName || ''}
@@ -196,7 +196,7 @@ function VariableSelector({
                         ) : null}
                     </>
                 ) : (
-                    <div className="w-full flex flex-wrap gap-x-2 gap-y-2">
+                    <div className="flex w-full flex-wrap gap-x-2 gap-y-2">
                         {isCurrentlySelectingElement ? (
                             <LemonButton
                                 type="secondary"
@@ -239,7 +239,7 @@ function VariableSelector({
                                                 <div className="flex">
                                                     This pageview{' '}
                                                     {currentFullUrl ? (
-                                                        <div className="text-secondary max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
+                                                        <div className="text-secondary ml-2 max-w-44 overflow-clip overflow-ellipsis text-nowrap">
                                                             {!currentPath ? browserUrl : '/' + currentPath}
                                                         </div>
                                                     ) : null}
@@ -274,7 +274,7 @@ function VariableSelector({
                             }}
                             fullWidth
                             center
-                            className="grow max-w-44"
+                            className="max-w-44 grow"
                         >
                             Use custom event
                         </LemonButton>
@@ -310,7 +310,7 @@ export function DashboardTemplateVariables({
     }, [activeDashboardTemplate])
 
     return (
-        <div className="mb-4 DashboardTemplateVariables max-w-192">
+        <div className="DashboardTemplateVariables max-w-192 mb-4">
             <LemonCollapse
                 activeKey={variables[activeVariableIndex]?.id}
                 panels={variables.map((v, i) => ({

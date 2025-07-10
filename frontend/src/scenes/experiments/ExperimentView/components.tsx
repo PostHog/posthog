@@ -84,9 +84,9 @@ export function VariantTag({
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
-            <span className={clsx('flex items-center min-w-0', className)}>
+            <span className={clsx('flex min-w-0 items-center', className)}>
                 <div
-                    className="w-2 h-2 rounded-full shrink-0"
+                    className="h-2 w-2 shrink-0 rounded-full"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         backgroundColor: getExperimentInsightColour(
@@ -106,9 +106,9 @@ export function VariantTag({
     }
 
     return (
-        <span className={clsx('flex items-center min-w-0', className)}>
+        <span className={clsx('flex min-w-0 items-center', className)}>
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
+                className={`ml-2 truncate font-semibold ${muted ? 'text-secondary' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -232,13 +232,13 @@ export function ResultsHeader(): JSX.Element {
     return (
         <div className="flex">
             <div className="w-1/2">
-                <div className="inline-flex items-center deprecated-space-x-2 mb-2">
-                    <h2 className="m-0 font-semibold text-lg">Results</h2>
+                <div className="deprecated-space-x-2 mb-2 inline-flex items-center">
+                    <h2 className="m-0 text-lg font-semibold">Results</h2>
                     <ResultsTag />
                 </div>
             </div>
 
-            <div className="w-1/2 flex flex-col justify-end">
+            <div className="flex w-1/2 flex-col justify-end">
                 <div className="ml-auto">
                     {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
                     {result &&
@@ -274,9 +274,9 @@ export function EllipsisAnimation(): JSX.Element {
 
 export function ExperimentLoadingAnimation(): JSX.Element {
     return (
-        <div className="flex flex-col flex-1 justify-center items-center">
+        <div className="flex flex-1 flex-col items-center justify-center">
             <LoadingBar />
-            <div className="text-xs text-secondary w-44">
+            <div className="text-secondary w-44 text-xs">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
             </div>
@@ -373,7 +373,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Archive this experiment?',
                                             content: (
-                                                <div className="text-sm text-secondary">
+                                                <div className="text-secondary text-sm">
                                                     This action will move the experiment to the archived tab. It can be
                                                     restored at any time.
                                                 </div>
@@ -428,19 +428,19 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
                     options={Object.values(ExperimentConclusion).map((conclusion) => ({
                         value: conclusion,
                         label: (
-                            <div className="py-2 px-1">
-                                <div className="font-semibold mb-1.5">
-                                    <div className="font-semibold flex items-center gap-2">
+                            <div className="px-1 py-2">
+                                <div className="mb-1.5 font-semibold">
+                                    <div className="flex items-center gap-2 font-semibold">
                                         <div
                                             className={clsx(
-                                                'w-2 h-2 rounded-full',
+                                                'h-2 w-2 rounded-full',
                                                 CONCLUSION_DISPLAY_CONFIG[conclusion].color
                                             )}
                                         />
                                         <span>{CONCLUSION_DISPLAY_CONFIG[conclusion].title}</span>
                                     </div>
                                 </div>
-                                <div className="text-xs text-muted">
+                                <div className="text-muted text-xs">
                                     {CONCLUSION_DISPLAY_CONFIG[conclusion].description}
                                 </div>
                             </div>
@@ -456,7 +456,7 @@ export function ConclusionForm({ experimentId }: { experimentId: Experiment['id'
             <div>
                 <LemonLabel>Comment (optional)</LemonLabel>
                 <LemonTextArea
-                    className="w-full border rounded p-2"
+                    className="w-full rounded border p-2"
                     minRows={6}
                     maxLength={400}
                     placeholder="Optional details about why this conclusion was selected..."
@@ -657,7 +657,7 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-secondary max-w-md">
+                    <div className="text-secondary max-w-md text-sm">
                         <p>
                             The experiment start and end dates will be reset and the experiment will go back to draft
                             mode.
@@ -668,7 +668,7 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
                         </p>
                     </div>
                     {experiment.archived && (
-                        <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
+                        <div className="text-secondary text-sm">Resetting will also unarchive the experiment.</div>
                     )}
                 </>
             ),
@@ -705,10 +705,10 @@ export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.E
 export function LoadingState(): JSX.Element {
     return (
         <div className="deprecated-space-y-4">
-            <LemonSkeleton className="w-1/3 h-4" />
+            <LemonSkeleton className="h-4 w-1/3" />
             <LemonSkeleton />
             <LemonSkeleton />
-            <LemonSkeleton className="w-2/3 h-4" />
+            <LemonSkeleton className="h-4 w-2/3" />
         </div>
     )
 }
@@ -723,7 +723,7 @@ export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined 
     return (
         <>
             <div className="mb-2">
-                <div className="flex mb-1">
+                <div className="mb-1 flex">
                     <b>
                         <InsightLabel action={event} showCountedByTag={true} hideIcon showEventName />
                     </b>
@@ -743,9 +743,9 @@ export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.El
         <>
             {(query.series || []).map((event: any, idx: number) => (
                 <div key={idx} className="mb-2">
-                    <div className="flex mb-1">
+                    <div className="mb-1 flex">
                         <div
-                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                            className="text-primary-alt mr-2 h-6 w-6 shrink-0 rounded border text-center font-bold"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ backgroundColor: 'var(--bg-table)' }}
                         >

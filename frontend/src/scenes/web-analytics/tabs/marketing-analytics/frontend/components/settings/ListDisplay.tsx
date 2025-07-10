@@ -15,7 +15,7 @@ export const ListDisplay = ({ list }: ListDisplayProps): JSX.Element => {
 
     return (
         <Tooltip title={joinedList}>
-            <div className="text-muted text-sm leading-tight ListDisplay--truncated">{joinedList}</div>
+            <div className="text-muted ListDisplay--truncated text-sm leading-tight">{joinedList}</div>
         </Tooltip>
     )
 }

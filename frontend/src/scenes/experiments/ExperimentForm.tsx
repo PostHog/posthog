@@ -55,7 +55,7 @@ const ExperimentFormFields = (): JSX.Element => {
             {formMode === 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
                     We'll copy all settings, including metrics and exposure configuration, from the&nbsp;
-                    <Link target="_blank" className="font-semibold items-center" to={urls.experiment(experiment.id)}>
+                    <Link target="_blank" className="items-center font-semibold" to={urls.experiment(experiment.id)}>
                         original experiment
                         <IconOpenInNew fontSize="18" />
                     </Link>
@@ -131,7 +131,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 {webExperimentsAvailable && (
                     <div className="mt-10">
                         <h3 className="mb-1">Experiment type</h3>
-                        <div className="text-xs text-secondary font-medium tracking-normal">
+                        <div className="text-secondary text-xs font-medium tracking-normal">
                             Select your experiment setup, this cannot be changed once saved.
                         </div>
                         <LemonDivider />
@@ -147,7 +147,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>Product experiment</div>
-                                            <div className="text-xs text-secondary">
+                                            <div className="text-secondary text-xs">
                                                 Use custom code to manage how variants modify your product.
                                             </div>
                                         </div>
@@ -158,7 +158,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>No-code web experiment</div>
-                                            <div className="text-xs text-secondary">
+                                            <div className="text-secondary text-xs">
                                                 Define variants on your website using the PostHog toolbar, no coding
                                                 required.
                                             </div>
@@ -172,7 +172,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
                     <div className="mt-10">
                         <h3>Participant type</h3>
-                        <div className="text-xs text-secondary  max-w-150">
+                        <div className="text-secondary max-w-150 text-xs">
                             Determines on what level you want to aggregate metrics. You can change this later, but flag
                             values for users will change so you need to reset the experiment for accurate results.
                         </div>
@@ -225,11 +225,11 @@ const ExperimentFormFields = (): JSX.Element => {
                     <>
                         <div className="mt-10">
                             <h3 className="mb-1">Variants</h3>
-                            <div className="text-xs text-secondary">
+                            <div className="text-secondary text-xs">
                                 Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
                             </div>
                             <LemonDivider />
-                            <div className="grid grid-cols-2 gap-4 max-w-160">
+                            <div className="max-w-160 grid grid-cols-2 gap-4">
                                 <div className="max-w-60">
                                     <h3>Control</h3>
                                     <div className="flex items-center">
@@ -250,7 +250,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             </LemonField>
                                         </Group>
                                     </div>
-                                    <div className="text-muted text-xs mt-2">
+                                    <div className="text-muted mt-2 text-xs">
                                         Included automatically, cannot be edited or removed
                                     </div>
                                 </div>
@@ -265,7 +265,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             <Group key={index} name={['parameters', 'feature_flag_variants', index]}>
                                                 <div
                                                     key={`variant-${index}`}
-                                                    className={`flex items-center deprecated-space-x-2 ${
+                                                    className={`deprecated-space-x-2 flex items-center ${
                                                         index > 1 && 'mt-2'
                                                     }`}
                                                 >
@@ -300,7 +300,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             </Group>
                                         )
                                     })}
-                                    <div className="text-secondary text-xs ml-9 mr-20 mt-2">
+                                    <div className="text-secondary ml-9 mr-20 mt-2 text-xs">
                                         Alphanumeric, hyphens and underscores only
                                     </div>
                                     {(experiment.parameters.feature_flag_variants.length ?? 0) <
@@ -318,10 +318,10 @@ const ExperimentFormFields = (): JSX.Element => {
                                 </div>
                             </div>
                         </div>
-                        <div className="mt-10 pb-6 max-w-150">
+                        <div className="max-w-150 mt-10 pb-6">
                             <LemonField name="parameters.ensure_experience_continuity">
                                 {({ value, onChange }) => (
-                                    <div className="border rounded p-4">
+                                    <div className="rounded border p-4">
                                         <LemonCheckbox
                                             id="continuity-checkbox"
                                             label="Persist flag across authentication steps"
@@ -329,7 +329,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                             fullWidth
                                             checked={value}
                                         />
-                                        <div className="text-secondary text-sm pl-7">
+                                        <div className="text-secondary pl-7 text-sm">
                                             If your feature flag is evaluated for anonymous users, use this option to
                                             ensure the flag value remains consistent after the user logs in. Depending
                                             on your setup, this option may not always be appropriate. Note that this
@@ -366,7 +366,7 @@ export const HoldoutSelector = (): JSX.Element => {
     holdoutOptions.unshift({ value: null, label: 'No holdout' })
 
     return (
-        <div className="mt-4 mb-8">
+        <div className="mb-8 mt-4">
             <LemonSelect
                 options={holdoutOptions}
                 value={experiment.holdout_id || null}

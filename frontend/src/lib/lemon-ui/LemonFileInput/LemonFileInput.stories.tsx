@@ -50,7 +50,7 @@ const Template: StoryFn<typeof LemonFileInput> = (props) => {
             </div>
             <div>
                 <h5>Extra drag and drop target</h5>
-                <div ref={additionalDragTarget} className="h-12 w-full border flex items-center justify-center">
+                <div ref={additionalDragTarget} className="flex h-12 w-full items-center justify-center border">
                     This area is also a drag target
                 </div>
                 <LemonFileInput

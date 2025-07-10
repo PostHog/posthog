@@ -27,7 +27,7 @@ const SupportButtons = ({ disabledReason }: SupportButtonsProps): JSX.Element =>
     const { uuid } = useValues(verifyEmailLogic)
 
     return (
-        <div className="flex flex-row gap-x-4 justify-start">
+        <div className="flex flex-row justify-start gap-x-4">
             <LemonButton
                 type="primary"
                 disabledReason={disabledReason}
@@ -71,7 +71,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const allChecked = checklist.every((_, index) => checkListValues[index])
 
     return (
-        <div className="bg-primary p-4 rounded relative w-full max-w-160">
+        <div className="bg-primary max-w-160 relative w-full rounded p-4">
             <div className="flex flex-col justify-center">
                 <div className="deprecated-space-y-2 text-left">
                     {checklist.map((item, index) => (
@@ -87,7 +87,7 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
                 </div>
             </div>
             <div className="mt-4">
-                <p className="text-left mb-2">Choose one of the following options:</p>
+                <p className="mb-2 text-left">Choose one of the following options:</p>
                 <SupportButtons
                     disabledReason={!allChecked ? "Please confirm you've done all the steps above" : undefined}
                 />
@@ -127,41 +127,41 @@ export function VerifyEmail(): JSX.Element {
         <div className="flex h-full flex-col">
             <div className="flex h-full">
                 <BridgePage view="verifyEmail" fixedWidth={false}>
-                    <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
+                    <div className="max-w-160 flex w-full flex-col items-center px-12 py-8 text-center">
                         {view === 'pending' ? (
                             <>
                                 <h2 className="text-lg">Welcome to PostHog!</h2>
                                 <h1 className="text-3xl font-bold">Let's verify your email address.</h1>
-                                <div className="max-w-60 my-10">
-                                    <MailHog className="w-full h-full" />
+                                <div className="my-10 max-w-60">
+                                    <MailHog className="h-full w-full" />
                                 </div>
                                 <p className="mb-6">An email has been sent with a link to verify your email address.</p>
                                 <GetHelp />
                             </>
                         ) : view === 'verify' ? (
                             <>
-                                <Spinner className="text-4xl mb-12" />
+                                <Spinner className="mb-12 text-4xl" />
                                 <p>Verifying your email address...</p>
                             </>
                         ) : view === 'success' ? (
                             <>
                                 <h1 className="text-3xl font-bold">Success!</h1>
-                                <div className="max-w-60 mb-12">
-                                    <HeartHog className="w-full h-full" />
+                                <div className="mb-12 max-w-60">
+                                    <HeartHog className="h-full w-full" />
                                 </div>
                                 <p>Thanks for verifying your email address. Now taking you to PostHog...</p>
                             </>
                         ) : view === 'invalid' ? (
                             <>
                                 <h1 className="text-3xl font-bold">Whoops!</h1>
-                                <div className="max-w-60 mb-12">
-                                    <SurprisedHog className="w-full h-full" />
+                                <div className="mb-12 max-w-60">
+                                    <SurprisedHog className="h-full w-full" />
                                 </div>
                                 <p className="mb-6">Seems like that link isn't quite right. Try again?</p>
 
                                 <SupportButtons />
 
-                                <p className="text-xs text-muted mt-6">
+                                <p className="text-muted mt-6 text-xs">
                                     If you've already verified your email, then{' '}
                                     <Link to={urls.login()}>log in here</Link>.
                                 </p>

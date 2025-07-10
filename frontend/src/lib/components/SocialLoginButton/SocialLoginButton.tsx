@@ -90,10 +90,10 @@ export function SocialLoginButtons({
         <>
             {topDivider ? <LemonDivider dashed className="my-4" /> : null}
 
-            <div className={clsx(className, 'text-center deprecated-space-y-4')}>
+            <div className={clsx(className, 'deprecated-space-y-4 text-center')}>
                 {title && <h3>{title}</h3>}
                 {caption && captionLocation === 'top' && <p className="text-secondary">{caption}</p>}
-                <div className="flex gap-2 justify-center flex-wrap">
+                <div className="flex flex-wrap justify-center gap-2">
                     {Object.keys(preflight.available_social_auth_providers)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
                         .map((provider) => (

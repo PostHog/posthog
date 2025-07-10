@@ -50,7 +50,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
         <>
             <div
                 className={clsx(
-                    'w-full px-2 hover:bg-primary border-l-4 border-b cursor-pointer',
+                    'hover:bg-primary w-full cursor-pointer border-b border-l-4 px-2',
                     focused ? 'bg-surface-secondary border-l-accent' : 'bg-surface-primary'
                 )}
                 onClick={() => {
@@ -64,7 +64,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                 }}
                 ref={ref}
             >
-                <div className="px-2 py-3 w-full gap-y-0.5 flex flex-col items-start">
+                <div className="flex w-full flex-col items-start gap-y-0.5 px-2 py-3">
                     <span className="text-tertiary text-xs">
                         {result.type === 'tree_item'
                             ? `Product`
@@ -82,9 +82,9 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
 }
 
 export const SearchResultSkeleton = (): JSX.Element => (
-    <div className="px-5 py-4 w-full gap-y-1.5 flex flex-col items-start bg-surface-primary border-b">
-        <LemonSkeleton className="w-16 opacity-75 h-3" />
-        <LemonSkeleton className="w-40 h-3.5" />
+    <div className="bg-surface-primary flex w-full flex-col items-start gap-y-1.5 border-b px-5 py-4">
+        <LemonSkeleton className="h-3 w-16 opacity-75" />
+        <LemonSkeleton className="h-3.5 w-40" />
     </div>
 )
 

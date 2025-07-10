@@ -27,7 +27,7 @@ export function DataNode(props: DataNodeProps): JSX.Element {
 
     return (
         <div className="relative">
-            <div className="absolute right-0 z-10 p-1 mr-3">
+            <div className="absolute right-0 z-10 mr-3 p-1">
                 <OpenEditorButton query={props.query} />
             </div>
             {responseLoading ? (

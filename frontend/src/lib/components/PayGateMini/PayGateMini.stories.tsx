@@ -36,7 +36,7 @@ const Template = ({ cloud, ...props }: PayGateMiniProps & { cloud?: boolean }): 
     })
 
     return (
-        <div className="p-10 max-w-4xl mx-auto">
+        <div className="mx-auto max-w-4xl p-10">
             <PayGateMini {...props}>
                 <></>
             </PayGateMini>

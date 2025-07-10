@@ -22,9 +22,9 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
     }
 
     return (
-        <div className="max-w-120 w-full self-center flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2 -mr-2">
-                <h3 className="text-sm font-medium text-secondary mb-0">Recent chats</h3>
+        <div className="max-w-120 flex w-full flex-col gap-2 self-center">
+            <div className="-mr-2 flex items-center justify-between gap-2">
+                <h3 className="text-secondary mb-0 text-sm font-medium">Recent chats</h3>
                 <LemonButton
                     size="small"
                     onClick={() => toggleConversationHistory()}
@@ -44,7 +44,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                 conversationHistory.slice(0, 3).map((conversation) => (
                     <Link
                         key={conversation.id}
-                        className="text-sm flex items-center text-primary hover:text-accent-hover active:text-accent-active"
+                        className="text-primary hover:text-accent-hover active:text-accent-active flex items-center text-sm"
                         to={getConversationUrl({
                             pathname: location.pathname,
                             search: location.search,
@@ -52,7 +52,7 @@ export function HistoryPreview({ sidePanel = false }: HistoryPreviewProps): JSX.
                             includeHash: sidePanel,
                         })}
                     >
-                        <span className="flex-1 line-clamp-1">{conversation.title}</span>
+                        <span className="line-clamp-1 flex-1">{conversation.title}</span>
                         {conversation.status === ConversationStatus.InProgress ? (
                             <Spinner className="h-4 w-4" />
                         ) : (

@@ -39,14 +39,14 @@ function HeatmapMouseInfo({
             }}
         >
             <div
-                className="absolute border rounded bg-surface-primary shadow-md p-2 mx-2 -translate-y-1/2"
+                className="bg-surface-primary absolute mx-2 -translate-y-1/2 rounded border p-2 shadow-md"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     left: leftPosition ? undefined : 0,
                     right: leftPosition ? 0 : undefined,
                 }}
             >
-                <span className="font-semibold whitespace-nowrap">
+                <span className="whitespace-nowrap font-semibold">
                     {value} {heatmapTooltipLabel}
                 </span>
             </div>
@@ -134,7 +134,7 @@ export function HeatmapCanvas({
     }
 
     return (
-        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)} data-attr="heatmap-canvas">
+        <div className={cn('inset-0 h-full w-full overflow-hidden', positioning)} data-attr="heatmap-canvas">
             {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
             <div
                 key={`${widthOverride ?? windowWidth}x${windowHeight}`}

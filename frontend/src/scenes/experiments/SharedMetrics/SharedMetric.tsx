@@ -37,7 +37,7 @@ export function SharedMetric(): JSX.Element {
 
     if (!sharedMetric || !sharedMetric.query) {
         return (
-            <div className="fixed inset-0 flex justify-center items-center">
+            <div className="fixed inset-0 flex items-center justify-center">
                 <Spinner className="text-5xl" />
             </div>
         )
@@ -46,9 +46,9 @@ export function SharedMetric(): JSX.Element {
     return (
         <div className="max-w-[800px]">
             {sharedMetric.query.kind !== NodeKind.ExperimentMetric && (
-                <div className="flex gap-4 mb-4">
+                <div className="mb-4 flex gap-4">
                     <div
-                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                        className={`flex-1 cursor-pointer rounded border p-4 ${
                             sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
                                 ? 'border-accent bg-accent-highlight-secondary'
                                 : 'border-primary'
@@ -59,7 +59,7 @@ export function SharedMetric(): JSX.Element {
                             })
                         }}
                     >
-                        <div className="font-semibold flex justify-between items-center">
+                        <div className="flex items-center justify-between font-semibold">
                             <span>Trend</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
                                 <IconCheckCircle fontSize={18} color="var(--accent)" />
@@ -70,7 +70,7 @@ export function SharedMetric(): JSX.Element {
                         </div>
                     </div>
                     <div
-                        className={`flex-1 cursor-pointer p-4 rounded border ${
+                        className={`flex-1 cursor-pointer rounded border p-4 ${
                             sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
                                 ? 'border-accent bg-accent-highlight-secondary'
                                 : 'border-primary'
@@ -81,7 +81,7 @@ export function SharedMetric(): JSX.Element {
                             })
                         }}
                     >
-                        <div className="font-semibold flex justify-between items-center">
+                        <div className="flex items-center justify-between font-semibold">
                             <span>Funnel</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
                                 <IconCheckCircle fontSize={18} color="var(--accent)" />
@@ -93,7 +93,7 @@ export function SharedMetric(): JSX.Element {
                     </div>
                 </div>
             )}
-            <div className={`border rounded ${isDarkModeOn ? 'bg-light' : 'bg-white'} p-4`}>
+            <div className={`rounded border ${isDarkModeOn ? 'bg-light' : 'bg-white'} p-4`}>
                 <div className="mb-4">
                     <LemonLabel className="mb-1">Name</LemonLabel>
                     <LemonInput
@@ -149,7 +149,7 @@ export function SharedMetric(): JSX.Element {
                     <LegacySharedFunnelsMetricForm />
                 )}
             </div>
-            <div className="flex justify-between mt-4">
+            <div className="mt-4 flex justify-between">
                 {action === 'update' && (
                     <LemonButton
                         size="medium"
@@ -158,7 +158,7 @@ export function SharedMetric(): JSX.Element {
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this metric?',
-                                content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+                                content: <div className="text-secondary text-sm">This action cannot be undone.</div>,
                                 primaryButton: {
                                     children: 'Delete',
                                     type: 'primary',

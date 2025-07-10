@@ -83,7 +83,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
             )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
-                    className="absolute top-0 left-0 w-full h-full rounded-full"
+                    className="absolute left-0 top-0 h-full w-full rounded-full"
                     src={gravatarUrl}
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""

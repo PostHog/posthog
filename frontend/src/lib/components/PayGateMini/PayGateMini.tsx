@@ -91,17 +91,17 @@ export function PayGateMini({
                 <div
                     className={clsx(
                         className,
-                        background && 'bg-primary border border-primary',
-                        'PayGateMini rounded flex flex-col items-center p-4 text-center'
+                        background && 'bg-primary border-primary border',
+                        'PayGateMini flex flex-col items-center rounded p-4 text-center'
                     )}
                 >
-                    <LemonSkeleton className="w-20 h-10 mb-2" />
-                    <LemonSkeleton className="w-48 h-12 mb-2" />
-                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
-                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
-                    <div className="flex items-center justify-center gap-x-2 mt-3">
-                        <LemonSkeleton className="w-32 h-10" />
-                        <LemonSkeleton className="w-32 h-10" />
+                    <LemonSkeleton className="mb-2 h-10 w-20" />
+                    <LemonSkeleton className="mb-2 h-12 w-48" />
+                    <LemonSkeleton className="mb-2 h-6 w-1/2" />
+                    <LemonSkeleton className="mb-2 h-6 w-1/2" />
+                    <div className="mt-3 flex items-center justify-center gap-x-2">
+                        <LemonSkeleton className="h-10 w-32" />
+                        <LemonSkeleton className="h-10 w-32" />
                     </div>
                 </div>
             )
@@ -122,7 +122,7 @@ export function PayGateMini({
                 isGrandfathered={isGrandfathered}
                 handleCtaClick={handleCtaClick}
             >
-                <div className="flex items-center justify-center deprecated-space-x-3">
+                <div className="deprecated-space-x-3 flex items-center justify-center">
                     <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
                     {docsLink && isCloudOrDev && (
                         <LemonButton
@@ -188,11 +188,11 @@ function PayGateContent({
         <div
             className={clsx(
                 className,
-                background && 'bg-primary border border-primary',
-                'PayGateMini rounded flex flex-col items-center p-4 text-center'
+                background && 'bg-primary border-primary border',
+                'PayGateMini flex flex-col items-center rounded p-4 text-center'
             )}
         >
-            <div className="flex mb-2 text-4xl text-warning">
+            <div className="text-warning mb-2 flex text-4xl">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
             <h2>{featureInfo.name}</h2>
@@ -229,12 +229,12 @@ const renderUsageLimitMessage = (
                     <Tooltip title={featureInfo.description}>
                         <span>
                             <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-secondary" />
+                            <IconInfo className="text-secondary ml-0.5" />
                         </span>
                     </Tooltip>
                     .
                 </p>
-                <p className="p-4 border rounded border-primary bg-primary">
+                <p className="border-primary bg-primary rounded border p-4">
                     <b>Your current plan limit:</b>{' '}
                     <span>
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
@@ -248,7 +248,7 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="mb-4 text-xs italic text-secondary">
+                        <p className="text-secondary mb-4 text-xs italic">
                             Need unlimited projects? Check out one of our{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                 platform add-ons
@@ -294,9 +294,9 @@ const renderGateVariantMessage = (
 
 const GrandfatheredMessage = (): JSX.Element => {
     return (
-        <div className="flex mb-4 text-left rounded gap-x-2 bg-primary">
-            <IconInfo className="text-2xl text-secondary" />
-            <p className="mb-0 text-secondary">
+        <div className="bg-primary mb-4 flex gap-x-2 rounded text-left">
+            <IconInfo className="text-secondary text-2xl" />
+            <p className="text-secondary mb-0">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your
                 plan to regain access.
             </p>

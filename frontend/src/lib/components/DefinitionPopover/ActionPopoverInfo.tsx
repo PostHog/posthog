@@ -95,7 +95,7 @@ export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Eleme
                             }
                         />
                         {entity.steps && index < entity.steps.length - 1 && (
-                            <DefinitionPopover.HorizontalLine className="mt-1 mb-3" label="OR" />
+                            <DefinitionPopover.HorizontalLine className="mb-3 mt-1" label="OR" />
                         )}
                     </DefinitionPopover.Section>
                 ))}

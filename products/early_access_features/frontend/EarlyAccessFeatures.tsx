@@ -81,7 +81,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                                                   ? 'success'
                                                   : 'default'
                                         }
-                                        className="uppercase cursor-default"
+                                        className="cursor-default uppercase"
                                     >
                                         {stage}
                                     </LemonTag>

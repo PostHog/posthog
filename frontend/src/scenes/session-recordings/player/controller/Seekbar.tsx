@@ -78,7 +78,7 @@ export function Seekbar(): JSX.Element {
     }, [sliderRef.current, thumbRef.current, sessionRecordingId])
 
     return (
-        <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">
+        <div className="mx-4 mt-2 flex h-8 flex-col items-end" data-attr="rrweb-controller">
             <PlayerSeekbarTicks
                 seekbarItems={seekbarItems}
                 endTimeMs={endTimeMs}

@@ -118,10 +118,10 @@ const Section = ({
                 ))}
 
                 {loading ? (
-                    <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                    <div className="text-secondary truncate border-t p-2 italic">Loading...</div>
                 ) : items.length === 0 ? (
                     search ? (
-                        <div className="p-2 text-secondary italic truncate border-t">
+                        <div className="text-secondary truncate border-t p-2 italic">
                             <span>No matches</span>
                         </div>
                     ) : (

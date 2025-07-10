@@ -85,7 +85,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
             />
 
             <p className="mt-4">Wanna test what your cleaned path will look like? Try them out here.</p>
-            <div className="flex flex-col sm:flex-row gap-2 items-center justify-center">
+            <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
                 <LemonInput
                     value={testValue}
                     onChange={setTestValue}
@@ -94,7 +94,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                     className="flex-1"
                 />
                 --&gt;
-                <span className="inline-flex items-center justify-start p-2 font-mono text-xs flex-1 border rounded min-h-10">
+                <span className="inline-flex min-h-10 flex-1 items-center justify-start rounded border p-2 font-mono text-xs">
                     {readableTestPath}
                 </span>
             </div>

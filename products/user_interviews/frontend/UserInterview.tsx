@@ -32,8 +32,8 @@ export function UserInterview(): JSX.Element {
     if (userInterviewLoading && !userInterview) {
         return (
             <div className="@container">
-                <PageHeader caption={<LemonSkeleton.Text className="w-48 h-4" />} />
-                <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
+                <PageHeader caption={<LemonSkeleton.Text className="h-4 w-48" />} />
+                <div className="@4xl:grid-cols-3 grid grid-cols-1 items-start gap-4">
                     <LemonWidget title="Summary" className="col-span-2">
                         <div className="space-y-1.5 p-3">
                             <LemonSkeleton.Text className="h-6 w-[20%]" />
@@ -69,7 +69,7 @@ export function UserInterview(): JSX.Element {
     return (
         <div className="@container">
             <PageHeader caption={<InterviewMetadata interview={userInterview} />} />
-            <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
+            <div className="@4xl:grid-cols-3 grid grid-cols-1 items-start gap-4">
                 <LemonWidget
                     title="Summary"
                     className="col-span-2"
@@ -110,7 +110,7 @@ export function UserInterview(): JSX.Element {
                         <LemonTextAreaMarkdown
                             value={summaryInEditing}
                             onChange={(newValue) => setSummaryInEditing(newValue)}
-                            className="pb-2 px-3"
+                            className="px-3 pb-2"
                         />
                     ) : (
                         <LemonMarkdown className="p-3">
@@ -120,7 +120,7 @@ export function UserInterview(): JSX.Element {
                 </LemonWidget>
                 <div className="col-span-1 flex flex-col gap-y-4">
                     <LemonWidget title="Participants">
-                        <div className="p-3 flex flex-col gap-y-2">
+                        <div className="flex flex-col gap-y-2 p-3">
                             {userInterview.interviewee_emails.map((interviewee_email) => (
                                 <PersonDisplay
                                     key={interviewee_email}
@@ -148,7 +148,7 @@ export function UserInterview(): JSX.Element {
 
 function InterviewMetadata({ interview }: { interview: UserInterviewType }): JSX.Element {
     return (
-        <header className="flex gap-x-2 gap-y-1 flex-wrap items-center">
+        <header className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {interview.created_at && (
                 <LemonTag className="bg-bg-light">
                     Created: {dayjs(interview.created_at).format('YYYY-MM-DD HH:mm')}

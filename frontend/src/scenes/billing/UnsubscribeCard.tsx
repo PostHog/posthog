@@ -14,7 +14,7 @@ export const UnsubscribeCard = ({ product }: { product: BillingProductV2Type }):
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div className="p-5 gap-4 flex">
+        <div className="flex gap-4 p-5">
             <div className="">
                 <h3>Need to take a break?</h3>
                 <p className="mb-2">

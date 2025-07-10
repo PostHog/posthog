@@ -41,7 +41,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                     title={isRowExpanded ? 'Show less' : 'Show more'}
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
                 >
-                    <div className="flex items-center deprecated-space-x-2 font-semibold">
+                    <div className="deprecated-space-x-2 flex items-center font-semibold">
                         <span>{title}</span>
                     </div>
                 </LemonButton>
@@ -50,7 +50,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
             {isRowExpanded && (
                 <div
                     className={clsx('flex flex-col gap-2', {
-                        'border rounded p-2 mt-1': isExpandable && isRowExpanded,
+                        'mt-1 rounded border p-2': isExpandable && isRowExpanded,
                     })}
                 >
                     {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {

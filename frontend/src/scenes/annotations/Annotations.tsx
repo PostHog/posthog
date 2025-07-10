@@ -132,7 +132,7 @@ export function Annotations(): JSX.Element {
 
     return (
         <>
-            <div className="flex flex-row items-center gap-2 justify-between">
+            <div className="flex flex-row items-center justify-between gap-2">
                 <div>
                     Annotations allow you to mark when certain changes happened so you can easily see how they impacted
                     your metrics.
@@ -171,7 +171,7 @@ export function Annotations(): JSX.Element {
                             emptyState="No annotations yet"
                         />
                         {next && (
-                            <div className="flex justify-center mt-6">
+                            <div className="mt-6 flex justify-center">
                                 <LemonButton
                                     type="primary"
                                     loading={loadingNext}

@@ -53,7 +53,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                 showNumericalPropsOnly={true}
                 {...commonActionFilterProps}
             />
-            <div className="mt-4 deprecated-space-y-4">
+            <div className="deprecated-space-y-4 mt-4">
                 <TestAccountFilterSwitch
                     checked={hasFilters ? !!currentMetric.exposure_query?.filterTestAccounts : false}
                     onChange={(checked: boolean) => {
@@ -66,7 +66,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                 />
             </div>
             {isExperimentRunning && (
-                <LemonBanner type="info" className="mt-3 mb-3">
+                <LemonBanner type="info" className="mb-3 mt-3">
                     Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
                     mismatch between the preview and the actual results.
                 </LemonBanner>

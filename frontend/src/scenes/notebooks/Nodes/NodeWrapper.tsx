@@ -199,26 +199,26 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                             <ErrorBoundary>
                                 {!inView ? (
                                     <>
-                                        <div className="h-10 p-2 flex justify-between">
+                                        <div className="flex h-10 justify-between p-2">
                                             <LemonSkeleton className="w-1/4" />
                                             <LemonSkeleton className="w-20" />
                                         </div>
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
                                         <div className="flex items-center p-2" style={{ height: heightEstimate }}>
-                                            <LemonSkeleton className="w-full h-full" />
+                                            <LemonSkeleton className="h-full w-full" />
                                         </div>
                                     </>
                                 ) : (
                                     <>
                                         <div className="NotebookNode__meta" data-drag-handle>
-                                            <div className="flex items-center flex-1 overflow-hidden">
+                                            <div className="flex flex-1 items-center overflow-hidden">
                                                 {isDraggable && (
-                                                    <IconDragHandle className="cursor-move text-base shrink-0" />
+                                                    <IconDragHandle className="shrink-0 cursor-move text-base" />
                                                 )}
                                                 <NotebookNodeTitle />
                                             </div>
 
-                                            <div className="flex deprecated-space-x-1">
+                                            <div className="deprecated-space-x-1 flex">
                                                 {parsedHref && (
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}
@@ -277,7 +277,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         <div
                                             ref={contentRef}
                                             className={clsx(
-                                                'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
+                                                'NotebookNode__content relative z-0 flex flex-col overflow-hidden',
                                                 isEditable && isResizeable && 'resize-y'
                                             )}
                                             // eslint-disable-next-line react/forbid-dom-props

@@ -81,7 +81,7 @@ export const GroupDisplays = ({ sizes }: SizedComponentProps): JSX.Element => {
 
 export const AllDisplays = ({ sizes }: SizedComponentProps): JSX.Element => {
     return (
-        <div className="flex gap-4 justify-start items-start">
+        <div className="flex items-start justify-start gap-4">
             <UnassignedDisplays sizes={sizes} />
             <UserDisplays sizes={sizes} />
             <GroupDisplays sizes={sizes} />

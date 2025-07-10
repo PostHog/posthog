@@ -66,7 +66,7 @@ export const WithResults: StoryFn = () => {
     })
 
     return (
-        <div className="flex max-h-200">
+        <div className="max-h-200 flex">
             <PersonsModalComponent title="Hello!" url={EXAMPLE_PERSONS_RESPONSE.initial} inline />
         </div>
     )
@@ -87,7 +87,7 @@ export const Empty: StoryFn = () => {
     })
 
     return (
-        <div className="flex max-h-200">
+        <div className="max-h-200 flex">
             <PersonsModalComponent title="Hello!" url="/api/projects/1/persons/trends/" inline />
         </div>
     )
@@ -108,7 +108,7 @@ export const TimeoutError: StoryFn = () => {
     })
 
     return (
-        <div className="flex max-h-200">
+        <div className="max-h-200 flex">
             <PersonsModalComponent title="Hello!" url="/api/projects/1/persons/trends/" inline />
         </div>
     )
@@ -129,7 +129,7 @@ export const ServerError: StoryFn = () => {
     })
 
     return (
-        <div className="flex max-h-200">
+        <div className="max-h-200 flex">
             <PersonsModalComponent title="Hello!" url="/api/projects/1/persons/trends/" inline />
         </div>
     )

@@ -24,12 +24,12 @@ export interface StackedBarSegment {
 export function StackedBarSkeleton({ className }: { className?: string }): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-2', className)}>
-            <div className="relative w-full flex mx-auto h-10">
-                <LemonSkeleton className="w-1/4 h-10 rounded-r-none opacity-60" />
-                <LemonSkeleton className="w-1/2 h-10 rounded-none opacity-80" />
-                <LemonSkeleton className="w-1/4 h-10 rounded-l-none opacity-100" />
+            <div className="relative mx-auto flex h-10 w-full">
+                <LemonSkeleton className="h-10 w-1/4 rounded-r-none opacity-60" />
+                <LemonSkeleton className="h-10 w-1/2 rounded-none opacity-80" />
+                <LemonSkeleton className="h-10 w-1/4 rounded-l-none opacity-100" />
             </div>
-            <div className="flex items-center gap-4 justify-center">
+            <div className="flex items-center justify-center gap-4">
                 {Array.from({ length: 3 }).map((_, index) => (
                     <div key={index} className="flex items-center gap-2">
                         <LemonSkeleton className="size-3 rounded-full" />
@@ -57,7 +57,7 @@ export function StackedBar({
 
     return (
         <div className={clsx('flex flex-col gap-2', className)}>
-            <div className="relative w-full mx-auto h-10">
+            <div className="relative mx-auto h-10 w-full">
                 {segments.map(({ count, label, colorClass, tooltip }, index) => {
                     const percentage = (count / total) * 100
                     const left = accumulatedPercentage
@@ -76,7 +76,7 @@ export function StackedBar({
                         >
                             <div
                                 className={clsx(
-                                    'h-10 text-white text-center absolute cursor-pointer',
+                                    'absolute h-10 cursor-pointer text-center text-white',
                                     colorClass,
                                     isFirst || isOnly ? 'rounded-l' : '',
                                     isLast || isOnly ? 'rounded-r' : ''
@@ -87,7 +87,7 @@ export function StackedBar({
                                     left: `${left}%`,
                                 }}
                             >
-                                <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
+                                <span className="inline-flex max-w-full truncate px-1 font-semibold leading-10">
                                     {formatCount(count, total)}
                                 </span>
                             </div>
@@ -95,14 +95,14 @@ export function StackedBar({
                     )
                 })}
             </div>
-            <div className="w-full flex justify-center">
+            <div className="flex w-full justify-center">
                 <div className="flex items-center gap-8">
                     {segments.map(
                         ({ count, label, colorClass }) =>
                             count > 0 && (
                                 <div key={`stacked-bar-legend-${label}`} className="flex items-center gap-2">
                                     <div className={clsx('size-3 rounded-full', colorClass)} />
-                                    <span className="font-semibold text-secondary">{`${label} (${(
+                                    <span className="text-secondary font-semibold">{`${label} (${(
                                         (count / total) *
                                         100
                                     ).toFixed(1)}%)`}</span>

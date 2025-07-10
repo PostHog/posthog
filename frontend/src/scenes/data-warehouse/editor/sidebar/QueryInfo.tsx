@@ -90,7 +90,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     if (initialDataWarehouseSavedQueryLoading) {
         return (
-            <div className="w-full h-full flex items-center justify-center">
+            <div className="flex h-full w-full items-center justify-center">
                 <Spinner className="text-lg" />
             </div>
         )
@@ -98,7 +98,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
 
     return (
         <div className="overflow-auto" data-attr="sql-editor-sidebar-query-info-pane">
-            <div className="flex flex-col flex-1 gap-4">
+            <div className="flex flex-1 flex-col gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>
@@ -119,7 +119,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                         <span>Materialization scheduled</span>
                                     </div>
                                 )}
-                                <div className="flex gap-4 mt-2">
+                                <div className="mt-2 flex gap-4">
                                     <LemonButton
                                         className="whitespace-nowrap"
                                         loading={savedQuery?.status === 'Running'}
@@ -303,7 +303,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             emptyState="No runs available"
                             footer={
                                 hasMoreJobsToLoad && (
-                                    <div className="flex items-center m-2">
+                                    <div className="m-2 flex items-center">
                                         <LemonButton
                                             center
                                             fullWidth
@@ -391,7 +391,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h3 className="mb-1">Tables we use</h3>
-                                    <p className="text-xs mb-0">Tables and views that this query relies on.</p>
+                                    <p className="mb-0 text-xs">Tables and views that this query relies on.</p>
                                 </div>
                                 <LemonSegmentedButton
                                     value={upstreamViewMode}
@@ -494,7 +494,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 dataSource={upstream.nodes}
                             />
                         ) : (
-                            <div className="h-96 border border-border rounded-lg overflow-hidden">
+                            <div className="border-border h-96 overflow-hidden rounded-lg border">
                                 <UpstreamGraph codeEditorKey={codeEditorKey} />
                             </div>
                         )}

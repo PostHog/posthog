@@ -52,7 +52,7 @@ export default function SchemaForm(): JSX.Element {
                                 render: function RenderTable(_, schema) {
                                     return (
                                         <span
-                                            className="font-mono cursor-pointer"
+                                            className="cursor-pointer font-mono"
                                             onClick={() => onClickCheckbox(schema, !schema.should_sync)}
                                         >
                                             {schema.table}
@@ -132,7 +132,7 @@ export default function SchemaForm(): JSX.Element {
                                 render: function RenderSyncType(_, schema) {
                                     if (!schema.sync_type) {
                                         return (
-                                            <div className="justify-end flex">
+                                            <div className="flex justify-end">
                                                 <LemonButton
                                                     className="my-1"
                                                     type="primary"
@@ -146,7 +146,7 @@ export default function SchemaForm(): JSX.Element {
                                     }
 
                                     return (
-                                        <div className="justify-end flex">
+                                        <div className="flex justify-end">
                                             <LemonButton
                                                 className="my-1"
                                                 size="small"

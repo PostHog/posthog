@@ -104,7 +104,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
         return (
             <>
-                <div className="font-semibold text-text-3000">
+                <div className="text-text-3000 font-semibold">
                     {is_success ? (
                         <IconTrending style={{ color: 'green' }} />
                     ) : (
@@ -134,15 +134,15 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
     return steps.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
-            <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
-                <div className="flex px-2 py-1 bg-[var(--bg-table)]">
+            <div className="FunnelCorrelationTable mt-4 overflow-hidden rounded border">
+                <div className="flex bg-[var(--bg-table)] px-2 py-1">
                     <div className="flex items-center text-xs font-bold">
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES
                     </div>
-                    <div className="table-options flex grow items-center justify-end flex-wrap">
+                    <div className="table-options flex grow flex-wrap items-center justify-end">
                         <div className="flex">
-                            <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold">
+                            <p className="text-secondary m-1 flex items-center font-sans text-xs font-semibold">
                                 PROPERTIES
                             </p>
                             <Popover
@@ -191,7 +191,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             </Popover>
                         </div>
                         <div className="flex">
-                            <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold ml-2">
+                            <p className="text-secondary m-1 ml-2 flex items-center font-sans text-xs font-semibold">
                                 CORRELATION
                             </p>
                             <div className="flex">
@@ -255,10 +255,10 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     rowKey={(record) => record.event.event}
                     size="small"
                     emptyState={
-                        <div className="p-4 m-auto max-w-140">
+                        <div className="max-w-140 m-auto p-4">
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedPropertyCorrelationsTableOnce ? (
-                                    <div className="flex flex-col items-center justify-center deprecated-space-y-1 min-h-24">
+                                    <div className="deprecated-space-y-1 flex min-h-24 flex-col items-center justify-center">
                                         <IconArchive className="text-tertiary-hover text-2xl" />
                                         <div>No correlated properties found.</div>
                                     </div>

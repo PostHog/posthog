@@ -55,7 +55,7 @@ export const _PureFields = (): JSX.Element => {
                 <LemonCheckbox bordered label="Checkbox labels are set differently" fullWidth />
             </LemonField.Pure>
 
-            <div className="flex justify-end gap-2 border-t mt-4 pt-4">
+            <div className="mt-4 flex justify-end gap-2 border-t pt-4">
                 <LemonButton type="secondary">Cancel</LemonButton>
                 <LemonButton htmlType="submit" type="primary">
                     Submit
@@ -141,14 +141,14 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
                     <LemonCheckbox bordered label="Pineapple on your pizza?" fullWidth />
                 </LemonField>
 
-                <div className="flex justify-end gap-2 border-t mt-4 pt-4">
+                <div className="mt-4 flex justify-end gap-2 border-t pt-4">
                     <LemonButton type="secondary">Cancel</LemonButton>
                     <LemonButton htmlType="submit" type="primary">
                         Submit
                     </LemonButton>
                 </div>
 
-                <pre className="rounded-lg text-bg-light bg-default p-2 m-2">
+                <pre className="text-bg-light bg-default m-2 rounded-lg p-2">
                     formLogic.values = {JSON.stringify(formValues, null, 2)}
                 </pre>
             </div>

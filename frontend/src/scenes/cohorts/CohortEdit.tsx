@@ -133,7 +133,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     }
                 />
                 <div className="deprecated-space-y-2 max-w-200">
-                    <div className="flex gap-4 flex-wrap">
+                    <div className="flex flex-wrap gap-4">
                         <div className="flex-1">
                             <LemonField name="name" label="Name">
                                 <LemonInput data-attr="cohort-name" />
@@ -161,7 +161,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                         {!isNewCohort && !cohort?.is_static && (
                             <div className="max-w-70 w-fit">
-                                <div className="flex gap-1 flex-col">
+                                <div className="flex flex-col gap-1">
                                     <LemonLabel>Last calculated</LemonLabel>
                                     {cohort.is_calculating ? (
                                         <div className="text-s">In progress...</div>
@@ -175,7 +175,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                     }
                                                 >
                                                     <div className="text-danger">
-                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
+                                                        <IconErrorOutline className="text-danger shrink-0 text-xl" />
                                                     </div>
                                                 </Tooltip>
                                             ) : null}
@@ -197,7 +197,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </div>
                 </div>
                 {cohort.is_static ? (
-                    <div className="mt-4 ph-ignore-input">
+                    <div className="ph-ignore-input mt-4">
                         <LemonField
                             name="csv"
                             label={isNewCohort ? 'Upload users' : 'Add users'}
@@ -217,7 +217,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         onChange={(files) => onChange(files[0])}
                                         showUploadedFiles={false}
                                         callToAction={
-                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1">
+                                            <div className="cohort-csv-dragger text-text-3000 deprecated-space-y-1 flex flex-1 flex-col items-center justify-center">
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile
@@ -252,7 +252,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 </Link>
                             </LemonBanner>
                         )}
-                        <div className="flex items-center justify-between my-4">
+                        <div className="my-4 flex items-center justify-between">
                             <div className="flex flex-col">
                                 <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
                                 <span>

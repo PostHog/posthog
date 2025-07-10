@@ -57,8 +57,8 @@ export const Metadata = (): JSX.Element => {
 
     return (
         <LemonCard className="p-0" hoverEffect={false}>
-            <div className="flex justify-between items-center h-[40px] px-2">
-                <div className="flex justify-end items-center h-full">
+            <div className="flex h-[40px] items-center justify-between px-2">
+                <div className="flex h-full items-center justify-end">
                     {match(hoveredDatum)
                         .when(
                             (data) => shouldRenderIssueMetrics(data),
@@ -68,7 +68,7 @@ export const Metadata = (): JSX.Element => {
                         .with({ type: 'event' }, (data) => renderEventPoint(data.data))
                         .otherwise(() => null)}
                 </div>
-                <div className="flex justify-end items-center h-full">
+                <div className="flex h-full items-center justify-end">
                     {match(hoveredDatum)
                         .when(
                             (data) => shouldRenderIssueMetrics(data),
@@ -139,7 +139,7 @@ function IssueMetrics({
 }): JSX.Element {
     const hasSessionCount = aggregations && aggregations.sessions !== 0
     return (
-        <div className="flex items-center h-full gap-3">
+        <div className="flex h-full items-center gap-3">
             {renderMetric('Occurrences', aggregations?.occurrences, summaryLoading)}
             {renderMetric(
                 'Sessions',
@@ -156,14 +156,14 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
     return (
         <>
             {match([loading])
-                .with([true], () => <LemonSkeleton className="w-[80px] h-2" />)
+                .with([true], () => <LemonSkeleton className="h-2 w-[80px]" />)
                 .with([false], () => (
                     <Tooltip title={tooltip} delayMs={0} placement="right">
                         <div className="flex items-center gap-1">
-                            <div className="text-lg font-bold inline-block">
+                            <div className="inline-block text-lg font-bold">
                                 {value == null ? '0' : humanFriendlyLargeNumber(value)}
                             </div>
-                            <div className="text-xs text-muted inline-block">{name}</div>
+                            <div className="text-muted inline-block text-xs">{name}</div>
                         </div>
                     </Tooltip>
                 ))
@@ -173,7 +173,7 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
 }
 
 function renderDate(date: Date): JSX.Element {
-    return <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).format('D MMM YYYY HH:mm (UTC)')}</div>
+    return <div className="text-muted whitespace-nowrap text-xs">{dayjs(date).format('D MMM YYYY HH:mm (UTC)')}</div>
 }
 
 function renderDataPoint(d: SparklineDatum): JSX.Element {
@@ -182,7 +182,7 @@ function renderDataPoint(d: SparklineDatum): JSX.Element {
 
 function renderEventPoint(d: SparklineEvent<string>): JSX.Element {
     return (
-        <div className="flex justify-start items-center h-full gap-1">
+        <div className="flex h-full items-center justify-start gap-1">
             <div className="text-lg font-bold">{d.payload}</div>
         </div>
     )

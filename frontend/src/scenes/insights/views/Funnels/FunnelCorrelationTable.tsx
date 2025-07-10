@@ -85,7 +85,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
 
         return (
             <>
-                <div className="font-semibold text-text-3000">
+                <div className="text-text-3000 font-semibold">
                     {is_success ? (
                         <IconTrending className="text-success" />
                     ) : (
@@ -144,9 +144,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         if (eventWithPropertyCorrelationsLoading) {
             return (
                 <div className="flex flex-col items-center py-2">
-                    <Spinner className="text-2xl mb-2" />
+                    <Spinner className="mb-2 text-2xl" />
                     <h3 className="mb-1 font-semibold">Loading correlation results…</h3>
-                    <p className="m-0 text-xs text-secondary">This process can take up to 20 seconds.</p>
+                    <p className="text-secondary m-0 text-xs">This process can take up to 20 seconds.</p>
                 </div>
             )
         }
@@ -208,14 +208,14 @@ export function FunnelCorrelationTable(): JSX.Element | null {
 
     return steps.length > 1 ? (
         <VisibilitySensor id={correlationPropKey} offset={152}>
-            <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
-                <span className="flex px-2 py-1 bg-[var(--bg-table)]">
+            <div className="FunnelCorrelationTable mt-4 overflow-hidden rounded border">
+                <span className="flex bg-[var(--bg-table)] px-2 py-1">
                     <span className="flex items-center text-xs font-bold">
                         <IconSelectEvents className="mr-1 text-2xl opacity-50" />
                         CORRELATED EVENTS
                     </span>
                     <span className="table-options flex grow items-center justify-end">
-                        <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold">
+                        <p className="text-secondary m-1 flex items-center font-sans text-xs font-semibold">
                             CORRELATION
                         </p>
                         <div className="flex">
@@ -275,10 +275,10 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     ]}
                     dataSource={correlationValues}
                     emptyState={
-                        <div className="p-4 m-auto max-w-140">
+                        <div className="max-w-140 m-auto p-4">
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedEventCorrelationsTableOnce ? (
-                                    <div className="flex flex-col items-center justify-center deprecated-space-y-1 min-h-24">
+                                    <div className="deprecated-space-y-1 flex min-h-24 flex-col items-center justify-center">
                                         <IconArchive className="text-tertiary-hover text-2xl" />
                                         <div>No correlated events found.</div>
                                     </div>

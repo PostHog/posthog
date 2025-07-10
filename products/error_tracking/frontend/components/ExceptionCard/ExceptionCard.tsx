@@ -57,17 +57,17 @@ function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardC
     const { sessionId, mightHaveRecording } = useValues(errorPropertiesLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
+        <LemonCard hoverEffect={false} className="relative overflow-hidden p-0">
             <TabsPrimitive defaultValue="stacktrace">
-                <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
-                    <TabsPrimitiveList className="flex justify-between w-full h-full items-center">
-                        <div className="w-full h-full">
-                            <div className="flex items-center gap-1 text-lg h-full">
+                <div className="flex h-[2rem] w-full items-center justify-between border-b px-2">
+                    <TabsPrimitiveList className="flex h-full w-full items-center justify-between">
+                        <div className="h-full w-full">
+                            <div className="flex h-full items-center gap-1 text-lg">
                                 <IconLogomark />
                                 <span className="text-sm">Exception</span>
                             </div>
                         </div>
-                        <div className="flex gap-2 w-full justify-center h-full">
+                        <div className="flex h-full w-full justify-center gap-2">
                             <TabsPrimitiveTrigger className="px-2" value="stacktrace">
                                 Stacktrace
                             </TabsPrimitiveTrigger>
@@ -75,7 +75,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardC
                                 Properties
                             </TabsPrimitiveTrigger>
                         </div>
-                        <div className="w-full flex gap-1 justify-end items-center">
+                        <div className="flex w-full items-center justify-end gap-1">
                             {timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
                             <ViewRecordingTrigger sessionId={sessionId} inModal={true} timestamp={timestamp}>
                                 {(onClick, _, disabledReason, maybeSpinner) => {
@@ -83,7 +83,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp }: ExceptionCardC
                                         <ButtonPrimitive
                                             disabled={disabledReason != null || !mightHaveRecording}
                                             onClick={onClick}
-                                            className="px-2 h-[1.4rem] whitespace-nowrap"
+                                            className="h-[1.4rem] whitespace-nowrap px-2"
                                             tooltip={match([disabledReason != null, mightHaveRecording])
                                                 .with([true, P.any], () => 'No recording available')
                                                 .with([false, false], () => 'Recording not ready')

@@ -44,7 +44,7 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <div className={clsx('flex mt-5 items-center', buttons ? 'justify-between' : 'justify-start')}>
+        <div className={clsx('mt-5 flex items-center', buttons ? 'justify-between' : 'justify-start')}>
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
         </div>

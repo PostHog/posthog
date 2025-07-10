@@ -25,9 +25,9 @@ import { AvailableFeature, TeamBasicType } from '~/types'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
-        <div className="flex items-center max-w-full">
+        <div className="flex max-w-full items-center">
             <span className="truncate">{team.name}</span>
-            {team.is_demo ? <LemonSnack className="ml-2 text-xs shrink-0">Demo</LemonSnack> : null}
+            {team.is_demo ? <LemonSnack className="ml-2 shrink-0 text-xs">Demo</LemonSnack> : null}
         </div>
     )
 }
@@ -45,21 +45,11 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="tree-navbar-project-dropdown-button"
-                    className="flex-1 min-w-0 max-w-fit"
+                    className="min-w-0 max-w-fit flex-1"
                     size="sm"
                 >
                     <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
-                    <IconChevronRight
-                        className={`
-                        size-3 
-                        text-secondary 
-                        rotate-90 
-                        group-data-[state=open]/button-primitive:rotate-270 
-                        transition-transform 
-                        duration-200 
-                        prefers-reduced-motion:transition-none
-                    `}
-                    />
+                    <IconChevronRight className="text-secondary group-data-[state=open]/button-primitive:rotate-270 prefers-reduced-motion:transition-none size-3 rotate-90 transition-transform duration-200" />
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent
@@ -72,7 +62,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                         <Label intent="menu" className="px-2">
                             Projects
                         </Label>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        <div className="bg-border-primary -mx-1 my-1 h-px shrink-0" />
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 

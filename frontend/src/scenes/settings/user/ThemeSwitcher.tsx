@@ -43,9 +43,9 @@ export function ThemeSwitcher({
                     labelText
                 ) : (
                     <>
-                        <span className="flex-1 flex justify-between items-baseline gap-4">
+                        <span className="flex flex-1 items-baseline justify-between gap-4">
                             <span>Color theme</span>
-                            <span className="font-normal text-xs">{leaf ? leaf.label : 'Sync with system'}</span>
+                            <span className="text-xs font-normal">{leaf ? leaf.label : 'Sync with system'}</span>
                         </span>
                     </>
                 )

@@ -26,7 +26,7 @@ export function FallbackCoverImage({
         <>
             {hasError || !src ? (
                 <div
-                    className={clsx('w-full h-full', className)}
+                    className={clsx('h-full w-full', className)}
                     // dynamic color based on index
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
@@ -35,7 +35,7 @@ export function FallbackCoverImage({
                 />
             ) : (
                 <img
-                    className={clsx('object-cover w-full', imageClassName)}
+                    className={clsx('w-full object-cover', imageClassName)}
                     src={src}
                     alt={alt}
                     onError={handleImageError}

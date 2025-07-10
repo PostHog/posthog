@@ -35,7 +35,7 @@ import {
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (
-        <pre className="m-0 p-0 font-mono text-xs whitespace-pre">
+        <pre className="m-0 whitespace-pre p-0 font-mono text-xs">
             {`Event: ${event.event}
             Event type: ${event.event_type}
             Issues: ${
@@ -90,7 +90,7 @@ function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
         return () => clearInterval(interval)
     }, []) // Keep this dependency array empty to avoid resetting interval
 
-    return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
+    return <span className="text-muted font-mono text-xs">{elapsedSeconds}s</span>
 }
 
 interface SessionSegmentCollapseProps {
@@ -159,7 +159,7 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     }
 
     return (
-        <div className="grid grid-cols-2 gap-2 text-xs mt-2">
+        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
             <div className="flex items-center gap-1">
                 <IconKeyboard className={meta.key_action_count && meta.key_action_count > 0 ? 'text-success' : ''} />
                 <span className="text-muted">Key actions:</span>
@@ -265,7 +265,7 @@ function SessionSegmentView({
                         </div>
                         {segmentOutcome && (
                             <>
-                                <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
+                                <p className="mb-0 text-sm font-normal">{segmentOutcome.summary}</p>
                             </>
                         )}
                         <SegmentMetaTable
@@ -315,7 +315,7 @@ function SessionSummaryKeyActions({
                     <div
                         key={`${segmentName}-${eventIndex}`}
                         className={clsx(
-                            'cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight',
+                            'hover:bg-primary-alt-highlight cursor-pointer px-2 py-2',
                             // Avoid adding a border to the last event
                             eventIndex !== events.length - 1 && 'border-b',
                             (event.abandonment || event.confusion || event.exception) && 'bg-danger-highlight'
@@ -329,25 +329,25 @@ function SessionSummaryKeyActions({
                         }}
                     >
                         <div className="flex flex-row gap-2">
-                            <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                            <span className="text-muted-alt min-w-[4rem] shrink-0 font-mono text-xs">
                                 {formatMsIntoTime(event.milliseconds_since_start)}
-                                <div className="flex flex-row gap-2 mt-1">
+                                <div className="mt-1 flex flex-row gap-2">
                                     {event.current_url ? (
                                         <Link to={event.current_url} target="_blank">
                                             <Tooltip title={event.current_url} placement="top">
-                                                <span className="font-mono text-xs text-muted-alt">url</span>
+                                                <span className="text-muted-alt font-mono text-xs">url</span>
                                             </Tooltip>
                                         </Link>
                                     ) : null}
                                     <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                        <span className="font-mono text-xs text-muted-alt">meta</span>
+                                        <span className="text-muted-alt font-mono text-xs">meta</span>
                                     </Tooltip>
                                 </div>
                             </span>
 
                             <div className="flex flex-col">
-                                <div className="text-xs break-words">{event.description}</div>
-                                <div className="flex flex-wrap gap-1 mt-2">
+                                <div className="break-words text-xs">{event.description}</div>
+                                <div className="mt-2 flex flex-wrap gap-1">
                                     {event.milliseconds_since_start === 0 && (
                                         <LemonTag size="small" type="default">
                                             before start
@@ -377,7 +377,7 @@ interface SessionSummaryLoadingStateProps {
 function SessionSummaryLoadingState({ operation, counter, name, outOf }: SessionSummaryLoadingStateProps): JSX.Element {
     return (
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
-            <Spinner className="text-2xl row-span-2 self-center" />
+            <Spinner className="row-span-2 self-center text-2xl" />
             <div className="flex items-center justify-between">
                 <span className="text-muted">
                     {operation}&nbsp;
@@ -389,7 +389,7 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
                     )}
                     {name ? ':' : ''}
                 </span>
-                <div className="flex items-center gap-1 ml-auto font-mono text-xs">
+                <div className="ml-auto flex items-center gap-1 font-mono text-xs">
                     <LoadingTimer operation={operation} />
                 </div>
             </div>
@@ -486,7 +486,7 @@ function SessionSummary(): JSX.Element {
         <div className="flex flex-col">
             {sessionSummary ? (
                 <>
-                    <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
+                    <h3 className="mb-4 mt-2 flex items-center gap-2 text-lg font-semibold">
                         <IconAIText />
                         AI Replay Research
                         <LemonTag type="completion" size="medium">
@@ -540,9 +540,9 @@ function SessionSummary(): JSX.Element {
                         )
                     })}
 
-                    <div className="text-right mb-2 mt-4">
+                    <div className="mb-2 mt-4 text-right">
                         <p>Is this a good summary?</p>
-                        <div className="flex flex-row gap-2 justify-end">
+                        <div className="flex flex-row justify-end gap-2">
                             <LemonButton
                                 size="xsmall"
                                 type="primary"
@@ -565,7 +565,7 @@ function SessionSummary(): JSX.Element {
                     </div>
                 </>
             ) : (
-                <div className="text-center text-muted-alt">No summary available for this session</div>
+                <div className="text-muted-alt text-center">No summary available for this session</div>
             )}
         </div>
     )
@@ -616,7 +616,7 @@ function LoadSessionSummaryButton(): JSX.Element {
                         {hasEvents ? (
                             <>
                                 <h4>No autocapture events found for this session</h4>
-                                <p className="text-sm mb-1">
+                                <p className="mb-1 text-sm">
                                     Please, ensure that Autocapture is enabled in project's settings, or try again in a
                                     few minutes.
                                 </p>
@@ -624,7 +624,7 @@ function LoadSessionSummaryButton(): JSX.Element {
                         ) : (
                             <>
                                 <h4>Session events are not available for summary yet</h4>
-                                <p className="text-sm mb-1">Please, try again in a few minutes.</p>
+                                <p className="mb-1 text-sm">Please, try again in a few minutes.</p>
                             </>
                         )}
                     </div>
@@ -639,14 +639,14 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
     const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <div className="rounded border bg-surface-primary px-2 py-1">
+        <div className="bg-surface-primary rounded border px-2 py-1">
             {sessionSummaryLoading ? (
                 <>
                     <div className="flex items-center justify-between">
                         <div>
                             Researching the session... <Spinner />
                         </div>
-                        <div className="flex items-center gap-1 ml-auto">
+                        <div className="ml-auto flex items-center gap-1">
                             <LoadingTimer />
                         </div>
                     </div>

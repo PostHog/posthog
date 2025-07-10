@@ -47,10 +47,10 @@ export function SessionRecordingPlayerExplorer({
     const scale = Math.min(wrapperWidth / width, wrapperHeight / height)
 
     return (
-        <div className="SessionRecordingPlayerExplorer flex flex-1 flex-col h-full overflow-hidden">
+        <div className="SessionRecordingPlayerExplorer flex h-full flex-1 flex-col overflow-hidden">
             <PlayerExplorerSettings iframeKey={iframeKey} setIframeKey={setIframeKey} onClose={onClose} />
             <div
-                className="flex-1 p-0.5 overflow-hidden bg-text-3000 border SessionRecordingPlayerExplorer__wrapper"
+                className="bg-text-3000 SessionRecordingPlayerExplorer__wrapper flex-1 overflow-hidden border p-0.5"
                 ref={elementRef}
             >
                 <iframe
@@ -58,7 +58,7 @@ export function SessionRecordingPlayerExplorer({
                     srcDoc={html}
                     width={width}
                     height={height}
-                    className="origin-top-left ph-no-capture"
+                    className="ph-no-capture origin-top-left"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ transform: `scale(${scale})` }}
                 />

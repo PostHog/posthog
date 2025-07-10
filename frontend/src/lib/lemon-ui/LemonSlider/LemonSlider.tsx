@@ -98,9 +98,9 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
     const proportion = isNaN(value) ? 0 : Math.round(((constrainedValue - min) / (max - min)) * 100) / 100
 
     return (
-        <div className={clsx('flex items-center relative my-2.5 min-w-16 select-none', className)}>
+        <div className={clsx('relative my-2.5 flex min-w-16 select-none items-center', className)}>
             <div
-                className="w-full h-3 flex items-center cursor-pointer"
+                className="flex h-3 w-full cursor-pointer items-center"
                 ref={trackRef}
                 onMouseDown={(e) => {
                     const rect = e.currentTarget.getBoundingClientRect()
@@ -116,17 +116,17 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                     setDragging(true)
                 }}
             >
-                <div className="w-full bg-fill-slider-rail rounded-full h-[6px]" />
+                <div className="bg-fill-slider-rail h-[6px] w-full rounded-full" />
             </div>
             <div
-                className="absolute h-[6px] bg-accent rounded-full pointer-events-none"
+                className="bg-accent pointer-events-none absolute h-[6px] rounded-full"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${proportion * 100}%` }}
             />
             <button
                 className={clsx(
-                    'absolute size-3 box-content border-2 border-primary rounded-full cursor-pointer bg-accent transition-shadow duration-75',
-                    dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2 focus:ring-2'
+                    'border-primary bg-accent absolute box-content size-3 cursor-pointer rounded-full border-2 transition-shadow duration-75',
+                    dragging ? 'scale-90 ring-2' : 'ring-0 hover:ring-2 focus:ring-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{

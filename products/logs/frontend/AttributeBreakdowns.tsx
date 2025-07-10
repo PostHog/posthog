@@ -27,7 +27,7 @@ export const AttributeBreakdowns = ({
         }))
 
     return (
-        <div className="flex flex-col p-2 gap-y-2">
+        <div className="flex flex-col gap-y-2 p-2">
             {attributeValues.length} of the {logCount} logs have the label {attribute}
             <LemonTable
                 hideScrollbar

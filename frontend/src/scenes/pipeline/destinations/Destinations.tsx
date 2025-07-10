@@ -138,7 +138,7 @@ export function DestinationsTable({
             />
 
             {types.includes('transformation') && enabledTransformations.length > 1 && !hideChangeOrderButton && (
-                <div className="flex gap-2 items-center">
+                <div className="flex items-center gap-2">
                     Processed sequentially.
                     <LemonButton
                         onClick={() => openReorderTransformationsModal()}
@@ -500,7 +500,7 @@ const MinimalTransformationView = ({
         <div
             ref={setNodeRef}
             className={clsx(
-                'relative flex items-center gap-2 p-2 border rounded cursor-move bg-bg-light',
+                'bg-bg-light relative flex cursor-move items-center gap-2 rounded border p-2',
                 isDragging && 'z-[999999]'
             )}
             // eslint-disable-next-line react/forbid-dom-props

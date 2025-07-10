@@ -34,7 +34,7 @@ export function PinnedFolder(): JSX.Element {
                     tooltip="Change pinned folder"
                     tooltipPlacement="top"
                 >
-                    <IconGear className="size-3 text-secondary" />
+                    <IconGear className="text-secondary size-3" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">
@@ -74,9 +74,9 @@ export function PinnedFolder(): JSX.Element {
         <>
             {!isLayoutNavCollapsed &&
                 (showDefaultHeader ? (
-                    <div className="flex justify-between items-center pl-3 pr-1 -mt-[3px] relative">
+                    <div className="relative -mt-[3px] flex items-center justify-between pl-3 pr-1">
                         <div className="flex items-center gap-1">
-                            <span className="text-xs font-semibold text-tertiary">{formatUrlAsName(pinnedFolder)}</span>
+                            <span className="text-tertiary text-xs font-semibold">{formatUrlAsName(pinnedFolder)}</span>
                         </div>
                         <div className="flex items-center gap-px">
                             {pinnedFolder === 'shortcuts://' ? (
@@ -85,7 +85,7 @@ export function PinnedFolder(): JSX.Element {
                                         iconOnly: true,
                                         tooltip: 'Add shortcut',
                                         tooltipPlacement: 'top',
-                                        children: <IconPlusSmall className="size-4 text-tertiary" />,
+                                        children: <IconPlusSmall className="text-tertiary size-4" />,
                                     }}
                                 />
                             ) : null}
@@ -93,9 +93,9 @@ export function PinnedFolder(): JSX.Element {
                         </div>
                     </div>
                 ) : (
-                    <div className="absolute right-1 z-10 top-px">{configMenu}</div>
+                    <div className="absolute right-1 top-px z-10">{configMenu}</div>
                 ))}
-            <div className="flex flex-col mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
+            <div className="group/colorful-product-icons colorful-product-icons-true mt-[-0.25rem] flex h-full flex-col">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
             </div>
         </>

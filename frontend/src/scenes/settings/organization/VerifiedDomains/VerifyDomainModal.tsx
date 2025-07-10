@@ -40,17 +40,17 @@ export function VerifyDomainModal(): JSX.Element {
                     <li>Sign in to your DNS provider.</li>
                     <li>
                         Add the following <b>TXT</b> record.
-                        <div className="my-4 deprecated-space-y-2">
+                        <div className="deprecated-space-y-2 my-4">
                             <LemonField.Pure label="Name">
                                 <div className="flex items-center gap-2">
-                                    <div className="border rounded p-2 h-10 flex-1">{challengeName}</div>
+                                    <div className="h-10 flex-1 rounded border p-2">{challengeName}</div>
                                     <CopyToClipboardInline explicitValue={challengeName} selectable={true} />
                                 </div>
                             </LemonField.Pure>
 
                             <LemonField.Pure label="Value or content">
                                 <div className="flex items-center gap-2">
-                                    <div className="border rounded p-2 h-10 flex-1">
+                                    <div className="h-10 flex-1 rounded border p-2">
                                         {domainBeingVerified?.verification_challenge}
                                     </div>
                                     {domainBeingVerified && (
@@ -63,7 +63,7 @@ export function VerifyDomainModal(): JSX.Element {
                             </LemonField.Pure>
                             <LemonField.Pure label="TTL">
                                 <div className="flex items-center gap-2">
-                                    <div className="border rounded p-2 h-10 flex-1">Default or 3600</div>
+                                    <div className="h-10 flex-1 rounded border p-2">Default or 3600</div>
                                     <CopyToClipboardInline explicitValue="3600" selectable={true} />
                                 </div>
                             </LemonField.Pure>

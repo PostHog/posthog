@@ -67,7 +67,7 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
             onClick={() =>
                 void copyToClipboard(`${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`, 'survey response key')
             }
-            className="flex items-center cursor-pointer gap-1"
+            className="flex cursor-pointer items-center gap-1"
         >
             <IconCopy />
             Copy survey response key
@@ -126,15 +126,15 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
                 <h3 className="m-0">Filter survey results</h3>
                 <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>
                     Get SQL Query
                 </LemonButton>
             </div>
             {questionWithFiltersAvailable.length > 0 && (
-                <div className="border rounded">
-                    <div className="grid grid-cols-6 gap-2 px-2 py-2 border-b bg-bg-light">
+                <div className="rounded border">
+                    <div className="bg-bg-light grid grid-cols-6 gap-2 border-b px-2 py-2">
                         <div className="col-span-3 font-semibold">Question</div>
                         <div className="font-semibold">Filter type</div>
                         <div className="col-span-2 font-semibold">Value</div>
@@ -151,10 +151,10 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                             return (
                                 <React.Fragment key={question.id}>
                                     {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
-                                    <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-bg-light transition-all">
+                                    <div className="hover:bg-bg-light grid grid-cols-6 items-center gap-2 p-2 transition-all">
                                         <div className="col-span-3">
                                             <span className="font-medium">{question.question}</span>
-                                            <div className="text-muted text-xs flex gap-4">
+                                            <div className="text-muted flex gap-4 text-xs">
                                                 <span className="flex items-center gap-1">
                                                     {QUESTION_TYPE_ICON_MAP[question.type]}
                                                     {SurveyQuestionLabel[question.type]}
@@ -201,8 +201,8 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                     </div>
                 </div>
             )}
-            <div className="flex gap-2 justify-between">
-                <div className="flex gap-2 flex-wrap">
+            <div className="flex justify-between gap-2">
+                <div className="flex flex-wrap gap-2">
                     <DateFilter
                         dateFrom={dateRange?.date_from}
                         dateTo={dateRange?.date_to}

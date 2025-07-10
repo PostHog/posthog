@@ -25,16 +25,16 @@ export const SyncMoreNotice = (): JSX.Element | null => {
     }
 
     return (
-        <LemonBanner type="info" className="m-2 absolute bottom-0 left-0 right-0 z-10">
+        <LemonBanner type="info" className="absolute bottom-0 left-0 right-0 z-10 m-2">
             <div
                 data-attr="sql-editor-source-empty-state"
-                className="p-4 text-center flex flex-col justify-center items-center relative"
+                className="relative flex flex-col items-center justify-center p-4 text-center"
             >
                 <LemonButton
                     type="tertiary"
                     size="small"
                     onClick={() => setSyncMoreNoticeDismissed(true)}
-                    className="absolute top-0 right-0"
+                    className="absolute right-0 top-0"
                     icon={<IconX />}
                 />
                 <div className="mb-4 flex justify-center gap-6">
@@ -43,7 +43,7 @@ export const SyncMoreNotice = (): JSX.Element | null => {
                 </div>
                 <h4 className="mb-2">No data warehouse sources connected</h4>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <p className="text-muted mb-4 text-xs px-2 break-words w" style={{ whiteSpace: 'normal' }}>
+                <p className="text-muted w mb-4 break-words px-2 text-xs" style={{ whiteSpace: 'normal' }}>
                     Import data from external sources like Postgres, Stripe, or other databases to enrich your
                     analytics.
                 </p>

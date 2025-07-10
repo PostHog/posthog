@@ -56,7 +56,7 @@ export function DeleteProjectModal({
             <p>
                 Project deletion <b>cannot be undone</b>. You will lose all environments and their data (
                 <b>including events</b>):
-                <ul className="list-disc list-inside ml-4 mt-1">
+                <ul className="ml-4 mt-1 list-inside list-disc">
                     {allTeamsOfProject.map((team) => (
                         <li key={team.id}>{team.name}</li>
                     ))}

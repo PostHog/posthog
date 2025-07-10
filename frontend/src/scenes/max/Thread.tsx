@@ -71,7 +71,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow',
+                '@container/thread max-w-200 flex w-full grow flex-col items-stretch gap-1.5 self-center',
                 className
             )}
         >
@@ -126,7 +126,7 @@ function MessageGroupContainer({
         <div
             className={twMerge(
                 'relative flex gap-1.5',
-                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
+                groupType === 'human' ? '@md/thread:ml-10 ml-4 flex-row-reverse' : '@md/thread:mr-10 mr-4',
                 className
             )}
         >
@@ -157,12 +157,12 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
                     }
                     size="lg"
-                    className="hidden @md/thread:flex mt-1 border"
+                    className="@md/thread:flex mt-1 hidden border"
                 />
             </Tooltip>
             <div
                 className={clsx(
-                    'flex flex-col gap-1.5 min-w-0 w-full',
+                    'flex w-full min-w-0 flex-col gap-1.5',
                     groupType === 'human' ? 'items-end' : 'items-start'
                 )}
             >
@@ -224,7 +224,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                     <MarkdownMessage
                                         key={substepIndex}
                                         id={message.id || messageIndex.toString()}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
+                                        className="bg-surface-secondary mt-1.5 w-fit rounded px-1 text-[0.6875rem] font-semibold leading-6"
                                         content={substep}
                                     />
                                 ))}
@@ -236,7 +236,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                 {messages.at(-1)?.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
-                            <IconWarning className="text-xl text-warning" />
+                            <IconWarning className="text-warning text-xl" />
                             <i>Max is generating this answer one more time because the previous attempt has failed.</i>
                         </div>
                     </MessageTemplate>
@@ -255,7 +255,7 @@ function MessageGroupSkeleton({
 }): JSX.Element {
     return (
         <MessageGroupContainer className={clsx('items-center', className)} groupType={groupType}>
-            <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
+            <LemonSkeleton className="@md/thread:flex hidden h-8 w-8 rounded-full border" />
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
         </MessageGroupContainer>
     )
@@ -276,7 +276,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
     return (
         <div
             className={twMerge(
-                'flex flex-col gap-px w-full break-words scroll-mt-12',
+                'flex w-full scroll-mt-12 flex-col gap-px break-words',
                 type === 'human' ? 'items-end' : 'items-start',
                 className
             )}
@@ -284,7 +284,7 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
         >
             <div
                 className={twMerge(
-                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
+                    'bg-surface-primary max-w-full rounded-lg border px-3 py-2',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}
@@ -357,7 +357,7 @@ interface AssistantMessageFormProps {
 function AssistantMessageForm({ form }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
     return (
-        <div className="flex flex-wrap gap-1.5 mt-1">
+        <div className="mt-1 flex flex-wrap gap-1.5">
             {form.options.map((option) => (
                 <LemonButton
                     key={option.value}
@@ -414,7 +414,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                   <MessageTemplate
                       type="ai"
                       className="w-full"
-                      boxClassName={clsx('flex flex-col w-full', !isCollapsed && 'min-h-60')}
+                      boxClassName={clsx('flex w-full flex-col', !isCollapsed && 'min-h-60')}
                   >
                       {!isCollapsed && <Query query={query} readOnly embedded />}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
@@ -465,7 +465,7 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                           <>
                               <SeriesSummary query={query.source} heading={null} />
                               {!isHogQLQuery(query.source) && (
-                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                  <div className="mt-1 flex flex-wrap gap-4 *:grow">
                                       <PropertiesSummary properties={query.source.properties} />
                                       <BreakdownSummary query={query.source} />
                                   </div>
@@ -523,7 +523,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center ml-1">
+            <div className="ml-1 flex items-center">
                 {rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
@@ -555,7 +555,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
                     <div className="flex items-center gap-1">
-                        <h4 className="m-0 text-sm grow">
+                        <h4 className="m-0 grow text-sm">
                             {feedbackInputStatus === 'pending'
                                 ? 'What disappointed you about the answer?'
                                 : 'Thank you for your feedback!'}
@@ -568,7 +568,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         />
                     </div>
                     {feedbackInputStatus === 'pending' && (
-                        <div className="flex w-full gap-1.5 items-center mt-1.5">
+                        <div className="mt-1.5 flex w-full items-center gap-1.5">
                             <LemonInput
                                 placeholder="Help us improve Max…"
                                 fullWidth

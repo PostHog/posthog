@@ -57,7 +57,7 @@ export function AuthorizedUrlList({
             />
 
             {isAddUrlFormVisible ? (
-                <div className="border rounded p-2 bg-surface-primary">
+                <div className="bg-surface-primary rounded border p-2">
                     <AuthorizedUrlForm
                         type={type}
                         actionId={actionId}
@@ -87,7 +87,7 @@ export function AuthorizedUrlList({
                 }
 
                 return editUrlIndex === index ? (
-                    <div className="border rounded p-2 bg-surface-primary">
+                    <div className="bg-surface-primary rounded border p-2">
                         <AuthorizedUrlForm
                             type={type}
                             actionId={actionId}
@@ -96,10 +96,10 @@ export function AuthorizedUrlList({
                         />
                     </div>
                 ) : (
-                    <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+                    <div key={index} className={clsx('bg-surface-primary flex items-center rounded border p-2 pl-4')}>
                         {keyedURL.type === 'suggestion' && (
                             <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
-                                <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
+                                <LemonTag type="highlight" className="mr-4 cursor-pointer uppercase">
                                     Suggestion
                                 </LemonTag>
                             </Tooltip>
@@ -107,7 +107,7 @@ export function AuthorizedUrlList({
                         <span title={keyedURL.url} className="flex-1 truncate">
                             {keyedURL.url}
                         </span>
-                        <div className="Actions flex deprecated-space-x-2 shrink-0">
+                        <div className="Actions deprecated-space-x-2 flex shrink-0">
                             {keyedURL.type === 'suggestion' ? (
                                 <LemonButton
                                     onClick={() => addUrl(keyedURL.url)}

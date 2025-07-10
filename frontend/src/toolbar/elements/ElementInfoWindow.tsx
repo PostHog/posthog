@@ -66,7 +66,7 @@ export function ElementInfoWindow(): JSX.Element | null {
 
     return (
         <div
-            className="absolute z-[1] opacity-100 origin-top-left transition-opacity duration-200"
+            className="absolute z-[1] origin-top-left opacity-100 transition-opacity duration-200"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 pointerEvents: pointerEvents ? 'all' : 'none',
@@ -82,7 +82,7 @@ export function ElementInfoWindow(): JSX.Element | null {
             {onClose ? (
                 <div
                     onClick={onClose}
-                    className="absolute origin-top-left bg-bg-3000 rounded-full w-6 h-6 z-[7] flex items-center justify-around text-center cursor-pointer text-primary"
+                    className="bg-bg-3000 text-primary absolute z-[7] flex h-6 w-6 origin-top-left cursor-pointer items-center justify-around rounded-full text-center"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         pointerEvents: pointerEvents ? 'all' : 'none',
@@ -94,7 +94,7 @@ export function ElementInfoWindow(): JSX.Element | null {
                 </div>
             ) : null}
             <div
-                className="overflow-auto rounded-lg border border-primary"
+                className="border-primary overflow-auto rounded-lg border"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight, maxHeight }}
             >

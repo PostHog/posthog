@@ -74,7 +74,7 @@ export function FloatingSuggestionsDisplay({
     }
 
     return (
-        <div className="mt-1 mx-1">
+        <div className="mx-1 mt-1">
             {/* Main suggestion groups */}
             {(!activeSuggestionGroup || !compact) && (
                 <>
@@ -83,7 +83,7 @@ export function FloatingSuggestionsDisplay({
                             className={
                                 compact
                                     ? 'flex flex-wrap gap-1'
-                                    : 'flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5'
+                                    : 'flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5'
                             }
                         >
                             {QUESTION_SUGGESTIONS_DATA.map((group) => (
@@ -114,7 +114,7 @@ export function FloatingSuggestionsDisplay({
             {/* Detailed suggestions when a group is active */}
             {activeSuggestionGroup && compact && (
                 <>
-                    <div className="flex items-center gap-1 mb-1">
+                    <div className="mb-1 flex items-center gap-1">
                         <LemonButton
                             size="xxsmall"
                             type="tertiary"

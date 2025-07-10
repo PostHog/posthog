@@ -96,8 +96,8 @@ const CLOUD_FEATURES: CloudFeature[] = [
 export function MoveToPostHogCloud(): JSX.Element {
     return (
         <div className="-m-4">
-            <header className="bg-primary-alt-highlight border-b border-t border-primary flex justify-center p-8">
-                <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
+            <header className="bg-primary-alt-highlight border-primary flex justify-center border-b border-t p-8">
+                <div className="grid w-full max-w-screen-xl items-center gap-8 md:grid-cols-2">
                     <div className="">
                         <h2 className="text-2xl font-bold">PostHog Cloud</h2>
                         <h3 className="text-4xl font-bold tracking-tight">
@@ -117,25 +117,25 @@ export function MoveToPostHogCloud(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
-                    <aside className="my-2 hidden md:flex justify-end">
+                    <aside className="my-2 hidden justify-end md:flex">
                         <div className="max-w-64">
-                            <ExperimentsHog className="w-full h-auto" />
+                            <ExperimentsHog className="h-auto w-full" />
                         </div>
                     </aside>
                 </div>
             </header>
-            <div className="p-8 py-8 border-t border-primary flex justify-center">
+            <div className="border-primary flex justify-center border-t p-8 py-8">
                 <div className="max-w-screen-xl">
                     <h3 className="mb-6 text-2xl font-bold">Features</h3>
-                    <ul className="list-none p-0 grid sm:grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
+                    <ul className="mb-8 grid list-none gap-8 p-0 sm:grid-cols-2 md:grid-cols-3">
                         {CLOUD_FEATURES.map((feature, i) => {
                             return (
                                 <li
-                                    className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-primary-alt-highlight"
+                                    className="bg-primary-alt-highlight rounded-lg p-4 sm:p-6 sm:pb-8"
                                     key={`subfeature-${i}`}
                                 >
-                                    <span className="inline-block text-2xl mb-2 opacity-75">{feature.icon}</span>
-                                    <h3 className="text-[17px] mb-1 leading-tight">{feature.name}</h3>
+                                    <span className="mb-2 inline-block text-2xl opacity-75">{feature.icon}</span>
+                                    <h3 className="mb-1 text-[17px] leading-tight">{feature.name}</h3>
                                     <p className="m-0 text-[15px]">{feature.description}</p>
                                     {feature.link && (
                                         <p className="mt-1">

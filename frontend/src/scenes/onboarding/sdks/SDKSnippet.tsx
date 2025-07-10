@@ -6,7 +6,7 @@ export const SDKSnippet = ({ sdk, sdkInstructions }: { sdk: SDK; sdkInstructions
     return (
         <div>
             <div className="mb-8">
-                <h3 className="text-xl font-bold mb-2">Integrate PostHog with {sdk.name}</h3>
+                <h3 className="mb-2 text-xl font-bold">Integrate PostHog with {sdk.name}</h3>
                 <Link className="" to={sdk.docsLink} target="_blank" targetBlankIcon disableDocsPanel>
                     Read the docs
                 </Link>

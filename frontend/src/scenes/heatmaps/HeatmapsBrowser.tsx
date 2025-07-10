@@ -33,7 +33,7 @@ function UrlSearchHeader(): JSX.Element {
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
-        <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
+        <div className="bg-surface-primary flex items-center gap-2 border-b p-2">
             <span className="flex-1">
                 {hasValidReplayIframeData ? (
                     <LemonInput value={replayIframeData?.url} onChange={(s) => setReplayIframeDataURL(s)} />
@@ -97,11 +97,11 @@ function HeatmapsBrowserIntro(): JSX.Element {
     const { setBrowserUrl } = useActions(logic)
 
     return (
-        <div className="flex-1 flex flex-col items-center justify-center overflow-y-auto">
-            <div className="max-w-[50rem] py-6 px-3 h-full w-full">
-                <div className="flex items-center flex-wrap gap-6">
+        <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto">
+            <div className="h-full w-full max-w-[50rem] px-3 py-6">
+                <div className="flex flex-wrap items-center gap-6">
                     <div className="w-50">
-                        <DetectiveHog className="w-full h-full" />
+                        <DetectiveHog className="h-full w-full" />
                     </div>
 
                     <div className="flex-1">
@@ -118,7 +118,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="gap-y-px p-2 border bg-surface-primary rounded">
+                <div className="bg-surface-primary gap-y-px rounded border p-2">
                     {topUrlsLoading ? (
                         <LemonSkeleton className="h-10" repeat={10} />
                     ) : noPageviews ? (
@@ -147,7 +147,7 @@ function ForbiddenURL(): JSX.Element {
     const { browserUrl } = useValues(logic)
 
     return (
-        <div className="flex-1 p-4 gap-y-4">
+        <div className="flex-1 gap-y-4 p-4">
             <LemonBanner type="error">
                 {browserUrl} is not an authorized URL. Please add it to the list of authorized URLs to view heatmaps on
                 this page.
@@ -161,7 +161,7 @@ function ForbiddenURL(): JSX.Element {
 
 function InvalidURL(): JSX.Element {
     return (
-        <div className="flex-1 p-4 gap-y-4">
+        <div className="flex-1 gap-y-4 p-4">
             <LemonBanner type="error">Not a valid URL. Can't load a heatmap for that 😰</LemonBanner>
         </div>
     )
@@ -174,7 +174,7 @@ export function ViewportChooser(): JSX.Element {
     const { setIframeWidth } = useActions(logic)
 
     return (
-        <div className="flex justify-center mb-2">
+        <div className="mb-2 flex justify-center">
             <LemonSegmentedButton
                 onChange={setIframeWidth}
                 value={widthOverride ? widthOverride : undefined}
@@ -277,7 +277,7 @@ function ReplayIframeDataIntro(): JSX.Element | null {
 
     return hasValidReplayIframeData ? (
         <LemonBanner type="info" dismissKey="heatmaps-replay-iframe-data-intro">
-            <div className="flex flex-row gap-2 items-center">
+            <div className="flex flex-row items-center gap-2">
                 <FilmCameraHog className="w-30 h-30" />
                 <div>
                     You're using session recording data as the background for this heatmap.{' '}
@@ -303,7 +303,7 @@ export function HeatmapsBrowser(): JSX.Element {
             <div className="flex flex-col gap-2">
                 <Warnings />
                 <ReplayIframeDataIntro />
-                <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
+                <div className="flex h-[90vh] w-full flex-col overflow-hidden rounded border">
                     <UrlSearchHeader />
 
                     <div className="relative flex flex-1 overflow-hidden">

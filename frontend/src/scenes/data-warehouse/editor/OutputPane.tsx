@@ -161,7 +161,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                 value === null ? (
                     <span className="text-muted">null</span>
                 ) : isJson ? (
-                    <div className="flex gap-2 w-full">
+                    <div className="flex w-full gap-2">
                         <div className="w-full overflow-hidden">
                             {showRawJson[column] ? (
                                 <pre
@@ -169,13 +169,13 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                                         'm-0 font-mono',
                                         wordWrap[column]
                                             ? 'whitespace-pre-wrap break-all'
-                                            : 'overflow-x-auto hide-scrollbar'
+                                            : 'hide-scrollbar overflow-x-auto'
                                     )}
                                 >
                                     {String(value)}
                                 </pre>
                             ) : (
-                                <div className="overflow-x-auto max-w-full">
+                                <div className="max-w-full overflow-x-auto">
                                     <JSONViewer src={jsonValue} name={null} collapsed={1} />
                                 </div>
                             )}
@@ -191,7 +191,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
 
     return (
         <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
-            <div className="RowDetailsModal max-h-[70vh] overflow-y-auto px-2 overflow-x-hidden">
+            <div className="RowDetailsModal max-h-[70vh] overflow-y-auto overflow-x-hidden px-2">
                 <LemonTable
                     dataSource={tableData}
                     className="w-full table-fixed"
@@ -209,9 +209,9 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
                             className: 'px-4 overflow-hidden',
                             width: '65%',
                             render: (_, record) => (
-                                <div className="flex items-center gap-2 w-full">
+                                <div className="flex w-full items-center gap-2">
                                     <div className="flex-1 overflow-x-auto pr-2">{record.value}</div>
-                                    <div className="flex flex-row gap-1 flex-shrink-0 ml-auto">
+                                    <div className="ml-auto flex flex-shrink-0 flex-row gap-1">
                                         {record.isJson && record.rawValue && record.rawValue != 'null' && (
                                             <LemonButton
                                                 size="small"
@@ -304,7 +304,7 @@ export function OutputPane(): JSX.Element {
                 minWidth: 30,
                 width: 30,
                 renderCell: ({ row }: { row: any }) => (
-                    <div className="hover-actions-cell flex justify-center items-center">
+                    <div className="hover-actions-cell flex items-center justify-center">
                         <LemonButton
                             size="xsmall"
                             icon={<IconExpand45 />}
@@ -350,7 +350,7 @@ export function OutputPane(): JSX.Element {
                     renderHeaderCell: ({ column: col, sortDirection }: RenderHeaderCellProps<any>) => (
                         <div className="flex items-center justify-between py-2">
                             <span>{col.name}</span>
-                            <div className="flex flex-col ml-1">
+                            <div className="ml-1 flex flex-col">
                                 <span
                                     className={`text-[7px] leading-none ${
                                         sortDirection === 'ASC' ? 'text-black-600' : 'text-gray-400'
@@ -417,9 +417,9 @@ export function OutputPane(): JSX.Element {
     const hasColumns = columns.length > 1
 
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full h-[50px] overflow-y-auto">
-                <div className="flex h-[50px] gap-2 ml-4">
+        <div className="OutputPane flex w-full flex-1 flex-col bg-white dark:bg-black">
+            <div className="align-center flex h-[50px] w-full flex-row justify-between overflow-y-auto">
+                <div className="ml-4 flex h-[50px] gap-2">
                     {[
                         {
                             key: OutputTab.Results,
@@ -456,11 +456,11 @@ export function OutputPane(): JSX.Element {
                         <div
                             key={tab.key}
                             className={clsx(
-                                'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
+                                'bold flex flex-1 cursor-pointer flex-row content-center items-center border-b-[medium] px-2 pt-[3px]',
                                 {
-                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                    '!border-brand-yellow font-semibold': tab.key === activeTab,
                                     'border-transparent': tab.key !== activeTab,
-                                    'opacity-50 cursor-not-allowed': tab.disabled,
+                                    'cursor-not-allowed opacity-50': tab.disabled,
                                 }
                             )}
                             onClick={() => !tab.disabled && setActiveTab(tab.key)}
@@ -470,7 +470,7 @@ export function OutputPane(): JSX.Element {
                         </div>
                     ))}
                 </div>
-                <div className="flex gap-2 py-2 px-4">
+                <div className="flex gap-2 px-4 py-2">
                     {showLegacyFilters && (
                         <DateRange
                             key="date-range"
@@ -486,10 +486,10 @@ export function OutputPane(): JSX.Element {
                     )}
                     {activeTab === OutputTab.Visualization && (
                         <>
-                            <div className="flex justify-between flex-wrap">
+                            <div className="flex flex-wrap justify-between">
                                 <div className="flex items-center" />
                                 <div className="flex items-center">
-                                    <div className="flex gap-2 items-center flex-wrap">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <TableDisplay
                                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                                         />
@@ -587,7 +587,7 @@ export function OutputPane(): JSX.Element {
                     )}
                 </div>
             </div>
-            <div className="flex flex-1 relative bg-dark">
+            <div className="bg-dark relative flex flex-1">
                 <Content
                     activeTab={activeTab}
                     responseError={responseError}
@@ -609,7 +609,7 @@ export function OutputPane(): JSX.Element {
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
             </div>
-            <div className="flex justify-between px-2 border-t">
+            <div className="flex justify-between border-t px-2">
                 <div>
                     {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
                 </div>
@@ -636,7 +636,7 @@ function InternalDataTableVisualization(
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
+            <div className="bg-surface-primary flex h-full flex-1 flex-col items-center justify-center">
                 <LoadingBar />
             </div>
         )
@@ -661,15 +661,15 @@ function InternalDataTableVisualization(
     }
 
     return (
-        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
-            <div className="relative w-full flex flex-col gap-4 flex-1">
-                <div className="flex flex-1 flex-row gap-4 overflow-auto hide-scrollbar">
+        <div className="DataVisualization hide-scrollbar flex h-full flex-1 gap-2">
+            <div className="relative flex w-full flex-1 flex-col gap-4">
+                <div className="hide-scrollbar flex flex-1 flex-row gap-4 overflow-auto">
                     {isChartSettingsPanelOpen && (
                         <div>
                             <SideBar />
                         </div>
                     )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
+                    <div className={clsx('h-full w-full flex-1 overflow-auto')}>{component}</div>
                 </div>
             </div>
         </div>
@@ -686,7 +686,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
           : responseError
 
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
+        <div className={clsx('absolute bottom-0 left-0 right-0 top-0 flex-1 overflow-auto')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
@@ -755,7 +755,7 @@ const Content = ({
     if (activeTab === OutputTab.Materialization) {
         return (
             <TabScroller>
-                <div className="px-6 py-4 border-t">
+                <div className="border-t px-6 py-4">
                     <QueryInfo codeEditorKey={editorKey} />
                 </div>
             </TabScroller>
@@ -766,13 +766,13 @@ const Content = ({
         if (editingView) {
             return (
                 <TabScroller>
-                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
+                    <div className="text-secondary border-t px-6 py-4">Variables are not allowed in views.</div>
                 </TabScroller>
             )
         }
         return (
             <TabScroller>
-                <div className="px-6 py-4 border-t max-w-1/2">
+                <div className="max-w-1/2 border-t px-6 py-4">
                     <QueryVariables />
                 </div>
             </TabScroller>
@@ -781,7 +781,7 @@ const Content = ({
 
     if (responseLoading) {
         return (
-            <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
+            <div className="flex w-full flex-1 items-center justify-center border-t p-2">
                 <StatelessInsightLoadingState
                     queryId={queryId}
                     pollResponse={pollResponse}
@@ -810,7 +810,7 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 justify-center items-center border-t"
+                className="flex flex-1 items-center justify-center border-t"
                 data-attr="sql-editor-output-pane-empty-state"
             >
                 <span className="text-secondary mt-3">
@@ -836,7 +836,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Visualization) {
         return (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar border-t">
+            <div className="hide-scrollbar absolute bottom-0 left-0 right-0 top-0 flex-1 border-t px-4 py-1">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}

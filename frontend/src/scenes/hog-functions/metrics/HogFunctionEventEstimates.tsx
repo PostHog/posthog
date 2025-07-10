@@ -47,7 +47,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
     const canvasUrl = urls.canvas() + '#🦔=' + btoa(JSON.stringify(canvasContent))
 
     return (
-        <div className="relative p-3 deprecated-space-y-2 border rounded bg-surface-primary">
+        <div className="deprecated-space-y-2 bg-surface-primary relative rounded border p-3">
             <LemonLabel>Matching events</LemonLabel>
             {sparkline && !sparklineLoading ? (
                 <>
@@ -71,7 +71,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                     {'warning' in sparkline && sparkline.warning && (
                         <LemonBanner type="info">{sparkline.warning}</LemonBanner>
                     )}
-                    <Sparkline type="bar" className="w-full h-20" data={sparkline.data} labels={sparkline.labels} />
+                    <Sparkline type="bar" className="h-20 w-full" data={sparkline.data} labels={sparkline.labels} />
                 </>
             ) : sparklineLoading ? (
                 <div className="min-h-20">
@@ -81,7 +81,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                 <p>The expected volume could not be calculated</p>
             )}
 
-            <div className="flex flex-col gap-2 pt-2 border-t border-dashed">
+            <div className="flex flex-col gap-2 border-t border-dashed pt-2">
                 <LemonButton onClick={() => setShowEventsList(!showEventsList)} fullWidth center>
                     {showEventsList ? 'Hide matching events' : 'Show matching events'}
                 </LemonButton>
@@ -106,7 +106,7 @@ export function HogFunctionEventEstimates(): JSX.Element | null {
                                 ]}
                             />
                         </div>
-                        <div className="flex flex-col flex-1 overflow-y-auto border rounded max-h-200">
+                        <div className="max-h-200 flex flex-1 flex-col overflow-y-auto rounded border">
                             {eventsDataTableNode && (
                                 <Query
                                     query={{

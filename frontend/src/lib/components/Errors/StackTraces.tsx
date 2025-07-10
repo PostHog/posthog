@@ -35,12 +35,12 @@ export type ExceptionHeaderProps = {
 
 function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-0.5 mb-2">
+        <div className="mb-2 flex flex-col gap-0.5">
             <h3 className="StackTrace__type mb-0 flex items-center" title={type}>
                 {type}
                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
             </h3>
-            <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs" title={value}>
+            <div className="StackTrace__value text-secondary line-clamp-2 text-xs italic" title={value}>
                 {value}
             </div>
         </div>
@@ -157,14 +157,14 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
     const { getFrameFingerprint } = useValues(errorPropertiesLogic)
     const part = getFrameFingerprint(raw_id)
     return (
-        <div className="flex flex-1 justify-between items-center h-full">
+        <div className="flex h-full flex-1 items-center justify-between">
             <div className="flex flex-wrap gap-x-1">
                 {resolved_name ? (
                     <div className="flex">
                         <span>{resolved_name}</span>
                     </div>
                 ) : null}
-                <div className="flex font-light text-xs">
+                <div className="flex text-xs font-light">
                     <span>{source}</span>
                     {line ? (
                         <>
@@ -177,7 +177,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                     ) : null}
                 </div>
             </div>
-            <div className="flex gap-x-1 items-center justify-end">
+            <div className="flex items-center justify-end gap-x-1">
                 {resolved && source && (
                     <span onClick={cancelEvent} className="text-secondary">
                         <CopyToClipboardInline
@@ -190,7 +190,7 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
                 {part && <FingerprintRecordPartDisplay part={part} />}
                 {!in_app && (
                     <Tooltip title="Vendor frame">
-                        <IconBox className="mr-0.5 text-secondary" fontSize={15} />
+                        <IconBox className="text-secondary mr-0.5" fontSize={15} />
                     </Tooltip>
                 )}
                 {!resolved && (

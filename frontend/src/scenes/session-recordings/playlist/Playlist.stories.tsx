@@ -19,7 +19,7 @@ const ListItem = ({ item }: { item: ObjectType }): JSX.Element => <div className
 
 const Template: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps>) => {
     const mainContent = ({ activeItem }: { activeItem: SessionRecordingType }): JSX.Element => (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex h-full items-center justify-center">
             {activeItem ? `Object ${activeItem.id} selected` : 'Select an item from the list'}
         </div>
     )

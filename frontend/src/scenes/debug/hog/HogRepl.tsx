@@ -75,7 +75,7 @@ export function ReplChunk({
     editFromHere,
 }: ReplChunkProps): JSX.Element {
     return (
-        <div className="pb-2 border-b border-gray-300">
+        <div className="border-b border-gray-300 pb-2">
             <LemonButton size="small" type="secondary" className="float-right" onClick={editFromHere}>
                 📝
             </LemonButton>
@@ -86,12 +86,12 @@ export function ReplChunk({
                 >
                     {'>'}
                 </span>
-                <div className="flex-1 whitespace-pre-wrap ml-2">{code}</div>
+                <div className="ml-2 flex-1 whitespace-pre-wrap">{code}</div>
             </div>
             {status === 'pending' && (
-                <div className="flex items-center ml-4 mt-2">
+                <div className="ml-4 mt-2 flex items-center">
                     <svg
-                        className="animate-spin h-5 w-5 text-gray-500 mr-2"
+                        className="mr-2 h-5 w-5 animate-spin text-gray-500"
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -102,14 +102,14 @@ export function ReplChunk({
                 </div>
             )}
             {print && Array.isArray(print) ? (
-                <div className="flex items-start mt-2">
+                <div className="mt-2 flex items-start">
                     <span
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ color: 'green' }}
                     >
                         #
                     </span>
-                    <div className="flex-1 whitespace-pre-wrap ml-2">
+                    <div className="ml-2 flex-1 whitespace-pre-wrap">
                         {print.map((line, index) => (
                             <div key={index}>
                                 {line.map((arg, argIndex) => (
@@ -124,20 +124,20 @@ export function ReplChunk({
                 </div>
             ) : null}
             {status === 'success' && result !== undefined && (
-                <div className="flex items-start mt-2">
+                <div className="mt-2 flex items-start">
                     <span
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ color: 'green' }}
                     >
                         {'<'}
                     </span>
-                    <div className="flex-1 whitespace-pre-wrap ml-2">{printRichHogOutput(result)}</div>
+                    <div className="ml-2 flex-1 whitespace-pre-wrap">{printRichHogOutput(result)}</div>
                 </div>
             )}
             {status === 'error' && (
-                <div className="flex items-start mt-2">
+                <div className="mt-2 flex items-start">
                     <span className="text-danger">!</span>
-                    <div className="flex-1 whitespace-pre-wrap ml-2 text-danger">{error}</div>
+                    <div className="text-danger ml-2 flex-1 whitespace-pre-wrap">{error}</div>
                 </div>
             )}
         </div>
@@ -149,7 +149,7 @@ export function HogRepl(): JSX.Element {
     const { runCurrentCode, setCurrentCode, editFromHere } = useActions(hogReplLogic)
 
     return (
-        <div className="p-4 bg-white text-black font-mono">
+        <div className="bg-white p-4 font-mono text-black">
             <div className="deprecated-space-y-4">
                 {replChunks.map((chunk, index) => (
                     <ReplChunk chunk={chunk} key={index} editFromHere={() => editFromHere(index)} />
@@ -169,7 +169,7 @@ export function HogRepl(): JSX.Element {
                         <CodeEditorInline
                             language="hog"
                             embedded
-                            className="flex-1 bg-transparent focus:outline-hidden resize-none ml-2 p-0"
+                            className="focus:outline-hidden ml-2 flex-1 resize-none bg-transparent p-0"
                             value={currentCode}
                             onChange={(value) => setCurrentCode(value ?? '')}
                             onPressCmdEnter={runCurrentCode}

@@ -31,7 +31,7 @@ const HeatmapsJSWarning = (): JSX.Element | null => {
     }
 
     return (
-        <p className="my-2 bg-danger-highlight border border-danger rounded p-2">
+        <p className="bg-danger-highlight border-danger my-2 rounded border p-2">
             {!posthog.heatmaps ? (
                 <>The version of posthog-js you are using does not support collecting heatmap data.</>
             ) : !posthog.heatmaps.isEnabled ? (
@@ -58,7 +58,7 @@ const SectionButton = ({
     return (
         <div className="flex items-center">
             <LemonButton
-                className="flex-1 -mx-2 p-2"
+                className="-mx-2 flex-1 p-2"
                 noPadding
                 onClick={() => onChange(!checked)}
                 sideIcon={<LemonSwitch checked={checked} />}
@@ -126,7 +126,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                     />
                 </div>
 
-                <div className="flex flex-row items-center gap-2 py-2 border-b">
+                <div className="flex flex-row items-center gap-2 border-b py-2">
                     <DateFilter
                         dateFrom={commonFilters.date_from}
                         dateTo={commonFilters.date_to}
@@ -263,7 +263,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             <div className="my-2">
                                 Found: {countedElements.length} elements / {clickCount} clicks!
                             </div>
-                            <div className="flex flex-col w-full h-full">
+                            <div className="flex h-full w-full flex-col">
                                 {countedElements.length ? (
                                     countedElements.map(({ element, count, actionStep }, index) => {
                                         return (

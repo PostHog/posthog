@@ -153,7 +153,7 @@ function LemonCollapsePanel({
                     className="LemonCollapsePanel__header LemonCollapsePanel__header--disabled"
                     {...(dataAttr ? { 'data-attr': dataAttr } : {})}
                     size={size}
-                    icon={indexUnexpanableHeader ? <div className="w-[1em] h-[1em]" /> : null}
+                    icon={indexUnexpanableHeader ? <div className="h-[1em] w-[1em]" /> : null}
                 >
                     {header}
                 </LemonButton>

@@ -59,7 +59,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                 <>
                     <PageHeader
                         buttons={
-                            <div className="flex gap-2 items-center">
+                            <div className="flex items-center gap-2">
                                 <LemonButton size="small" type="secondary" id="surveys-page-feedback-button">
                                     Have any questions or feedback?
                                 </LemonButton>
@@ -90,7 +90,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         LemonDialog.open({
                                                             title: 'Archive this survey?',
                                                             content: (
-                                                                <div className="text-sm text-secondary">
+                                                                <div className="text-secondary text-sm">
                                                                     This action will remove the survey from your active
                                                                     surveys list. It can be restored at any time.
                                                                 </div>
@@ -121,7 +121,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     LemonDialog.open({
                                                         title: 'Delete this survey?',
                                                         content: (
-                                                            <div className="text-sm text-secondary">
+                                                            <div className="text-secondary text-sm">
                                                                 This action cannot be undone. All survey data will be
                                                                 permanently removed.
                                                             </div>
@@ -159,7 +159,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Launch this survey?',
                                                 content: (
-                                                    <div className="text-sm text-secondary">
+                                                    <div className="text-secondary text-sm">
                                                         The survey will immediately start displaying to users matching
                                                         the display conditions.
                                                     </div>
@@ -187,7 +187,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Resume this survey?',
                                                 content: (
-                                                    <div className="text-sm text-secondary">
+                                                    <div className="text-secondary text-sm">
                                                         Once resumed, the survey will be visible to your users again.
                                                     </div>
                                                 ),
@@ -217,7 +217,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Stop this survey?',
                                                     content: (
-                                                        <div className="text-sm text-secondary">
+                                                        <div className="text-secondary text-sm">
                                                             The survey will no longer be displayed to users.
                                                         </div>
                                                     ),

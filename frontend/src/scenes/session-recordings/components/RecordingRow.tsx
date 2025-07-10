@@ -50,9 +50,9 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
             subtitle={<ActivityScoreLabel score={recording.activity_score} />}
             prefix={<ProfilePicture name={asDisplay(recording.person)} />}
             suffix={
-                <div className="flex items-center justify-end text-text-3000">
+                <div className="text-text-3000 flex items-center justify-end">
                     <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                    <IconPlayCircle className="text-2xl ml-2" />
+                    <IconPlayCircle className="ml-2 text-2xl" />
                 </div>
             }
             onClick={() => {

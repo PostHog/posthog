@@ -31,23 +31,23 @@ export const SidePanelActivation = (): JSX.Element | null => {
     return (
         <>
             <SidePanelPaneHeader title="Quick start" />
-            <div className="py-4 deprecated-space-y-2 overflow-y-auto no-scrollbar">
-                <div className="flex flex-col px-4 deprecated-space-y-2">
+            <div className="deprecated-space-y-2 no-scrollbar overflow-y-auto py-4">
+                <div className="deprecated-space-y-2 flex flex-col px-4">
                     <div className="flex">
                         <p>
                             Use our Quick Start guide to learn about everything PostHog can do for you and your product.
                         </p>
                         <ProfessorHog className="max-h-full w-20 object-contain" />
                     </div>
-                    <div className="flex items-center justify-center gap-2 w-full">
+                    <div className="flex w-full items-center justify-center gap-2">
                         <LemonProgress
                             percent={completionPercent}
                             size="medium"
                             bgColor="var(--bg-3000)"
                             strokeColor="var(--success)"
-                            className="w-full stroke-opacity-80 h-2"
+                            className="stroke-opacity-80 h-2 w-full"
                         />
-                        <span className="font-medium text-muted-alt">{completionPercent}%</span>
+                        <span className="text-muted-alt font-medium">{completionPercent}%</span>
                     </div>
                 </div>
                 <div className="divide-y">
@@ -62,12 +62,12 @@ export const SidePanelActivation = (): JSX.Element | null => {
                 {hasHiddenSections && (
                     <div className="w-full">
                         <button
-                            className="px-4 py-2 flex items-center justify-between w-full cursor-pointer"
+                            className="flex w-full cursor-pointer items-center justify-between px-4 py-2"
                             onClick={() => toggleShowHiddenSections()}
                             role="button"
                             aria-expanded={showHiddenSections}
                         >
-                            <h4 className="font-semibold text-[16px]">All products</h4>
+                            <h4 className="text-[16px] font-semibold">All products</h4>
                             {showHiddenSections ? (
                                 <IconCollapse className="h-5 w-5" />
                             ) : (
@@ -150,7 +150,7 @@ const ActivationSectionComponent = ({
         <div className="py-3">
             <button
                 className={clsx(
-                    'flex items-center justify-between select-none w-full',
+                    'flex w-full select-none items-center justify-between',
                     section.visible && 'cursor-pointer'
                 )}
                 onClick={section.visible ? handleClick : undefined}
@@ -159,11 +159,11 @@ const ActivationSectionComponent = ({
             >
                 <div className="flex items-center gap-2">
                     {section.icon}
-                    <h4 className="m-0 font-semibold text-[16px]">{section.title}</h4>
+                    <h4 className="m-0 text-[16px] font-semibold">{section.title}</h4>
                 </div>
                 <div className="flex items-center gap-2">
                     {section.visible && (
-                        <span className="text-sm text-muted-alt font-medium">
+                        <span className="text-muted-alt text-sm font-medium">
                             {itemsCompleted} of {totalItems} complete
                         </span>
                     )}
@@ -256,27 +256,27 @@ const ActivationTask = ({
     return (
         <li
             className={clsx(
-                'p-2 border bg-primary-alt-highlight flex flex-col',
+                'bg-primary-alt-highlight flex flex-col border p-2',
                 completed || skipped ? 'line-through opacity-70' : '',
                 lockedReason && 'opacity-70'
             )}
         >
             <div
                 className={clsx(
-                    'flex items-center justify-between gap-2 w-full select-none',
+                    'flex w-full select-none items-center justify-between gap-2',
                     isActive && 'cursor-pointer'
                 )}
                 onClick={handleRowClick}
             >
                 <div className="flex items-center gap-2">
                     {completed ? (
-                        <IconCheckCircle className="h-6 w-6 text-success" />
+                        <IconCheckCircle className="text-success h-6 w-6" />
                     ) : lockedReason ? (
                         <Tooltip title={lockedReason}>
-                            <IconLock className="h-6 w-6 text-muted-alt" />
+                            <IconLock className="text-muted-alt h-6 w-6" />
                         </Tooltip>
                     ) : (
-                        <div className="rounded-full border-2 w-5 h-5 border-muted-alt" />
+                        <div className="border-muted-alt h-5 w-5 rounded-full border-2" />
                     )}
                     <p className="m-0 font-semibold">{title}</p>
                 </div>
@@ -284,7 +284,7 @@ const ActivationTask = ({
                     <LemonButton
                         size="xsmall"
                         type="secondary"
-                        className="h-6 font-semibold text-muted-alt activation-task-skip"
+                        className="text-muted-alt activation-task-skip h-6 font-semibold"
                         onClick={handleSkip}
                     >
                         Skip

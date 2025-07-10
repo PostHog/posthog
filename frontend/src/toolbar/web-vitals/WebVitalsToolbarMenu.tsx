@@ -39,7 +39,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
                         metrics={localWebVitals}
                         label={<span className="text-sm font-bold">Metrics for the current page load</span>}
                     />
-                    <span className="text-sm mb-2">
+                    <span className="mb-2 text-sm">
                         <i>
                             Not all metrics are reported on every page load. INP/CLS won't be reported until you've
                             interacted enough with the page.
@@ -72,7 +72,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
 
             <ToolbarMenu.Footer>
-                <div className="flex flex-row justify-between w-full">
+                <div className="flex w-full flex-row justify-between">
                     <Link to={`${apiURL}${urls.webAnalyticsWebVitals()}`} target="_blank">
                         View all metrics
                     </Link>
@@ -88,7 +88,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
 const MetricCards = ({ metrics, label }: { metrics: WebVitalsMetrics; label: React.ReactNode }): JSX.Element => {
     return (
         <div>
-            <span className="text-sm mb-1">{label}</span>
+            <span className="mb-1 text-sm">{label}</span>
             <div className="flex flex-row gap-2">
                 {ALL_METRICS.map((metric) => (
                     <MetricCard key={metric} metric={metric} value={metrics[metric]} />
@@ -107,7 +107,7 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
     const thresholdUnit = metric === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="border rounded-md p-2">
+        <div className="rounded-md border p-2">
             <DottedTooltip
                 title={
                     <p>
@@ -141,8 +141,8 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
 
 const DottedTooltip = ({ children, title }: { children: React.ReactNode; title: React.ReactNode }): JSX.Element => {
     return (
-        <Tooltip title={<div className="text-sm min-w-80">{title}</div>} interactive>
-            <span className="text-sm font-bold border-b border-dotted border-accent cursor-help">{children}</span>
+        <Tooltip title={<div className="min-w-80 text-sm">{title}</div>} interactive>
+            <span className="border-accent cursor-help border-b border-dotted text-sm font-bold">{children}</span>
         </Tooltip>
     )
 }

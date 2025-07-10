@@ -25,7 +25,7 @@ export function PaginationControls({
     additionalControls,
 }: PaginationControlsProps): JSX.Element {
     return (
-        <div className="mb-4 flex justify-between items-center">
+        <div className="mb-4 flex items-center justify-between">
             {hasMoreItems && (
                 <span className="text-muted text-sm">
                     {`Showing ${
@@ -33,7 +33,7 @@ export function PaginationControls({
                     } of ${totalCount} ${itemName}`}
                 </span>
             )}
-            <div className="flex items-center gap-2 ml-auto">
+            <div className="ml-auto flex items-center gap-2">
                 {hasMoreItems && (
                     <LemonButton type="secondary" size="small" onClick={onToggleShowAll}>
                         {showAll ? 'Show less' : `Show all (${totalCount})`}

@@ -57,7 +57,7 @@ export function PropertyGroupFilters({
         <div className="deprecated-space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <div className="flex flex-1 gap-2 flex-row space-between">
+                    <div className="space-between flex flex-1 flex-row gap-2">
                         <LemonButton
                             data-attr={`${pageKey}-add-filter-group-inline`}
                             type="secondary"
@@ -101,15 +101,15 @@ export function PropertyGroupFilters({
                                     return (
                                         <React.Fragment key={propertyGroupIndex}>
                                             <div className="property-group">
-                                                <div className="flex justify-between items-center mb-2">
+                                                <div className="mb-2 flex items-center justify-between">
                                                     <AndOrFilterSelect
                                                         onChange={(type) =>
                                                             setInnerPropertyGroupType(type, propertyGroupIndex)
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <LemonDivider className="flex-1 mx-2" />
-                                                    <div className="flex items-center deprecated-space-x-2">
+                                                    <LemonDivider className="mx-2 flex-1" />
+                                                    <div className="deprecated-space-x-2 flex items-center">
                                                         <LemonButton
                                                             icon={<IconCopy />}
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}

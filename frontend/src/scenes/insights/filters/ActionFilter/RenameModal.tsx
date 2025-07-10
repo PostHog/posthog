@@ -44,7 +44,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
             Query series/steps can be renamed to provide a more{' '}
             <strong>meaningful label for you and your team members</strong>. Custom names are also shown on dashboards.
             <br />
-            <div className="l4 mt-2 mb-2">Name</div>
+            <div className="l4 mb-2 mt-2">Name</div>
             <LemonInput
                 value={name}
                 onPressEnter={() => renameFilter(name)}

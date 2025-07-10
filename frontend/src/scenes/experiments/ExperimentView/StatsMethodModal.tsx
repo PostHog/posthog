@@ -27,7 +27,7 @@ export function StatsMethodModal(): JSX.Element {
             onClose={onClose}
             title="Change stats engine"
             footer={
-                <div className="flex items-center gap-2 justify-end">
+                <div className="flex items-center justify-end gap-2">
                     <LemonButton type="secondary" onClick={onClose}>
                         Cancel
                     </LemonButton>
@@ -43,9 +43,9 @@ export function StatsMethodModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="flex gap-4 mb-4">
+            <div className="mb-4 flex gap-4">
                 <LemonButton
-                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer rounded border p-4 ${
                         statsMethod === ExperimentStatsMethod.Bayesian
                             ? 'border-accent bg-accent-highlight-secondary'
                             : 'border-primary'
@@ -59,19 +59,19 @@ export function StatsMethodModal(): JSX.Element {
                         })
                     }}
                 >
-                    <div className="font-semibold flex justify-between items-center">
+                    <div className="flex items-center justify-between font-semibold">
                         <span>Bayesian</span>
                         {statsMethod === ExperimentStatsMethod.Bayesian && (
                             <IconCheckCircle fontSize={18} color="var(--accent)" />
                         )}
                     </div>
-                    <div className="text-secondary text-sm leading-relaxed mt-1">
+                    <div className="text-secondary mt-1 text-sm leading-relaxed">
                         This approach gives you a probability-based view of results, showing how likely one variant is
                         to be better than another, based on the observed data.
                     </div>
                 </LemonButton>
                 <LemonButton
-                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                    className={`trends-metric-form__exposure-button flex-1 cursor-pointer rounded border p-4 ${
                         statsMethod === ExperimentStatsMethod.Frequentist
                             ? 'border-accent bg-accent-highlight-secondary'
                             : 'border-primary'
@@ -85,13 +85,13 @@ export function StatsMethodModal(): JSX.Element {
                         })
                     }}
                 >
-                    <div className="font-semibold flex justify-between items-center">
+                    <div className="flex items-center justify-between font-semibold">
                         <span>Frequentist</span>
                         {statsMethod === ExperimentStatsMethod.Frequentist && (
                             <IconCheckCircle fontSize={18} color="var(--accent)" />
                         )}
                     </div>
-                    <div className="text-secondary text-sm leading-relaxed mt-1">
+                    <div className="text-secondary mt-1 text-sm leading-relaxed">
                         This approach uses statistical tests to determine whether observed differences are significant.
                         It's based on p-values and is widely used in traditional A/B testing and scientific research.
                     </div>

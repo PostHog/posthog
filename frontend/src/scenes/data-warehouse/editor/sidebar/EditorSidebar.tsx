@@ -54,10 +54,10 @@ export const EditorSidebar = ({
                 key: EditorSidebarTab.QueryVariables,
                 label: (
                     <Tooltip title={editingView ? 'Variables are not allowed in views.' : 'Query variables'}>
-                        <div className="flex justify-center px-2 relative">
+                        <div className="relative flex justify-center px-2">
                             <IconBrackets className="text-xl" />
                             {variablesForInsight.length > 0 && (
-                                <div className="absolute -top-1 -right-1 flex items-center justify-center bg-gray-700 rounded-full text-white text-[9px] h-3 w-3 min-w-3">
+                                <div className="absolute -right-1 -top-1 flex h-3 w-3 min-w-3 items-center justify-center rounded-full bg-gray-700 text-[9px] text-white">
                                     {variablesForInsight.length}
                                 </div>
                             )}
@@ -87,7 +87,7 @@ export const EditorSidebar = ({
                 return <QueryDatabase isOpen={sidebarOverlayOpen} />
             case EditorSidebarTab.QueryVariables:
                 return editingView ? (
-                    <div className="px-4 py-2 text-secondary">Variables are not allowed in views.</div>
+                    <div className="text-secondary px-4 py-2">Variables are not allowed in views.</div>
                 ) : (
                     <div className="px-4 py-2">
                         <QueryVariables />
@@ -95,7 +95,7 @@ export const EditorSidebar = ({
                 )
             case EditorSidebarTab.QueryInfo:
                 return (
-                    <div className="px-4 py-2 overflow-y-auto">
+                    <div className="overflow-y-auto px-4 py-2">
                         <QueryInfo codeEditorKey={codeEditorKey} />
                     </div>
                 )
@@ -106,7 +106,7 @@ export const EditorSidebar = ({
 
     return (
         <div
-            className="EditorSidebar flex flex-col h-full relative"
+            className="EditorSidebar relative flex h-full flex-col"
             ref={sidebarRef}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

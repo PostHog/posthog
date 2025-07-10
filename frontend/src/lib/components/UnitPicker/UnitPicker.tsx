@@ -99,7 +99,7 @@ export function UnitPicker(): JSX.Element {
     }
 
     return (
-        <div className="flex-1 mb-2.5 mx-2">
+        <div className="mx-2 mb-2.5 flex-1">
             <LemonButtonWithDropdown
                 onClick={() => setIsVisible(!isVisible)}
                 size="small"

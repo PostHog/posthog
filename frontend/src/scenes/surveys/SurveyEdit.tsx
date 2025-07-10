@@ -130,7 +130,7 @@ function SurveyCompletionConditions(): JSX.Element {
             </div>
             {dataCollectionType == 'until_adaptive_limit' && (
                 <LemonField.Pure>
-                    <div className="flex flex-row gap-2 items-center ml-5">
+                    <div className="ml-5 flex flex-row items-center gap-2">
                         Starting on{' '}
                         <Popover
                             actionable
@@ -194,7 +194,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 <LemonField name="responses_limit" className="ml-5">
                     {({ onChange, value }) => {
                         return (
-                            <div className="flex flex-row gap-2 items-center">
+                            <div className="flex flex-row items-center gap-2">
                                 Stop the survey once
                                 <LemonInput
                                     type="number"
@@ -278,7 +278,7 @@ export default function SurveyEdit(): JSX.Element {
 
     return (
         <div className="flex flex-row gap-4">
-            <div className="flex flex-col gap-2 flex-1 SurveyForm">
+            <div className="SurveyForm flex flex-1 flex-col gap-2">
                 <LemonField name="name" label="Name">
                     <LemonInput data-attr="survey-name" />
                 </LemonField>
@@ -313,7 +313,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         description="Automatically appears when PostHog JS is installed"
                                                         value={SurveyType.Popover}
                                                     >
-                                                        <div className="scale-[0.8] absolute -top-4 -left-4">
+                                                        <div className="absolute -left-4 -top-4 scale-[0.8]">
                                                             <SurveyAppearancePreview
                                                                 survey={survey}
                                                                 previewPageIndex={0}
@@ -343,7 +343,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
-                                                        <button className="bg-black -rotate-90 py-2 px-3 min-w-[40px] absolute -right-4 -bottom-16">
+                                                        <button className="absolute -bottom-16 -right-4 min-w-[40px] -rotate-90 bg-black px-3 py-2">
                                                             Feedback
                                                         </button>
                                                     </PresentationTypeCard>
@@ -440,7 +440,7 @@ export default function SurveyEdit(): JSX.Element {
                                                               {
                                                                   key: survey.questions.length,
                                                                   header: (
-                                                                      <div className="flex flex-row w-full items-center justify-between">
+                                                                      <div className="flex w-full flex-row items-center justify-between">
                                                                           <b>Confirmation message</b>
                                                                           <LemonButton
                                                                               icon={<IconTrash />}
@@ -589,7 +589,7 @@ export default function SurveyEdit(): JSX.Element {
                                         </SortableContext>
                                     </DndContext>
                                     <div className="flex gap-2">
-                                        <div className="flex items-center gap-2 mt-2">
+                                        <div className="mt-2 flex items-center gap-2">
                                             <LemonButton
                                                 data-attr="add-question"
                                                 type="secondary"
@@ -597,7 +597,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 icon={<IconPlus />}
                                                 sideIcon={
                                                     surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-secondary" />
+                                                        <IconLock className="text-secondary ml-1 text-base" />
                                                     )
                                                 }
                                                 disabledReason={
@@ -624,7 +624,7 @@ export default function SurveyEdit(): JSX.Element {
                                         {!survey.appearance?.displayThankYouMessage && (
                                             <LemonButton
                                                 type="secondary"
-                                                className="w-max mt-2"
+                                                className="mt-2 w-max"
                                                 icon={<IconPlus />}
                                                 onClick={() => {
                                                     setSurveyValue('appearance', {
@@ -753,7 +753,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             error={urlMatchTypeValidationError}
                                                             info="Targeting by regex or exact match requires at least version 1.82 of posthog-js"
                                                         >
-                                                            <div className="flex flex-row gap-2 items-center">
+                                                            <div className="flex flex-row items-center gap-2">
                                                                 URL
                                                                 <LemonSelect
                                                                     value={
@@ -798,7 +798,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 </>
                                                             }
                                                         >
-                                                            <div className="flex flex-row gap-2 items-center">
+                                                            <div className="flex flex-row items-center gap-2">
                                                                 Device Types
                                                                 <LemonSelect
                                                                     value={
@@ -873,7 +873,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             label="Survey wait period"
                                                             info="Note that this condition will only apply reliably for identified users within a single browser session. Anonymous users or users who switch browsers, use incognito sessions, or log out and log back in may see the survey again. Additionally, responses submitted while a user is anonymous may be associated with their account if they log in during the same session."
                                                         >
-                                                            <div className="flex flex-row gap-2 items-center">
+                                                            <div className="flex flex-row items-center gap-2">
                                                                 <LemonCheckbox
                                                                     checked={!!value?.seenSurveyWaitPeriodInDays}
                                                                     onChange={(checked) => {
@@ -1026,7 +1026,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             }
                                                         />
                                                         {surveyRepeatedActivationAvailable && (
-                                                            <div className="flex flex-row gap-2 items-center">
+                                                            <div className="flex flex-row items-center gap-2">
                                                                 Survey display frequency
                                                                 <LemonSelect
                                                                     onChange={(value) => {
@@ -1111,7 +1111,7 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
             <LemonDivider vertical />
-            <div className="flex flex-col h-full sticky top-0 max-w-1/2 overflow-auto">
+            <div className="max-w-1/2 sticky top-0 flex h-full flex-col overflow-auto">
                 <SurveyFormAppearance
                     previewPageIndex={selectedPageIndex || 0}
                     survey={survey}

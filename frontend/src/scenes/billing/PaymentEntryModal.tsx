@@ -44,12 +44,12 @@ export const PaymentForm = (): JSX.Element => {
     return (
         <div>
             <PaymentElement />
-            <p className="text-xs text-secondary mt-0.5">
+            <p className="text-secondary mt-0.5 text-xs">
                 Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
                 in 7 days.
             </p>
             {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
-            <div className="flex justify-end deprecated-space-x-2 mt-2">
+            <div className="deprecated-space-x-2 mt-2 flex justify-end">
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
@@ -98,7 +98,7 @@ export const PaymentEntryModal = (): JSX.Element => {
                         <PaymentForm />
                     </Elements>
                 ) : apiError ? (
-                    <div className="flex flex-col gap-2 my-2">
+                    <div className="my-2 flex flex-col gap-2">
                         <p className="text-md">
                             We could not complete your upgrade at this time. Please review the error below and contact
                             support if you need help.
@@ -106,7 +106,7 @@ export const PaymentEntryModal = (): JSX.Element => {
                         <LemonBanner type="error">{apiError}</LemonBanner>
                     </div>
                 ) : (
-                    <div className="min-h-80 flex flex-col justify-center items-center">
+                    <div className="flex min-h-80 flex-col items-center justify-center">
                         <div className="text-4xl">
                             <img
                                 src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"

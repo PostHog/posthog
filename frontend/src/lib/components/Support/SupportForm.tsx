@@ -213,8 +213,8 @@ export function SupportForm(): JSX.Element | null {
                     </div>
                 )}
             </LemonField>
-            <div className="flex gap-2 flex-col">
-                <div className="flex justify-between items-center">
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
                     <label className="LemonLabel">
                         Severity level
                         <Tooltip title="Severity levels help us prioritize your request.">

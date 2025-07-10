@@ -8,8 +8,8 @@ export const RunningTimeCalculatorModalFooter = ({
     onSave: () => void
 }): JSX.Element => {
     return (
-        <div className="flex items-center w-full">
-            <div className="flex items-center gap-2 ml-auto">
+        <div className="flex w-full items-center">
+            <div className="ml-auto flex items-center gap-2">
                 <LemonButton form="edit-experiment-metric-form" type="secondary" onClick={onClose}>
                     Cancel
                 </LemonButton>

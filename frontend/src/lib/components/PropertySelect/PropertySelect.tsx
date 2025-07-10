@@ -95,7 +95,7 @@ export const PropertySelect = ({
                         items={selectedProperties}
                         strategy={horizontalListSortingStrategy}
                     >
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex flex-wrap items-center gap-2">
                             {selectedProperties.map((value) => (
                                 <SortableProperty
                                     key={`item-${value}`}

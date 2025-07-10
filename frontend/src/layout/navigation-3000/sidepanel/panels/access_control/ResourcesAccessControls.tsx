@@ -65,7 +65,7 @@ export function ResourcesAccessControls(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <ProfilePicture user={organization_member!.user} />
                         <div>
-                            <p className="font-medium mb-0">{organization_member!.user.first_name}</p>
+                            <p className="mb-0 font-medium">{organization_member!.user.first_name}</p>
                             <p className="text-secondary mb-0">{organization_member!.user.email}</p>
                         </div>
                     </div>
@@ -316,7 +316,7 @@ function ResourcesAccessControlMembers({
 }): JSX.Element {
     return (
         <div className="space-y-2">
-            <div className="flex gap-2 items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
                 <h3 className="mb-0">Members</h3>
                 <LemonButton
                     type="primary"
@@ -348,7 +348,7 @@ function ResourcesAccessControlRoles({
 }): JSX.Element {
     return (
         <div className="space-y-2">
-            <div className="flex gap-2 items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
                 <h3 className="mb-0">Roles</h3>
                 <LemonButton
                     type="primary"
@@ -489,8 +489,8 @@ function AddResourceAccessControlModal(props: {
             }
         >
             <div className="space-y-4">
-                <div className="flex gap-2 items-center w-full">
-                    <div className="min-w-[16rem] w-full">
+                <div className="flex w-full items-center gap-2">
+                    <div className="w-full min-w-[16rem]">
                         <LemonInputSelect
                             placeholder={props.placeholder}
                             value={items}
@@ -505,7 +505,7 @@ function AddResourceAccessControlModal(props: {
                 <div className="space-y-2">
                     <h5 className="mb-2">Resource access levels</h5>
                     {resources.map((resource) => (
-                        <div key={resource} className="flex gap-2 items-center justify-between">
+                        <div key={resource} className="flex items-center justify-between gap-2">
                             <div className="font-medium">
                                 {capitalizeFirstLetter(resource?.replace(/_/g, ' ') ?? '') + 's'}
                             </div>

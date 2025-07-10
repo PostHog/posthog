@@ -22,8 +22,8 @@ export const OnboardingUpgradeStep = ({ product, stepKey }: Props): JSX.Element 
 
     if (billingLoading) {
         return (
-            <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-muted w-10 h-10" />
+            <div className="my-20 flex items-center justify-center">
+                <Spinner className="text-muted h-10 w-10 text-2xl" />
             </div>
         )
     }
@@ -60,12 +60,12 @@ const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.
             <HogfettiComponent />
 
             {/* Superman Hog floating animation */}
-            <div className="w-40 h-40 animate-float">
-                <SupermanHog className="w-full h-full object-contain" />
+            <div className="animate-float h-40 w-40">
+                <SupermanHog className="h-full w-full object-contain" />
             </div>
 
             {/* Text Below */}
-            <h3 className="text-2xl font-bold mt-6">Go forth and build amazing products!</h3>
+            <h3 className="mt-6 text-2xl font-bold">Go forth and build amazing products!</h3>
             <p className="text-gray-700">
                 You've unlocked all features for <strong>{product.name}</strong>.
             </p>

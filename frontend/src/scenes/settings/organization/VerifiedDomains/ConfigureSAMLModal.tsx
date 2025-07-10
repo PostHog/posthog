@@ -29,7 +29,7 @@ export function ConfigureSAMLModal(): JSX.Element {
 
     return (
         <LemonModal onClose={handleClose} isOpen={!!configureSAMLModalId} title="" simple>
-            <Form logic={verifiedDomainsLogic} formKey="samlConfig" enableFormOnSubmit className="LemonModal__layout ">
+            <Form logic={verifiedDomainsLogic} formKey="samlConfig" enableFormOnSubmit className="LemonModal__layout">
                 <LemonModal.Header>
                     <h3>Configure SAML authentication and provisioning</h3>
                 </LemonModal.Header>

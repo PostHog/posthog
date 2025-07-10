@@ -33,7 +33,7 @@ function CampaignMetricsFilters(): JSX.Element {
     const { setFilters } = useActions(campaignMetricsLogic)
 
     return (
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
             <LemonSelect
                 options={[
                     { label: 'Hourly', value: 'hour' },
@@ -81,9 +81,9 @@ function CampaignMetric({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="flex flex-col flex-1 gap-2 items-center p-2 rounded border bg-surface-primary">
+            <div className="bg-surface-primary flex flex-1 flex-col items-center gap-2 rounded border p-2">
                 <div className="text-xs font-bold uppercase">{label.replace(/_/g, ' ')}</div>
-                <div className="flex flex-1 items-center mb-2 text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
+                <div className="mb-2 flex flex-1 items-center text-2xl">{humanFriendlyNumber(value ?? 0)}</div>
             </div>
         </Tooltip>
     )
@@ -93,11 +93,11 @@ function CampaignMetricsTotals(): JSX.Element {
     const { metricsByKind, metricsByKindLoading } = useValues(campaignMetricsLogic)
 
     return (
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-wrap items-center gap-2">
             {Object.entries(METRICS_INFO).map(([key, value]) => (
-                <div key={key} className="flex flex-col flex-1 h-30 min-w-30 max-w-100">
+                <div key={key} className="h-30 min-w-30 max-w-100 flex flex-1 flex-col">
                     {metricsByKindLoading ? (
-                        <LemonSkeleton className="w-full h-full" />
+                        <LemonSkeleton className="h-full w-full" />
                     ) : (
                         <CampaignMetric label={key} value={metricsByKind?.[key]?.total} tooltip={value} />
                     )}

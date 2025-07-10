@@ -53,7 +53,7 @@ const primtiveColorMap: Map<string, number[]> = new Map([
 
 export function PrimitiveColors(): JSX.Element {
     return (
-        <div className="flex gap-4 flex-wrap items-start">
+        <div className="flex flex-wrap items-start gap-4">
             {Array.from(primtiveColorMap.entries()).map(([colorName, steps]) => (
                 <div key={colorName} className="flex flex-col gap-1">
                     <div className="text-primary font-medium">{colorName}</div>
@@ -61,11 +61,11 @@ export function PrimitiveColors(): JSX.Element {
                         {steps.map((step) => (
                             <div key={step} className="flex items-center gap-2">
                                 <div
-                                    className="w-12 h-8 rounded border border-primary"
+                                    className="border-primary h-8 w-12 rounded border"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ backgroundColor: `var(--${colorName}-${step})` }}
                                 />
-                                <div className="text-sm text-primary">{step}</div>
+                                <div className="text-primary text-sm">{step}</div>
                             </div>
                         ))}
                     </div>
@@ -88,23 +88,23 @@ export function BrandAccentColors(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="border border-primary flex flex-col gap-2 p-4 items-start">
+            <div className="border-primary flex flex-col items-start gap-2 border p-4">
                 <p className="text-accent">Accent</p>
             </div>
 
-            <div className="flex flex-col gap-2 border border-primary rounded-md p-2">
+            <div className="border-primary flex flex-col gap-2 rounded-md border p-2">
                 <div className="text-primary font-medium">Primary accent color</div>
 
                 <div className="flex gap-2">
-                    <label className="flex flex-col gap-1 flex-1">
+                    <label className="flex flex-1 flex-col gap-1">
                         <label htmlFor="primary-hue">Hue</label>
                         <LemonSlider value={primaryHue} onChange={setPrimaryHue} min={0} max={360} />
                     </label>
-                    <label className="flex flex-col gap-1 flex-1">
+                    <label className="flex flex-1 flex-col gap-1">
                         <label htmlFor="primary-saturation">Saturation</label>
                         <LemonSlider value={primarySaturation} onChange={setPrimarySaturation} min={0} max={100} />
                     </label>
-                    <label className="flex flex-col gap-1 flex-1">
+                    <label className="flex flex-1 flex-col gap-1">
                         <label htmlFor="primary-lightness">Lightness</label>
                         <LemonSlider value={primaryLightness} onChange={setPrimaryLightness} min={0} max={100} />
                     </label>
@@ -112,7 +112,7 @@ export function BrandAccentColors(): JSX.Element {
                     <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ backgroundColor: `var(--accent)` }}
-                        className="w-12 h-12 rounded border border-primary"
+                        className="border-primary h-12 w-12 rounded border"
                     />
                 </div>
             </div>
@@ -140,11 +140,11 @@ function RenderTable({ colors }: { colors: RenderColorConfig[] }): JSX.Element {
                 return (
                     <div key={name} className={gridClasses}>
                         {/* eslint-disable-next-line react/forbid-dom-props */}
-                        <div className="rounded h-full w-full" style={{ backgroundColor: `var(${name})` }}>
+                        <div className="h-full w-full rounded" style={{ backgroundColor: `var(${name})` }}>
                             &nbsp;
                         </div>
-                        <pre className="rounded border border-primary p-2 text-sm">{name}</pre>
-                        <pre className="rounded border border-primary p-2 text-sm">{tailwindClass}</pre>
+                        <pre className="border-primary rounded border p-2 text-sm">{name}</pre>
+                        <pre className="border-primary rounded border p-2 text-sm">{tailwindClass}</pre>
                         <p className="!mb-0 text-xs">{description}</p>
                     </div>
                 )
@@ -370,7 +370,7 @@ export function SemanticColors(): JSX.Element {
     ]
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
+            <div className="border-primary bg-fill-primary flex flex-col gap-4 rounded-md border p-2">
                 <div className="deprecated-space-y-0">
                     <h2>Texts</h2>
                     <p>
@@ -380,7 +380,7 @@ export function SemanticColors(): JSX.Element {
                 </div>
                 <RenderTable colors={textColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
+            <div className="border-primary bg-fill-primary flex flex-col gap-4 rounded-md border p-2">
                 <div className="deprecated-space-y-0">
                     <h2>Text on fills</h2>
                     <p>
@@ -390,14 +390,14 @@ export function SemanticColors(): JSX.Element {
                 </div>
                 <RenderTable colors={textOnFillColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
+            <div className="border-primary bg-fill-primary flex flex-col gap-4 rounded-md border p-2">
                 <div className="deprecated-space-y-0">
                     <h2>Backgrounds</h2>
                     <p>Behind surfaces, large areas: app scenes, etc.</p>
                 </div>
                 <RenderTable colors={backgroundColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
+            <div className="border-primary bg-fill-primary flex flex-col gap-4 rounded-md border p-2">
                 <div className="deprecated-space-y-0">
                     <h2>Surfaces</h2>
                     <p>
@@ -406,14 +406,14 @@ export function SemanticColors(): JSX.Element {
                 </div>
                 <RenderTable colors={surfaceColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
+            <div className="border-primary bg-fill-primary flex flex-col gap-4 rounded-md border p-2">
                 <div className="deprecated-space-y-0">
                     <h2>Fills</h2>
                     <p>Small colourful areas: banners, pills, buttons, etc.</p>
                 </div>
                 <RenderTable colors={fillColors} />
             </div>
-            <div className="flex flex-col gap-4 border border-primary rounded-md p-2 bg-fill-primary">
+            <div className="border-primary bg-fill-primary flex flex-col gap-4 rounded-md border p-2">
                 <div className="deprecated-space-y-0">
                     <h2>Borders</h2>
                     <p>Borders for surfaces/fills</p>

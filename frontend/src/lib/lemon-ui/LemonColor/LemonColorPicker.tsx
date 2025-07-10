@@ -57,7 +57,7 @@ export const LemonColorPickerOverlay = ({
 
     return (
         <div
-            className="w-52 flex flex-col p-2"
+            className="flex w-52 flex-col p-2"
             // prevents native event bubbling, so that popovers don't close
             onMouseUp={(e) => {
                 if (preventPopoverClose) {
@@ -70,7 +70,7 @@ export const LemonColorPickerOverlay = ({
                 }
             }}
         >
-            <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
+            <LemonLabel className="mb-0.5 mt-1">Preset colors</LemonLabel>
             {colors ? (
                 <LemonColorList colors={colors} selectedColor={selectedColor} onSelectColor={onSelectColor} />
             ) : (
@@ -83,7 +83,7 @@ export const LemonColorPickerOverlay = ({
             )}
             {showCustomColor && (
                 <div>
-                    <LemonLabel className="mt-2 mb-0.5">Custom color</LemonLabel>
+                    <LemonLabel className="mb-0.5 mt-2">Custom color</LemonLabel>
                     <div className="flex items-center gap-2">
                         <LemonColorGlyph color={lastValidColor} className="ml-1.5" />
                         <LemonInput

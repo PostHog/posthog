@@ -127,8 +127,8 @@ function StepConditionalBranchConfiguration({
     return (
         <>
             {conditions.map((condition, index) => (
-                <div key={index} className="flex flex-col gap-2 p-2 rounded border">
-                    <div className="flex justify-between items-center">
+                <div key={index} className="flex flex-col gap-2 rounded border p-2">
+                    <div className="flex items-center justify-between">
                         <LemonLabel>Condition {index + 1}</LemonLabel>
                         <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCondition(index)} />
                     </div>

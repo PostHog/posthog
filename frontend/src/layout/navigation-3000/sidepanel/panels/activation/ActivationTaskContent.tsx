@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { ActivationTask } from './activationLogic'
 
 export const IngestFirstEventContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Install PostHog in your app and send your first event to unlock all analytics features. Choose from our{' '}
             <Link to="https://posthog.com/docs/libraries">JavaScript, Python, Node.js, React, or mobile SDKs</Link>.
@@ -20,7 +20,7 @@ export const IngestFirstEventContent = (): JSX.Element => (
 )
 
 export const InviteTeamMemberContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>Invite teammates to collaborate with you in PostHog.</p>
         <p>
             You can manage permissions and roles in{' '}
@@ -33,7 +33,7 @@ export const InviteTeamMemberContent = (): JSX.Element => (
 )
 
 export const SetUpReverseProxyContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             A reverse proxy enables you to send events to PostHog Cloud using your own domain. Using a reverse proxy
             means that events are less likely to be intercepted by tracking blockers.
@@ -52,7 +52,7 @@ export const SetUpReverseProxyContent = (): JSX.Element => (
 )
 
 export const CreateFirstInsightContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Create your first insight to analyze user behavior patterns in your product. Insights let you visualize
             events, actions, and user properties to understand how people use your app.
@@ -67,7 +67,7 @@ export const CreateFirstInsightContent = (): JSX.Element => (
 )
 
 export const CreateFirstDashboardContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Create a dashboard to organize your insights and get an overview view of your product metrics. Dashboards
             help you track key performance indicators and share data with your team.
@@ -80,7 +80,7 @@ export const CreateFirstDashboardContent = (): JSX.Element => (
 )
 
 export const TrackCustomEventsContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Set up custom events to track specific user actions that matter most to your product. While autocapture
             handles basic interactions, custom events give you precise control over what data you collect.
@@ -95,7 +95,7 @@ export const TrackCustomEventsContent = (): JSX.Element => (
 )
 
 export const SetupSessionRecordingsContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Enable session recordings to see exactly how users navigate through your product. Session replay captures
             user interactions, clicks, and page views so you can identify pain points and optimize user experience.
@@ -108,7 +108,7 @@ export const SetupSessionRecordingsContent = (): JSX.Element => (
 )
 
 export const WatchSessionRecordingContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>Watch your first session recording to understand how real users interact with your product.</p>
         <p>
             Visit the <Link to={urls.replay()}>replay page</Link> to browse available recordings, or learn{' '}
@@ -121,7 +121,7 @@ export const WatchSessionRecordingContent = (): JSX.Element => (
 )
 
 export const LaunchExperimentContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Launch your first A/B test to validate feature changes and product decisions with real user data.
             Experiments help you understand which variants perform better before rolling them out to all users.
@@ -136,7 +136,7 @@ export const LaunchExperimentContent = (): JSX.Element => (
 )
 
 export const ConnectSourceContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Connect external data sources to combine your product analytics with business data from your CRM, payment
             processor, or database. This gives you a complete view of user behavior and business outcomes.
@@ -149,7 +149,7 @@ export const ConnectSourceContent = (): JSX.Element => (
 )
 
 export const LaunchSurveyContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Create targeted surveys to collect direct feedback from users about their experience and needs. Surveys help
             you understand the "why" behind user behavior patterns. Get started by{' '}
@@ -159,7 +159,7 @@ export const LaunchSurveyContent = (): JSX.Element => (
 )
 
 export const CollectSurveyResponsesContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Analyze survey responses to gain insights into user satisfaction, feature requests, and pain points. Survey
             data complements your behavioral analytics with direct user feedback.
@@ -172,7 +172,7 @@ export const CollectSurveyResponsesContent = (): JSX.Element => (
 )
 
 export const CreateFeatureFlagContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Create your first feature flag to safely release new features and control which users see them. Feature
             flags let you test changes with specific user groups before rolling them out to everyone.
@@ -190,7 +190,7 @@ export const CreateFeatureFlagContent = (): JSX.Element => (
 )
 
 export const UpdateFeatureFlagReleaseConditionsContent = (): JSX.Element => (
-    <div className="text-sm text-muted space-y-2">
+    <div className="text-muted space-y-2 text-sm">
         <p>
             Update your feature flag release conditions to control who sees your feature. You can target specific users,
             roll out to a percentage of traffic, or use custom properties to define your audience.

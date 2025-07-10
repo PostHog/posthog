@@ -13,13 +13,13 @@ export const ResultsInsightInfoBanner = ({ exposureDifference }: SafeResultsInsi
 
     return (
         <LemonBanner type="info" className="mb-4">
-            <div className="items-center inline-flex flex-wrap">
+            <div className="inline-flex flex-wrap items-center">
                 <span>
                     Insight results may be slightly different from exposure results due to a difference in data
                     processing methods. We're actively working on fixing this.&nbsp;
                     <Link
                         to="https://posthog.com/docs/experiments/common-questions"
-                        className="font-semibold text-primary hover:text-primary-dark"
+                        className="text-primary hover:text-primary-dark font-semibold"
                     >
                         Learn more in our docs
                     </Link>

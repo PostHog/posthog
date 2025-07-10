@@ -168,7 +168,7 @@ export const NewVariableModal = (): JSX.Element => {
                 )
             }
         >
-            <div className="gap-4 flex flex-col">
+            <div className="flex flex-col gap-4">
                 <LemonField.Pure label="Name" className="gap-1">
                     <LemonInput
                         placeholder="Name"

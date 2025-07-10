@@ -82,7 +82,7 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap deprecated-space-x-1 items-center')}
+            className={clsx(className, 'deprecated-space-x-1 inline-flex flex-wrap items-center')}
             data-attr={dataAttr}
         >
             {editingTags ? (

@@ -17,7 +17,7 @@ export function ResultCustomizationByPicker(): JSX.Element | null {
 
     return (
         <LemonSegmentedButton
-            className="pb-2 px-2"
+            className="px-2 pb-2"
             onChange={(value) => updateInsightFilter({ resultCustomizationBy: value as ResultCustomizationBy })}
             value={resultCustomizationBy || RESULT_CUSTOMIZATION_DEFAULT}
             options={[

@@ -66,10 +66,10 @@ export const Template: Story = () => {
                     textTile={makeTextTile('showing handles')}
                 />
             </div>
-            <div className="w-full h-[200px]">
+            <div className="h-[200px] w-full">
                 <h5>Large Card</h5>
                 <TextCard
-                    className="h-full w-full react-grid-item react-draggable cssTransforms react-resizable"
+                    className="react-grid-item react-draggable cssTransforms react-resizable h-full w-full"
                     textTile={makeTextTile('basic text')}
                 />
             </div>

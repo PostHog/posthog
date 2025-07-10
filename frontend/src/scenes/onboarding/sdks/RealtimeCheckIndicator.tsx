@@ -25,14 +25,14 @@ export function RealtimeCheckIndicator({
                     <OnboardingLiveEvents />
                 </div>
             ) : (
-                <div className="flex flex-row gap-3 items-center">
+                <div className="flex flex-row items-center gap-3">
                     <div className="font-medium">Verify Installation</div>
-                    <div className="flex items-center gap-2 px-2 py-1 border border-accent rounded-sm">
+                    <div className="border-accent flex items-center gap-2 rounded-sm border px-2 py-1">
                         <div className="relative flex items-center justify-center">
-                            <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
-                            <div className="w-2 h-2 bg-accent rounded-full" />
+                            <div className="border-accent absolute h-3 w-3 animate-ping rounded-full border-2" />
+                            <div className="bg-accent h-2 w-2 rounded-full" />
                         </div>
-                        <span className="text-sm text-accent">Waiting for {listeningForName}s</span>
+                        <span className="text-accent text-sm">Waiting for {listeningForName}s</span>
                     </div>
                 </div>
             )}

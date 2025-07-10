@@ -43,7 +43,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
             {sessionRecordingLoading ? (
                 <SpinnerOverlay />
             ) : sessionRecording ? (
-                <div className="flex flex-col gap-2 h-screen pb-4">
+                <div className="flex h-screen flex-col gap-2 pb-4">
                     <LemonBanner
                         type="info"
                         action={{
@@ -58,7 +58,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
             ) : (
                 <div
                     ref={dropRef}
-                    className="w-full border rounded p-20 text-secondary flex flex-col items-center justify-center"
+                    className="text-secondary flex w-full flex-col items-center justify-center rounded border p-20"
                 >
                     <LemonFileInput
                         accept="application/json"
@@ -66,7 +66,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                         onChange={(files) => loadFromFile(files[0])}
                         alternativeDropTargetRef={dropRef}
                         callToAction={
-                            <div className="flex flex-col items-center justify-center deprecated-space-y-2">
+                            <div className="deprecated-space-y-2 flex flex-col items-center justify-center">
                                 <span className="flex items-center gap-2 font-semibold">
                                     <IconUploadFile className="text-2xl" /> Load recording
                                 </span>

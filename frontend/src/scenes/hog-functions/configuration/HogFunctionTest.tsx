@@ -33,8 +33,8 @@ export function HogFunctionTestPlaceholder({
     description?: string | JSX.Element
 }): JSX.Element {
     return (
-        <div className="p-3 space-y-2 rounded border bg-accent-3000">
-            <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
+        <div className="bg-accent-3000 space-y-2 rounded border p-3">
+            <h2 className="m-0 flex-1">{title || 'Testing'}</h2>
             <p>{description || 'Save your configuration to enable testing'}</p>
         </div>
     )
@@ -187,14 +187,14 @@ export function HogFunctionTest(): JSX.Element {
             <div
                 ref={testResultsRef}
                 className={clsx(
-                    'p-3 rounded border deprecated-space-y-2',
+                    'deprecated-space-y-2 rounded border p-3',
                     expanded ? 'bg-surface-primary' : 'bg-surface-secondary',
                     expanded ? 'min-h-120' : ''
                 )}
             >
-                <div className="flex gap-2 justify-end items-center">
-                    <div className="flex-1 deprecated-space-y-2">
-                        <h2 className="flex gap-2 items-center mb-0">
+                <div className="flex items-center justify-end gap-2">
+                    <div className="deprecated-space-y-2 flex-1">
+                        <h2 className="mb-0 flex items-center gap-2">
                             <span>Testing</span>
                         </h2>
                         {inactive ? <p>Click here to test your function with an example event</p> : null}
@@ -259,7 +259,7 @@ export function HogFunctionTest(): JSX.Element {
                                                 </LemonField>
                                                 <LemonDivider />
                                                 {savedGlobals.map(({ name, globals }, index) => (
-                                                    <div className="flex justify-between w-full" key={index}>
+                                                    <div className="flex w-full justify-between" key={index}>
                                                         <LemonButton
                                                             data-attr="open-hog-test-data"
                                                             key={index}
@@ -366,7 +366,7 @@ export function HogFunctionTest(): JSX.Element {
 
                                 {type === 'transformation' && testResult.status !== 'error' ? (
                                     <>
-                                        <div className="flex gap-2 justify-between items-center">
+                                        <div className="flex items-center justify-between gap-2">
                                             <LemonLabel>Transformation result</LemonLabel>
 
                                             {sortedTestsResult?.hasDiff && (

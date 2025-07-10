@@ -204,7 +204,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
                     size="small"
                     type="secondary"
                     icon={expanded ? <IconCollapse /> : <IconExpand />}
-                    className="mt-1 mb-0"
+                    className="mb-0 mt-1"
                 >
                     {expanded
                         ? `Collapse to ${maxLinesWithoutExpansion!} lines`

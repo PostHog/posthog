@@ -115,7 +115,7 @@ export const allSDKs: SDK[] = [
         image: (
             <span className="flex w-4">
                 <svg
-                    className="w-4 h-4"
+                    className="h-4 w-4"
                     width="16"
                     height="18"
                     viewBox="0 0 256 276"
@@ -169,7 +169,7 @@ export const allSDKs: SDK[] = [
             <span className="flex w-4">
                 <svg
                     fill="#000000"
-                    className="w-4 h-4 dark:fill-white"
+                    className="h-4 w-4 dark:fill-white"
                     viewBox="0 0 24 24"
                     role="img"
                     xmlns="http://www.w3.org/2000/svg"

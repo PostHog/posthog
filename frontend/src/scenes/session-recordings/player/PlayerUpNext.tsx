@@ -85,7 +85,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         >
             <div className="PlayerUpNext text-xs">
                 <div
-                    className={clsx('px-1 py-0.5 PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}
+                    className={clsx('PlayerUpNextButton px-1 py-0.5', animate && 'PlayerUpNextButton--animating')}
                     onClick={() => goToRecording(false)}
                 >
                     <div className="PlayerUpNextButtonBackground" />

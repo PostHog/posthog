@@ -95,7 +95,7 @@ export function MemberSelect({
                                     icon={<ProfilePicture size="md" user={member.user} />}
                                     onClick={() => _onChange(member.user)}
                                 >
-                                    <span className="flex items-center justify-between gap-2 flex-1">
+                                    <span className="flex flex-1 items-center justify-between gap-2">
                                         <span>{fullName(member.user)}</span>
                                         <span className="text-secondary">
                                             {meFirstMembers[0] === member && `(you)`}
@@ -106,9 +106,9 @@ export function MemberSelect({
                         ))}
 
                         {membersLoading ? (
-                            <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                            <div className="text-secondary truncate border-t p-2 italic">Loading...</div>
                         ) : selectableMembers.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
+                            <div className="text-secondary truncate border-t p-2 italic">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
                         ) : null}

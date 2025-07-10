@@ -212,7 +212,7 @@ export function HogFunctionScene(): JSX.Element {
     if (loading && !loaded) {
         return (
             <div className="flex flex-col gap-4">
-                <LemonSkeleton className="w-full h-12" />
+                <LemonSkeleton className="h-12 w-full" />
                 <HogFunctionSkeleton />
             </div>
         )

@@ -21,9 +21,9 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
     const [isExpanded, setIsExpanded] = useState(false)
 
     return (
-        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
+        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'rounded border')}>
             <div
-                className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
+                className={clsx('ActivityLogRow deprecated-space-x-2 flex', logItem.unread && 'ActivityLogRow--unread')}
             >
                 <ProfilePicture
                     showName={false}
@@ -60,8 +60,8 @@ function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem })
     const changes = logItem.unprocessed?.detail.changes
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 px-2 py-1">
-            <div className="flex flex-col deprecated-space-y-2">
+        <div className="deprecated-space-y-2 flex flex-col px-2 py-1">
+            <div className="deprecated-space-y-2 flex flex-col">
                 {changes?.length ? (
                     changes.map((change, i) => {
                         return <QueryDiffViewer key={i} before={change.before} after={change.after} />
@@ -83,7 +83,7 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const [width] = useSize(containerRef)
     return (
-        <div ref={containerRef} className="flex flex-col space-y-2 w-full">
+        <div ref={containerRef} className="flex w-full flex-col space-y-2">
             <MonacoDiffEditor
                 key="diff-viewer"
                 original={before?.query ?? ''}

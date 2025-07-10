@@ -56,7 +56,7 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
                 <DndContext
                     onDragEnd={({ active, over }) => {
                         if (!over || active.id === over.id) {

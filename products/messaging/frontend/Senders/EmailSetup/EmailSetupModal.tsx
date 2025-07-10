@@ -39,12 +39,12 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
         )
     } else {
         modalContent = (
-            <div className="space-y-2 max-w-[60rem]">
-                <p className="text-sm text-muted">
+            <div className="max-w-[60rem] space-y-2">
+                <p className="text-muted text-sm">
                     These DNS records verify ownership of your domain. This ensures your emails are delivered to inboxes
                     and not marked as spam.
                 </p>
-                <p className="font-semibold mb-2">Note: It can take up to 48 hours for DNS changes to propagate.</p>
+                <p className="mb-2 font-semibold">Note: It can take up to 48 hours for DNS changes to propagate.</p>
                 <div className="overflow-x-auto">
                     <table className="w-full border-collapse">
                         <thead>
@@ -59,8 +59,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                             {verification?.dnsRecords?.map((record: DnsRecord, index: number) => (
                                 <tr key={index} className="border-b">
                                     <td className="py-2">{record.recordType}</td>
-                                    <td className="py-2 max-w-[8rem]">
-                                        <div className="flex items-center gap-1 text-wrap break-all justify-between">
+                                    <td className="max-w-[8rem] py-2">
+                                        <div className="flex items-center justify-between gap-1 text-wrap break-all">
                                             <span>{record.recordHostname}</span>
                                             <LemonButton
                                                 size="small"
@@ -73,8 +73,8 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                             />
                                         </div>
                                     </td>
-                                    <td className="py-2 max-w-[8rem]">
-                                        <div className="flex items-center gap-1 text-wrap break-all justify-between">
+                                    <td className="max-w-[8rem] py-2">
+                                        <div className="flex items-center justify-between gap-1 text-wrap break-all">
                                             <span>{record.recordValue}</span>
                                             <LemonButton
                                                 size="small"
@@ -87,16 +87,16 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                             />
                                         </div>
                                     </td>
-                                    <td className="py-2 w-[10rem]">
+                                    <td className="w-[10rem] py-2">
                                         {verificationLoading ? (
                                             <Spinner className="text-lg" />
                                         ) : record.status === 'pending' ? (
                                             <div className="flex items-center gap-1">
-                                                <IconWarning className="size-6 text-warning" /> Not present
+                                                <IconWarning className="text-warning size-6" /> Not present
                                             </div>
                                         ) : (
                                             <div className="flex items-center gap-1">
-                                                <IconCheckCircle className="size-6 text-success" /> Verified
+                                                <IconCheckCircle className="text-success size-6" /> Verified
                                             </div>
                                         )}
                                     </td>
@@ -105,7 +105,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                         </tbody>
                     </table>
                 </div>
-                <div className="flex gap-2 justify-end">
+                <div className="flex justify-end gap-2">
                     <LemonButton
                         type="secondary"
                         onClick={verifyDomain}

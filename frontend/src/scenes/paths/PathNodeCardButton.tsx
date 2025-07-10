@@ -54,16 +54,16 @@ export function PathNodeCardButton({
     const isTruncatedPath = name.slice(1) === '_...'
 
     return (
-        <div className="flex justify-between items-center w-full">
-            <div className="font-semibold overflow-hidden max-h-16">
+        <div className="flex w-full items-center justify-between">
+            <div className="max-h-16 overflow-hidden font-semibold">
                 <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
-                <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
+                <span className="break-words text-xs">{pageUrl(node, isPath)}</span>
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}
             <PopoverReferenceContext.Provider value={null}>
                 <div className="flex flex-nowrap">
                     <LemonButton size="small" onClick={openModal}>
-                        <span className="text-link text-xs px-1 font-medium">{count}</span>
+                        <span className="text-link px-1 text-xs font-medium">{count}</span>
                     </LemonButton>
                     <LemonMenu
                         items={[

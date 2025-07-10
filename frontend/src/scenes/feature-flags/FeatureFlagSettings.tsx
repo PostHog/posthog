@@ -107,8 +107,8 @@ export function FlagsSecureApiKeys(): JSX.Element {
             </p>
 
             {/* Primary Key */}
-            <h3 className="mt-4 mb-1 text-sm font-semibold text-muted">
-                Primary Key <span className="text-green-700 text-xs ml-2">(Active)</span>
+            <h3 className="text-muted mb-1 mt-4 text-sm font-semibold">
+                Primary Key <span className="ml-2 text-xs text-green-700">(Active)</span>
             </h3>
             <CodeSnippet
                 actions={
@@ -130,8 +130,8 @@ export function FlagsSecureApiKeys(): JSX.Element {
             {currentTeam?.secret_api_token_backup ? (
                 <>
                     {/* Backup Key */}
-                    <h3 className="mt-4 mb-1 text-sm font-semibold text-muted">
-                        Backup Key <span className="text-orange-600 text-xs ml-2">(Pending deletion)</span>
+                    <h3 className="text-muted mb-1 mt-4 text-sm font-semibold">
+                        Backup Key <span className="ml-2 text-xs text-orange-600">(Pending deletion)</span>
                     </h3>
                     <CodeSnippet
                         actions={
@@ -147,13 +147,13 @@ export function FlagsSecureApiKeys(): JSX.Element {
                     >
                         {currentTeam.secret_api_token_backup}
                     </CodeSnippet>
-                    <p className="text-xs text-muted mt-1">
+                    <p className="text-muted mt-1 text-xs">
                         This key is still active to support deployments using the previous key. Delete it once you’ve
                         fully migrated.
                     </p>
                 </>
             ) : (
-                <p className="text-xs text-muted mt-2">
+                <p className="text-muted mt-2 text-xs">
                     Rotating the key will move this primary key to backup so you can migrate safely.
                 </p>
             )}

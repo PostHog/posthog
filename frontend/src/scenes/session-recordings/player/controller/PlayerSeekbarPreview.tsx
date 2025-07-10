@@ -64,7 +64,7 @@ const PlayerSeekbarPreviewFrame = ({
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={seekPlayerLogicProps}>
-            <div className="bg-red w-60 h-40">
+            <div className="bg-red h-40 w-60">
                 <PlayerFrame />
             </div>
         </BindLogic>
@@ -141,7 +141,7 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
                             isVisible={isHovering}
                         />
                     )}
-                    <div className="text-center p-2">{content}</div>
+                    <div className="p-2 text-center">{content}</div>
                 </div>
             </div>
         </div>

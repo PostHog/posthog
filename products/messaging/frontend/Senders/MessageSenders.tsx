@@ -33,11 +33,11 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
     }
 
     return (
-        <div className="rounded border bg-surface-primary">
-            <div className="flex justify-between items-center p-2">
-                <div className="flex gap-4 items-center ml-2">
+        <div className="bg-surface-primary rounded border">
+            <div className="flex items-center justify-between p-2">
+                <div className="ml-2 flex items-center gap-4">
                     <div>
-                        <div className="flex gap-2 items-center">
+                        <div className="flex items-center gap-2">
                             <strong>{integration.config.domain || integration.display_name}</strong>
                             {integration.config.mailjet_verified !== undefined && (
                                 <Tooltip
@@ -64,7 +64,7 @@ function MessageSender({ integration }: { integration: IntegrationType }): JSX.E
                     </div>
                 </div>
 
-                <div className="flex gap-2 items-center">
+                <div className="flex items-center gap-2">
                     {!integration.config.mailjet_verified && (
                         <LemonButton
                             type="primary"

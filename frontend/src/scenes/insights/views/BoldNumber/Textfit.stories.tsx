@@ -17,7 +17,7 @@ export default meta
 
 const Template: StoryFn<typeof Textfit> = (props) => {
     return (
-        <div className="resize w-100 h-50 overflow-hidden border rounded">
+        <div className="w-100 h-50 resize overflow-hidden rounded border">
             <Textfit {...props} />
         </div>
     )

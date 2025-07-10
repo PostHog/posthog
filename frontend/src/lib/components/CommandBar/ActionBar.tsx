@@ -8,7 +8,7 @@ export const ActionBar = (): JSX.Element => {
     const { activeFlow } = useValues(actionBarLogic)
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex h-full flex-col">
             {(!activeFlow || activeFlow.instruction) && <ActionInput />}
             <ActionResults />
         </div>

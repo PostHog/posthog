@@ -104,7 +104,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
-                                <div className="mt-4 deprecated-space-y-4">
+                                <div className="deprecated-space-y-4 mt-4">
                                     <TestAccountFilterSwitch
                                         checked={hasFilters ? !!currentMetric.count_query?.filterTestAccounts : false}
                                         onChange={(checked: boolean) => {
@@ -118,7 +118,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     />
                                 </div>
                                 {isExperimentRunning && (
-                                    <LemonBanner type="info" className="mt-3 mb-3">
+                                    <LemonBanner type="info" className="mb-3 mt-3">
                                         Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of
                                         data. This can cause a mismatch between the preview and the actual results.
                                     </LemonBanner>
@@ -143,9 +143,9 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                         label: 'Exposure',
                         content: (
                             <>
-                                <div className="flex gap-4 mb-4">
+                                <div className="mb-4 flex gap-4">
                                     <LemonButton
-                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer rounded border p-4 ${
                                             !currentMetric.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
                                                 : 'border-primary'
@@ -162,13 +162,13 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             })
                                         }}
                                     >
-                                        <div className="font-semibold flex justify-between items-center">
+                                        <div className="flex items-center justify-between font-semibold">
                                             <span>Default</span>
                                             {!currentMetric.exposure_query && (
                                                 <IconCheckCircle fontSize={18} color="var(--accent)" />
                                             )}
                                         </div>
-                                        <div className="text-secondary text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary mt-1 text-sm leading-relaxed">
                                             Uses the number of unique users who trigger the{' '}
                                             <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
                                             is the recommended setting for most experiments, as it accurately tracks
@@ -176,7 +176,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         </div>
                                     </LemonButton>
                                     <LemonButton
-                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer rounded border p-4 ${
                                             currentMetric.exposure_query
                                                 ? 'border-accent bg-accent-highlight-secondary'
                                                 : 'border-primary'
@@ -225,13 +225,13 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             })
                                         }}
                                     >
-                                        <div className="font-semibold flex justify-between items-center">
+                                        <div className="flex items-center justify-between font-semibold">
                                             <span>Custom</span>
                                             {currentMetric.exposure_query && (
                                                 <IconCheckCircle fontSize={18} color="var(--accent)" />
                                             )}
                                         </div>
-                                        <div className="text-secondary text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary mt-1 text-sm leading-relaxed">
                                             Define your own exposure metric for specific use cases, such as counting by
                                             sessions instead of users. This gives you full control but requires careful
                                             configuration.
@@ -269,7 +269,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             showNumericalPropsOnly={true}
                                             {...commonActionFilterProps}
                                         />
-                                        <div className="mt-4 deprecated-space-y-4">
+                                        <div className="deprecated-space-y-4 mt-4">
                                             <TestAccountFilterSwitch
                                                 checked={(() => {
                                                     const val = currentMetric.exposure_query?.filterTestAccounts
@@ -286,7 +286,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             />
                                         </div>
                                         {isExperimentRunning && (
-                                            <LemonBanner type="info" className="mt-3 mb-3">
+                                            <LemonBanner type="info" className="mb-3 mt-3">
                                                 Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION}{' '}
                                                 days of data. This can cause a mismatch between the preview and the
                                                 actual results.

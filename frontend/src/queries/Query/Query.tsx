@@ -112,7 +112,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         try {
             return <Query {...props} query={JSON.parse(query)} />
         } catch (e: any) {
-            return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
+            return <div className="border-danger text-danger border p-4">Error parsing JSON: {e.message}</div>
         }
     }
 

@@ -109,7 +109,7 @@ export function countColumn({
                         <p>Counts have not yet been calculated for this playlist.</p>
                     )}
                     {isShowingSavedFilters && lastRefreshedAt ? (
-                        <div className="text-xs items-center flex flex-row gap-x-1">
+                        <div className="flex flex-row items-center gap-x-1 text-xs">
                             Last refreshed: <TZLabel time={lastRefreshedAt} showPopover={false} />
                         </div>
                     ) : null}
@@ -117,13 +117,13 @@ export function countColumn({
             )
 
             return (
-                <div className="flex items-center justify-start w-full h-full">
+                <div className="flex h-full w-full items-center justify-start">
                     <Tooltip title={tooltip}>
                         {hasResults ? (
-                            <span className="flex items-center deprecated-space-x-1">
+                            <span className="deprecated-space-x-1 flex items-center">
                                 <LemonBadge.Number
                                     status={unwatchedCount ? 'primary' : 'muted'}
-                                    className="text-xs cursor-pointer"
+                                    className="cursor-pointer text-xs"
                                     count={totalCount}
                                     maxDigits={3}
                                     showZero={true}
@@ -240,7 +240,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 <p className="font-normal">
                     Playlists used to combine saved filters and pinned recordings, but that sometimes led to confusion.
                     Now, they are handled separately:
-                    <ul className="list-disc list-inside">
+                    <ul className="list-inside list-disc">
                         <li>
                             <Link to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}>
                                 Saved Filters
@@ -252,14 +252,14 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     More predictable, less messy!
                 </p>
             </LemonBanner>
-            <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for collections"
                     onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
                     value={filters.search || ''}
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex flex-wrap items-center gap-4">
                     <div className="flex items-center gap-2">
                         <LemonButton
                             data-attr="session-recording-playlist-pinned-filter"

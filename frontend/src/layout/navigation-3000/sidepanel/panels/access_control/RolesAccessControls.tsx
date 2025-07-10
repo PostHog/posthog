@@ -128,8 +128,8 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     }
 
     return (
-        <div className="my-2 pr-2 deprecated-space-y-2">
-            <div className="flex items-center gap-2 justify-between min-h-10">
+        <div className="deprecated-space-y-2 my-2 pr-2">
+            <div className="flex min-h-10 items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                     <div className="min-w-[16rem]">
                         <LemonInputSelect

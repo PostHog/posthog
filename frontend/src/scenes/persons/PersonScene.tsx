@@ -57,7 +57,7 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <div className="flex deprecated-space-x-1">
+            <div className="deprecated-space-x-1 flex">
                 <div>
                     <span className="text-secondary">IDs:</span>{' '}
                     <CopyToClipboardInline
@@ -78,7 +78,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                     >
                         <LemonTag type="primary" className="inline-flex">
                             <span>+{person.distinct_ids.length - 1}</span>
-                            <IconChevronDown className="w-4 h-4" />
+                            <IconChevronDown className="h-4 w-4" />
                         </LemonTag>
                     </LemonMenu>
                 )}
@@ -98,7 +98,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                             </>
                         }
                     >
-                        <IconInfo className="ml-1 text-base shrink-0" />
+                        <IconInfo className="ml-1 shrink-0 text-base" />
                     </Tooltip>
                 </Link>
             </div>
@@ -289,7 +289,7 @@ export function PersonScene(): JSX.Element | null {
                                   <span className="flex items-center" data-attr="persons-related-tab">
                                       Related groups
                                       <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
-                                          <IconInfo className="ml-1 text-base shrink-0" />
+                                          <IconInfo className="ml-1 shrink-0 text-base" />
                                       </Tooltip>
                                   </span>
                               ),
@@ -303,7 +303,7 @@ export function PersonScene(): JSX.Element | null {
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
                               content: (
                                   <>
-                                      <div className="flex deprecated-space-x-2 items-center mb-2">
+                                      <div className="deprecated-space-x-2 mb-2 flex items-center">
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip

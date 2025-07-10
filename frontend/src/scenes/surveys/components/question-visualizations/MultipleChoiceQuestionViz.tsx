@@ -19,7 +19,7 @@ interface Props {
 
 export function MultipleChoiceQuestionViz({ responseData }: Props): JSX.Element | null {
     return (
-        <div className="border rounded py-4 max-h-[600px] overflow-y-auto">
+        <div className="max-h-[600px] overflow-y-auto rounded border py-4">
             <BindLogic logic={insightLogic} props={insightProps}>
                 <LineGraph
                     inSurveyView={true}

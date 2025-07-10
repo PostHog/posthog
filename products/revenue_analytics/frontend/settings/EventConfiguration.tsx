@@ -82,7 +82,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         dataIndex: 'revenueCurrencyProperty',
                         render: (_, item: RevenueAnalyticsEventItem) => {
                             return (
-                                <div className="flex flex-col w-full gap-3 my-1 min-w-[250px] whitespace-nowrap">
+                                <div className="my-1 flex w-full min-w-[250px] flex-col gap-3 whitespace-nowrap">
                                     <div className="flex flex-row gap-1">
                                         <span className="font-bold">Dynamic property: </span>
                                         <TaxonomicPopover
@@ -139,8 +139,8 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         key: 'delete',
                         fullWidth: true,
                         title: (
-                            <div className="flex flex-col gap-1 items-end w-full">
-                                <div className="flex flex-row w-full gap-1 justify-end my-2">
+                            <div className="flex w-full flex-col items-end gap-1">
+                                <div className="my-2 flex w-full flex-row justify-end gap-1">
                                     <TaxonomicPopover
                                         type="primary"
                                         groupType={TaxonomicFilterGroupType.CustomEvents}
@@ -167,7 +167,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                     </LemonButton>
                                 </div>
                                 {changesMadeToEvents && (
-                                    <span className="text-xs text-error normal-case font-normal">
+                                    <span className="text-error text-xs font-normal normal-case">
                                         Remember to save your changes to take effect
                                     </span>
                                 )}

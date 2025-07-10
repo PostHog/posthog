@@ -41,17 +41,17 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                 Explain your regex in natural language:
                 <LemonTextArea
                     placeholder="I want a regex that covers all urls that include 'app.posthog.com/auth/*'"
-                    className="w-full my-2"
+                    className="my-2 w-full"
                     maxRows={4}
                     minRows={2}
                     value={input}
                     onChange={(value) => setInput(value)}
                 />
-                <div className="flex flex-col gap-2 mt-2">
+                <div className="mt-2 flex flex-col gap-2">
                     {generatedRegex && (
                         <div>
                             <h3 className="text-sm font-bold">Your regex is:</h3>
-                            <div className="flex flex-row gap-2 justify-between items-center">
+                            <div className="flex flex-row items-center justify-between gap-2">
                                 <LemonBanner type="info" className="w-full">
                                     {generatedRegex}
                                 </LemonBanner>

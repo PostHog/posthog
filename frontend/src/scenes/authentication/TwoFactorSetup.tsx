@@ -22,9 +22,9 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                 logic={twoFactorLogic}
                 formKey="token"
                 enableFormOnSubmit
-                className="flex flex-col deprecated-space-y-4"
+                className="deprecated-space-y-4 flex flex-col"
             >
-                <div className="bg-white ml-auto mr-auto mt-2">
+                <div className="ml-auto mr-auto mt-2 bg-white">
                     <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
                 </div>
                 {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}

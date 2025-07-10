@@ -14,11 +14,11 @@ export interface ItemConsoleLogProps {
 export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
     return (
         <div className="w-full font-light" data-attr="item-console-log">
-            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
+            <div className="flex-1 cursor-pointer truncate px-2 py-1 font-mono text-xs">{item.data.content}</div>
             {(item.data.count || 1) > 1 ? (
                 <span
                     className={clsx(
-                        'rounded-lg px-1 mx-2 text-white text-xs font-semibold',
+                        'mx-2 rounded-lg px-1 text-xs font-semibold text-white',
                         item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                         item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
                         item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
@@ -34,7 +34,7 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
 export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element {
     return (
         <div className="w-full font-light" data-attr="item-console-log">
-            <div className="px-2 py-1 text-xs border-t">
+            <div className="border-t px-2 py-1 text-xs">
                 {(item.data.count || 1) > 1 ? (
                     <>
                         <div className="italic">

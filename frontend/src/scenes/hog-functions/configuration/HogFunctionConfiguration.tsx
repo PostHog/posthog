@@ -279,16 +279,16 @@ export function HogFunctionConfiguration({
                     formKey="configuration"
                     className="deprecated-space-y-3"
                 >
-                    <div className="flex flex-wrap gap-4 items-start">
+                    <div className="flex flex-wrap items-start gap-4">
                         {showLeftPanel && (
-                            <div className="flex flex-col flex-1 gap-4 min-w-100">
+                            <div className="min-w-100 flex flex-1 flex-col gap-4">
                                 <div
                                     className={clsx(
-                                        'p-3 deprecated-space-y-2 bg-surface-primary',
-                                        !embedded && 'border rounded'
+                                        'deprecated-space-y-2 bg-surface-primary p-3',
+                                        !embedded && 'rounded border'
                                     )}
                                 >
-                                    <div className="flex flex-row gap-2 items-center min-h-16">
+                                    <div className="flex min-h-16 flex-row items-center gap-2">
                                         <LemonField name="icon_url">
                                             {({ value, onChange }) => (
                                                 <HogFunctionIconEditable
@@ -299,7 +299,7 @@ export function HogFunctionConfiguration({
                                             )}
                                         </LemonField>
 
-                                        <div className="flex flex-col flex-1 justify-start items-start py-1">
+                                        <div className="flex flex-1 flex-col items-start justify-start py-1">
                                             <span className="font-semibold">{configuration.name}</span>
                                             {template && <HogFunctionStatusTag status={template.status} />}
                                         </div>
@@ -335,14 +335,14 @@ export function HogFunctionConfiguration({
                                         <LemonDropdown
                                             showArrow
                                             overlay={
-                                                <div className="p-1 max-w-120">
+                                                <div className="max-w-120 p-1">
                                                     <p>
                                                         This function was built from the template{' '}
                                                         <b>{hogFunction.template.name}</b>. If the template is updated,
                                                         this function is not affected unless you choose to update it.
                                                     </p>
 
-                                                    <div className="flex flex-1 gap-2 items-center pt-2 border-t">
+                                                    <div className="flex flex-1 items-center gap-2 border-t pt-2">
                                                         <div className="flex-1">
                                                             <LemonButton>Close</LemonButton>
                                                         </div>
@@ -366,8 +366,8 @@ export function HogFunctionConfiguration({
                                                 </div>
                                             }
                                         >
-                                            <div className="text-xs rounded border border-dashed text-secondary">
-                                                <Link subtle className="flex flex-wrap gap-1 items-center p-2">
+                                            <div className="text-secondary rounded border border-dashed text-xs">
+                                                <Link subtle className="flex flex-wrap items-center gap-1 p-2">
                                                     Built from template:
                                                     <span className="font-semibold">{hogFunction?.template.name}</span>
                                                     <HogFunctionStatusTag status={hogFunction.template.status} />
@@ -428,14 +428,14 @@ export function HogFunctionConfiguration({
                                 >
                                     <div
                                         className={clsx(
-                                            'p-3 deprecated-space-y-2 bg-surface-primary',
-                                            !embedded && 'border rounded'
+                                            'deprecated-space-y-2 bg-surface-primary p-3',
+                                            !embedded && 'rounded border'
                                         )}
                                     >
                                         <div className="deprecated-space-y-2">
                                             {usesGroups && !hasGroupsAddon ? (
                                                 <LemonBanner type="warning">
-                                                    <span className="flex gap-2 items-center">
+                                                    <span className="flex items-center gap-2">
                                                         This function appears to use Groups but you do not have the
                                                         Groups Analytics addon. Without it, you may see empty values
                                                         where you use templates like {'"{groups.kind.properties}"'}
@@ -465,7 +465,7 @@ export function HogFunctionConfiguration({
                                                 showSource={showSource}
                                             />
                                             {oldInputs && newInputs && (
-                                                <div className="flex gap-2 items-center mt-4 p-2 bg-surface-secondary rounded border border-dashed">
+                                                <div className="bg-surface-secondary mt-4 flex items-center gap-2 rounded border border-dashed p-2">
                                                     <div className="flex-1 text-center">
                                                         <span className="text-sm font-medium">Suggested by Max</span>
                                                     </div>
@@ -529,14 +529,14 @@ export function HogFunctionConfiguration({
                             ) : (
                                 <div
                                     className={clsx(
-                                        'p-3 deprecated-space-y-2 bg-surface-primary',
-                                        !embedded && 'border rounded'
+                                        'deprecated-space-y-2 bg-surface-primary p-3',
+                                        !embedded && 'rounded border'
                                     )}
                                 >
                                     <div className="deprecated-space-y-2">
                                         {usesGroups && !hasGroupsAddon ? (
                                             <LemonBanner type="warning">
-                                                <span className="flex gap-2 items-center">
+                                                <span className="flex items-center gap-2">
                                                     This function appears to use Groups but you do not have the Groups
                                                     Analytics addon. Without it, you may see empty values where you use
                                                     templates like {'"{groups.kind.properties}"'}
@@ -622,12 +622,12 @@ export function HogFunctionConfiguration({
                                             <div
                                                 ref={sourceCodeRef}
                                                 className={clsx(
-                                                    'p-3 rounded border deprecated-space-y-2',
+                                                    'deprecated-space-y-2 rounded border p-3',
                                                     showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
                                                 )}
                                             >
-                                                <div className="flex gap-2 justify-end items-center">
-                                                    <div className="flex-1 deprecated-space-y-2">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <div className="deprecated-space-y-2 flex-1">
                                                         <h2 className="mb-0">Edit source</h2>
                                                         {!showSource ? (
                                                             <p>Click here to edit the function's source code</p>
@@ -671,7 +671,7 @@ export function HogFunctionConfiguration({
                                                         {({ value, onChange }) => (
                                                             <>
                                                                 {!type.startsWith('site_') ? (
-                                                                    <span className="text-xs text-secondary">
+                                                                    <span className="text-secondary text-xs">
                                                                         This is the underlying Hog code that will run
                                                                         whenever this triggers.{' '}
                                                                         <Link to="https://posthog.com/docs/hog">
@@ -745,12 +745,12 @@ export function HogFunctionConfiguration({
                                         <div
                                             ref={sourceCodeRef}
                                             className={clsx(
-                                                'p-3 rounded border deprecated-space-y-2',
+                                                'deprecated-space-y-2 rounded border p-3',
                                                 showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
                                             )}
                                         >
-                                            <div className="flex gap-2 justify-end items-center">
-                                                <div className="flex-1 deprecated-space-y-2">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <div className="deprecated-space-y-2 flex-1">
                                                     <h2 className="mb-0">Edit source</h2>
                                                     {!showSource ? (
                                                         <p>Click here to edit the function's source code</p>
@@ -794,7 +794,7 @@ export function HogFunctionConfiguration({
                                                     {({ value, onChange }) => (
                                                         <>
                                                             {!type.startsWith('site_') ? (
-                                                                <span className="text-xs text-secondary">
+                                                                <span className="text-secondary text-xs">
                                                                     This is the underlying Hog code that will run
                                                                     whenever this triggers.{' '}
                                                                     <Link to="https://posthog.com/docs/hog">
@@ -841,7 +841,7 @@ export function HogFunctionConfiguration({
                             )}
                             {showTesting ? <HogFunctionTest /> : null}
                             {type === 'source_webhook' && <HogFunctionSourceWebhookTest />}
-                            <div className="flex gap-2 justify-end">{saveButtons}</div>
+                            <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>
                 </Form>

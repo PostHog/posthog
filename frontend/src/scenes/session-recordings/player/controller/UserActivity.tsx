@@ -33,7 +33,7 @@ export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivE
     return (
         <div
             className={cn(
-                'absolute bottom-0 w-full bg-gradient-to-t from-surface-primary via-surface-primary to-transparent from-0% via-96% to-100% transition-opacity duration-300',
+                'from-surface-primary via-surface-primary via-96% absolute bottom-0 w-full bg-gradient-to-t from-0% to-transparent to-100% transition-opacity duration-300',
                 {
                     'opacity-0': !isHovering,
                 }

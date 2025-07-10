@@ -56,10 +56,10 @@ export function UpdateEmailPreferences(): JSX.Element {
                 {!user?.notification_settings.all_weekly_digest_disabled ? (
                     <>
                         <h4 className="ml-12">Individual project settings:</h4>
-                        <ul className="flex flex-col gap-2 w-fit">
+                        <ul className="flex w-fit flex-col gap-2">
                             {currentOrganization?.teams?.map((team) => (
                                 <li key={team.id} className="ml-16 grow list-disc">
-                                    <div className="flex items-center grow">
+                                    <div className="flex grow items-center">
                                         <LemonSwitch
                                             id={`project-digest-${team.id}`}
                                             data-attr={`project_digest_${team.id}`}

@@ -90,20 +90,20 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     return (
         <div
-            className={clsx('flex flex-wrap max-w-300 pb-8', {
+            className={clsx('max-w-300 flex flex-wrap pb-8', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}
             data-attr={`billing-product-${product.type}`}
         >
-            <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
-                <div className="border-b border-primary rounded-t p-4">
-                    <div className="flex gap-4 items-center justify-between">
+            <div className="border-primary bg-surface-primary w-full rounded border" ref={productRef}>
+                <div className="border-primary rounded-t border-b p-4">
+                    <div className="flex items-center justify-between gap-4">
                         {/* Product name and description */}
                         <div className="flex gap-x-2">
                             <div>{getProductIcon(product.name, product.icon_key, 'text-2xl shrink-0')}</div>
                             <div>
-                                <h3 className="font-bold mb-0 flex items-center gap-x-2">
+                                <h3 className="mb-0 flex items-center gap-x-2 font-bold">
                                     {product.name}{' '}
                                     {isTemporaryFreeProduct && (
                                         <LemonTag type="highlight">included with your plan</LemonTag>
@@ -114,7 +114,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         </div>
 
                         {/* Product actions */}
-                        <div className="flex grow justify-end gap-x-2 items-center">
+                        <div className="flex grow items-center justify-end gap-x-2">
                             {product.docs_url && (
                                 <LemonButton
                                     icon={<IconDocument />}
@@ -183,7 +183,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
 
                     {/* Usage and projected usage */}
-                    <div className="sm:flex w-full items-center gap-x-8">
+                    <div className="w-full items-center gap-x-8 sm:flex">
                         {product.contact_support && (!product.subscribed || isUnlicensedDebug) ? (
                             <div className="py-8">
                                 {!billing?.has_active_subscription && (
@@ -245,7 +245,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 </div>
                                             </div>
                                             {product.subscribed ? (
-                                                <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
+                                                <div className="flex shrink-0 flex-wrap items-end justify-end gap-8">
                                                     <Tooltip
                                                         title={`The current ${
                                                             billing?.discount_percent ? 'discounted ' : ''
@@ -254,7 +254,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         } so far. This number updates once daily.`}
                                                     >
                                                         <div className="flex flex-col items-center">
-                                                            <div className="font-bold text-3xl leading-7">
+                                                            <div className="text-3xl font-bold leading-7">
                                                                 {humanFriendlyCurrency(
                                                                     parseFloat(
                                                                         isSessionReplayWithAddons
@@ -268,7 +268,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                 : 0))
                                                                 )}
                                                             </div>
-                                                            <span className="text-xs text-secondary">
+                                                            <span className="text-secondary text-xs">
                                                                 {capitalizeFirstLetter(
                                                                     billing?.billing_period?.interval || ''
                                                                 )}
@@ -294,7 +294,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             }`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
-                                                                <div className="font-bold text-secondary text-lg leading-5">
+                                                                <div className="text-secondary text-lg font-bold leading-5">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
                                                                             product.projected_amount_usd_with_limit ||
@@ -306,7 +306,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                     : 0))
                                                                     )}
                                                                 </div>
-                                                                <span className="text-xs text-secondary">
+                                                                <span className="text-secondary text-xs">
                                                                     Projected{' '}
                                                                     <IconInfo className="text-muted text-sm" />
                                                                 </span>
@@ -317,15 +317,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             ) : null}
                                         </>
                                     ) : product.current_amount_usd ? (
-                                        <div className="mt-8 mb-4 flex justify-end w-full">
+                                        <div className="mb-4 mt-8 flex w-full justify-end">
                                             <Tooltip
                                                 title={`The current amount you will be billed for this ${billing?.billing_period?.interval}.`}
                                             >
                                                 <div className="flex flex-col items-center">
-                                                    <div className="font-bold text-3xl leading-7">
+                                                    <div className="text-3xl font-bold leading-7">
                                                         {humanFriendlyCurrency(product.current_amount_usd)}
                                                     </div>
-                                                    <span className="text-xs text-secondary">
+                                                    <span className="text-secondary text-xs">
                                                         per {billing?.billing_period?.interval || 'period'}
                                                     </span>
                                                 </div>
@@ -368,8 +368,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {/* Add-ons title */}
                             <h4 className="my-4">Add-ons</h4>
                             {billing?.subscription_level == 'free' && (
-                                <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
-                                    <div className="flex justify-between items-center">
+                                <LemonBanner type="warning" className="mb-4 text-sm" hideIcon>
+                                    <div className="flex items-center justify-between">
                                         <div>
                                             Add-ons are only available on paid plans. Upgrade to access these features.
                                         </div>
@@ -386,7 +386,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                     </div>
                                 </LemonBanner>
                             )}
-                            <div className="gap-y-4 flex flex-col">
+                            <div className="flex flex-col gap-y-4">
                                 {visibleAddons.map((addon: BillingProductV2AddonType, i: number) => {
                                     return <BillingProductAddon key={i} addon={addon} />
                                 })}
@@ -413,8 +413,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
-        <div className="p-4 px-8 pb-8 sm:pb-0 border-t border-border">
-            <p className="mt-0 ml-0 text-sm text-secondary italic">
+        <div className="border-border border-t p-4 px-8 pb-8 sm:pb-0">
+            <p className="text-secondary ml-0 mt-0 text-sm italic">
                 <IconInfo className="mr-1" />
                 Questions? Here's{' '}
                 <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">

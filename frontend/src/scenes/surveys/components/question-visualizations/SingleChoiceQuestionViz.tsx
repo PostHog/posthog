@@ -22,7 +22,7 @@ export function SingleChoiceQuestionViz({
     processedData: { data, totalResponses },
 }: Props): JSX.Element | null {
     return (
-        <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
+        <div className="flex h-80 overflow-y-auto rounded border pb-2 pt-4">
             <div className="relative h-full w-80">
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <PieChart
@@ -64,15 +64,15 @@ export function SingleChoiceQuestionViz({
                     const percentage = ((d.value / totalResponses) * 100).toFixed(1)
 
                     return (
-                        <div key={`single-choice-legend-${question.id}-${i}`} className="flex items-center mr-6">
+                        <div key={`single-choice-legend-${question.id}-${i}`} className="mr-6 flex items-center">
                             <div
-                                className="w-3 h-3 rounded-full mr-2"
+                                className="mr-2 h-3 w-3 rounded-full"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ backgroundColor: CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length] }}
                             />
-                            <span className="font-semibold text-secondary max-w-48 truncate">{`${d.label}`}</span>
-                            <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
-                            <span className="font-semibold text-secondary ml-1 truncate">{`(${d.value})`}</span>
+                            <span className="text-secondary max-w-48 truncate font-semibold">{`${d.label}`}</span>
+                            <span className="ml-1 truncate font-bold">{` ${percentage}% `}</span>
+                            <span className="text-secondary ml-1 truncate font-semibold">{`(${d.value})`}</span>
                         </div>
                     )
                 })}

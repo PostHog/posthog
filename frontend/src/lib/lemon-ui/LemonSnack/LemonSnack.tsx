@@ -24,11 +24,11 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
             <span
                 ref={ref}
                 className={twMerge(
-                    'inline-flex text-primary-alt max-w-full overflow-hidden break-all items-center py-1 leading-5',
+                    'text-primary-alt inline-flex max-w-full items-center overflow-hidden break-all py-1 leading-5',
                     !wrap && 'whitespace-nowrap',
                     isRegular
-                        ? 'bg-accent-highlight-secondary px-1.5 rounded'
-                        : 'bg-primary-alt-highlight px-4 rounded-full h-8',
+                        ? 'bg-accent-highlight-secondary rounded px-1.5'
+                        : 'bg-primary-alt-highlight h-8 rounded-full px-4',
                     isClickable && 'cursor-pointer',
                     className
                 )}
@@ -42,7 +42,7 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
                 </span>
 
                 {onClose && (
-                    <span className={clsx('LemonSnack__close shrink-0 ml-1', isRegular || '-mr-1')}>
+                    <span className={clsx('LemonSnack__close ml-1 shrink-0', isRegular || '-mr-1')}>
                         <LemonButton
                             size="small"
                             noPadding

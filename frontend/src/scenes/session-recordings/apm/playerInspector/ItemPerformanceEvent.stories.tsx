@@ -31,7 +31,7 @@ const BasicTemplate: StoryFn<typeof ItemPerformanceEvent> = (props: Partial<Item
     const propsToUse = props as ItemPerformanceEventProps
 
     return (
-        <div className="flex flex-col gap-2 min-w-96">
+        <div className="flex min-w-96 flex-col gap-2">
             <h3>Collapsed</h3>
             <ItemPerformanceEvent {...propsToUse} />
             <LemonDivider />

@@ -45,7 +45,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     // TODO: Sort out title offset
     return (
         <>
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
                 <LemonLabel>Query Steps</LemonLabel>
 
                 <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
@@ -80,9 +80,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 ]}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
             />
-            <div className="mt-4 deprecated-space-y-4">
+            <div className="deprecated-space-y-4 mt-4">
                 {showGroupsOptions && (
-                    <div className="flex items-center w-full gap-2">
+                    <div className="flex w-full items-center gap-2">
                         <span>Aggregating by</span>
                         <AggregationSelect insightProps={insightProps} hogqlAvailable />
                     </div>

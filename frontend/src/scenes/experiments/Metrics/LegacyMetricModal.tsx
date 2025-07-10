@@ -50,14 +50,14 @@ export function LegacyMetricModal({
             width={1000}
             title="Edit experiment metric"
             footer={
-                <div className="flex items-center w-full">
+                <div className="flex w-full items-center">
                     <LemonButton
                         type="secondary"
                         status="danger"
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this metric?',
-                                content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
+                                content: <div className="text-secondary text-sm">This action cannot be undone.</div>,
                                 primaryButton: {
                                     children: 'Delete',
                                     type: 'primary',
@@ -81,7 +81,7 @@ export function LegacyMetricModal({
                     >
                         Delete
                     </LemonButton>
-                    <div className="flex items-center gap-2 ml-auto">
+                    <div className="ml-auto flex items-center gap-2">
                         <LemonButton form="edit-experiment-goal-form" type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
@@ -106,7 +106,7 @@ export function LegacyMetricModal({
                 </div>
             }
         >
-            <div className="flex items-center w-full gap-2 mb-4">
+            <div className="mb-4 flex w-full items-center gap-2">
                 <span>Metric type</span>
                 <LemonSelect
                     data-attr="metrics-selector"

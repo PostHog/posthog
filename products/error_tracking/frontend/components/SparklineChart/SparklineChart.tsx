@@ -97,7 +97,7 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
     }, [data, events, options, contentHeight, contentWidth])
 
     return (
-        <div ref={contentRef} className={cn('h-full w-full p-4 overflow-hidden', className)}>
+        <div ref={contentRef} className={cn('h-full w-full overflow-hidden p-4', className)}>
             <svg ref={svgRef} className="overflow-visible" height="100%" width="100%" />
         </div>
     )

@@ -19,9 +19,9 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
     const { addGoalLine, updateGoalLine, removeGoalLine } = useActions(goalLinesLogic(insightProps))
 
     return (
-        <div className="mt-1 mb-2">
+        <div className="mb-2 mt-1">
             {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
-                <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
+                <div className="mb-1 flex flex-1 gap-1" key={`${goalLineIndex}`}>
                     <SeriesLetter className="self-center" hasBreakdown={false} seriesIndex={goalLineIndex} />
                     <LemonInput
                         placeholder="Label"

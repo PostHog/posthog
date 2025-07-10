@@ -58,10 +58,10 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                         filteredFlags.map(
                             ({ feature_flag, value, hasOverride, hasVariants, currentValue, payloadOverride }) => (
                                 <div
-                                    className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-fill-primary')}
+                                    className={clsx('-mx-1 px-2 py-1', hasOverride && 'bg-fill-primary')}
                                     key={feature_flag.key}
                                 >
-                                    <div className="flex flex-row items-center deprecated-space-x-2">
+                                    <div className="deprecated-space-x-2 flex flex-row items-center">
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"
@@ -108,7 +108,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         <>
                                             {hasVariants ? (
                                                 <LemonRadio
-                                                    className={clsx('pt-1 pl-4 w-full', hasOverride && 'bg-mark')}
+                                                    className={clsx('w-full pl-4 pt-1', hasOverride && 'bg-mark')}
                                                     value={typeof currentValue === 'string' ? currentValue : undefined}
                                                     options={
                                                         feature_flag.filters?.multivariate?.variants.map((variant) => ({
@@ -130,10 +130,10 @@ export const FlagsToolbarMenu = (): JSX.Element => {
 
                                             <div className={clsx(hasVariants && 'py-1 pl-4')}>
                                                 {openPayloadEditors[feature_flag.key] ? (
-                                                    <div className="flex gap-2 items-start mt-1">
+                                                    <div className="mt-1 flex items-start gap-2">
                                                         <LemonTextArea
                                                             className={clsx(
-                                                                'font-mono text-xs flex-1 !rounded',
+                                                                'flex-1 !rounded font-mono text-xs',
                                                                 payloadErrors[feature_flag.key] && 'border-danger'
                                                             )}
                                                             value={
@@ -166,9 +166,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                         </div>
                                                     </div>
                                                 ) : (
-                                                    <div className="flex justify-end items-center gap-2">
+                                                    <div className="flex items-center justify-end gap-2">
                                                         {payloadOverride && (
-                                                            <div className="font-mono text-xs truncate flex-1">
+                                                            <div className="flex-1 truncate font-mono text-xs">
                                                                 {JSON.stringify(payloadOverride)}
                                                             </div>
                                                         )}
@@ -183,7 +183,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     ) : (
                         <div className="flex flex-row items-center p-1">
                             {userFlagsLoading ? (
-                                <span className="flex-1 flex justify-center items-center p-4">
+                                <span className="flex flex-1 items-center justify-center p-4">
                                     <Spinner className="text-2xl" />
                                 </span>
                             ) : (

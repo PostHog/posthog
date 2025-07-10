@@ -121,7 +121,7 @@ export function Customization({
                         />
                     </div>
                     <LemonField.Pure>
-                        <div className="flex flex-row gap-2 items-center font-medium">
+                        <div className="flex flex-row items-center gap-2 font-medium">
                             <LemonCheckbox
                                 checked={!!survey.appearance?.surveyPopupDelaySeconds}
                                 onChange={(checked) => {
@@ -144,7 +144,7 @@ export function Customization({
                                         onAppearanceChange({ surveyPopupDelaySeconds: undefined })
                                     }
                                 }}
-                                className="w-12 ignore-error-border"
+                                className="ignore-error-border w-12"
                             />{' '}
                             seconds once the display conditions are met.
                         </div>

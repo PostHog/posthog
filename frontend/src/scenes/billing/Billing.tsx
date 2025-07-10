@@ -148,7 +148,7 @@ export function Billing(): JSX.Element {
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
-                        <JudgeHog className="w-20 h-20 flex-shrink-0" />
+                        <JudgeHog className="h-20 w-20 flex-shrink-0" />
                         <div>
                             <p className="text-lg">You're on (a) trial</p>
                             <p>
@@ -165,9 +165,9 @@ export function Billing(): JSX.Element {
             {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
                 <div
                     className={clsx(
-                        'flex gap-6 max-w-300',
+                        'max-w-300 flex gap-6',
                         // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
-                        billing?.has_active_subscription ? 'flex-col @3xl:flex-row' : 'flex-col-reverse'
+                        billing?.has_active_subscription ? '@3xl:flex-row flex-col' : 'flex-col-reverse'
                     )}
                 >
                     {showBillingSummary && (
@@ -188,10 +188,10 @@ export function Billing(): JSX.Element {
 
             {!showBillingSummary && <StripePortalButton />}
 
-            <LemonDivider className="mt-6 mb-8" />
+            <LemonDivider className="mb-8 mt-6" />
 
             {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
-                <div className="flex mt-6 gap-6 max-w-300 flex-col-reverse">
+                <div className="max-w-300 mt-6 flex flex-col-reverse gap-6">
                     <LemonBanner type="warning">
                         <strong>Note:</strong> Our forecasting engine is experiencing an issue. The projected amounts
                         may appear incorrect. We're working on a fix and it should be resolved soon.
@@ -199,7 +199,7 @@ export function Billing(): JSX.Element {
                 </div>
             )}
 
-            <div className="flex justify-between mt-4">
+            <div className="mt-4 flex justify-between">
                 <h2>Products</h2>
             </div>
 

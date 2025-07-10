@@ -56,7 +56,7 @@ export const scene: SceneExport = {
 
 export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
     return (
-        <div className="flex items-center flex-wrap">
+        <div className="flex flex-wrap items-center">
             <div className="mr-4">
                 <span className="text-secondary">Type:</span> {groupTypeName}
             </div>

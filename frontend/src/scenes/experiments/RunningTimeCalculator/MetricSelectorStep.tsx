@@ -71,7 +71,7 @@ export const MetricSelectorStep = ({
                 <LemonSelect
                     options={metricOptions.map((option, index) => ({
                         label: (
-                            <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
+                            <div className="flex flex-grow cursor-default items-center overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold">
                                 <span className="mr-1">{index + 1}.</span>
                                 <MetricTitle metric={option.metric} />
                                 {option.isSharedMetric && (
@@ -97,8 +97,8 @@ export const MetricSelectorStep = ({
             </div>
             {metricResultLoading ? (
                 <div className="border-t pt-2">
-                    <div className="h-[100px] flex items-center justify-center">
-                        <Spinner className="text-3xl transform -translate-y-[-10px]" />
+                    <div className="flex h-[100px] items-center justify-center">
+                        <Spinner className="-translate-y-[-10px] transform text-3xl" />
                     </div>
                 </div>
             ) : (

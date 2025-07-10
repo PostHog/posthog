@@ -54,7 +54,7 @@ export function SurveyEditQuestionHeader({
 
     return (
         <div
-            className="flex flex-row w-full items-center justify-between relative"
+            className="relative flex w-full flex-row items-center justify-between"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props
@@ -64,7 +64,7 @@ export function SurveyEditQuestionHeader({
                 transition,
             }}
         >
-            <div className="flex flex-row gap-2 items-center">
+            <div className="flex flex-row items-center gap-2">
                 <SurveyDragHandle listeners={listeners} hasMultipleQuestions={survey.questions.length > 1} />
 
                 <b>
@@ -290,7 +290,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             {(value || []).map((choice: string, index: number) => {
                                                 const isOpenChoice = hasOpenChoice && index === value?.length - 1
                                                 return (
-                                                    <div className="flex flex-row gap-2 relative" key={index}>
+                                                    <div className="relative flex flex-row gap-2" key={index}>
                                                         <LemonInput
                                                             value={choice}
                                                             fullWidth
@@ -321,7 +321,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                     </div>
                                                 )
                                             })}
-                                            <div className="w-fit flex flex-row flex-wrap gap-2">
+                                            <div className="flex w-fit flex-row flex-wrap gap-2">
                                                 {((value || []).length < MAX_NUMBER_OF_OPTIONS ||
                                                     survey.type != SurveyType.Popover) && (
                                                     <>
@@ -388,7 +388,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 <LemonField
                     name="buttonText"
                     label="Submit button text"
-                    className="flex-1 flex gap-1 justify-center"
+                    className="flex flex-1 justify-center gap-1"
                     info={
                         canSkipSubmitButton
                             ? "When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."

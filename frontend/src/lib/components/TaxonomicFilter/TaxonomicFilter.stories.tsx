@@ -44,7 +44,7 @@ export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(1)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="bg-surface-primary w-fit rounded border p-2">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -92,7 +92,7 @@ export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(0)
     }, [])
     return (
-        <div className="w-fit border rounded p-2">
+        <div className="w-fit rounded border p-2">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -111,7 +111,7 @@ Actions.parameters = {
 
 export const Properties: StoryFn<typeof TaxonomicFilter> = (args) => {
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="bg-surface-primary w-fit rounded border p-2">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -145,7 +145,7 @@ export const Columnar: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(1)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="bg-surface-primary w-fit rounded border p-2">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -185,7 +185,7 @@ export const ForceColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(1)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="bg-surface-primary w-fit rounded border p-2">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -224,7 +224,7 @@ export const ForceNonColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(1)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="bg-surface-primary w-fit rounded border p-2">
             <TaxonomicFilter {...args} />
         </div>
     )

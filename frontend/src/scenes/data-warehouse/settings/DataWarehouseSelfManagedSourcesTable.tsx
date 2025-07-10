@@ -17,7 +17,7 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
 
     return (
         <div>
-            <div className="flex gap-2 justify-between items-center mb-4">
+            <div className="mb-4 flex items-center justify-between gap-2">
                 <LemonInput type="search" placeholder="Search..." onChange={setSearchTerm} value={searchTerm} />
             </div>
             <LemonTable

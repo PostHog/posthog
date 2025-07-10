@@ -159,8 +159,8 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                         render: function RenderName(_, plugin) {
                             return (
                                 <>
-                                    <div className="flex gap-2 items-center">
-                                        <span className="font-semibold truncate">{plugin.name}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="truncate font-semibold">{plugin.name}</span>
                                         {plugin.latest_tag && plugin.tag && plugin.latest_tag !== plugin.tag && (
                                             <Link
                                                 to={plugin.url + '/compare/' + plugin.tag + '...' + plugin.latest_tag}
@@ -198,7 +198,7 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                         align: 'right',
                         render: function RenderAccess(_, plugin) {
                             return (
-                                <div className="flex items-center gap-2 justify-end">
+                                <div className="flex items-center justify-end gap-2">
                                     {plugin.latest_tag && plugin.tag != plugin.latest_tag && (
                                         <LemonButton
                                             type="secondary"
@@ -287,8 +287,8 @@ function InlinePluginsTable({ plugins }: RenderAppsTable): JSX.Element {
                         render: function RenderName(_, plugin) {
                             return (
                                 <>
-                                    <div className="flex gap-2 items-center">
-                                        <span className="font-semibold truncate">{plugin.name}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="truncate font-semibold">{plugin.name}</span>
                                     </div>
                                     <div className="text-sm">{plugin.description}</div>
                                 </>

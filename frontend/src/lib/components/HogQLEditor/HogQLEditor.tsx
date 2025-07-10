@@ -73,8 +73,8 @@ export function HogQLEditor({
             >
                 {submitText ?? 'Update SQL expression'}
             </LemonButton>
-            <div className="flex mt-1 gap-1">
-                <div className={`w-full text-right select-none ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
+            <div className="mt-1 flex gap-1">
+                <div className={`w-full select-none text-right ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
                     <Link to="https://posthog.com/docs/sql" target="_blank">
                         Learn more about SQL
                     </Link>

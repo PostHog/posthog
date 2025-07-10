@@ -76,7 +76,7 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                 showNestedArrow={true}
                 {...actionFilterProps}
             />
-            <div className="mt-4 deprecated-space-y-4">
+            <div className="deprecated-space-y-4 mt-4">
                 <FunnelAggregationSelect
                     value={getHogQLValue(
                         sharedMetricQuery.funnels_query.aggregation_group_type_index ?? undefined,
@@ -186,7 +186,7 @@ export function LegacySharedFunnelsMetricForm(): JSX.Element {
                 />
             </div>
 
-            <LemonBanner type="info" className="mt-3 mb-3">
+            <LemonBanner type="info" className="mb-3 mt-3">
                 Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
                 mismatch between the preview and the actual results.
             </LemonBanner>

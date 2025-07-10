@@ -60,7 +60,7 @@ export function BulkActions({ issues, selectedIds }: BulkActionsProps): JSX.Elem
         }, null)
 
     return (
-        <div className="flex gap-x-2 justify-between">
+        <div className="flex justify-between gap-x-2">
             <div className="flex gap-x-2">
                 <LemonButton
                     disabledReason={!hasAtLeastTwoIssues ? 'Select at least two issues to merge' : null}

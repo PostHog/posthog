@@ -18,18 +18,18 @@ export const Horizontal = (): JSX.Element => {
     return (
         <>
             <ScrollableShadows
-                className="border rounded w-200 resize"
+                className="w-200 resize rounded border"
                 innerClassName="p-4"
                 direction="horizontal"
                 scrollRef={scrollRef}
             >
-                <div className="flex gap-2 items-center">
+                <div className="flex items-center gap-2">
                     {Array.from({ length: 100 }).map((_, index) => (
-                        <div key={index} className="w-24 h-24 shrink-0 bg-accent rounded" />
+                        <div key={index} className="bg-accent h-24 w-24 shrink-0 rounded" />
                     ))}
                 </div>
             </ScrollableShadows>
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex gap-2">
                 <LemonButton
                     onClick={() => {
                         scrollRef.current?.scrollBy({ left: -100, behavior: 'smooth' })
@@ -55,18 +55,18 @@ export const Vertical = (): JSX.Element => {
     return (
         <>
             <ScrollableShadows
-                className="border rounded w-60 h-100 resize"
+                className="h-100 w-60 resize rounded border"
                 innerClassName="p-4"
                 direction="vertical"
                 scrollRef={scrollRef}
             >
-                <div className="flex flex-col gap-2 items-center">
+                <div className="flex flex-col items-center gap-2">
                     {Array.from({ length: 100 }).map((_, index) => (
-                        <div key={index} className="w-24 h-24 shrink-0 bg-accent rounded" />
+                        <div key={index} className="bg-accent h-24 w-24 shrink-0 rounded" />
                     ))}
                 </div>
             </ScrollableShadows>
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex gap-2">
                 <LemonButton
                     onClick={() => {
                         scrollRef.current?.scrollBy({ top: -100, behavior: 'smooth' })

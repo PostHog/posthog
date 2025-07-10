@@ -15,7 +15,7 @@ export function TitledSnack({
         <div className="flex flex-row items-center">
             <span
                 className={clsx(
-                    'pl-1.5 pr-1 py-1 max-w-full',
+                    'max-w-full py-1 pl-1.5 pr-1',
                     'border-r',
                     'rounded-l rounded-r-none',
                     'overflow-hidden text-ellipsis',
@@ -29,8 +29,8 @@ export function TitledSnack({
             </span>
             <span
                 className={clsx(
-                    'pr-1.5 pl-1 py-1 max-w-full',
-                    'rounded-r rounded-l-none',
+                    'max-w-full py-1 pl-1 pr-1.5',
+                    'rounded-l-none rounded-r',
                     'overflow-hidden text-ellipsis',
                     type === 'success' ? 'bg-success-highlight' : 'bg-accent-highlight-secondary',
                     'flex flex-1 items-center'

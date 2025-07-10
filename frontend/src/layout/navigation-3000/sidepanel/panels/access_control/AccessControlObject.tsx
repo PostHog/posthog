@@ -148,7 +148,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                     <div className="flex items-center gap-2">
                         <ProfilePicture user={member(ac as AccessControlTypeMember)?.user} />
                         <div>
-                            <p className="font-medium mb-0">
+                            <p className="mb-0 font-medium">
                                 {member(ac as AccessControlTypeMember)?.user.uuid == user.uuid
                                     ? `${member(ac as AccessControlTypeMember)?.user.first_name} (you)`
                                     : member(ac as AccessControlTypeMember)?.user.first_name}
@@ -211,7 +211,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
     return (
         <>
             <div className="deprecated-space-y-2">
-                <div className="flex gap-2 items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                     <h3 className="mb-0">Members</h3>
                     <LemonButton
                         type="primary"
@@ -324,7 +324,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
     return (
         <>
             <div className="deprecated-space-y-2">
-                <div className="flex gap-2 items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                     <h3 className="mb-0">Roles</h3>
                     <LemonButton
                         type="primary"
@@ -466,8 +466,8 @@ function AddItemsControlsModal(props: {
                 </div>
             }
         >
-            <div className="flex gap-2 items-center w-full">
-                <div className="min-w-[16rem] w-full">
+            <div className="flex w-full items-center gap-2">
+                <div className="w-full min-w-[16rem]">
                     <LemonInputSelect
                         placeholder={props.placeholder}
                         value={items}

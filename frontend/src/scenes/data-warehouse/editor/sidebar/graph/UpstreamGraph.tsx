@@ -74,19 +74,19 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
 
     return (
         <div
-            className="bg-bg-light border border-border rounded-lg p-3 min-w-[240px] shadow-sm"
+            className="bg-bg-light border-border min-w-[240px] rounded-lg border p-3 shadow-sm"
             style={{ minHeight: nodeHeight }}
         >
-            {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
+            {hasIncoming && <Handle type="target" position={Position.Left} className="bg-primary h-2 w-2" />}
 
-            <div className="flex items-center gap-2 mb-2">
+            <div className="mb-2 flex items-center gap-2">
                 {data.isCurrentView && (
                     <Tooltip placement="top" title="This is the currently viewed query">
                         <IconTarget className="text-warning text-sm" />
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
-                    <span className="font-medium text-sm truncate max-w-[180px] block">{data.name}</span>
+                    <span className="block max-w-[180px] truncate text-sm font-medium">{data.name}</span>
                 </Tooltip>
             </div>
 
@@ -105,10 +105,10 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
             </div>
 
             {data.last_run_at && (
-                <div className="text-xs text-muted mt-2">Last run: {humanFriendlyDetailedTime(data.last_run_at)}</div>
+                <div className="text-muted mt-2 text-xs">Last run: {humanFriendlyDetailedTime(data.last_run_at)}</div>
             )}
 
-            {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-primary" />}
+            {hasOutgoing && <Handle type="source" position={Position.Right} className="bg-primary h-2 w-2" />}
         </div>
     )
 }
@@ -195,11 +195,11 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
         return (
             <div
                 data-attr="upstream-graph-empty-state"
-                className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
+                className="flex w-full flex-1 flex-col items-center justify-center rounded p-4"
             >
-                <IconArchive className="text-5xl mb-2 text-tertiary" />
+                <IconArchive className="text-tertiary mb-2 text-5xl" />
                 <h2 className="text-xl leading-tight">No tables or views found</h2>
-                <p className="text-sm text-center text-balance text-tertiary">
+                <p className="text-tertiary text-balance text-center text-sm">
                     This query doesn't depend on any other tables or views
                 </p>
             </div>
@@ -207,7 +207,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
     }
 
     return (
-        <div className="w-full h-full">
+        <div className="h-full w-full">
             <ReactFlow
                 proOptions={{
                     hideAttribution: true,
@@ -231,7 +231,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
 export function UpstreamGraph({ codeEditorKey }: UpstreamGraphProps): JSX.Element {
     return (
-        <div className="w-full h-full">
+        <div className="h-full w-full">
             <ReactFlowProvider>
                 <UpstreamGraphContent codeEditorKey={codeEditorKey} />
             </ReactFlowProvider>

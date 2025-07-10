@@ -31,17 +31,17 @@ export function ErrorDisplayContent(): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { type, value, sentryUrl, level, ingestionErrors, handled } = exceptionAttributes || {}
     return (
-        <div className="flex flex-col deprecated-space-y-2 pb-2">
+        <div className="deprecated-space-y-2 flex flex-col pb-2">
             <h1 className="mb-0">{type || level}</h1>
             {!hasStacktrace && <div className="text-secondary italic">{value}</div>}
-            <div className="flex flex-row gap-2 flex-wrap">
+            <div className="flex flex-row flex-wrap gap-2">
                 <TitledSnack
                     type="success"
                     title="captured by"
                     value={
                         sentryUrl ? (
                             <Link
-                                className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
+                                className="text-3000 decoration-primary-alt cursor-pointer hover:underline"
                                 to={sentryUrl}
                                 target="_blank"
                             >
@@ -85,7 +85,7 @@ const StackTrace = (): JSX.Element => {
     const [showAllFrames, setShowAllFrames] = useState(false)
     return (
         <>
-            <div className="flex gap-1 mt-6 justify-between items-center">
+            <div className="mt-6 flex items-center justify-between gap-1">
                 <h3 className="mb-0">Stack Trace</h3>
                 <LemonSwitch
                     checked={showAllFrames}

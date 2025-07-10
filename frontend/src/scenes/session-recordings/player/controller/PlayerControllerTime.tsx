@@ -55,7 +55,7 @@ export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
     return (
         <LemonButton
             data-attr="recording-timestamp"
-            className="text-center whitespace-nowrap font-mono text-xs"
+            className="whitespace-nowrap text-center font-mono text-xs"
             onClick={() => {
                 const values = Object.values(TimestampFormat)
                 const nextIndex = (values.indexOf(timestampFormat) + 1) % values.length

@@ -107,7 +107,7 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                             </div>
                         )}
                         <h5 className="mt-4">Project members with access</h5>
-                        <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
+                        <div className="mt-2 max-h-80 overflow-y-auto rounded pb-2">
                             {allCollaborators.map((collaborator) => (
                                 <CollaboratorRow
                                     key={collaborator.user.uuid}
@@ -145,7 +145,7 @@ function CollaboratorRow({
     const privilegeLevelName = privilegeLevelToName[level]
 
     return (
-        <div className="flex items-center justify-between mt-2 pl-2 h-8">
+        <div className="mt-2 flex h-8 items-center justify-between pl-2">
             <ProfilePicture user={user} size="md" showName />
             <Tooltip
                 title={
@@ -160,7 +160,7 @@ function CollaboratorRow({
                 placement="left"
             >
                 <div className="flex items-center gap-2">
-                    <span className="rounded bg-primary-alt-highlight p-1">{privilegeLevelName}</span>
+                    <span className="bg-primary-alt-highlight rounded p-1">{privilegeLevelName}</span>
                     {deleteCollaborator && wasInvited && (
                         <LemonButton
                             icon={<IconTrash />}

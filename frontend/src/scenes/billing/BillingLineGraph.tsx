@@ -275,7 +275,7 @@ export function BillingLineGraph({
     return (
         <div className="relative h-96">
             {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
+                <div className="bg-bg-light absolute inset-0 z-10 flex items-center justify-center bg-opacity-75">
                     <div className="text-muted">Loading...</div>
                 </div>
             )}

@@ -35,9 +35,9 @@ export function OverlayForNewInsightMenu({ dataAttr }: { dataAttr: string }): JS
                             }}
                             fullWidth
                         >
-                            <div className="flex flex-col text-sm py-1">
+                            <div className="flex flex-col py-1 text-sm">
                                 <strong>{listedInsightTypeMetadata.name}</strong>
-                                <span className="text-xs font-sans font-normal">
+                                <span className="font-sans text-xs font-normal">
                                     {listedInsightTypeMetadata.description}
                                 </span>
                             </div>

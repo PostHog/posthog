@@ -61,8 +61,8 @@ export function HogFunctionIconEditable({
             visible={showPopover}
             onClickOutside={() => setShowPopover(false)}
             overlay={
-                <div className="p-1 w-100 deprecated-space-y-2">
-                    <div className="flex gap-2 justify-between items-center">
+                <div className="w-100 deprecated-space-y-2 p-1">
+                    <div className="flex items-center justify-between gap-2">
                         <h2 className="m-0">Choose an icon</h2>
 
                         <LemonFileInput
@@ -111,7 +111,7 @@ export function HogFunctionIconEditable({
                             </span>
                         )) ??
                             (possibleIconsLoading ? (
-                                <LemonSkeleton className="w-14 h-14" repeat={4} />
+                                <LemonSkeleton className="h-14 w-14" repeat={4} />
                             ) : (
                                 'No icons found'
                             ))}
@@ -138,22 +138,22 @@ export function HogFunctionIcon({
     return (
         <span
             className={clsx('relative flex items-center justify-center', {
-                'w-8 h-8 text-2xl': size === 'small',
-                'w-10 h-10 text-4xl': size === 'medium',
-                'w-12 h-12 text-6xl': size === 'large',
+                'h-8 w-8 text-2xl': size === 'small',
+                'h-10 w-10 text-4xl': size === 'medium',
+                'h-12 w-12 text-6xl': size === 'large',
             })}
         >
             {src ? (
                 <>
                     <img
                         className={clsx(
-                            'overflow-hidden w-full h-full rounded transition-opacity',
+                            'h-full w-full overflow-hidden rounded transition-opacity',
                             loaded ? 'opacity-100' : 'opacity-0'
                         )}
                         src={src}
                         onLoad={() => setLoaded(true)}
                     />
-                    {!loaded && <LemonSkeleton className="absolute w-full h-full" />}
+                    {!loaded && <LemonSkeleton className="absolute h-full w-full" />}
                 </>
             ) : (
                 <span>🦔</span>

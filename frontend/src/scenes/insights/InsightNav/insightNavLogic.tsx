@@ -230,7 +230,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         label: (
                             <>
                                 {humanFriendlyQueryKind ?? 'Custom'}{' '}
-                                <LemonTag type="warning" className="uppercase ml-2">
+                                <LemonTag type="warning" className="ml-2 uppercase">
                                     Beta
                                 </LemonTag>
                             </>

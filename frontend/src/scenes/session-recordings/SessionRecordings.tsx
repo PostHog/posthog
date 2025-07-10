@@ -110,16 +110,16 @@ function Warnings(): JSX.Element {
 
             {recordingsDisabled ? (
                 <LemonBanner type="info" hideIcon={true}>
-                    <div className="flex gap-8 p-8 md:flex-row justify-center flex-wrap">
-                        <div className="flex justify-center items-center w-full md:w-50">
-                            <WarningHog className="w-full h-auto md:h-[200px] md:w-[200px] max-w-50" />
+                    <div className="flex flex-wrap justify-center gap-8 p-8 md:flex-row">
+                        <div className="md:w-50 flex w-full items-center justify-center">
+                            <WarningHog className="max-w-50 h-auto w-full md:h-[200px] md:w-[200px]" />
                         </div>
-                        <div className="flex flex-col gap-2 flex-shrink max-w-180">
+                        <div className="max-w-180 flex flex-shrink flex-col gap-2">
                             <h2 className="text-lg font-semibold">
                                 Session recordings are not yet enabled for this {settingLevel}
                             </h2>
                             <p className="font-normal">Enabling session recordings will help you:</p>
-                            <ul className="list-disc list-inside font-normal">
+                            <ul className="list-inside list-disc font-normal">
                                 <li>
                                     <strong>Understand user behavior:</strong> Get a clear view of how people navigate
                                     and interact with your product.
@@ -141,9 +141,9 @@ function Warnings(): JSX.Element {
                                 Enable session recordings to unlock these benefits and create better experiences for
                                 your users.
                             </p>
-                            <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                                 <LemonButton
-                                    className="hidden @md:flex"
+                                    className="@md:flex hidden"
                                     type="primary"
                                     icon={<IconGear />}
                                     to={urls.replaySettings()}
@@ -152,7 +152,7 @@ function Warnings(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     type="tertiary"
-                                    sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                                    sideIcon={<IconOpenSidebar className="h-4 w-4" />}
                                     to="https://posthog.com/docs/session-replay?utm_medium=in-product&utm_campaign=empty-state-docs-link"
                                     data-attr="product-introduction-docs-link"
                                     targetBlank

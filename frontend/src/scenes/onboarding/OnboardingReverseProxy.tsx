@@ -55,13 +55,13 @@ export const OnboardingReverseProxy = ({ stepKey }: { stepKey: OnboardingStepKey
                 </p>
                 <p>
                     Setting up a reverse proxy means setting up a service to redirect requests from a subdomain you
-                    choose (like <span className="font-mono break-keep">e.yourdomain.com</span>) to PostHog. It is best
+                    choose (like <span className="break-keep font-mono">e.yourdomain.com</span>) to PostHog. It is best
                     practice to use a subdomain that does not include posthog, analytics, tracking, or other similar
                     words.
                 </p>
                 <h3>Documentation</h3>
                 <p>Here are some popular reverse proxy options:</p>
-                <ul className="list-disc list-inside ml-2">
+                <ul className="ml-2 list-inside list-disc">
                     {proxyDocs.map(({ title, link }) => (
                         <li key={title}>
                             <Link to={link} target="_blank">

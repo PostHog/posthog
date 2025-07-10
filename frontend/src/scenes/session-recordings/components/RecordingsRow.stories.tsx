@@ -51,7 +51,7 @@ export const Default: StoryFn<typeof RecordingRow> = () => {
     return (
         <div className="flex flex-col gap-2 p-4">
             {recordings.map((params, index) => (
-                <div key={index} className="border rounded p-2">
+                <div key={index} className="rounded border p-2">
                     <RecordingRow recording={asRecording(params)} />
                 </div>
             ))}

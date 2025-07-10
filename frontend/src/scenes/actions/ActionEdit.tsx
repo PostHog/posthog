@@ -173,12 +173,12 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                     <p>
                         Your action will be triggered whenever <b>any of your match groups</b> are received.
                         <Link to="https://posthog.com/docs/data/actions" target="_blank">
-                            <IconInfo className="ml-1 text-secondary text-xl" />
+                            <IconInfo className="text-secondary ml-1 text-xl" />
                         </Link>
                     </p>
                     <LemonField name="steps">
                         {({ value: stepsValue, onChange }) => (
-                            <div className="grid @4xl:grid-cols-2 gap-3">
+                            <div className="@4xl:grid-cols-2 grid gap-3">
                                 {stepsValue.map((step: ActionStepType, index: number) => {
                                     const identifier = String(JSON.stringify(step))
                                     return (
@@ -211,7 +211,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                             onChange([...(action.steps || []), DEFAULT_ACTION_STEP])
                                         }}
                                         center
-                                        className="w-full h-full"
+                                        className="h-full w-full"
                                     >
                                         Add match group
                                     </LemonButton>

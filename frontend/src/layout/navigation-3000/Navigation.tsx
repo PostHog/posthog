@@ -48,7 +48,7 @@ export function Navigation({
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 href="#main-content"
-                className="sr-only focus:not-sr-only focus:fixed focus:z-top focus:top-4 focus:left-4 focus:p-4 focus:bg-white focus:dark:bg-gray-800 focus:rounded focus:shadow-lg"
+                className="focus:z-top sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:rounded focus:bg-white focus:p-4 focus:shadow-lg focus:dark:bg-gray-800"
                 tabIndex={0}
             >
                 Skip to content

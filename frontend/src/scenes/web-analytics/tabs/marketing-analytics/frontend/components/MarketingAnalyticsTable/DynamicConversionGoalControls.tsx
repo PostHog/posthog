@@ -90,7 +90,7 @@ export const DynamicConversionGoalControls = (): JSX.Element => {
             {isExpanded && (
                 <>
                     <div className="flex items-center gap-4">
-                        <div className="flex gap-2 w-full">
+                        <div className="flex w-full gap-2">
                             <LemonInput
                                 className="w-full"
                                 value={localConversionGoalName}

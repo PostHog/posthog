@@ -72,9 +72,9 @@ type SelectOptionProps<T> = {
 }
 
 export const SelectOption = <T,>({ title, description, value, selectedValue }: SelectOptionProps<T>): JSX.Element => (
-    <div className="flex p-1 items-center">
+    <div className="flex items-center p-1">
         <div
-            className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
+            className={`mr-3 flex h-10 w-10 shrink-0 items-center justify-center rounded text-xs font-bold ${
                 value === selectedValue
                     ? 'bg-accent text-primary-inverse [text-shadow:0_0_1px_black]'
                     : 'bg-surface-secondary text-primary'

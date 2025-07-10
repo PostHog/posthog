@@ -13,10 +13,10 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
-        <div className="border rounded p-10 h-full deprecated-space-y-4 flex-1 flex flex-col justify-between">
+        <div className="deprecated-space-y-4 flex h-full flex-1 flex-col justify-between rounded border p-10">
             <div className="deprecated-space-y-4">
-                <LemonSkeleton className="w-1/3 h-4" active={active} />
-                <LemonSkeleton className="w-1/2 h-4" active={active} />
+                <LemonSkeleton className="h-4 w-1/3" active={active} />
+                <LemonSkeleton className="h-4 w-1/2" active={active} />
             </div>
             {children}
         </div>
@@ -26,11 +26,11 @@ function SkeletonCard({ children, active }: { children: React.ReactNode; active:
 function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
     return (
         <SkeletonCard active={active}>
-            <div className="flex justify-center flex-1 items-end gap-10">
+            <div className="flex flex-1 items-end justify-center gap-10">
                 {[100, 66, 33].map((height) => (
                     <div
                         key={height}
-                        className="border border-primary rounded overflow-hidden flex flex-col justify-end w-[15%] h-[80%]"
+                        className="border-primary flex h-[80%] w-[15%] flex-col justify-end overflow-hidden rounded border"
                     >
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div style={{ height: `${height}%` }}>
@@ -45,7 +45,7 @@ function SkeletonCardOne({ active }: { active: boolean }): JSX.Element {
 
 function SkeletonBarsRaw({ active }: { active: boolean }): JSX.Element {
     return (
-        <div className="flex items-end gap-1 flex-1">
+        <div className="flex flex-1 items-end gap-1">
             {Array(8)
                 .fill(0)
                 .map((_, index) => {
@@ -100,12 +100,12 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-2 h-[30rem]">
+            <div className="flex h-[30rem] items-center gap-2">
                 <SkeletonCardOne active={loading} />
                 <SkeletonCardTwo active={loading} />
             </div>
             <div className="EmptyDashboard__fade">
-                <div className="flex items-center gap-2 h-[30rem]">
+                <div className="flex h-[30rem] items-center gap-2">
                     <SkeletonCardOne active={loading} />
                     <SkeletonCardTwo active={loading} />
                 </div>

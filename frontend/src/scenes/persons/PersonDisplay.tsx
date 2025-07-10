@@ -142,7 +142,7 @@ export function PersonDisplay({
                 {withCopyButton ? (
                     <div className="flex flex-row items-center justify-between">
                         {content}
-                        <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
+                        <IconCopy className="cursor-pointer text-lg" onClick={() => void copyToClipboard(display)} />
                     </div>
                 ) : (
                     <span>{content}</span>

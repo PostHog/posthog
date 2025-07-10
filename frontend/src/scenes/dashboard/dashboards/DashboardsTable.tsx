@@ -101,18 +101,18 @@ export function DashboardsTable({
                                 <span data-attr="dashboard-name">{name || 'Untitled'}</span>
                                 {is_shared && (
                                     <Tooltip title="This dashboard is shared publicly.">
-                                        <IconShare className="ml-1 text-base text-link" />
+                                        <IconShare className="text-link ml-1 text-base" />
                                     </Tooltip>
                                 )}
                                 {!canEditDashboard && (
                                     <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                        <IconLock className="ml-1 text-base text-secondary" />
+                                        <IconLock className="text-secondary ml-1 text-base" />
                                     </Tooltip>
                                 )}
                                 {isPrimary && (
                                     <Tooltip title="The primary dashboard is shown on the project home page.">
                                         <span>
-                                            <IconHome className="ml-1 text-base text-warning" />
+                                            <IconHome className="text-warning ml-1 text-base" />
                                         </span>
                                     </Tooltip>
                                 )}
@@ -224,14 +224,14 @@ export function DashboardsTable({
 
     return (
         <>
-            <div className="flex justify-between gap-2 flex-wrap mb-4">
+            <div className="mb-4 flex flex-wrap justify-between gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for dashboards"
                     onChange={(x) => setFilters({ search: x })}
                     value={filters.search}
                 />
-                <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex flex-wrap items-center gap-4">
                     <div className="flex items-center gap-2">
                         <span>Filter to:</span>
                         <div className="flex items-center gap-2">

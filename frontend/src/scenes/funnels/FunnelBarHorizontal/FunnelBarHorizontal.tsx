@@ -76,7 +76,7 @@ export function FunnelBarHorizontal({
                             <div className={`funnel-series-linebox ${showLineAfter ? 'after' : ''}`} />
                         </div>
                         <header>
-                            <div className="flex items-center max-w-full grow">
+                            <div className="flex max-w-full grow items-center">
                                 <div className="funnel-step-title">
                                     {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                         <span>Completed {step.order + 1} steps</span>

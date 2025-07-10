@@ -80,7 +80,7 @@ LIMIT
             onClose={onClose}
             title="SQL Query Helper"
             description={
-                <div className="flex flex-col gap-1 text-sm text-muted">
+                <div className="text-muted flex flex-col gap-1 text-sm">
                     <p>
                         <b>Important:</b> Since March 7, 2025, survey responses are stored using question IDs
                         ([UUID](https://en.wikipedia.org/wiki/Universally_unique_identifier)) instead of indexes. The
@@ -97,7 +97,7 @@ LIMIT
             <div className="flex flex-col gap-2">
                 <div className="flex flex-col gap-1">
                     <h4>Full Survey Query</h4>
-                    <p className="text-sm text-muted">Returns all questions for this survey.</p>
+                    <p className="text-muted text-sm">Returns all questions for this survey.</p>
                     <CodeSnippet
                         language={Language.SQL}
                         compact
@@ -119,7 +119,7 @@ LIMIT
 
                 <div className="flex flex-col gap-2">
                     <h4>Individual Question Queries</h4>
-                    <p className="text-sm text-muted">Returns responses for individual questions.</p>
+                    <p className="text-muted text-sm">Returns responses for individual questions.</p>
 
                     <div className="flex flex-col gap-1">
                         {survey.questions.map((question: SurveyQuestion, index: number) => (

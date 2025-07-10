@@ -18,18 +18,18 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
     const { selectAction } = useActions(actionsTabLogic)
 
     return (
-        <div className="flex flex-col h-full overflow-y-auto deprecated-space-y-px mb-2">
+        <div className="deprecated-space-y-px mb-2 flex h-full flex-col overflow-y-auto">
             {actions.length ? (
                 actions.map((action, index) => (
                     <Fragment key={action.id}>
                         <Link
                             subtle
                             onClick={() => selectAction(action.id || null)}
-                            className="font-medium my-1 w-full"
+                            className="my-1 w-full font-medium"
                         >
-                            <span className="min-w-[2rem] inline-block text-left">{index + 1}.</span>
+                            <span className="inline-block min-w-[2rem] text-left">{index + 1}.</span>
                             <span className="flex-grow">
-                                {action.name || <span className="italic text-secondary">Untitled</span>}
+                                {action.name || <span className="text-secondary italic">Untitled</span>}
                             </span>
                         </Link>
                     </Fragment>

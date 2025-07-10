@@ -9,7 +9,7 @@ export const scene: SceneExport = {
 
 export function IntegrationsRedirect(): JSX.Element {
     return (
-        <div className="text-center gap-4 flex">
+        <div className="flex gap-4 text-center">
             <Spinner />
         </div>
     )

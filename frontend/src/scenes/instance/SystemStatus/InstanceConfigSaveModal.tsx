@@ -31,7 +31,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                 {!isSecret && (
                     <>
                         {' from '}
-                        <span className="font-bold text-text-3000">
+                        <span className="text-text-3000 font-bold">
                             {RenderMetricValue(null, {
                                 key: metricKey,
                                 value: oldValue,
@@ -42,7 +42,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                     </>
                 )}
                 {' to '}
-                <span className="font-bold text-text-3000">
+                <span className="text-text-3000 font-bold">
                     {RenderMetricValue(null, { key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (
@@ -123,7 +123,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                     />
                 ))}
                 {loading && (
-                    <div className="mt-4 text-success">
+                    <div className="text-success mt-4">
                         <b>{pluralize(updatedInstanceConfigCount || 0, 'change')} updated successfully.</b>
                     </div>
                 )}

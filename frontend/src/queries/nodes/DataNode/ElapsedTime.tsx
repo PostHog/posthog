@@ -19,7 +19,7 @@ export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | n
                 <div
                     key={key}
                     className={clsx(
-                        'flex justify-between items-start deprecated-space-x-2',
+                        'deprecated-space-x-2 flex items-start justify-between',
                         time > timings[timings.length - 1].t * 0.5 ? 'font-bold' : ''
                     )}
                 >
@@ -28,7 +28,7 @@ export function Timings({ timings, elapsedTime }: TimingsProps): JSX.Element | n
                 </div>
             ))}
             {elapsedTime !== undefined && timings.length > 0 ? (
-                <div className={clsx('flex justify-between items-start deprecated-space-x-2')}>
+                <div className={clsx('deprecated-space-x-2 flex items-start justify-between')}>
                     <div>+ HTTP overhead</div>
                     <div>{(elapsedTime / 1000 - timings[timings.length - 1].t).toFixed(3)}s</div>
                 </div>

@@ -9,17 +9,17 @@ export interface ItemDoctorProps {
 
 export function ItemDoctor({ item }: ItemDoctorProps): JSX.Element {
     return (
-        <div data-attr="item-doctor-item" className="font-light w-full">
-            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.tag}</div>
+        <div data-attr="item-doctor-item" className="w-full font-light">
+            <div className="flex-1 cursor-pointer truncate px-2 py-1 font-mono text-xs">{item.tag}</div>
         </div>
     )
 }
 
 export function ItemDoctorDetail({ item }: ItemDoctorProps): JSX.Element {
     return (
-        <div data-attr="item-doctor-item" className="font-light w-full flex flex-col">
+        <div data-attr="item-doctor-item" className="flex w-full flex-col font-light">
             {['posthog config', 'session options'].includes(item.tag) ? (
-                <div className="px-2 py-1 text-xs border-t flex justify-end">
+                <div className="flex justify-end border-t px-2 py-1 text-xs">
                     <CopyToClipboardInline
                         explicitValue={JSON.stringify(item.data, null, 2)}
                         iconSize="xsmall"
@@ -29,7 +29,7 @@ export function ItemDoctorDetail({ item }: ItemDoctorProps): JSX.Element {
                     </CopyToClipboardInline>
                 </div>
             ) : null}
-            <div className="px-2 py-1 text-xs border-t">{item.data && <SimpleKeyValueList item={item.data} />}</div>
+            <div className="border-t px-2 py-1 text-xs">{item.data && <SimpleKeyValueList item={item.data} />}</div>
         </div>
     )
 }

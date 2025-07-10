@@ -172,17 +172,17 @@ export function PipelinePluginConfiguration({
                 formKey="configuration"
                 className="deprecated-space-y-3"
             >
-                <div className="flex flex-wrap gap-4 items-start">
-                    <div className="flex flex-col flex-1 gap-4 min-w-100">
-                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
-                            <div className="flex flex-row gap-2 items-center min-h-16">
+                <div className="flex flex-wrap items-start gap-4">
+                    <div className="min-w-100 flex flex-1 flex-col gap-4">
+                        <div className="bg-surface-primary deprecated-space-y-2 rounded border p-3">
+                            <div className="flex min-h-16 flex-row items-center gap-2">
                                 <RenderApp plugin={plugin} imageSize="medium" />
-                                <div className="flex flex-col flex-1 py-1">
-                                    <div className="flex flex-row gap-1 items-center text-sm font-semibold">
+                                <div className="flex flex-1 flex-col py-1">
+                                    <div className="flex flex-row items-center gap-1 text-sm font-semibold">
                                         {plugin.name}
                                     </div>
                                     {plugin.description ? (
-                                        <div className="mt-1 text-xs text-text-3000 text-tertiary">
+                                        <div className="text-text-3000 text-tertiary mt-1 text-xs">
                                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                                                 {plugin.description}
                                             </LemonMarkdown>
@@ -220,18 +220,18 @@ export function PipelinePluginConfiguration({
                     </div>
 
                     <div className="flex-2 min-w-100 deprecated-space-y-4">
-                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                        <div className="bg-surface-primary deprecated-space-y-2 rounded border p-3">
                             <>
                                 {fields.length ? (
                                     fields
                                 ) : (
-                                    <span className="italic text-secondary">
+                                    <span className="text-secondary italic">
                                         This app does not have specific configuration options
                                     </span>
                                 )}
                             </>
                         </div>
-                        <div className="flex gap-2 justify-end">{buttons}</div>
+                        <div className="flex justify-end gap-2">{buttons}</div>
                     </div>
                 </div>
             </Form>

@@ -179,11 +179,11 @@ const dataColors = [
 export function ColorPalette(): JSX.Element {
     const [hover, setHover] = useState<string>()
     return (
-        <div className="flex gap-4 flex-wrap items-start">
+        <div className="flex flex-wrap items-start gap-4">
             {Object.keys(colorGroups).map((group) => (
-                <div key={group} className="flex flex-col w-40 h-50">
-                    <div className="font-bold text-ellipsis mb-2">{group}</div>
-                    <div className="rounded-lg overflow-hidden flex flex-col flex-1">
+                <div key={group} className="h-50 flex w-40 flex-col">
+                    <div className="mb-2 text-ellipsis font-bold">{group}</div>
+                    <div className="flex flex-1 flex-col overflow-hidden rounded-lg">
                         {colorGroups[group as keyof typeof colorGroups].map((color: string) => (
                             <Popover
                                 key={color}
@@ -225,8 +225,8 @@ export function AllPreThousandColorOptions(): JSX.Element {
                     render: function RenderColor(color) {
                         return (
                             <div className="relative h-8 w-8">
-                                <div className={`${color as string} absolute inset-0 border rounded z-20`} />
-                                <div className="absolute inset-0 flex items-center justify-center z-10">🦔</div>
+                                <div className={`${color as string} absolute inset-0 z-20 rounded border`} />
+                                <div className="absolute inset-0 z-10 flex items-center justify-center">🦔</div>
                             </div>
                         )
                     },
@@ -261,7 +261,7 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                             <div className="flex gap-2">
                                 {colorOldNew &&
                                     colorOldNew.map((color) => (
-                                        <div key={color} className={`${color} border rounded h-8 w-8`} />
+                                        <div key={color} className={`${color} h-8 w-8 rounded border`} />
                                     ))}
                             </div>
                         )
@@ -273,10 +273,10 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(colorOldNew) {
                         return (
-                            <div className="bg-primary-dark flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-primary-dark flex h-16 w-16 items-center justify-center rounded border">
                                 {colorOldNew &&
                                     colorOldNew.map((color) => (
-                                        <div key={color} className={`${color} border rounded h-8 w-8`} />
+                                        <div key={color} className={`${color} h-8 w-8 rounded border`} />
                                     ))}
                             </div>
                         )
@@ -306,9 +306,9 @@ export function DataColors(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div className="bg-primary-light flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-primary-light flex h-16 w-16 items-center justify-center rounded border">
                                 <div
-                                    className="border rounded h-8 w-8"
+                                    className="h-8 w-8 rounded border"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ backgroundColor: `var(--${color})` }}
                                 />
@@ -322,9 +322,9 @@ export function DataColors(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div className="bg-primary-dark flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-primary-dark flex h-16 w-16 items-center justify-center rounded border">
                                 <div
-                                    className="border rounded h-8 w-8"
+                                    className="h-8 w-8 rounded border"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ backgroundColor: `var(--${color})` }}
                                 />

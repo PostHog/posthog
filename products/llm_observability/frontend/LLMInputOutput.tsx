@@ -16,12 +16,12 @@ export function LLMInputOutput({
     return (
         <>
             <div className={bordered ? 'bg-surface-primary rounded-lg border p-2' : undefined}>
-                <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
+                <h4 className="mb-2 flex items-center gap-x-1.5 text-xs font-semibold">
                     <IconArrowUp className="text-base" />
                     {inputHeading}
                 </h4>
                 {inputDisplay}
-                <h4 className="flex items-center gap-x-1.5 text-xs font-semibold my-2">
+                <h4 className="my-2 flex items-center gap-x-1.5 text-xs font-semibold">
                     <IconArrowDown className="text-base" />
                     {outputHeading}
                 </h4>

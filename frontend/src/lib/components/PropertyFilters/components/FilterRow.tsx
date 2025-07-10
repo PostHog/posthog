@@ -66,7 +66,7 @@ export const FilterRow = React.memo(function FilterRow({
         <>
             <div
                 className={clsx(
-                    'property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full grow',
+                    'property-filter-row deprecated-space-x-2 flex max-w-full grow flex-nowrap items-center',
                     {
                         'sm:grow-0': isValid,
                         'wrap-filters': !disablePopover,

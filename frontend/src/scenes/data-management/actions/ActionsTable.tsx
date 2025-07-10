@@ -264,7 +264,7 @@ export function ActionsTable(): JSX.Element {
                 }
             />
             {(shouldShowEmptyState && filterType === 'me') || !shouldShowEmptyState ? (
-                <div className="flex items-center justify-between gap-2 mb-4">
+                <div className="mb-4 flex items-center justify-between gap-2">
                     <LemonInput
                         type="search"
                         placeholder="Search for actions"

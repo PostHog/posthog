@@ -19,7 +19,7 @@ export const FunnelCorrelationSkewWarning = (): JSX.Element | null => {
     return (
         <div className="skew-warning">
             <h4>
-                <div className="flex items-center deprecated-space-x-1">
+                <div className="deprecated-space-x-1 flex items-center">
                     <IconFeedback style={{ fontSize: 24, marginRight: 4, color: 'var(--warning)' }} />
                     <span>Adjust your funnel definition to improve correlation analysis</span>
                 </div>

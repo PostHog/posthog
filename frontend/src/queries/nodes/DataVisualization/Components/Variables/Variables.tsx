@@ -66,7 +66,7 @@ export const VariablesForInsight = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex gap-4 flex-wrap px-px">
+            <div className="flex flex-wrap gap-4 px-px">
                 {variablesForInsight.map((n) => (
                     <VariableComponent
                         key={n.id}
@@ -131,7 +131,7 @@ const VariableInput = ({
 
     return (
         <div className="min-w-80">
-            <div className={`flex gap-1 p-1 ${isNull ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div className={`flex gap-1 p-1 ${isNull ? 'pointer-events-none opacity-50' : ''}`}>
                 {variable.type === 'String' && (
                     <LemonInput
                         inputRef={inputRef}
@@ -228,7 +228,7 @@ const VariableInput = ({
                                     }
                                 }
                             }}
-                            className="text-xs flex flex-1 items-center mr-2"
+                            className="mr-2 flex flex-1 items-center text-xs"
                         >
                             {variableAsHogQL}
                         </code>
@@ -357,7 +357,7 @@ export const VariableComponent = ({
                 <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                     <LemonButton
                         type="secondary"
-                        className="min-w-32 DataVizVariable_Button"
+                        className="DataVizVariable_Button min-w-32"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     >

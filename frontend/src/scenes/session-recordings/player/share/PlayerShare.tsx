@@ -21,7 +21,7 @@ function TimestampForm(props: PlayerShareLogicProps): JSX.Element {
 
     return (
         <Form logic={playerShareLogic} props={props} formKey="privateLinkForm">
-            <div className="flex gap-2 items-center">
+            <div className="flex items-center gap-2">
                 <LemonField name="includeTime">
                     <LemonCheckbox label="Start at" checked={privateLinkForm.includeTime} />
                 </LemonField>
@@ -112,7 +112,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                 >
                     <LemonTextArea />
                 </LemonField>
-                <div className="flex gap-1 items-center">
+                <div className="flex items-center gap-1">
                     <LemonField name="includeTime">
                         <LemonCheckbox label="Start at" checked={linearLinkForm.includeTime} />
                     </LemonField>

@@ -253,7 +253,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
     return (
         <>
-            <div className="flex gap-0 relative">
+            <div className="relative flex gap-0">
                 <nav
                     className={cn(
                         navBarStyles({
@@ -293,7 +293,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         )}
                     </div>
 
-                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
+                    <div className="z-[var(--z-main-nav)] flex flex-1 flex-col overflow-y-auto">
                         <ScrollableShadows
                             className="flex-1"
                             innerClassName="overflow-y-auto"
@@ -302,7 +302,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         >
                             <ListBox className="flex flex-col gap-px">
                                 <div
-                                    className={`px-1 flex flex-col gap-px ${
+                                    className={`flex flex-col gap-px px-1 ${
                                         isLayoutNavCollapsed ? 'items-center' : ''
                                     }`}
                                 >
@@ -329,7 +329,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                     data-attr={`menu-item-${item.identifier.toString().toLowerCase()}`}
                                                 >
                                                     <span
-                                                        className={`flex text-tertiary group-hover:text-primary ${
+                                                        className={`text-tertiary group-hover:text-primary flex ${
                                                             isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                                         }`}
                                                     >
@@ -340,7 +340,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         <>
                                                             <span className="truncate">{item.id}</span>
                                                             <span className="ml-auto pr-1">
-                                                                <IconChevronRight className="size-3 text-tertiary" />
+                                                                <IconChevronRight className="text-tertiary size-3" />
                                                             </span>
                                                         </>
                                                     )}
@@ -348,7 +348,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             ) : (
                                                 <ButtonGroupPrimitive
                                                     fullWidth
-                                                    className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
+                                                    className="flex justify-center [&>span]:flex [&>span]:w-full [&>span]:justify-center"
                                                 >
                                                     <Link
                                                         data-attr={`menu-item-${item.identifier
@@ -365,7 +365,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                         tooltipDocLink={item.tooltipDocLink}
                                                     >
                                                         <span
-                                                            className={`flex text-tertiary group-hover:text-primary ${
+                                                            className={`text-tertiary group-hover:text-primary flex ${
                                                                 isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                                             }`}
                                                         >
@@ -382,11 +382,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     ))}
                                 </div>
 
-                                <div className="border-b border-primary h-px my-1" />
+                                <div className="border-primary my-1 h-px border-b" />
 
                                 <div
                                     className={cn(
-                                        'relative flex flex-col gap-px h-full',
+                                        'relative flex h-full flex-col gap-px',
                                         !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
                                     )}
                                 >
@@ -395,9 +395,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </ListBox>
                         </ScrollableShadows>
 
-                        <div className="border-b border-primary h-px " />
+                        <div className="border-primary h-px border-b" />
 
-                        <div className="p-1 flex flex-col gap-px items-center">
+                        <div className="flex flex-col items-center gap-px p-1">
                             <DebugNotice isCollapsed={isLayoutNavCollapsed} />
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <ButtonPrimitive
@@ -434,7 +434,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 data-attr="menu-item-toolbar"
                             >
                                 <span
-                                    className={`flex text-tertiary group-hover:text-primary ${
+                                    className={`text-tertiary group-hover:text-primary flex ${
                                         isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                     }`}
                                 >
@@ -458,7 +458,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 data-attr="menu-item-settings"
                             >
                                 <span
-                                    className={`flex text-tertiary group-hover:text-primary ${
+                                    className={`text-tertiary group-hover:text-primary flex ${
                                         isLayoutNavCollapsed ? '[&_svg]:size-5' : ''
                                     }`}
                                 >
@@ -491,7 +491,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             ) : (
                                                 <span>{user?.email}</span>
                                             )}
-                                            <IconChevronRight className="size-3 text-secondary ml-auto" />
+                                            <IconChevronRight className="text-secondary ml-auto size-3" />
                                         </>
                                     )}
                                 </ButtonPrimitive>
@@ -519,7 +519,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutNavBar(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-under)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
+                        className="bg-fill-highlight-200 fixed inset-0 z-[var(--z-layout-navbar-under)] h-screen w-screen lg:bg-transparent"
                     />
                 )}
 
@@ -529,7 +529,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             showLayoutPanel(false)
                             clearActivePanelIdentifier()
                         }}
-                        className="z-[var(--z-layout-navbar-over)] fixed inset-0 w-screen h-screen bg-fill-highlight-200 lg:bg-transparent"
+                        className="bg-fill-highlight-200 fixed inset-0 z-[var(--z-layout-navbar-over)] h-screen w-screen lg:bg-transparent"
                     />
                 )}
             </div>

@@ -39,7 +39,7 @@ export function SSOSelect({
             disabledReason: preflight.available_social_auth_providers[key]
                 ? undefined
                 : 'This provider is not configured.',
-            icon: <SocialLoginIcon provider={key} className="w-4 h-4" />,
+            icon: <SocialLoginIcon provider={key} className="h-4 w-4" />,
         })
     })
 
@@ -47,7 +47,7 @@ export function SSOSelect({
         value: 'saml',
         label: SSO_PROVIDER_NAMES['saml'],
         disabledReason: !samlAvailable ? 'This provider is not configured.' : undefined,
-        icon: <SocialLoginIcon provider="saml" className="w-4 h-4" />,
+        icon: <SocialLoginIcon provider="saml" className="h-4 w-4" />,
     })
 
     return (

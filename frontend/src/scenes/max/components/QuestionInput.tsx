@@ -57,7 +57,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
             className={clsx(
                 containerClassName,
                 !isSticky && !isFloating
-                    ? 'px-3 w-[min(40rem,100%)]'
+                    ? 'w-[min(40rem,100%)] px-3'
                     : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
             )}
             ref={ref}
@@ -66,17 +66,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 className={clsx(
                     'flex flex-col items-center',
                     isSticky &&
-                        'mb-2 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                        'mb-2 rounded-lg border border-[var(--border-primary)] bg-[var(--glass-bg-3000)] backdrop-blur-sm'
                 )}
             >
-                <div className="relative w-full flex flex-col">
+                <div className="relative flex w-full flex-col">
                     {children}
                     <div
                         className={clsx(
                             'flex flex-col',
-                            'border border-[var(--border-primary)] rounded-[var(--radius)]',
+                            'rounded-[var(--radius)] border border-[var(--border-primary)]',
                             'bg-[var(--bg-fill-input)]',
-                            'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
+                            'focus-within:border-[var(--border-bold)] hover:border-[var(--border-bold)]',
                             isFloating && 'border-primary m-1'
                         )}
                         onClick={(e) => {
@@ -89,7 +89,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         {!isThreadVisible ? (
                             <div className="flex items-start justify-between">
                                 <ContextDisplay size={contextDisplaySize} />
-                                <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
+                                <div className="mr-1 mt-1 flex h-full items-start gap-1">{topActions}</div>
                             </div>
                         ) : (
                             <ContextDisplay size={contextDisplaySize} />
@@ -110,7 +110,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             disabled={inputDisabled}
                             minRows={1}
                             maxRows={10}
-                            className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                            className="min-h-0 !border-none !bg-transparent py-2.5 pl-2.5 pr-12"
                         />
                     </div>
                     <div
@@ -161,20 +161,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <div className="flex items-center w-full gap-1 justify-between">
+                <div className="flex w-full items-center justify-between gap-1">
                     {tools.length > 0 && (
                         <div
                             className={clsx(
-                                'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
+                                'flex cursor-default flex-wrap gap-x-1 gap-y-0.5 whitespace-nowrap px-1.5 text-xs font-medium',
                                 !isFloating
-                                    ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
+                                    ? 'w-[calc(100%-1rem)] rounded-b border-x border-b bg-[var(--glass-bg-3000)] py-1 backdrop-blur-sm'
                                     : `w-full pb-1`
                             )}
                         >
                             <span>Tools here:</span>
                             {tools.map((tool) => (
                                 <Tooltip key={tool.name} title={tool.description}>
-                                    <i className="flex items-center gap-1 cursor-help">
+                                    <i className="flex cursor-help items-center gap-1">
                                         {tool.icon || <IconWrench />}
                                         {tool.displayName}
                                     </i>

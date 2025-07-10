@@ -324,11 +324,11 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
         }, [isAscending, isSortedByMyField, setTablesOrderBy])
 
         return (
-            <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
+            <span onClick={onClick} className="group inline-flex cursor-pointer items-center">
                 {name}
                 <IconChevronDown
                     fontSize="20px"
-                    className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
+                    className={clsx('text-muted-alt -mr-1 ml-1 opacity-0 group-hover:opacity-100', {
                         'text-primary opacity-100': isSortedByMyField,
                         'rotate-180': isSortedByMyField && isAscending,
                     })}
@@ -478,9 +478,9 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="bg-surface-primary flex flex-1 flex-col rounded border">
             {showIntervalTile && (
-                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                <div className="m-2 mr-4 flex flex-row items-center justify-end">
                     <div className="flex flex-row items-center">
                         <span className="mr-2">Group by</span>
                         <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
@@ -552,8 +552,8 @@ export const WebStatsTableTile = ({
     }, [onClick, insightProps])
 
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
+        <div className="bg-surface-primary flex flex-1 flex-col rounded border">
+            {control != null && <div className="m-2 mr-4 flex flex-row items-center justify-end">{control}</div>}
             <Query query={query} readOnly={true} context={context} />
         </div>
     )
@@ -629,7 +629,7 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     }
 
     return (
-        <div className="border rounded bg-surface-primary flex-1">
+        <div className="bg-surface-primary flex-1 rounded border">
             <div className="flex flex-row-reverse p-2">
                 <LemonButton
                     to={urls.actions()}
@@ -662,10 +662,10 @@ export const WebExternalClicksTile = ({
     const isPageReportsPage = productTab === ProductTab.PAGE_REPORTS
 
     return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+        <div className="bg-surface-primary flex flex-1 flex-col rounded border">
             {!isPageReportsPage && (
-                <div className="flex flex-row items-center justify-end m-2 mr-4">
-                    <div className="flex flex-row items-center deprecated-space-x-2">
+                <div className="m-2 mr-4 flex flex-row items-center justify-end">
+                    <div className="deprecated-space-x-2 flex flex-row items-center">
                         <LemonSwitch
                             label="Strip query parameters"
                             checked={shouldStripQueryParams}
@@ -689,7 +689,7 @@ export const WebVitalsPathBreakdownTile = ({
 
     return (
         <div>
-            <div className="flex flex-row items-center gap-1 m-2">
+            <div className="m-2 flex flex-row items-center gap-1">
                 <h3 className="text-lg font-semibold">Path Breakdown</h3>
                 {!isPathCleaningEnabled && (
                     <Tooltip
@@ -728,7 +728,7 @@ export const WebQuery = ({
         // Handle Frustrating Pages tile specifically, which uses WebStatsTableQuery but is not wrapped by a WebAnalyticsTabTile
         if (query.source.breakdownBy === WebStatsBreakdown.FrustrationMetrics) {
             return (
-                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                <div className="bg-surface-primary flex flex-1 flex-col rounded border px-1 py-2">
                     <Query
                         query={query}
                         readOnly={true}

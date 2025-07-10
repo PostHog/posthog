@@ -10,7 +10,7 @@ export const SidePanelAccessControl = (): JSX.Element => {
     return (
         <div className="flex flex-col overflow-hidden">
             <SidePanelPaneHeader title="Access control" />
-            <div className="flex-1 p-4 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto p-4">
                 {sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id ? (
                     <AccessControlObject
                         resource={sceneSidePanelContext.access_control_resource}

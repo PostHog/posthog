@@ -64,11 +64,11 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
+            className="flex w-full flex-1 flex-col items-center justify-center rounded p-4"
         >
-            <IconArchive className="text-5xl mb-2 text-tertiary" />
+            <IconArchive className="text-tertiary mb-2 text-5xl" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-center text-balance text-tertiary">{detail}</p>
+            <p className="text-tertiary text-balance text-center text-sm">{detail}</p>
         </div>
     )
 }
@@ -277,28 +277,28 @@ export function StatelessInsightLoadingState({
         suggestion
     ) : showLoadingDetails ? (
         <div className="flex gap-3">
-            <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
+            <p className="m-0 text-xs">Need to speed things up? Try reducing the date range.</p>
         </div>
     ) : null
 
     return (
         <div
             data-attr="insight-empty-state"
-            className={clsx('flex flex-col gap-1 rounded p-4 w-full h-full', {
-                'justify-center items-center': !renderEmptyStateAsSkeleton,
+            className={clsx('flex h-full w-full flex-col gap-1 rounded p-4', {
+                'items-center justify-center': !renderEmptyStateAsSkeleton,
                 'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
             })}
         >
             <span
                 className={clsx(
-                    'font-semibold transition-opacity duration-300 mb-1',
+                    'mb-1 font-semibold transition-opacity duration-300',
                     renderEmptyStateAsSkeleton ? 'text-start' : 'text-center',
                     isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
                 )}
             >
                 {!showLoadingDetails ? (
                     <>
-                        <IconHourglass className="mr-2 inline-block brief-spin" />
+                        <IconHourglass className="brief-spin mr-2 inline-block" />
                         {DELAYED_LOADING_MESSAGE}
                     </>
                 ) : (
@@ -309,7 +309,7 @@ export function StatelessInsightLoadingState({
             {showLoadingDetails && (
                 <div
                     className={clsx(
-                        'flex flex-col gap-2 justify-center max-w-120',
+                        'max-w-120 flex flex-col justify-center gap-2',
                         renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
                     )}
                 >
@@ -329,7 +329,7 @@ export function StatelessInsightLoadingState({
 }
 
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
-    <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
+    <code className="border-1 border-primary rounded-xs border px-1 py-0.5 text-xs">{props.children}</code>
 )
 
 const SLOW_LOADING_TIME = 15
@@ -390,13 +390,13 @@ export function SlowQuerySuggestions({
     }
 
     return (
-        <div className="flex items-center p-4 rounded bg-primary gap-x-3">
-            <IconInfo className="text-xl shrink-0" />
+        <div className="bg-primary flex items-center gap-x-3 rounded p-4">
+            <IconInfo className="shrink-0 text-xl" />
             <div className="text-xs">
                 <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
                     Need to speed things up? Some steps to optimize this query:
                 </p>
-                <ul className="mb-0 list-disc list-inside ml-2">{steps}</ul>
+                <ul className="mb-0 ml-2 list-inside list-disc">{steps}</ul>
             </div>
         </div>
     )
@@ -455,13 +455,13 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
-            <h2 className="text-xl leading-tight mb-6">
-                <IconWarning className="text-xl shrink-0 mr-2" />
+        <div data-attr="insight-empty-state" className="h-full w-full rounded p-4">
+            <h2 className="mb-6 text-xl leading-tight">
+                <IconWarning className="mr-2 shrink-0 text-xl" />
                 Your query took too long to complete
             </h2>
 
-            <div className="rounded max-w-120 text-xs">
+            <div className="max-w-120 rounded text-xs">
                 Sometimes this happens. Try refreshing the page, reducing the date range, or removing breakdowns. If
                 you're still having issues,{' '}
                 <Link
@@ -489,9 +489,9 @@ export function InsightValidationError({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
+            className="flex h-full w-full flex-col items-center justify-center gap-2 rounded p-4"
         >
-            <IconWarning className="text-4xl shrink-0 text-muted" />
+            <IconWarning className="text-muted shrink-0 text-4xl" />
 
             <h2
                 data-attr="insight-loading-too-long"
@@ -505,7 +505,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-center text-balance text-muted max-w-120">{detail}</p>
+            <p className="text-muted max-w-120 text-balance text-center text-sm">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -549,12 +549,12 @@ export function InsightErrorState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center gap-2 justify-center rounded p-4 h-full w-full"
+            className="flex h-full w-full flex-col items-center justify-center gap-2 rounded p-4"
         >
-            <IconErrorOutline className="text-5xl shrink-0" />
+            <IconErrorOutline className="shrink-0 text-5xl" />
 
             <h2
-                className="text-xl leading-tight mb-6"
+                className="mb-6 text-xl leading-tight"
                 // TODO: Use an actual `text-danger` color once @adamleithp changes are live
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'var(--danger)' }}
@@ -586,7 +586,7 @@ export function InsightErrorState({
                 </div>
             )}
 
-            <div className="flex gap-2 mt-4">
+            <div className="mt-4 flex gap-2">
                 <QueryDebuggerButton query={query} />
                 {fixWithAIComponent ?? null}
             </div>
@@ -612,12 +612,12 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
-            <div className="text-5xl text-muted mb-2">
+        <div data-attr="insight-empty-state" className="flex flex-1 flex-col items-center justify-center">
+            <div className="text-muted mb-2 text-5xl">
                 <IconPlusSquare />
             </div>
-            <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-center text-balance text-muted">
+            <h2 className="text-xl font-medium leading-tight">Add another step!</h2>
+            <p className="text-muted mb-0 text-balance text-center text-sm">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>
@@ -627,7 +627,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                 )}
             </p>
             {actionable && (
-                <div className="flex justify-center mt-4">
+                <div className="mt-4 flex justify-center">
                     <LemonButton
                         size="large"
                         type="secondary"
@@ -683,10 +683,10 @@ export function SavedInsightsEmptyState(): JSX.Element {
     return (
         <div
             data-attr="insight-empty-state"
-            className="saved-insight-empty-state flex flex-col flex-1 items-center justify-center"
+            className="saved-insight-empty-state flex flex-1 flex-col items-center justify-center"
         >
-            <div className="illustration-main w-40 m-auto">
-                <BuilderHog3 className="w-full h-full" />
+            <div className="illustration-main m-auto w-40">
+                <BuilderHog3 className="h-full w-full" />
             </div>
             <h2>
                 {usingFilters

@@ -66,8 +66,8 @@ export function DataCollection(): JSX.Element {
 
     return (
         <div>
-            <div className="inline-flex items-center deprecated-space-x-2">
-                <h2 className="font-semibold text-lg mb-0">Data collection</h2>
+            <div className="deprecated-space-x-2 inline-flex items-center">
+                <h2 className="mb-0 text-lg font-semibold">Data collection</h2>
                 <Tooltip
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
                     than predicted."
@@ -77,7 +77,7 @@ export function DataCollection(): JSX.Element {
             </div>
             <div className="flex">
                 <div className="w-3/5 pr-4">
-                    <div className="mt-2 mb-1 font-semibold">{`${
+                    <div className="mb-1 mt-2 font-semibold">{`${
                         experimentProgressPercent > 100 ? 100 : experimentProgressPercent.toFixed(2)
                     }% complete`}</div>
                     <LemonProgress
@@ -87,7 +87,7 @@ export function DataCollection(): JSX.Element {
                         percent={experimentProgressPercent}
                     />
                     {insightType === InsightType.TRENDS && (
-                        <div className="flex justify-between mt-0">
+                        <div className="mt-0 flex justify-between">
                             <span className="flex items-center text-xs">
                                 Completed&nbsp;
                                 <b>{actualRunningTime} of</b>
@@ -107,7 +107,7 @@ export function DataCollection(): JSX.Element {
                         </div>
                     )}
                     {insightType === InsightType.FUNNELS && (
-                        <div className="flex justify-between mt-0">
+                        <div className="mt-0 flex justify-between">
                             <div className="deprecated-space-x-1 flex items-center text-xs">
                                 <span>
                                     Saw&nbsp;
@@ -127,7 +127,7 @@ export function DataCollection(): JSX.Element {
                     <div className={`text-lg font-semibold ${experiment.end_date ? 'mt-4' : ''}`}>
                         {minimumDetectableEffect}%
                     </div>
-                    <div className="text-xs deprecated-space-x-1 text-sm flex">
+                    <div className="deprecated-space-x-1 flex text-sm text-xs">
                         <span>Minimum detectable effect</span>
                         <Tooltip
                             title={
@@ -220,9 +220,9 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
             }
         >
             {isInsightLoading ? (
-                <div className="flex flex-col flex-1 justify-center items-center mb-6">
+                <div className="mb-6 flex flex-1 flex-col items-center justify-center">
                     <LoadingBar />
-                    <div className="text-xs text-secondary w-60">
+                    <div className="text-secondary w-60 text-xs">
                         <span className="mr-1">Fetching past events for the estimation</span>
                         <EllipsisAnimation />
                     </div>

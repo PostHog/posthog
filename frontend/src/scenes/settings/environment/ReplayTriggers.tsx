@@ -77,7 +77,7 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex flex-col deprecated-space-y-2">
+            <div className="deprecated-space-y-2 flex flex-col">
                 <div className="flex justify-between">
                     <LemonLabel className="text-base">
                         Enable recordings using feature flag {featureFlagLoading && <Spinner />}
@@ -163,9 +163,9 @@ function UrlConfigForm({
             logic={replayTriggersLogic}
             formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
+            className="bg-surface-primary flex w-full flex-col items-center gap-2 rounded border p-2 pl-4"
         >
-            <div className="flex flex-col gap-2 w-full">
+            <div className="flex w-full flex-col gap-2">
                 <LemonBanner type="info" className="text-sm">
                     We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
                     because <pre className="inline">https://example.com/</pre> does not only match the homepage. You'd
@@ -178,7 +178,7 @@ function UrlConfigForm({
                     </LemonField>
                 </LemonLabel>
             </div>
-            <div className="flex justify-between gap-2 w-full">
+            <div className="flex w-full justify-between gap-2">
                 <div>
                     <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_REGEX}>
                         <AiRegexHelper
@@ -237,19 +237,19 @@ function UrlConfigRow({
 }): JSX.Element {
     if (editIndex === index) {
         return (
-            <div className="border rounded p-2 bg-surface-primary">
+            <div className="bg-surface-primary rounded border p-2">
                 <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
             </div>
         )
     }
 
     return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+        <div className={clsx('bg-surface-primary flex items-center rounded border p-2 pl-4')}>
             <span title={trigger.url} className="flex-1 truncate">
                 <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
                 <span>{trigger.url}</span>
             </span>
-            <div className="Actions flex deprecated-space-x-1 shrink-0">
+            <div className="Actions deprecated-space-x-1 flex shrink-0">
                 <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />
                 <LemonButton
                     icon={<IconTrash />}
@@ -294,8 +294,8 @@ function UrlConfigSection({
     onRemove: (index: number) => void
 }): JSX.Element {
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-4">
-            <div className="flex items-center gap-2 justify-between">
+        <div className="deprecated-space-y-2 mt-4 flex flex-col">
+            <div className="flex items-center justify-between gap-2">
                 <LemonLabel className="text-base">{title}</LemonLabel>
                 <LemonButton
                     onClick={props.onAdd}
@@ -425,8 +425,8 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-4">
-            <div className="flex items-center gap-2 justify-between">
+        <div className="deprecated-space-y-2 mt-4 flex flex-col">
+            <div className="flex items-center justify-between gap-2">
                 <LemonLabel className="text-base">Event emitted</LemonLabel>
                 <EventSelectButton />
             </div>
@@ -616,7 +616,7 @@ function TriggerMatchChoice(): JSX.Element {
         <div className="flex flex-col gap-y-1">
             <SupportedPlatforms web={{ version: '1.238.0' }} />
             <LemonBanner type="info" className="text-sm" hideIcon={true} dismissKey="replay-trigger-match-1-238-0">
-                <div className="flex flex-row gap-x-4 items-center">
+                <div className="flex flex-row items-center gap-x-4">
                     <LemonTag type="warning">NEW</LemonTag>
                     <div>
                         <strong>Trigger matching</strong>
@@ -637,7 +637,7 @@ function TriggerMatchChoice(): JSX.Element {
                     </div>
                 </div>
             </LemonBanner>
-            <div className="flex flex-row gap-x-2 items-center">
+            <div className="flex flex-row items-center gap-x-2">
                 <div>Start when</div>
                 <LemonSelect
                     options={[
@@ -697,7 +697,7 @@ export function ReplayTriggers(): JSX.Element {
                 </Link>
             </p>
 
-            <div className="border rounded py-2 px-4">
+            <div className="rounded border px-4 py-2">
                 <TriggerMatchChoice />
                 <LemonDivider />
                 <UrlTriggerOptions />

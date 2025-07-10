@@ -39,7 +39,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
         return (
-            <p className="w-full m-0 text-center text-sm text-gray-500">
+            <p className="m-0 w-full text-center text-sm text-gray-500">
                 Select a breakdown to see the retention graph
             </p>
         )

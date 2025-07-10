@@ -292,7 +292,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         }
 
         return (
-            <div className={cn('flex flex-col gap-y-px list-none m-0 p-0 h-full w-full', className)}>
+            <div className={cn('m-0 flex h-full w-full list-none flex-col gap-y-px p-0', className)}>
                 {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
                     const isFolder = (item.children && item.children.length > 0) || item.record?.type === 'folder'
@@ -332,8 +332,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     if (item.type === 'separator') {
                         return (
-                            <div key={item.id} className="h-1 -mx-2 flex items-center">
-                                <div className="border-b border-primary h-px my-2 flex-1" />
+                            <div key={item.id} className="-mx-2 flex h-1 items-center">
+                                <div className="border-primary my-2 h-px flex-1 border-b" />
                             </div>
                         )
                     }
@@ -342,8 +342,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             return null
                         }
                         return (
-                            <div key={item.id} className="not-first:mt-3 py-1 pl-2 flex items-center">
-                                <span className="text-xs font-semibold text-tertiary">{item.displayName}</span>
+                            <div key={item.id} className="not-first:mt-3 flex items-center py-1 pl-2">
+                                <span className="text-tertiary text-xs font-semibold">{item.displayName}</span>
                             </div>
                         )
                     }
@@ -357,7 +357,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             {/* Folder lines */}
                             {depth !== 0 && size !== 'narrow' && (
                                 <div
-                                    className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
+                                    className="folder-line border-primary pointer-events-none absolute -top-px z-0 h-[calc(100%+2px)] border-r"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width: `${folderLinesOffset}px` }}
                                 />
@@ -387,7 +387,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         disabled: isEmptyFolder,
                                         className: cn(
                                             'group/lemon-tree-button gap-[5px]',
-                                            'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
+                                            'z-1 focus-visible:bg-fill-button-tertiary-hover duration-50 relative h-[var(--lemon-tree-button-height)] motion-safe:transition-[padding] [&_.icon-shortcut]:size-3',
                                             {
                                                 'bg-fill-button-tertiary-hover':
                                                     ((selectMode === 'folder-only' || selectMode === 'all') &&
@@ -397,9 +397,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 'bg-fill-button-tertiary-active': getItemActiveState(item),
                                                 'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
                                                     !isEmptyFolder,
-                                                'hover:bg-transparent opacity-50 cursor-default':
+                                                'cursor-default opacity-50 hover:bg-transparent':
                                                     (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
-                                                'rounded-l-[var(--radius)] justify-center [&_svg]:size-4':
+                                                'justify-center rounded-l-[var(--radius)] [&_svg]:size-4':
                                                     size === 'narrow',
                                             }
                                         ),
@@ -423,7 +423,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     {size === 'default' && (
                                         <span
                                             // Spacer to offset button padding
-                                            className="h-[var(--lemon-tree-button-height)] bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50 -ml-1.5"
+                                            className="duration-50 pointer-events-none -ml-1.5 h-[var(--lemon-tree-button-height)] flex-shrink-0 bg-transparent transition-[width]"
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{
                                                 width: `${firstColumnOffset}px`,
@@ -447,7 +447,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             {mode === 'table' ? (
                                                 tableModeRow?.(item, firstColumnOffset)
                                             ) : (
-                                                <span className="relative truncate text-left w-full">
+                                                <span className="relative w-full truncate text-left">
                                                     {renderItem ? (
                                                         <>
                                                             {renderItem(
@@ -476,7 +476,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                                                     {/* Unapplied state */}
                                                     {item.record?.unapplied && (
-                                                        <IconUpload className="ml-1 text-warning" />
+                                                        <IconUpload className="text-warning ml-1" />
                                                     )}
                                                 </span>
                                             )}
@@ -516,8 +516,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             key={item.id}
                             disabled={!!item.disabledReason}
                         >
-                            <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full gap-y-px">
-                                <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                            <AccordionPrimitive.Item value={item.id} className="flex w-full flex-col gap-y-px">
+                                <AccordionPrimitive.Trigger className="flex h-8 w-full items-center gap-2" asChild>
                                     <ButtonGroupPrimitive
                                         fullWidth
                                         className="group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent"
@@ -527,7 +527,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             handleCheckedChange={(checked, shift) => {
                                                 onItemChecked?.(item.id, checked, shift)
                                             }}
-                                            className={cn('absolute z-2', {
+                                            className={cn('z-2 absolute', {
                                                 // Hide checkbox when select mode is not multi
                                                 hidden: selectMode !== 'multi',
                                             })}
@@ -579,7 +579,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     <DropdownMenuTrigger asChild>
                                                         {itemSideActionButton?.(item) ?? (
                                                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
-                                                                <IconEllipsis className="size-3 text-tertiary" />
+                                                                <IconEllipsis className="text-tertiary size-3" />
                                                             </ButtonPrimitive>
                                                         )}
                                                     </DropdownMenuTrigger>
@@ -1353,7 +1353,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 >
                     {mode === 'table' && (
                         <div
-                            className="sticky top-0 z-20 border-b border-primary bg-surface-secondary starting:h-0 h-[30px] motion-safe:transition-all [transition-behavior:allow-discrete] duration-500"
+                            className="border-primary bg-surface-secondary starting:h-0 sticky top-0 z-20 h-[30px] border-b duration-500 [transition-behavior:allow-discrete] motion-safe:transition-all"
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 width: mode === 'table' ? `${tableModeTotalWidth}px` : undefined,
@@ -1414,12 +1414,12 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
                     {/* Context menu for empty space, takes up remaining space */}
                     <div
-                        className={cn('flex-1 w-full h-full absolute top-0 left-0 z-1', {
+                        className={cn('z-1 absolute left-0 top-0 h-full w-full flex-1', {
                             hidden: isDragging,
                         })}
                     >
                         <ContextMenu>
-                            <ContextMenuTrigger className="flex-1 w-full h-full">
+                            <ContextMenuTrigger className="h-full w-full flex-1">
                                 <div className="h-full w-full" />
                             </ContextMenuTrigger>
                             <ContextMenuContent>{emptySpaceContextMenu?.()}</ContextMenuContent>
@@ -1430,7 +1430,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 {/* Custom drag overlay */}
                 <DragOverlay dropAnimation={null}>
                     {activeDragItem && (
-                        <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)] ">
+                        <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)]">
                             <div className="shrink-0">
                                 <TreeNodeDisplayIcon
                                     item={activeDragItem}
@@ -1442,7 +1442,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 {activeDragItem.displayName || activeDragItem.name}
                             </span>
                             {activeDragItem.checked && checkedItemCount && checkedItemCount > 1 && (
-                                <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
+                                <span className="bg-primary-highlight ml-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs">
                                     +<span>{checkedItemCount - 1}</span>{' '}
                                     <span>other{checkedItemCount - 1 === 1 ? '' : 's'}</span>
                                 </span>

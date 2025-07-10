@@ -117,7 +117,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                         const color = getFunnelsColor(breakdown)
 
                         const label = (
-                            <div className="flex justify-between items-center">
+                            <div className="flex items-center justify-between">
                                 {formatBreakdownLabel(
                                     value,
                                     breakdownFilter,

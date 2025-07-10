@@ -360,7 +360,7 @@ export function LemonInputSelect({
                     onInitiateEdit={allowCustomValues ? (value) => _onActionItem(value, null, true) : null}
                 />
                 {isEditButtonVisible && (
-                    <div className="grow flex flex-col items-end">
+                    <div className="flex grow flex-col items-end">
                         <LemonButton
                             icon={<IconPencil />}
                             onClick={() => {
@@ -383,7 +383,7 @@ export function LemonInputSelect({
             return null
         }
         return values.length === 0 ? (
-            <span className="-ml-2 text-muted">Select from {options.length} options</span>
+            <span className="text-muted -ml-2">Select from {options.length} options</span>
         ) : (
             <span className="-ml-2">
                 {values.length === options.length
@@ -418,7 +418,7 @@ export function LemonInputSelect({
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
 
                     {bulkActions && mode === 'multiple' && (
-                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                        <div className="mb-0.5 flex items-center" onMouseEnter={() => setSelectedIndex(-1)}>
                             {bulkActions === 'select-and-clear-all' && (
                                 <LemonButton
                                     size="small"
@@ -461,7 +461,7 @@ export function LemonInputSelect({
                     )}
 
                     {action && (
-                        <div className="flex items-center mb-0.5" onMouseEnter={() => setSelectedIndex(-1)}>
+                        <div className="mb-0.5 flex items-center" onMouseEnter={() => setSelectedIndex(-1)}>
                             <LemonButton
                                 size="small"
                                 className="flex-1"
@@ -515,7 +515,7 @@ export function LemonInputSelect({
                                             : undefined
                                     }
                                 >
-                                    <span className="whitespace-nowrap ph-no-capture truncate">
+                                    <span className="ph-no-capture truncate whitespace-nowrap">
                                         {!option.__isInput
                                             ? (option.labelComponent ?? option.label) // Regular option
                                             : mode === 'multiple'
@@ -529,7 +529,7 @@ export function LemonInputSelect({
                         <>
                             {range(5).map((x) => (
                                 // 33px is the height of a regular list item
-                                <div key={x} className="flex gap-2 items-center h-[33px] px-2">
+                                <div key={x} className="flex h-[33px] items-center gap-2 px-2">
                                     <LemonSkeleton.Circle className="size-[18px]" />
                                     <LemonSkeleton className="h-3.5 w-full" />
                                 </div>
@@ -540,7 +540,7 @@ export function LemonInputSelect({
                             {emptyStateComponent ? (
                                 emptyStateComponent
                             ) : (
-                                <p className="text-secondary italic p-1">
+                                <p className="text-secondary p-1 italic">
                                     {allowCustomValues
                                         ? 'Start typing and press Enter to add options'
                                         : `No options matching "${inputValue}"`}

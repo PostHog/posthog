@@ -62,12 +62,12 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
                 {...inputProps}
             />
             {/* Intentionally using overflow-scroll below so that we can use these invisible elements for sizing */}
-            <div ref={sizerRef} className="absolute top-0 left-0 h-0 overflow-scroll whitespace-pre invisible">
+            <div ref={sizerRef} className="invisible absolute left-0 top-0 h-0 overflow-scroll whitespace-pre">
                 {inputProps.value}
             </div>
             <div
                 ref={placeHolderSizerRef}
-                className="absolute top-0 left-0 h-0 overflow-scroll whitespace-pre invisible"
+                className="invisible absolute left-0 top-0 h-0 overflow-scroll whitespace-pre"
             >
                 {inputProps.placeholder}
             </div>

@@ -66,7 +66,7 @@ export function TreeFiltersDropdownMenu({ setSearchTerm, searchTerm }: FiltersDr
                     tooltip="Tree filters"
                     tooltipPlacement="bottom"
                 >
-                    <IconFilter className="size-3 text-tertiary" />
+                    <IconFilter className="text-tertiary size-3" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">

@@ -154,11 +154,11 @@ function FeatureFlagCopySection(): JSX.Element {
                     associated persons might not exist in the target project.
                 </LemonBanner>
             )}
-            <div className="inline-flex gap-4 my-6">
+            <div className="my-6 inline-flex gap-4">
                 <div>
-                    <div className="font-semibold leading-6 h-6">Key</div>
-                    <div className="border px-3 rounded h-10 text-center flex items-center justify-center max-w-200">
-                        <span className="font-semibold truncate">{featureFlag.key}</span>
+                    <div className="h-6 font-semibold leading-6">Key</div>
+                    <div className="max-w-200 flex h-10 items-center justify-center rounded border px-3 text-center">
+                        <span className="truncate font-semibold">{featureFlag.key}</span>
                     </div>
                 </div>
                 <div>
@@ -166,7 +166,7 @@ function FeatureFlagCopySection(): JSX.Element {
                     <IconArrowRight className="h-10" fontSize="30" />
                 </div>
                 <div>
-                    <div className="font-semibold leading-6 h-6">Destination project</div>
+                    <div className="h-6 font-semibold leading-6">Destination project</div>
                     <LemonSelect
                         dropdownMatchSelectWidth={false}
                         value={copyDestinationProject}

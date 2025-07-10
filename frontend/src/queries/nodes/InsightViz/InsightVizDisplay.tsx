@@ -188,7 +188,7 @@ export function InsightVizDisplay({
         ) {
             return (
                 <>
-                    <h2 className="font-semibold text-lg my-4 mx-0">Detailed results</h2>
+                    <h2 className="mx-0 my-4 text-lg font-semibold">Detailed results</h2>
                     <FunnelStepsTable />
                 </>
             )
@@ -198,8 +198,8 @@ export function InsightVizDisplay({
             return (
                 <>
                     {exportContext && (
-                        <div className="flex items-center justify-between my-4 mx-0">
-                            <h2 className="font-semibold text-lg m-0">Detailed results</h2>
+                        <div className="mx-0 my-4 flex items-center justify-between">
+                            <h2 className="m-0 text-lg font-semibold">Detailed results</h2>
                             <Tooltip title="Export this table" placement="left">
                                 <ExportButton
                                     type="secondary"
@@ -248,7 +248,7 @@ export function InsightVizDisplay({
             <div
                 className={clsx(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
-                    !embedded && 'border rounded bg-surface-primary'
+                    !embedded && 'bg-surface-primary rounded border'
                 )}
                 data-attr="insights-graph"
             >
@@ -256,7 +256,7 @@ export function InsightVizDisplay({
                 {showingResults && (
                     <>
                         {!embedded && (isFunnels || isPaths || showComputationMetadata) && (
-                            <div className="flex items-center justify-between gap-2 p-2 flex-wrap-reverse border-b">
+                            <div className="flex flex-wrap-reverse items-center justify-between gap-2 border-b p-2">
                                 <div className="flex items-center gap-2">
                                     {showComputationMetadata && (
                                         <InsightResultMetadata

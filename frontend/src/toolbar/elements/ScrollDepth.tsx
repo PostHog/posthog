@@ -32,16 +32,16 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
     return (
         <div
-            className="absolute left-0 right-0 flex items-center z-10 -translate-y-1/2"
+            className="absolute left-0 right-0 z-10 flex -translate-y-1/2 items-center"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 top: mouseY,
             }}
         >
-            <div className="border-b border-default w-full opacity-75" />
+            <div className="border-default w-full border-b opacity-75" />
             <div
                 className={clsx(
-                    'bg-default whitespace-nowrap text-white rounded p-2 font-semibold opacity-75 hover:opacity-100 transition-all',
+                    'bg-default whitespace-nowrap rounded p-2 font-semibold text-white opacity-75 transition-all hover:opacity-100',
                     !shiftPressed ? 'pointer-events-auto' : 'pointer-events-none'
                 )}
             >
@@ -54,7 +54,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
                 )}
             </div>
 
-            <div className="border-b border-default w-10 opacity-75" />
+            <div className="border-default w-10 border-b opacity-75" />
         </div>
     )
 }
@@ -111,7 +111,7 @@ export function ScrollDepth(): JSX.Element | null {
     return (
         <div className="fixed inset-0 overflow-hidden">
             <div
-                className="absolute top-0 left-0 right-0"
+                className="absolute left-0 right-0 top-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     transform: `translateY(${-scrollOffset}px)`,

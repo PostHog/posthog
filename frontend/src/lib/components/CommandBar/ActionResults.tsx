@@ -15,7 +15,7 @@ type ResultsGroupProps = {
 const ResultsGroup = ({ scope, results, activeResultIndex }: ResultsGroupProps): JSX.Element => {
     return (
         <>
-            <div className="border-b px-5 pt-1 pb-1 bg-primary text-xs font-bold text-secondary uppercase">
+            <div className="bg-primary text-secondary border-b px-5 pb-1 pt-1 text-xs font-bold uppercase">
                 {getNameFromActionScope(scope)}
             </div>
             {results.map((result) => (
@@ -33,7 +33,7 @@ export const ActionResults = (): JSX.Element => {
     const { commandSearchResultsGrouped, activeResultIndex } = useValues(actionBarLogic)
 
     return (
-        <div className="grow overscroll-none overflow-y-auto">
+        <div className="grow overflow-y-auto overscroll-none">
             {commandSearchResultsGrouped.map(([scope, results]) => (
                 <ResultsGroup key={scope} scope={scope} results={results} activeResultIndex={activeResultIndex} />
             ))}

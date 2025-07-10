@@ -17,8 +17,8 @@ export const FeedbackNotice = ({ text }: { text: string }): JSX.Element => {
 
     return (
         <LemonBanner type="info" className="my-4">
-            <div className="flex items-center flex-wrap gap-2 justify-between">
-                <div className="flex-1 min-w-full sm:min-w-0">{text}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-full flex-1 sm:min-w-0">{text}</div>
                 {showSupportOptions ? (
                     <span className="flex items-center gap-2">
                         <LemonButton

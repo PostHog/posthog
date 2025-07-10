@@ -133,7 +133,7 @@ export function ContextSummary({
     }
 
     const tooltipContent = (
-        <div className="flex flex-col gap-1 max-w-xs">
+        <div className="flex max-w-xs flex-col gap-1">
             {allItems.map((item, index) => (
                 <div key={index} className="flex items-center gap-1">
                     {React.cloneElement(item.icon, { className: 'text-base' })}
@@ -145,7 +145,7 @@ export function ContextSummary({
 
     return (
         <Tooltip title={tooltipContent} placement="bottom">
-            <div className="flex items-center gap-1 text-xs text-muted hover:text-default w-fit select-none mb-1.5">
+            <div className="text-muted hover:text-default mb-1.5 flex w-fit select-none items-center gap-1 text-xs">
                 <IconPageChart className="text-sm" />
                 <span className="italic">With {contextSummaryText}</span>
             </div>
@@ -208,7 +208,7 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                                 closeOnClick
                                 className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
                             >
-                                <span className="truncate min-w-0 flex-1">{name}</span>
+                                <span className="min-w-0 flex-1 truncate">{name}</span>
                             </LemonTag>
                         </Tooltip>
                     )
@@ -233,7 +233,7 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
         return null
     }
 
-    return <div className="flex flex-wrap gap-1 flex-1 min-w-0 overflow-hidden">{allTags}</div>
+    return <div className="flex min-w-0 flex-1 flex-wrap gap-1 overflow-hidden">{allTags}</div>
 }
 
 export function ContextDisplay({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element {
@@ -241,8 +241,8 @@ export function ContextDisplay({ size = 'default' }: { size?: 'small' | 'default
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
 
     return (
-        <div className="px-1 pt-1 w-full">
-            <div className="flex flex-wrap items-start gap-1 w-full">
+        <div className="w-full px-1 pt-1">
+            <div className="flex w-full flex-wrap items-start gap-1">
                 <Tooltip title="Add context to help Max answer your question">
                     <TaxonomicPopover
                         size="xxsmall"

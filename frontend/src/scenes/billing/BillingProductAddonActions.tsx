@@ -100,7 +100,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
         return (
             <>
                 {showPricing ? (
-                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                    <h4 className="mb-0 flex gap-x-0.5 font-bold leading-5">
                         {isTrialEligible ? (
                             <span>{addon.trial?.length} day free trial</span>
                         ) : (
@@ -156,7 +156,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
 
         if (isTrialEligible && !isSubscribedToAnotherAddon) {
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className="text-secondary mt-2 text-right text-xs">
                     You'll have {addon.trial?.length} days to try it out. Then you'll be charged{' '}
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
                 </p>
@@ -165,7 +165,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
 
         if (isProrated && !isSubscribedToAnotherAddon) {
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className="text-secondary mt-2 text-right text-xs">
                     Pay ~${prorationAmount} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
@@ -203,7 +203,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
 
     return (
         <div className="min-w-64">
-            <div className="ml-4 mt-2 self-center flex items-center justify-end gap-x-3 whitespace-nowrap">
+            <div className="ml-4 mt-2 flex items-center justify-end gap-x-3 self-center whitespace-nowrap">
                 {content}
             </div>
             {renderPricingInfo()}

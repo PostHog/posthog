@@ -34,7 +34,7 @@ function UpdateSourceConnectionFormContainer(props: UpdateSourceConnectionFormCo
 
     return (
         <>
-            <span className="block mb-2">Overwrite your existing configuration here</span>
+            <span className="mb-2 block">Overwrite your existing configuration here</span>
             <Form logic={dataWarehouseSourceSettingsLogic} formKey="sourceConfig" enableFormOnSubmit>
                 <SourceFormComponent
                     {...props}

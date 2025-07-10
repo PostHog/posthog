@@ -65,7 +65,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                         <LemonSkeleton className="h-6 flex-1" />
                     ) : (
                         <>
-                            <span className="flex-1 font-semibold truncate">{earlyAccessFeature.name}</span>
+                            <span className="flex-1 truncate font-semibold">{earlyAccessFeature.name}</span>
                             <LemonTag
                                 type={
                                     earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta

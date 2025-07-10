@@ -696,7 +696,7 @@ export class HedgehogActor {
 
         return (
             <div
-                className="border rounded bg-white pointer-events-none fixed z-[1000] origin-top-left"
+                className="pointer-events-none fixed z-[1000] origin-top-left rounded border bg-white"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     left: x,
@@ -799,7 +799,7 @@ export class HedgehogActor {
                             ref?.(r)
                         }
                     }}
-                    className="m-0 cursor-pointer HedgehogBuddy"
+                    className="HedgehogBuddy m-0 cursor-pointer"
                     data-content={preloadContent}
                     onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
@@ -817,8 +817,8 @@ export class HedgehogActor {
                     {this.tooltip && !this.isDragging && (
                         <div
                             className={clsx(
-                                'rounded transition-all absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none',
-                                this.showTooltip ? 'opacity-100' : 'opacity-0  translate-y-10'
+                                'pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 rounded transition-all',
+                                this.showTooltip ? 'opacity-100' : 'translate-y-10 opacity-0'
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
@@ -859,7 +859,7 @@ export class HedgehogActor {
 
                         {this.accessories().map((accessory, index) => (
                             <div
-                                className="absolute rendering-pixelated"
+                                className="rendering-pixelated absolute"
                                 key={index}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
@@ -878,7 +878,7 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
-                                className="absolute rendering-pixelated"
+                                className="rendering-pixelated absolute"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     top: 0,
@@ -907,7 +907,7 @@ export class HedgehogActor {
                                 return (
                                     <div
                                         key={i}
-                                        className="fixed pointer-events-none"
+                                        className="pointer-events-none fixed"
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
                                             outline: '1px solid red',
@@ -1039,13 +1039,13 @@ export function MyHedgehogBuddy({
             fallbackPlacements={['bottom', 'left', 'right']}
             overflowHidden
             overlay={
-                <div className="flex overflow-hidden flex-col flex-1 max-w-140">
-                    <ScrollableShadows className="overflow-y-auto flex-1" direction="vertical">
+                <div className="max-w-140 flex flex-1 flex-col overflow-hidden">
+                    <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
                         <div className="p-2">
                             <HedgehogOptions />
                         </div>
                     </ScrollableShadows>
-                    <div className="flex gap-2 justify-end p-2 border-t shrink-0">
+                    <div className="flex shrink-0 justify-end gap-2 border-t p-2">
                         <LemonButton type="secondary" status="danger" onClick={disappear}>
                             Good bye!
                         </LemonButton>
@@ -1066,7 +1066,7 @@ export function MyHedgehogBuddy({
                 hedgehogConfig={hedgehogConfig}
                 tooltip={
                     hedgehogConfig.party_mode_enabled ? (
-                        <div className="flex justify-center items-center p-2 whitespace-nowrap">
+                        <div className="flex items-center justify-center whitespace-nowrap p-2">
                             <ProfilePicture user={user} size="md" showName />
                         </div>
                     ) : undefined
@@ -1110,7 +1110,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                         <ProfilePicture user={member.user} size="xl" showName />
                     </div>
 
-                    <div className="flex gap-2 items-end p-3 border-t">
+                    <div className="flex items-end gap-2 border-t p-3">
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -1133,7 +1133,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                 onClick={onClick}
                 hedgehogConfig={memberHedgehogConfig}
                 tooltip={
-                    <div className="flex justify-center items-center p-2 whitespace-nowrap">
+                    <div className="flex items-center justify-center whitespace-nowrap p-2">
                         <ProfilePicture user={member.user} size="md" showName />
                     </div>
                 }

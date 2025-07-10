@@ -31,14 +31,14 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     return (
-        <div className="w-full p-8 rounded mt-4 flex items-center gap-4">
-            <div className="w-32 h-32">
-                <Hog className="w-full h-full" />
+        <div className="mt-4 flex w-full items-center gap-4 rounded p-8">
+            <div className="h-32 w-32">
+                <Hog className="h-full w-full" />
             </div>
             <div className="flex-1 text-center">
                 <h2 className="text-lg font-semibold">{title}</h2>
-                <p className="text-sm text-secondary mt-2">{description}</p>
-                <div className="flex items-center justify-center gap-4 mt-4">
+                <p className="text-secondary mt-2 text-sm">{description}</p>
+                <div className="mt-4 flex items-center justify-center gap-4">
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
@@ -57,7 +57,7 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
                     </LemonButton>
                     <LemonButton
                         type="tertiary"
-                        sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                        sideIcon={<IconOpenSidebar className="h-4 w-4" />}
                         to={`${docsUrl}?utm_medium=in-product&utm_campaign=taxonomic-filter-empty-state-docs-link`}
                         data-attr="product-introduction-docs-link"
                         targetBlank

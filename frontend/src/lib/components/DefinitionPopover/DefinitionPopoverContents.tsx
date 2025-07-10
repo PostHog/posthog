@@ -266,7 +266,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 title={isDataWarehousePersonProperty ? 'Table' : 'Sent as'}
                                 value={
                                     <span
-                                        className="truncate text-mono text-xs"
+                                        className="text-mono truncate text-xs"
                                         title={
                                             isDataWarehousePersonProperty
                                                 ? _definition.id
@@ -351,7 +351,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Section>
                     <DefinitionPopover.Card
                         title="Sent as"
-                        value={<span className="text-xs font-mono">{_definition.name}</span>}
+                        value={<span className="font-mono text-xs">{_definition.name}</span>}
                     />
                 </DefinitionPopover.Section>
             </>
@@ -369,7 +369,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Section>
                     <DefinitionPopover.Card
                         title="Sent as"
-                        value={<span className="text-xs font-mono">{_definition.id}</span>}
+                        value={<span className="font-mono text-xs">{_definition.id}</span>}
                     />
                 </DefinitionPopover.Section>
             </>
@@ -559,7 +559,7 @@ function DefinitionEdit(): JSX.Element {
                     </div>
                 )}
                 <LemonDivider className="DefinitionPopover mt-0" />
-                <div className="flex items-center justify-between gap-2 click-outside-block">
+                <div className="click-outside-block flex items-center justify-between gap-2">
                     {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
                         <LemonButton
                             sideIcon={<IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />}
@@ -577,7 +577,7 @@ function DefinitionEdit(): JSX.Element {
                     <div className="flex items-center">
                         <LemonButton
                             onClick={handleCancel}
-                            className=" mr-2"
+                            className="mr-2"
                             disabledReason={definitionLoading ? 'Loading…' : undefined}
                             type="secondary"
                             size="small"

@@ -70,7 +70,7 @@ export default meta
 
 const Template = ({ className, ...props }: MaxInstanceProps & { className?: string }): JSX.Element => {
     return (
-        <div className={twMerge('relative flex flex-col h-fit', className)}>
+        <div className={twMerge('relative flex h-fit flex-col', className)}>
             <MaxInstance {...props} />
         </div>
     )
@@ -553,7 +553,7 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
     }, [messagesSet, askMax])
 
     return (
-        <div className="h-fit max-h-screen overflow-y-auto SidePanel3000__content">
+        <div className="SidePanel3000__content h-fit max-h-screen overflow-y-auto">
             <Template />
         </div>
     )

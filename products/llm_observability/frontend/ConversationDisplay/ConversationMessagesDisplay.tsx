@@ -35,7 +35,7 @@ export function ConversationMessagesDisplay({
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
+        <div className="text-default border-danger flex items-center gap-1.5 overflow-x-auto rounded border bg-[var(--bg-fill-error-tertiary)] p-2 font-medium">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />
@@ -59,7 +59,7 @@ export function ConversationMessagesDisplay({
     ) : outputNormalized.length > 0 ? (
         outputNormalized.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />)
     ) : (
-        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+        <div className="text-default rounded border bg-[var(--bg-fill-error-tertiary)] p-2 italic">No output</div>
     )
 
     return (
@@ -70,12 +70,12 @@ export function ConversationMessagesDisplay({
                         <React.Fragment key={i}>
                             <LLMMessageDisplay message={message} />
                             {i < inputNormalized.length - 1 && (
-                                <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                                <div className="ml-2 h-2 border-l" /> /* Spacer connecting messages visually */
                             )}
                         </React.Fragment>
                     ))
                 ) : (
-                    <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
+                    <div className="text-default rounded border bg-[var(--bg-fill-error-tertiary)] p-2 italic">
                         No input
                     </div>
                 )
@@ -180,14 +180,14 @@ export const LLMMessageDisplay = React.memo(
                             return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                         } catch {
                             // If markdown still fails, fall back to plain text
-                            return <span className="font-mono whitespace-pre-wrap">{content}</span>
+                            return <span className="whitespace-pre-wrap font-mono">{content}</span>
                         }
                     } else {
                         // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
                         return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
-                    return <span className="font-mono whitespace-pre-wrap">{content}</span>
+                    return <span className="whitespace-pre-wrap font-mono">{content}</span>
                 }
             }
 
@@ -198,9 +198,9 @@ export const LLMMessageDisplay = React.memo(
         return (
             <div
                 className={clsx(
-                    'rounded border text-default',
+                    'text-default rounded border',
                     isOutput
-                        ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
+                        ? 'not-last:mb-2 bg-[var(--bg-fill-success-tertiary)]'
                         : role === 'user'
                           ? 'bg-[var(--bg-fill-tertiary)]'
                           : role === 'assistant'
@@ -208,7 +208,7 @@ export const LLMMessageDisplay = React.memo(
                             : null
                 )}
             >
-                <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
+                <div className="flex h-6 w-full items-center gap-1 px-2 text-xs font-medium">
                     <span className="grow">{role}</span>
                     {content && (
                         <>
@@ -236,9 +236,9 @@ export const LLMMessageDisplay = React.memo(
                         </>
                     )}
                 </div>
-                {show && !!content && <div className="p-2 border-t">{renderMessageContent(content)}</div>}
+                {show && !!content && <div className="border-t p-2">{renderMessageContent(content)}</div>}
                 {show && Object.keys(additionalKwargsEntries).length > 0 && (
-                    <div className="p-2 text-xs border-t">
+                    <div className="border-t p-2 text-xs">
                         <JSONViewer src={additionalKwargsEntries} name={null} collapsed={5} />
                     </div>
                 )}

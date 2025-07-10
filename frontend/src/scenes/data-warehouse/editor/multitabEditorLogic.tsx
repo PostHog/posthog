@@ -895,7 +895,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
                 content: (isLoading) =>
                     isLoading ? (
-                        <div className="h-[37px] flex items-center">
+                        <div className="flex h-[37px] items-center">
                             <ViewEmptyState />
                         </div>
                     ) : (

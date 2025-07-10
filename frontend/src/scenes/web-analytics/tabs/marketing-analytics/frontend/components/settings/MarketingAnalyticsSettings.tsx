@@ -7,7 +7,7 @@ import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExterna
 
 export function MarketingAnalyticsSettings(): JSX.Element {
     return (
-        <div className="flex flex-col gap-8 mb-10">
+        <div className="mb-10 flex flex-col gap-8">
             <BaseCurrency />
             <ConversionGoalsConfiguration />
             <NativeExternalDataSourceConfiguration />

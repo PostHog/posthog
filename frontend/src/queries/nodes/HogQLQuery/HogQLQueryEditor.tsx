@@ -95,8 +95,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
-                    'flex flex-col rounded deprecated-space-y-2 w-full overflow-hidden',
-                    !props.embedded && 'p-2 border'
+                    'deprecated-space-y-2 flex w-full flex-col overflow-hidden rounded',
+                    !props.embedded && 'border p-2'
                 )}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
@@ -133,13 +133,13 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     </div>
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
-                <div className="relative flex-1 overflow-hidden flex-col">
+                <div className="relative flex-1 flex-col overflow-hidden">
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
                             queryKey={codeEditorKey}
                             sourceQuery={props.query}
-                            className="border rounded-b overflow-hidden h-full"
+                            className="h-full overflow-hidden rounded-b border"
                             language="hogQL"
                             value={queryInput}
                             onChange={(v) => {

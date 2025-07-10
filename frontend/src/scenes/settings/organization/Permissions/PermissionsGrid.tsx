@@ -108,7 +108,7 @@ export function PermissionsGrid(): JSX.Element {
     return (
         <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
             <>
-                <div className="flex flex-row justify-between items-center mb-4">
+                <div className="mb-4 flex flex-row items-center justify-between">
                     <div className="text-secondary">
                         Edit organizational default permission levels for PostHog resources. Use roles to apply
                         permissions to specific sets of users.

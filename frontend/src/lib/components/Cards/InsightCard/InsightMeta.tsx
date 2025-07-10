@@ -301,7 +301,7 @@ export function InsightMetaContent({
                     title="This insight is queued to check for newer results. It will be updated soon."
                     placement="top-end"
                 >
-                    <span className="text-accent text-sm font-medium ml-1.5">
+                    <span className="text-accent ml-1.5 text-sm font-medium">
                         <Spinner className="mr-1.5 text-base" />
                         Refreshing
                     </span>

@@ -26,13 +26,13 @@ export function ElementInfo(): JSX.Element | null {
 
     return (
         <>
-            <div className="p-3 border-l-[5px] border-l-warning bg-bg-light">
+            <div className="border-l-warning bg-bg-light border-l-[5px] p-3">
                 <h1 className="section-title">Selected Element</h1>
                 <ActionStep actionStep={actionStep} />
             </div>
 
             {position ? (
-                <div className="p-3 border-l-[5px] border-l-danger bg-surface-primary text-primary">
+                <div className="border-l-danger bg-surface-primary text-primary border-l-[5px] p-3">
                     <h1 className="section-title">Stats</h1>
                     <p className="">
                         <IconCalendar /> <u>{dateRange}</u>
@@ -53,7 +53,7 @@ export function ElementInfo(): JSX.Element | null {
                 </div>
             ) : null}
 
-            <div className="p-3 border-l-[5px] border-l-success bg-surface-secondary">
+            <div className="border-l-success bg-surface-secondary border-l-[5px] p-3">
                 {!automaticActionCreationEnabled && (
                     <>
                         <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>

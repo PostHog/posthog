@@ -29,7 +29,7 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                     (button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])) gain focus when clicked
                     or focused with keyboard, disabled elements are not focusable and skipped.
                 </p>
-                <ul className="list-disc list-inside">
+                <ul className="list-inside list-disc">
                     <li>Default (all elements gain 'real' focus)</li>
                     <li>
                         OR virtual focus = true (where local state keeps track of focus allowing you to navigate with
@@ -38,12 +38,12 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                 </ul>
             </div>
             <ListBox
-                className="flex flex-col gap-px max-h-[400px] overflow-y-auto border-1 border-dashed border-darkgray p-2"
+                className="border-1 border-darkgray flex max-h-[400px] flex-col gap-px overflow-y-auto border-dashed p-2"
                 {...props}
                 ref={ref}
             >
                 <ListBox.Item asChild className="mb-4">
-                    <input type="text" className="h-9 border border-primary rounded-md p-2" />
+                    <input type="text" className="border-primary h-9 rounded-md border p-2" />
                 </ListBox.Item>
                 <ListBox.Item asChild>
                     <Link
@@ -82,8 +82,8 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                     }}
                     defaultValue={['one']}
                 >
-                    <AccordionPrimitive.Item value="one" className="flex flex-col w-full">
-                        <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                    <AccordionPrimitive.Item value="one" className="flex w-full flex-col">
+                        <AccordionPrimitive.Trigger className="flex h-8 w-full items-center gap-2" asChild>
                             <ListBox.Item asChild>
                                 <ButtonPrimitive menuItem fullWidth>
                                     Option 3 (Accordion)

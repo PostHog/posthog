@@ -34,7 +34,7 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
         <Spinner />
     ) : (
         <BindLogic logic={errorTrackingRulesLogic} props={logicProps}>
-            <div className="flex flex-col gap-y-2 mt-2">
+            <div className="mt-2 flex flex-col gap-y-2">
                 {allRules.map((persistedRule) => {
                     const editingRule = localRules.find((r) => r.id === persistedRule.id) as T
 

@@ -59,10 +59,10 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
     return (
-        <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
+        <div key={item.id} className="InsightLegendMenu-item flex flex-row p-2" ref={rowRef} {...highlightStyle}>
             <div className="grow">
                 <LemonCheckbox
-                    className="text-xs mr-4"
+                    className="mr-4 text-xs"
                     color={mainColor}
                     checked={!hiddenLegendIndexes.includes(rowIndex)}
                     onChange={() => toggleHiddenLegendIndex(rowIndex)}

@@ -77,7 +77,7 @@ export function ToolbarLaunch(): JSX.Element {
                 latest <code>posthog-js</code> version.
             </div>
 
-            <div className="feature-highlight-list mt-8 mx-auto mb-0 flex flex-wrap items-center justify-center">
+            <div className="feature-highlight-list mx-auto mb-0 mt-8 flex flex-wrap items-center justify-center">
                 {features.map((feature) => (
                     <FeatureHighlight key={feature.title} {...feature} />
                 ))}
@@ -94,10 +94,10 @@ interface FeatureHighlightProps {
 
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
-        <div className="fh-item flex items-center mt-4">
-            <div className="fh-icon mr-4 text-secondary">{icon}</div>
+        <div className="fh-item mt-4 flex items-center">
+            <div className="fh-icon text-secondary mr-4">{icon}</div>
             <div>
-                <h4 className="mb-0 text-secondary">{title}</h4>
+                <h4 className="text-secondary mb-0">{title}</h4>
                 <div className="caption">{caption}</div>
             </div>
         </div>

@@ -35,14 +35,14 @@ export function SavedInsightsFilters({
           )
 
     return (
-        <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <LemonInput
                 type="search"
                 placeholder="Search for insights"
                 onChange={(value) => setFilters({ search: value })}
                 value={search || ''}
             />
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
                 {nameSortedDashboards.length > 0 && (
                     <div className="flex items-center gap-2">
                         <span>On dashboard:</span>

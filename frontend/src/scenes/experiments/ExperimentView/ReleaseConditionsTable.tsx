@@ -110,11 +110,11 @@ export function ReleaseConditionsTable(): JSX.Element {
         <div>
             <div className="flex">
                 <div className="w-1/2">
-                    <h2 className="font-semibold text-lg">Release conditions</h2>
+                    <h2 className="text-lg font-semibold">Release conditions</h2>
                 </div>
 
-                <div className="w-1/2 flex flex-col justify-end">
-                    <div className="ml-auto mb-2">
+                <div className="flex w-1/2 flex-col justify-end">
+                    <div className="mb-2 ml-auto">
                         <LemonButton
                             icon={<IconFlag />}
                             onClick={() => {

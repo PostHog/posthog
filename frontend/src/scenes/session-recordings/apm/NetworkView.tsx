@@ -33,7 +33,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
         return (
             <Tooltip
                 title={
-                    <div className="flex flex-col deprecated-space-y-2">
+                    <div className="deprecated-space-y-2 flex flex-col">
                         <div>
                             {url.protocol}://{url.hostname}
                             {url.port.length ? `:${url.port}` : null}
@@ -81,7 +81,7 @@ function WaterfallMeta(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex gap-x-2 px-2 justify-between">
+            <div className="flex justify-between gap-x-2 px-2">
                 <LemonButton
                     onClick={prevPage}
                     icon={<IconChevronLeft />}
@@ -90,11 +90,11 @@ function WaterfallMeta(): JSX.Element | null {
                     noPadding={true}
                     size="xsmall"
                 />
-                <div className="flex items-center gap-1 flex-1 justify-between overflow-hidden">
+                <div className="flex flex-1 items-center justify-between gap-1 overflow-hidden">
                     <ItemTimeDisplay
                         timestamp={dayjs(currentPage[0].timestamp)}
                         timeInRecording={currentPage[0].timeInRecording}
-                        className="flex-shrink-0 p-0 min-w-4"
+                        className="min-w-4 flex-shrink-0 p-0"
                     />
 
                     <Tooltip title={pageUrl}>
@@ -129,7 +129,7 @@ export function NetworkView(): JSX.Element {
 
     if (isLoading) {
         return (
-            <div className="flex flex-col px-4 py-2 deprecated-space-y-2">
+            <div className="deprecated-space-y-2 flex flex-col px-4 py-2">
                 <LemonSkeleton repeat={10} fade={true} />
             </div>
         )
@@ -137,7 +137,7 @@ export function NetworkView(): JSX.Element {
 
     return (
         <BindLogic logic={networkViewLogic} props={{ sessionRecordingId: logicProps.sessionRecordingId }}>
-            <div className="NetworkView overflow-auto py-2 px-4">
+            <div className="NetworkView overflow-auto px-4 py-2">
                 <WaterfallMeta />
                 <LemonDivider />
                 <div className="deprecated-space-y-1 px-0">

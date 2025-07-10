@@ -81,7 +81,7 @@ function EditKeyModal(): JSX.Element {
                         organizations={allOrganizations}
                         teams={allTeams ?? undefined}
                     />
-                    <div className="flex items-center justify-between mt-4 mb-2">
+                    <div className="mb-2 mt-4 flex items-center justify-between">
                         <LemonLabel>Scopes</LemonLabel>
                         <LemonField name="preset">
                             <LemonSelect
@@ -131,7 +131,7 @@ function EditKeyModal(): JSX.Element {
                                                     disabledWhenProjectScoped && editingKey.access_type === 'teams'
                                                 return (
                                                     <Fragment key={key}>
-                                                        <div className="flex items-center justify-between gap-2 min-h-8">
+                                                        <div className="flex min-h-8 items-center justify-between gap-2">
                                                             <div
                                                                 className={clsx(
                                                                     'flex items-center gap-1',
@@ -178,8 +178,8 @@ function EditKeyModal(): JSX.Element {
                                                             />
                                                         </div>
                                                         {warnings?.[formScopeRadioValues[key]] && (
-                                                            <div className="flex items-start gap-2 text-xs italic pb-2">
-                                                                <IconWarning className="text-base text-secondary mt-0.5" />
+                                                            <div className="flex items-start gap-2 pb-2 text-xs italic">
+                                                                <IconWarning className="text-secondary mt-0.5 text-base" />
                                                                 <span>{warnings[formScopeRadioValues[key]]}</span>
                                                             </div>
                                                         )}
@@ -239,7 +239,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                         return (
                             <Link
                                 subtle
-                                className="text-left font-semibold truncate"
+                                className="truncate text-left font-semibold"
                                 onClick={() => setEditingKeyId(key.id)}
                             >
                                 {String(label)}
@@ -256,7 +256,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                             <span className="font-mono">{key.mask_value}</span>
                         ) : (
                             <Tooltip title="This key was created before the introduction of previews" placement="right">
-                                <span className="inline-flex items-center gap-1 cursor-default">
+                                <span className="inline-flex cursor-default items-center gap-1">
                                     <span>No preview</span>
                                     <IconInfo className="text-base" />
                                 </span>

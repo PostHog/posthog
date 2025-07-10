@@ -23,7 +23,7 @@ export function StepView({
     return (
         <div
             className={clsx(
-                'p-2 rounded border transition-all cursor-pointer bg-surface-primary',
+                'bg-surface-primary cursor-pointer rounded border p-2 transition-all',
                 isSelected ? 'border-secondary bg-surface-secondary' : 'hover:bg-surface-secondary'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -32,7 +32,7 @@ export function StepView({
                 height: NODE_HEIGHT,
             }}
         >
-            <div className="flex gap-1 justify-center items-center">
+            <div className="flex items-center justify-center gap-1">
                 {Step?.icon}
                 <div className="text-xs">{name ?? action.name}</div>
             </div>
