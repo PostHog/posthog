@@ -63,7 +63,7 @@ describe('HogFunctionHandler', () => {
                 },
             },
             queueParameters: {},
-        } as any
+        } as CyclotronJobInvocationHogFlow
 
         action = {
             id: 'action_123',
