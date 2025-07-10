@@ -18,7 +18,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -38,6 +37,8 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
+import { IconArrowUp, IconLink } from 'lib/lemon-ui/icons'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export const scene: SceneExport = {
     component: Max,
@@ -93,8 +94,15 @@ export interface MaxInstanceProps {
 }
 
 export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
-    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
-        useValues(maxLogic)
+    const {
+        threadVisible,
+        conversationHistoryVisible,
+        chatTitle,
+        backButtonDisabled,
+        threadLogicKey,
+        conversationId,
+        conversation,
+    } = useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
     const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
 
@@ -124,6 +132,20 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                 tooltip="Open chat history"
                 tooltipPlacement="bottom"
             />
+            {conversationId && (
+                <LemonButton
+                    size="small"
+                    icon={<IconLink />}
+                    tooltip="Copy conversation sharing link – only for other organization members"
+                    onClick={() => {
+                        copyToClipboard(
+                            urls.absolute(urls.currentProject(urls.max(conversationId))),
+                            'conversation sharing link'
+                        )
+                    }}
+                    tooltipPlacement="bottom"
+                />
+            )}
             {featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] && (
                 <LemonButton
                     size="small"
@@ -186,6 +208,20 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 icon={<IconPlus />}
                                 onClick={() => startNewConversation()}
                                 tooltip="Start a new chat"
+                                tooltipPlacement="bottom"
+                            />
+                        )}
+                        {conversationId && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconLink />}
+                                tooltip="Copy conversation sharing link – only for other organization members"
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.max(conversationId))),
+                                        'conversation sharing link'
+                                    )
+                                }}
                                 tooltipPlacement="bottom"
                             />
                         )}
