@@ -665,7 +665,8 @@ class TestUserAPI(APIBaseTest):
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_update_password(self, mock_capture, mock_identify):
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_can_update_password(self, mock_send_password_changed_email, mock_capture, mock_identify):
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
@@ -702,9 +703,15 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post("/api/login", {"email": "bob@posthog.com", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # Assert password changed email was sent
+        mock_send_password_changed_email.assert_called_once_with(user.id)
+
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_with_no_password_set_can_set_password(self, mock_capture, mock_identify):
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_with_no_password_set_can_set_password(
+        self, mock_send_password_changed_email, mock_capture, mock_identify
+    ):
         user = self._create_user("no_password@posthog.com", password=None)
         self.client.force_login(user)
 
@@ -744,7 +751,11 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_user_with_unusable_password_set_can_set_password(self):
+        # Assert password changed email was sent
+        mock_send_password_changed_email.assert_called_once_with(user.id)
+
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_with_unusable_password_set_can_set_password(self, mock_send_password_changed_email):
         user = self._create_user("no_password@posthog.com", password="123456789")
         user.set_unusable_password()
         user.save()
