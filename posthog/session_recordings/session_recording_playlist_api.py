@@ -385,7 +385,7 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
 
             return response.Response({"success": True})
 
-        raise NotImplementedError()
+        raise ValidationError("Only POST and DELETE methods are supported")
 
     @extend_schema(exclude=True)
     @action(
