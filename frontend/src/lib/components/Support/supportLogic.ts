@@ -147,7 +147,7 @@ export const TARGET_AREA_TO_NAME = [
             },
             {
                 value: 'platform_addons',
-                'data-attr': `support-form-target-area-platform_addon`,
+                'data-attr': `support-form-target-area-platform_addons`,
                 label: 'Platform addons',
             },
             {
