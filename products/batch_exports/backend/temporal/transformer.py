@@ -327,7 +327,7 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
             # "\ud83d"
             logger.exception("Failed to encode with orjson: %s", d)
             cleaned_content = replace_broken_unicode(d)
-            dumped = dump_dict(cleaned_content)  # type: ignore
+            dumped = dump_dict(cleaned_content)
 
     return dumped
 
