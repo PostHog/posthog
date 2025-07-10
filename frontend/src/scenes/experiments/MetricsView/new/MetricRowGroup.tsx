@@ -98,7 +98,7 @@ export function MetricRowGroup({
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
                     <div className="text-sm text-text-primary whitespace-nowrap">
-                        <span className="text-[#2563eb]">—</span> Baseline
+                        <span className="text-[#2563eb]">—</span> {baselineResult.key}
                     </div>
                 </td>
 
