@@ -21,9 +21,9 @@ export function Wizard(): JSX.Element {
         <div className="flex h-full w-full items-center justify-center">
             <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
                 {view === 'project' && (
-                    <div className="w-full max-w-md">
+                    <div className="max-w-xs">
                         <div className="mb-8">
-                            <h1 className="text-3xl font-bold mb-3">AI Wizard</h1>
+                            <h1 className="text-3xl font-bold mb-3">AI wizard</h1>
                             <p className="text-muted-alt">
                                 Select which project the wizard should use to install PostHog.
                             </p>
@@ -41,17 +41,17 @@ export function Wizard(): JSX.Element {
                                 />
                             </div>
 
-                            <div className="pt-4">
+                            <div className="pt-4 flex items-center justify-center">
                                 <LemonButton
                                     type="primary"
-                                    size="large"
                                     fullWidth
                                     onClick={continueToAuthentication}
                                     disabledReason={
                                         !selectedProjectId ? 'Please select a project to continue.' : undefined
                                     }
+                                    className="w-auto"
                                 >
-                                    Continue Setup
+                                    Continue setup
                                 </LemonButton>
                             </div>
                         </div>

@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import type { wizardLogicType } from './wizardLogicType'
 import { projectLogic } from 'scenes/projectLogic'
@@ -15,15 +14,7 @@ export interface WizardTokenResponseType {
 export const wizardLogic = kea<wizardLogicType>([
     path(['scenes', 'wizard', 'wizardLogic']),
     connect(() => ({
-        actions: [teamLogic, ['loadCurrentTeamSuccess']],
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            organizationLogic,
-            ['currentOrganization'],
-            projectLogic,
-            ['currentProject'],
-        ],
+        values: [organizationLogic, ['currentOrganization'], projectLogic, ['currentProject']],
     })),
     actions({
         setWizardHash: (wizardHash: string | null) => ({ wizardHash }),
@@ -31,6 +22,7 @@ export const wizardLogic = kea<wizardLogicType>([
         setSelectedProject: (projectId: number | null) => ({ projectId }),
         authenticateWizard: (wizardHash: string, projectId: number) => ({ wizardHash, projectId }),
         continueToAuthentication: () => ({}),
+        handleWizardRouting: () => ({}),
     }),
     loaders(({ actions }) => ({
         wizardToken: [
@@ -101,39 +93,41 @@ export const wizardLogic = kea<wizardLogicType>([
             const wizardHash = values.wizardHash
 
             if (!projectId || !wizardHash) {
-                console.error('Missing projectId or wizardHash for authentication')
+                actions.setView('invalid')
                 return
             }
 
             actions.setView('pending')
             actions.authenticateWizard(wizardHash, projectId)
         },
-    })),
-    urlToAction(({ actions, values }) => ({
-        '/wizard': (_, params) => {
-            const wizardHash = params['hash']
+        handleWizardRouting: () => {
+            const wizardHash = values.wizardHash
 
             if (!wizardHash) {
                 actions.setView('invalid')
+                return
             }
 
-            actions.setWizardHash(wizardHash)
-
+            // If we have a current project, auto-select it
             const currentProjectId = values.currentProject?.id
-            const projectCount = values.currentOrganization?.projects?.length || 0
-
-            // Auto-select current project if available
             if (currentProjectId) {
                 actions.setSelectedProject(currentProjectId)
             }
 
-            // If there's only one project and we have a current project, skip selection
-            if (projectCount <= 1 && currentProjectId) {
+            // If there's only one project, skip selection and authenticate
+            if (values.availableProjects.length <= 1 && currentProjectId) {
                 actions.authenticateWizard(wizardHash, currentProjectId)
                 actions.setView('pending')
             } else {
                 actions.setView('project')
             }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/wizard': (_, params) => {
+            const wizardHash = params['hash']
+            actions.setWizardHash(wizardHash ?? null)
+            actions.handleWizardRouting()
         },
     })),
 ])
