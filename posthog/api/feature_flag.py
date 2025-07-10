@@ -76,6 +76,7 @@ from posthog.rate_limit import BurstRateThrottle
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from django.dispatch import receiver
 from posthog.models.signals import model_activity_signal
+from posthog.settings.utils import get_from_env, str_to_bool
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -943,6 +944,31 @@ class FeatureFlagViewSet(
             for feature_flag in all_serialized_flags
         )
 
+    def _has_flag_type_filter(self, feature_flag: FeatureFlag) -> bool:
+        """Check if a feature flag has any filters with type='flag'"""
+        try:
+            filters = feature_flag.get_filters()
+            groups = filters.get("groups", [])
+
+            for group in groups:
+                properties = group.get("properties", [])
+                for prop in properties:
+                    if prop.get("type") == "flag":
+                        return True
+
+            # Also check super_groups if they exist
+            super_groups = filters.get("super_groups", [])
+            for group in super_groups:
+                properties = group.get("properties", [])
+                for prop in properties:
+                    if prop.get("type") == "flag":
+                        return True
+
+            return False
+        except Exception:
+            # If we can't determine, err on the side of caution and include the flag
+            return False
+
     @action(
         methods=["GET"],
         detail=False,
@@ -999,6 +1025,24 @@ class FeatureFlagViewSet(
                     },
                     status=500,
                 )
+
+            # Check if feature-flags-flag-dependency is enabled
+            # If not, filter out flags with type="flag" filters
+            # This can be controlled via environment variable or settings
+            flag_dependency_enabled = get_from_env("FEATURE_FLAGS_FLAG_DEPENDENCY_ENABLED", False, type_cast=str_to_bool)
+
+            if not flag_dependency_enabled:
+                original_count = len(feature_flags)
+                feature_flags = [flag for flag in feature_flags if not self._has_flag_type_filter(flag)]
+                filtered_count = original_count - len(feature_flags)
+                if filtered_count > 0:
+                    logger.info(
+                        "Filtered out flags with flag dependencies",
+                        extra={
+                            "flags_filtered": filtered_count,
+                            "flags_remaining": len(feature_flags),
+                        },
+                    )
 
             should_send_cohorts = "send_cohorts" in request.GET
             cohorts = {}
