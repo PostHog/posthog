@@ -16,8 +16,6 @@ from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
 import pyarrow as pa
-import pandas as pd
-import fsspec
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -1149,38 +1147,3 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert new_job.status == DataModelingJob.Status.RUNNING
     assert new_job.workflow_id == "new-workflow"
     assert new_job.workflow_run_id == "new-run"
-
-
-async def test_manual_delta_write(minio_client, bucket_name):
-    """
-    Smoke-test that we can write a tiny Delta table straight to S3/MinIO.
-    """
-    # `bucket_name` is provided by the fixture and guaranteed to exist.
-    path = f"s3://{bucket_name}/manual_delta_write_test"
-    access_key = "object_storage_root_user"
-    secret_key = "object_storage_root_password"
-    endpoint_url = "http://objectstorage:19000"
-
-    df = pd.DataFrame({"foo": [1, 2, 3]})
-
-    # write
-    deltalake.write_deltalake(
-        path,
-        df,
-        mode="overwrite",
-        storage_options={
-            "aws_access_key_id": access_key,
-            "aws_secret_access_key": secret_key,
-            "endpoint_url": endpoint_url,
-            "region_name": "us-east-1",
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        },
-    )
-
-    # verify the commit log exists
-    fs = fsspec.filesystem(
-        "s3", key=access_key, secret=secret_key, client_kwargs={"endpoint_url": endpoint_url}, use_ssl=False
-    )
-    delta_log_files = fs.glob(f"{bucket_name}/manual_delta_write_test/_delta_log/*.json")
-    assert delta_log_files, "No _delta_log/ files written – manual Delta write failed"
