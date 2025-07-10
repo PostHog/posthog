@@ -1065,9 +1065,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
         try:
             model_id = uuid.UUID(model)
         except ValueError:
-            await logger.aerror(
-                f"Invalid model identifier '{model}': expected UUID format - this indicates a race condition or data integrity issue"
-            )
+            await logger.aerror(f"Invalid model identifier '{model}': expected UUID format - this indicates a race condition or data integrity issue")
             continue  # Skip this model if it's not a valid UUID
 
         await create_table_from_saved_query(model, inputs.team_id)
@@ -1078,9 +1076,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
             )
 
             if not saved_query.table:
-                await logger.aerror(
-                    f"Saved query {saved_query.name} (ID: {saved_query.id}) has no table - this indicates a data integrity issue"
-                )
+                await logger.aerror(f"Saved query {saved_query.name} (ID: {saved_query.id}) has no table - this indicates a data integrity issue")
                 continue
 
             table = saved_query.table
