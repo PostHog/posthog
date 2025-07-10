@@ -33,7 +33,7 @@ export function Wizard(): JSX.Element {
                             <div className="justify-start items-start flex flex-col">
                                 <label className="align-start block text-sm font-medium mb-3">Project</label>
                                 <LemonSelect
-                                    value={selectedProjectId}
+                                    value={selectedProjectId ?? undefined}
                                     onChange={(projectId: number) => setSelectedProject(projectId)}
                                     options={availableProjects}
                                     placeholder="Choose a project..."
