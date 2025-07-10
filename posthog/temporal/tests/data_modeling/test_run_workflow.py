@@ -1174,6 +1174,7 @@ async def test_manual_delta_write(minio_client, bucket_name):
             "endpoint_url": endpoint_url,
             "region_name": "us-east-1",
             "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         },
     )
 
