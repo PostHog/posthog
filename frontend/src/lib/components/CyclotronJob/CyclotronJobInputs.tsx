@@ -41,7 +41,7 @@ export const EXTEND_OBJECT_KEY = '$$_extend_object'
 const INPUT_TYPE_LIST = ['string', 'number', 'boolean', 'dictionary', 'choice', 'json', 'integration', 'email'] as const
 
 export type CyclotronJobInputsProps = {
-    onInputChange: (key: string, input: CyclotronJobInputType) => void
+    onInputChange?: (key: string, input: CyclotronJobInputType) => void
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void

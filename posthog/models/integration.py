@@ -407,6 +407,11 @@ class OauthIntegration:
             "id_token": config.pop("id_token", None),
         }
 
+        # Handle case where Salesforce doesn't provide expires_in in initial response
+        if not config.get("expires_in") and kind == "salesforce":
+            # Default to 1 hour for Salesforce if not provided (conservative)
+            config["expires_in"] = 3600
+
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -432,7 +437,15 @@ class OauthIntegration:
         refresh_token = self.integration.sensitive_config.get("refresh_token")
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
-        if not refresh_token or not expires_in or not refreshed_at:
+
+        if not refresh_token:
+            return False
+
+        if not expires_in and self.integration.kind == "salesforce":
+            # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
+            expires_in = 3600
+
+        if not expires_in or not refreshed_at:
             return False
 
         # To be really safe we refresh if its half way through the expiry
@@ -466,7 +479,14 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
-            self.integration.config["expires_in"] = config.get("expires_in")
+
+            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            expires_in = config.get("expires_in")
+            if not expires_in and self.integration.kind == "salesforce":
+                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+
+            self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()

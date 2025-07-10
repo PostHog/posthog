@@ -233,7 +233,6 @@ export const FEATURE_FLAGS = {
     REVENUE_ANALYTICS: 'revenue-analytics-beta', // owner: @rafaeelaudibert #team-revenue-analytics
     REVENUE_ANALYTICS_MRR: 'revenue-analytics-mrr', // owner: @rafaeelaudibert #team-revenue-analytics
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
-    AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
     CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @danielbachhuber #team-crm
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
@@ -253,8 +252,6 @@ export const FEATURE_FLAGS = {
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_FRUSTRATING_PAGES_TILE: 'web-analytics-frustrating-pages-tile', // owner: @lricoy #team-web-analytics
-    SQL_EDITOR_AI_ERROR_FIXER: 'sql-editor-ai-error-fixer', // owner: @Gilbert09 #team-data-warehouse
-    GOOGLE_ADS_DWH: 'google-ads-dwh', // owner: @tomasfarias #team-data-warehouse
     ALWAYS_QUERY_BLOCKING: 'always-query-blocking', // owner: @timgl
     GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
     SHOW_COMING_SOON_DESTINATIONS: 'show-coming-soon-destinations', // owner: @meikel #team-cdp
@@ -282,7 +279,6 @@ export const FEATURE_FLAGS = {
     USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-product-analytics
     EXPERIMENTS_DEV_STATS_METHOD_TOGGLE: 'experiments-dev-stats-method-toggle', // owner: #team-experiments
     REPLAY_EXPORT_RAW_RECORDING: 'replay-export-raw-recording', // owner: @veryayskiy #team-replay
-    GOOGLE_SHEETS_DWH: 'google-shets-dwh', // owner: @Gilbert09 #team-data-warehouse
     NEW_BAYESIAN_STATS_METHOD: 'new-bayesian-stats-method', // owner: @andehen #team-experiments
     AA_TEST_BAYESIAN_LEGACY: 'aa-test-bayesian-legacy', // owner: #team-experiments
     AA_TEST_BAYESIAN_NEW: 'aa-test-bayesian-new', // owner: #team-experiments
