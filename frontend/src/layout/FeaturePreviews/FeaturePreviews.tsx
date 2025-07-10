@@ -138,7 +138,7 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
             </div>
             <div className="flex gap-2 justify-between">
                 <p className="m-0">{description || <i>No description.</i>}</p>
-                <div>
+                <div className="whitespace-nowrap">
                     {!isFeedbackActive && (
                         <Link onClick={() => beginEarlyAccessFeatureFeedback(flagKey)}>Give feedback</Link>
                     )}
