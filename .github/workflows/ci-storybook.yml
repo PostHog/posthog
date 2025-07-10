@@ -25,12 +25,14 @@ jobs:
                   filters: |
                       frontend:
                         - 'frontend/**'
-                        - 'products/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
+                        - 'products/**/frontend/**'
                         - 'common/**'
                         - 'ee/frontend/**'
                         - '.storybook/**'
                         - 'package.json'
-                        - '.github/workflows/storybook-chromatic.yml'
+                        - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
 
     build-storybook:
@@ -47,6 +49,8 @@ jobs:
 
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.frontend == 'true'
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -105,6 +109,7 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.frontend == 'true'
               with:
+                  ref: ${{ github.event.pull_request.head.ref }}
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
@@ -336,7 +341,6 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.frontend == 'true'
               with:
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
                   ref: ${{ github.event.pull_request.head.ref }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
@@ -424,16 +428,21 @@ jobs:
                       exit 1
                   fi
 
-            - name: Run @storybook/test-runner
+            - name: Run @storybook/test-runner (up to 3 attempts)
               if: needs.changes.outputs.frontend == 'true'
               env:
-                  # Solving this bug by overriding $HOME: https://github.com/microsoft/playwright/issues/6500
                   HOME: /root
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm --filter=@posthog/storybook test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
+                  for i in 1 2 3; do
+                    echo "Attempt $i: Running @storybook/test-runner"
+                    pnpm --filter=@posthog/storybook test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
+                    if [ $i -eq 3 ]; then
+                      echo "Test runner failed after 3 attempts"
+                      exit 1
+                    fi
+                  done
 
             - name: Archive failure screenshots
               if: needs.changes.outputs.frontend == 'true' && ${{ failure() }}
