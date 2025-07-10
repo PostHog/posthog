@@ -2712,7 +2712,18 @@ const api = {
             return await new ApiRequest()
                 .recordingPlaylist(playlistId)
                 .withAction('recordings')
-                .withAction('bulk')
+                .withAction('bulk_add')
+                .create({ data: { session_recording_ids } })
+        },
+
+        async bulkDeleteRecordingsFromPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_ids: SessionRecordingType['id'][]
+        ): Promise<{ success: boolean; added_count: number; total_requested: number }> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction('bulk_delete')
                 .create({ data: { session_recording_ids } })
         },
 

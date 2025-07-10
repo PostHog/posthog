@@ -814,7 +814,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         # Test bulk add
         response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk_add",
             {"session_recording_ids": recording_ids},
             format="json",
         )
@@ -831,8 +831,8 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             ).exists()
 
         # Test bulk delete
-        response = self.client.delete(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk",
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk_delete",
             {"session_recording_ids": recording_ids},
             format="json",
         )
@@ -858,7 +858,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         # Test empty array
         response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
             {"session_recording_ids": []},
             format="json",
         )
@@ -867,7 +867,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         # Test non-array input
         response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
             {"session_recording_ids": "not_an_array"},
             format="json",
         )
@@ -876,7 +876,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         # Test too many recordings (over 20 limit)
         too_many_ids = [f"session_{i}" for i in range(21)]
         response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
             {"session_recording_ids": too_many_ids},
             format="json",
         )
@@ -892,7 +892,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
             {"session_recording_ids": ["session_1", "session_2"]},
             format="json",
         )
@@ -916,7 +916,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         # Try to bulk add including the existing one and new ones
         recording_ids = [existing_id, "new_session_1", "new_session_2"]
         response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
             {"session_recording_ids": recording_ids},
             format="json",
         )
