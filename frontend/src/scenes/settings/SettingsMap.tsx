@@ -344,12 +344,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-triggers',
-                title: 'Replay start & stop rules',
+                title: 'Recording conditions',
                 component: <ReplayTriggers />,
             },
             {
                 id: 'replay-masking',
-                title: 'Privacy controls',
+                title: 'Privacy and masking',
                 component: <ReplayMaskingSettings />,
             },
             {
