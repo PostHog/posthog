@@ -62,14 +62,14 @@ def get_organization_from_view(view) -> Organization:
         organization = view.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError, AssertionError):
         pass
 
     try:
         organization = view.team.organization
         if isinstance(organization, Organization):
             return organization
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError, AssertionError):
         pass
 
     raise ValueError("View not compatible with organization-based permissions!")
