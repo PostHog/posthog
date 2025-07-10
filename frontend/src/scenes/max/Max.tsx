@@ -16,11 +16,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect, useState } from 'react'
+import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
@@ -105,15 +104,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
 
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
-
-    const [, setWasUserAutoEnrolled] = useState(false)
-    useEffect(() => {
-        if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-            updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.ARTIFICIAL_HOG, true)
-            setWasUserAutoEnrolled(true)
-        }
-    }, [featureFlags, updateEarlyAccessFeatureEnrollment])
 
     const headerButtons = (
         <>
