@@ -45,10 +45,12 @@ async function main() {
             type: 'list',
             name: 'hogFunction',
             message: 'Select a hog function:',
-            choices: NATIVE_HOG_FUNCTIONS.map((hogFunction) => ({
-                name: hogFunction.name,
-                value: hogFunction.id,
-            })),
+            choices: NATIVE_HOG_FUNCTIONS.filter((hogFunction) => hogFunction.id !== 'native-dev-center').map(
+                (hogFunction) => ({
+                    name: hogFunction.name,
+                    value: hogFunction.id,
+                })
+            ),
         },
     ])
 
