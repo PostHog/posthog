@@ -602,10 +602,7 @@ jobs:
               uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               with:
                   path: .test_durations
-                  key: tests-durations-${{ github.sha }}
-                  restore-keys: |
-                      tests-durations-${{ github.sha }}-
-                      tests-durations-
+                  key: tests-durations
                   fail-on-cache-miss: false
 
             - name: Determine if --snapshot-update should be on
@@ -861,7 +858,7 @@ jobs:
               continue-on-error: true
               with:
                   path: /tmp/.test_durations
-                  key: tests-durations-${{ github.sha }}-${{ github.run_attempt }}
+                  key: tests-durations
 
     posthog-analytics:
         name: PostHog CI analytics
