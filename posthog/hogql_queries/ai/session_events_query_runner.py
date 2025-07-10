@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.schema import (
     CachedSessionBatchEventsQueryResponse,
     SessionBatchEventsQuery,
@@ -21,25 +22,49 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
     response: SessionBatchEventsQueryResponse
     cached_response: CachedSessionBatchEventsQueryResponse
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Override the paginator to use our query's limit and offset
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
+        )
+
     def calculate(self) -> SessionBatchEventsQueryResponse:
         """
         Execute the session batch query and organize results by session.
 
-        This method leverages the parent EventsQueryRunner.calculate() for query execution,
-        then post-processes the results to group by session.
+        This method uses the paginator to execute the query directly, then post-processes
+        the results to group by session.
         """
-        # Execute the base query using parent EventsQueryRunner
-        base_response = super().calculate()
+        # Execute the query using the paginator
+        query_result = self.paginator.execute_hogql_query(
+            query=self.to_query(),
+            team=self.team,
+            query_type="SessionBatchEventsQuery",
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+
         # If group_by_session is False, return the base response as-is, without session_events grouping
         if not self.query.group_by_session:
             return SessionBatchEventsQueryResponse(
-                **base_response.model_dump(),
+                results=self.paginator.results,
+                columns=self.columns(query_result.columns),
+                types=[t for _, t in query_result.types] if query_result.types else [],
+                hogql=query_result.hogql,
+                timings=self.timings.to_list(),
+                modifiers=self.modifiers,
                 session_events=None,
+                sessions_with_no_events=[],
+                **self.paginator.response_params(),
             )
+
         # Group results by session and get filtered columns
         session_events_data, filtered_columns = self._group_events_by_session(
-            results=base_response.results, columns=base_response.columns or []
+            results=self.paginator.results, columns=self.columns(query_result.columns)
         )
+
         # Create SessionEventsItem list to split the results into sessions with or without events
         session_events: list[SessionEventsItem] = []
         sessions_with_no_events: list[str] = []
@@ -54,22 +79,19 @@ class SessionBatchEventsQueryRunner(EventsQueryRunner):
                 )
             else:
                 sessions_with_no_events.append(session_id)
+
         return SessionBatchEventsQueryResponse(
             # Base EventsQueryResponse fields
-            results=base_response.results,
+            results=self.paginator.results,
             columns=filtered_columns,  # Use filtered columns without session_id
-            types=base_response.types,
-            hogql=base_response.hogql,
-            timings=base_response.timings,
-            error=base_response.error,
-            hasMore=base_response.hasMore,
-            limit=base_response.limit,
-            offset=base_response.offset,
-            modifiers=base_response.modifiers,
-            query_status=base_response.query_status,
+            types=[t for _, t in query_result.types] if query_result.types else [],
+            hogql=query_result.hogql,
+            timings=self.timings.to_list(),
+            modifiers=self.modifiers,
             # Session-specific fields
             session_events=session_events,
             sessions_with_no_events=sessions_with_no_events,
+            **self.paginator.response_params(),
         )
 
     def _group_events_by_session(

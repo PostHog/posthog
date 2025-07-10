@@ -355,7 +355,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(response.results), 1)
 
     def test_pagination_with_offset(self):
-        """Test pagination functionality with offset parameter."""
+        """Test pagination functionality with offset parameter using HogQLHasMorePaginator."""
         session_id = self.session_1_id
         self._create_events_for_sessions(  # Create 5 events for a single session
             [
@@ -368,34 +368,80 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         with freeze_time("2025-01-11T16:00:00"):
             all_events = []
-            for iteration in range(3):  # 2 events per query max, iterate 3 times to get 5 events
-                offset = iteration * 2
-                query = create_session_batch_events_query(
-                    session_ids=[session_id],
-                    before="2025-01-12T00:00:00",
-                    after="2025-01-10T00:00:00",
-                    select=["event", "timestamp", "properties.page", "properties.$session_id"],
-                    max_total_events=2,
-                    offset=offset,
-                )
-                runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
-                response = runner.calculate()
+            # Test first page with limit=2, offset=0
+            query = create_session_batch_events_query(
+                session_ids=[session_id],
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
+                select=["event", "timestamp", "properties.page", "properties.$session_id"],
+                max_total_events=2,
+                offset=0,
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.calculate()
 
-                # Verify responses
-                self.assertIsInstance(response, SessionBatchEventsQueryResponse)
-                self.assertIsNotNone(response.session_events)
-                if iteration < 2:  # First two iterations should have 2 events each
-                    self.assertEqual(len(response.session_events), 1)
-                    session_events = response.session_events[0]
-                    self.assertEqual(session_events.session_id, session_id)
-                    self.assertEqual(len(session_events.events), 2)
-                    all_events.extend(session_events.events)
-                else:  # Third iteration should have 1 event
-                    self.assertEqual(len(response.session_events), 1)
-                    session_events = response.session_events[0]
-                    self.assertEqual(session_events.session_id, session_id)
-                    self.assertEqual(len(session_events.events), 1)
-                    all_events.extend(session_events.events)
+            # Verify first page response
+            self.assertIsInstance(response, SessionBatchEventsQueryResponse)
+            self.assertIsNotNone(response.session_events)
+            self.assertEqual(len(response.session_events), 1)  # One session with 2 events
+            session_events = response.session_events[0]
+            self.assertEqual(session_events.session_id, session_id)
+            self.assertEqual(len(session_events.events), 2)
+            # Should have hasMore=True since there are more events
+            self.assertTrue(response.hasMore)
+            self.assertEqual(response.limit, 2)
+            self.assertEqual(response.offset, 0)
+            all_events.extend(session_events.events)
+
+            # Test second page with limit=2, offset=2
+            query = create_session_batch_events_query(
+                session_ids=[session_id],
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
+                select=["event", "timestamp", "properties.page", "properties.$session_id"],
+                max_total_events=2,
+                offset=2,
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.calculate()
+
+            # Verify second page response
+            self.assertIsInstance(response, SessionBatchEventsQueryResponse)
+            self.assertIsNotNone(response.session_events)
+            self.assertEqual(len(response.session_events), 1)
+            session_events = response.session_events[0]
+            self.assertEqual(session_events.session_id, session_id)
+            self.assertEqual(len(session_events.events), 2)
+            # Should have hasMore=True since there's still one more event
+            self.assertTrue(response.hasMore)
+            self.assertEqual(response.limit, 2)
+            self.assertEqual(response.offset, 2)
+            all_events.extend(session_events.events)
+
+            # Test third page with limit=2, offset=4
+            query = create_session_batch_events_query(
+                session_ids=[session_id],
+                before="2025-01-12T00:00:00",
+                after="2025-01-10T00:00:00",
+                select=["event", "timestamp", "properties.page", "properties.$session_id"],
+                max_total_events=2,
+                offset=4,
+            )
+            runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
+            response = runner.calculate()
+
+            # Verify third page response
+            self.assertIsInstance(response, SessionBatchEventsQueryResponse)
+            self.assertIsNotNone(response.session_events)
+            self.assertEqual(len(response.session_events), 1)
+            session_events = response.session_events[0]
+            self.assertEqual(session_events.session_id, session_id)
+            self.assertEqual(len(session_events.events), 1)  # Only 1 event left
+            # Should have hasMore=False since no more events
+            self.assertFalse(response.hasMore)
+            self.assertEqual(response.limit, 2)
+            self.assertEqual(response.offset, 4)
+            all_events.extend(session_events.events)
 
             # Verify we collected all 5 events across the 3 iterations
             self.assertEqual(len(all_events), 5)
