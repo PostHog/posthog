@@ -638,7 +638,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return Object.values(table.fields).map((field) => ({
                         name: field.name,
                         type: field.type,
-                        menuItems: menuItems(field, table.name),
+                        menuItems: menuItems(field, table?.name ?? ''), // table cant be null, but the typechecker is confused
                     }))
                 }
 
@@ -646,7 +646,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return Object.values(table.columns).map((column) => ({
                         name: column.name,
                         type: column.type,
-                        menuItems: menuItems(column, table.name),
+                        menuItems: menuItems(column, table?.name ?? ''), // table cant be null, but the typechecker is confused
                     }))
                 }
                 return []
