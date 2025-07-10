@@ -20784,7 +20784,7 @@
                 },
                 "event": {
                     "description": "Limit to events matching this string",
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -20793,17 +20793,7 @@
                 "fixedProperties": {
                     "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/PropertyGroupFilter"
-                            },
-                            {
-                                "$ref": "#/definitions/PropertyGroupFilterValue"
-                            },
-                            {
-                                "$ref": "#/definitions/AnyPropertyFilter"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyFilterLike"
                     },
                     "type": "array"
                 },
@@ -20851,7 +20841,7 @@
                 "select": {
                     "description": "Return a limited set of data. Required.",
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
                 },
@@ -20876,7 +20866,7 @@
                 "where": {
                     "description": "HogQL filters to apply on returned data",
                     "items": {
-                        "type": "string"
+                        "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
                 }
