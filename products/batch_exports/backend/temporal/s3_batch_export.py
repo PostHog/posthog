@@ -1004,7 +1004,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
             external_logger.info(
-                "Batch export finished as there is no data in range %s - %s matching specified filters",
+                "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",
             )
@@ -1038,13 +1038,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             include_inserted_at=True,
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             json_columns=("properties", "person_properties", "set", "set_once"),
-        )
-
-        external_logger.info(
-            "Batch export for range %s - %s finished with %d records exported",
-            inputs.data_interval_start or "START",
-            inputs.data_interval_end or "END",
-            records_completed,
         )
 
         return records_completed
