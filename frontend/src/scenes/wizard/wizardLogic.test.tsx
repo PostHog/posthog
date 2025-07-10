@@ -86,7 +86,7 @@ describe('wizardLogic', () => {
             logic.actions.setSelectedProject(MOCK_DEFAULT_TEAM.id)
             logic.actions.continueToAuthentication()
 
-            await expectLogic().toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic).toMatchValues({
                 view: 'invalid',
@@ -106,7 +106,7 @@ describe('wizardLogic', () => {
             logic.actions.setSelectedProject(MOCK_DEFAULT_TEAM.id)
             logic.actions.continueToAuthentication()
 
-            await expectLogic().toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic).toMatchValues({
                 view: 'success',
