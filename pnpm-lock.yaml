@@ -1221,6 +1221,9 @@ importers:
       vite:
         specifier: ^5.4.19
         version: 5.4.19(@types/node@18.18.4)(less@3.13.1)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1)
+      vite-plugin-lottie:
+        specifier: ^1.0.1
+        version: 1.0.1(vite@5.4.19(@types/node@18.18.4)(less@3.13.1)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1))
       whatwg-fetch:
         specifier: ^3.6.2
         version: 3.6.2
@@ -17130,6 +17133,11 @@ packages:
   vfile@4.2.1:
     resolution: {integrity: sha512-O6AE4OskCG5S1emQ/4gl8zK586RqA3srz3nfK/Viy0UPToBc5Trp9BVFb1u0CjsKrAWwnpr4ifM/KBXPWwJbCA==}
 
+  vite-plugin-lottie@1.0.1:
+    resolution: {integrity: sha512-hVtsTdJavcX1aWEZYau6iWFqS5NAkhWO2UdBtBtCQ4OzMoPNEo2tm8ah16oTO+Dycl3LyGPeqPVKAEJmpTWdZg==}
+    peerDependencies:
+      vite: '*'
+
   vite@5.4.19:
     resolution: {integrity: sha512-qO3aKv3HoQC8QKiNSTuUM1l9o/XX3+c+VTgLHbJWHZGeTPVAg2XwazI9UWzoxjIJCGCV2zU60uqMzjeLZuULqA==}
     engines: {node: ^18.0.0 || >=20.0.0}
@@ -20564,8 +20572,8 @@ snapshots:
 
   '@jridgewell/source-map@0.3.5':
     dependencies:
-      '@jridgewell/gen-mapping': 0.3.8
-      '@jridgewell/trace-mapping': 0.3.25
+      '@jridgewell/gen-mapping': 0.3.12
+      '@jridgewell/trace-mapping': 0.3.29
 
   '@jridgewell/sourcemap-codec@1.4.15': {}
 
@@ -36455,6 +36463,10 @@ snapshots:
       is-buffer: 2.0.5
       unist-util-stringify-position: 2.0.3
       vfile-message: 2.0.4
+
+  vite-plugin-lottie@1.0.1(vite@5.4.19(@types/node@18.18.4)(less@3.13.1)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1)):
+    dependencies:
+      vite: 5.4.19(@types/node@18.18.4)(less@3.13.1)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1)
 
   vite@5.4.19(@types/node@18.18.4)(less@3.13.1)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1):
     dependencies:
