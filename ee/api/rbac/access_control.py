@@ -149,6 +149,21 @@ class AccessControlViewSetMixin(_GenericViewSet):
     # 2. Get the actual object which we can pass to the serializer to check if the user created it
     # 3. We can also use the serializer to check the access level for the object
 
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        """
+        Dynamically determine required scopes based on HTTP method and action.
+        GET requests to access control endpoints require 'access_control:read' scope.
+        PUT requests have no additional scope requirements.
+        """
+        if request.method == "GET" and self.action in [
+            "access_controls",
+            "global_access_controls",
+            "users_with_access",
+        ]:
+            return ["access_control:read"]
+
+        return None
+
     def _get_access_control_serializer(self, *args, **kwargs):
         kwargs.setdefault("context", self.get_serializer_context())
         return AccessControlSerializer(*args, **kwargs)
@@ -200,7 +215,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         obj = self.get_object()
 
         org_memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization)
+            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
             .select_related("user")
             .prefetch_related("role_memberships__role")
         )

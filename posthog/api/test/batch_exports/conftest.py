@@ -14,8 +14,8 @@ from temporalio.worker import Worker
 
 from posthog import constants
 from posthog.batch_exports.models import BatchExport
-from posthog.temporal.batch_exports import ACTIVITIES, WORKFLOWS
 from posthog.temporal.common.client import sync_connect
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 
 
 class ThreadedWorker(Worker):

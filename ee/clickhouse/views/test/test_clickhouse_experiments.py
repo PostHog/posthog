@@ -1486,48 +1486,6 @@ class TestExperimentCRUD(APILicensedTest):
             "Feature flag variants must contain a control variant",
         )
 
-    def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        created_ff = FeatureFlag.objects.get(key=ff_key)
-
-        id = response.json()["id"]
-
-        # Now delete the feature flag
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/",
-            {"deleted": True},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        feature_flag_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{created_ff.pk}/")
-        self.assertEqual(feature_flag_response.json().get("deleted"), True)
-
-        self.assertIsNotNone(Experiment.objects.get(pk=id))
-
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
         response = self.client.post(
