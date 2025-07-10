@@ -6,8 +6,9 @@ from rest_framework import serializers
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.models.assistant import Conversation
+from posthog.api.shared import UserBasicSerializer
 
-_conversation_fields = ["id", "status", "title", "created_at", "updated_at"]
+_conversation_fields = ["id", "user", "status", "title", "created_at", "updated_at"]
 
 
 class ConversationMinimalSerializer(serializers.ModelSerializer):
@@ -16,8 +17,10 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
         fields = _conversation_fields
         read_only_fields = fields
 
+    user = UserBasicSerializer(read_only=True)
 
-class ConversationSerializer(serializers.ModelSerializer):
+
+class ConversationSerializer(ConversationMinimalSerializer):
     class Meta:
         model = Conversation
         fields = [*_conversation_fields, "messages"]

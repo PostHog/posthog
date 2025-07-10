@@ -55,7 +55,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
+    const { conversation, threadLoading, inputDisabled, submissionDisabledReason, isSharedThread } =
+        useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
@@ -103,7 +104,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        {!isThreadVisible ? (
+                        {isSharedThread ? null : !isThreadVisible ? (
                             <div className="flex items-start justify-between">
                                 <ContextDisplay size={contextDisplaySize} />
                                 <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
@@ -115,14 +116,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         <SlashCommandAutocomplete visible={showAutocomplete} onClose={() => setShowAutocomplete(false)}>
                             <LemonTextArea
                                 ref={textAreaRef}
-                                value={question}
-                                onChange={setQuestion}
+                                value={isSharedThread ? '' : question}
+                                onChange={(value) => setQuestion(value)}
                                 placeholder={
-                                    threadLoading
+                                    conversation && isSharedThread
+                                        ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                        : threadLoading
                                         ? 'Thinking…'
                                         : isFloating
-                                          ? placeholder || 'Ask follow-up (/ for commands)'
-                                          : 'Ask away (/ for commands)'
+                                        ? placeholder || 'Ask follow-up (/ for commands)'
+                                        : 'Ask away (/ for commands)'
                                 }
                                 onPressEnter={() => {
                                     if (question && !submissionDisabledReason && !threadLoading) {
@@ -138,10 +141,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </SlashCommandAutocomplete>
                     </div>
                     <div
-                        className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isFloating,
-                            'bottom-[7px] right-2': !isFloating,
-                        })}
+                        className={clsx(
+                            'absolute flex items-center',
+                            isFloating ? 'bottom-[11px] right-3' : 'bottom-[7px] right-2',
+                            isSharedThread && 'hidden' // Submit not available at all for shared threads
+                        )}
                     >
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
@@ -192,7 +196,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         </AIConsentPopoverWrapper>
                     </div>
                 </div>
-                <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />
+                {!isSharedThread && <ToolsDisplay isFloating={isFloating} tools={tools} bottomActions={bottomActions} />}
             </div>
         </div>
     )
