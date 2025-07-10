@@ -601,9 +601,17 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               with:
-                  path: .test_durations
+                  path: /tmp/.test_durations
                   key: tests-durations
                   fail-on-cache-miss: false
+
+            - name: Copy test durations to working directory
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              shell: bash
+              run: |
+                  if [ -f /tmp/.test_durations ]; then
+                      cp /tmp/.test_durations .test_durations
+                  fi
 
             - name: Determine if --snapshot-update should be on
               # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
