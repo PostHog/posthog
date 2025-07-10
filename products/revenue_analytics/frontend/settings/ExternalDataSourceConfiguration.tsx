@@ -91,7 +91,7 @@ export function ExternalDataSourceConfiguration({
                         ),
                         render: (_, item: ExternalDataSource) => {
                             const itemPrefix = item.prefix
-                                ? `${item.source_type.toLowerCase()}.${item.prefix}`
+                                ? `${item.source_type.toLowerCase()}.${item.prefix.replace(/_+$/, '')}`
                                 : item.source_type.toLowerCase()
                             const joinName = `${itemPrefix}.customer_revenue_view`
                             const join = joins.find(
