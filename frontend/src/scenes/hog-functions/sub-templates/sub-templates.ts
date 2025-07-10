@@ -1,3 +1,4 @@
+import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/components/Alerts/views/AlertDestinationSelector'
 import {
     HogFunctionConfigurationContextId,
     HogFunctionSubTemplateIdType,
@@ -59,8 +60,8 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'error-tracking',
         filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
-    'insight-alert-firing': {
-        sub_template_id: 'insight-alert-firing',
+    [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
+        sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
         type: 'internal_destination',
         context_id: 'insight-alerts',
         filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
@@ -390,9 +391,15 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
-    'insight-alert-firing': [
+    [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: [
         {
-            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['insight-alert-firing'],
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on insight alert firing',
+            description: 'Send a webhook when this insight alert fires',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
             template_id: 'template-slack',
             name: 'Post to Slack on insight alert firing',
             description: 'Post to a Slack channel when this insight alert fires',

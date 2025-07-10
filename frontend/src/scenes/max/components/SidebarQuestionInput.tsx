@@ -36,6 +36,7 @@ export function SidebarQuestionInput({ isSticky = false }: { isSticky?: boolean 
             isSticky={isSticky}
             textAreaRef={textAreaRef}
             containerClassName="px-3 mx-auto self-center pb-1"
+            isFloating={threadVisible}
             isThreadVisible={threadVisible}
         >
             <SuggestionsList />

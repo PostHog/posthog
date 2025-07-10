@@ -47,7 +47,7 @@ export const createExampleHogFlowInvocation = (
         teamId: hogFlow.team_id,
         functionId: hogFlow.id,
         hogFlow,
-        queue: 'hog',
+        queue: 'hogflow',
         queuePriority: 0,
     }
 }

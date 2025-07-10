@@ -472,3 +472,96 @@ def test_create_snowflake_batch_export_validates_credentials(
                 assert "Password is required if authentication type is password" in response.json()["detail"]
             else:
                 assert "Private key is required if authentication type is key pair" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "file_format,compression,expected_error_message",
+    [
+        (
+            "JSONLines",
+            None,
+            None,
+        ),
+        (
+            "JSONLines",
+            "gzip",
+            None,
+        ),
+        (
+            "JSONLines",
+            "zstd",
+            "Compression zstd is not supported for file format JSONLines. Supported compressions are ['gzip', 'brotli']",
+        ),
+        (
+            "Parquet",
+            None,
+            None,
+        ),
+        (
+            "Parquet",
+            "gzip",
+            None,
+        ),
+        (
+            "Parquet",
+            "brotli",
+            None,
+        ),
+        (
+            "Parquet",
+            "zstd",
+            None,
+        ),
+        (
+            "Parquet",
+            "unknown",
+            "Compression unknown is not supported for file format Parquet. Supported compressions are ['zstd', 'lz4', 'snappy', 'gzip', 'brotli']",
+        ),
+        (
+            "unknown",
+            "gzip",
+            "File format unknown is not supported. Supported file formats are ['Parquet', 'JSONLines']",
+        ),
+    ],
+)
+def test_create_s3_batch_export_validates_file_format_and_compression(
+    client: HttpClient, file_format, compression, expected_error_message, temporal
+):
+    """Test creating a BatchExport with S3 destination validates file format and compression."""
+
+    destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+            "file_format": file_format,
+            "compression": compression,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-s3-bucket",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        if expected_error_message is None:
+            assert response.status_code == status.HTTP_201_CREATED
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["detail"] == expected_error_message

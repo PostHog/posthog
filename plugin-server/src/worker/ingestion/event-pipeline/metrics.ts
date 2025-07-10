@@ -10,6 +10,11 @@ export const pipelineStepErrorCounter = new Counter({
     help: 'Number of events that have errored in the step',
     labelNames: ['step_name'],
 })
+export const pipelineStepStalledCounter = new Counter({
+    name: 'events_pipeline_step_stalled_total',
+    help: 'Number of events that have stalled in the step',
+    labelNames: ['step_name'],
+})
 export const pipelineStepMsSummary = new Summary({
     name: 'events_pipeline_step_ms',
     help: 'Duration spent in each step',

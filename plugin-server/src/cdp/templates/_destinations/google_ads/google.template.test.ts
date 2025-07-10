@@ -57,26 +57,23 @@ describe('google template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
-        expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","conversion_value":"100","currency_code":"USD","order_id":"1234567890"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -98,26 +95,23 @@ describe('google template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
-        expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -140,26 +134,23 @@ describe('google template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
-        expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
               "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
         `)
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            response: { status: 400, headers: {} },
-            body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
+            status: 400,
+            body: { status: 'Something went wrong', message: 'Invalid event properties' },
         })
 
         expect(fetchResponse.finished).toBe(true)

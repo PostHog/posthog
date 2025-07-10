@@ -13,7 +13,7 @@ from ee.session_recordings.session_summary.prompt_data import SessionSummaryProm
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +42,12 @@ class _SessionSummaryPromptData:
 @dataclass(frozen=True)
 class SessionSummaryPrompt:
     summary_prompt: str
+    system_prompt: str
+
+
+@dataclass(frozen=True)
+class PatternsPrompt:
+    patterns_prompt: str
     system_prompt: str
 
 
@@ -165,10 +171,10 @@ def generate_single_session_summary_prompt(
             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
         },
     )
-    summary_example = load_custom_template(template_dir, f"example.yml")
+    summary_example = load_custom_template(template_dir, "example.yml")
     summary_prompt = load_custom_template(
         template_dir,
-        f"prompt.djt",
+        "prompt.djt",
         {
             "EVENTS_DATA": json.dumps(prompt_data.results),
             "SESSION_METADATA": json.dumps(prompt_data.metadata.to_dict()),

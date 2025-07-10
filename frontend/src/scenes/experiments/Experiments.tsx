@@ -35,17 +35,8 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const {
-        currentProjectId,
-        experiments,
-        experimentsLoading,
-        tab,
-        shouldShowEmptyState,
-        showLegacyBadge,
-        filters,
-        count,
-        pagination,
-    } = useValues(experimentsLogic)
+    const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
+        useValues(experimentsLogic)
     const { loadExperiments, setExperimentsTab, archiveExperiment, setExperimentsFilters } =
         useActions(experimentsLogic)
 
@@ -82,7 +73,7 @@ export function Experiments(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(experiment.name, 17)}
-                                {showLegacyBadge && isLegacyExperiment(experiment) && (
+                                {isLegacyExperiment(experiment) && (
                                     <Tooltip
                                         title="This experiment uses the legacy engine, so some features and improvements may be missing."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"

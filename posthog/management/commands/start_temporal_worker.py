@@ -23,8 +23,9 @@ from posthog.constants import (
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
     TEST_TASK_QUEUE,
 )
+from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES, WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
+from posthog.temporal.common.logger import configure_logger_async, get_logger
 from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
@@ -48,8 +49,10 @@ from posthog.temporal.session_recordings import (
 from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
-
-logger = structlog.get_logger(__name__)
+from products.batch_exports.backend.temporal import (
+    ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
+    WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
 
 # Workflow and activity index
 WORKFLOWS_DICT = {
@@ -84,6 +87,8 @@ ACTIVITIES_DICT = {
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
 }
+
+LOGGER = get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -172,7 +177,7 @@ class Command(BaseCommand):
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
 
-        logger.info(f"Starting Temporal Worker with options: {options}")
+        initialize_otel()
 
         metrics_port = int(options["metrics_port"])
 
@@ -180,7 +185,7 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
+        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
             nonlocal shutdown_task
 
@@ -194,6 +199,21 @@ class Command(BaseCommand):
             shutdown_task = loop.create_task(worker.shutdown())
 
         with asyncio.Runner() as runner:
+            if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
+                configure_logger_async(loop=runner.get_loop())
+
+            logger = LOGGER.bind(
+                host=temporal_host,
+                port=temporal_port,
+                namespace=namespace,
+                task_queue=task_queue,
+                graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
+                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                max_concurrent_activities=max_concurrent_activities,
+            )
+
+            logger.info("Starting Temporal Worker")
+
             worker = runner.run(
                 create_worker(
                     temporal_host,

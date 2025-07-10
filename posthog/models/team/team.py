@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
@@ -411,6 +412,14 @@ class Team(UUIDClassicModel):
     # DEPRECATED: use `revenue_analytics_config` property instead
     revenue_tracking_config = models.JSONField(null=True, blank=True)
 
+    # Duration for dropping events older than this threshold
+    drop_events_older_than = models.DurationField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(timedelta(hours=1))],  # For safety minimum 1h
+        help_text="Events older than this threshold will be dropped in ingestion. Empty means no timestamp restrictions.",
+    )
+
     # Consolidated base currency for all analytics (revenue, marketing, etc.)
     base_currency = models.CharField(
         max_length=3,
@@ -427,7 +436,7 @@ class Team(UUIDClassicModel):
         config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self)
         return config
 
-    @cached_property
+    @property
     def marketing_analytics_config(self):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 

@@ -44,6 +44,10 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         ...(service === 'Snowflake' && {
             authentication_type: 'password',
         }),
+        ...(service === 'S3' && {
+            file_format: 'Parquet',
+            compression: 'zstd',
+        }),
     }
 }
 

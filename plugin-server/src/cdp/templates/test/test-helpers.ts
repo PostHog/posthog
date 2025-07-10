@@ -12,7 +12,6 @@ import {
     HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
@@ -251,11 +250,13 @@ export class TemplateTester {
 
     async invokeFetchResponse(
         invocation: CyclotronJobInvocationHogFunction,
-        response: Omit<HogFunctionQueueParametersFetchResponse, 'type'>
+        response: { status: number; body: Record<string, any> }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const modifiedInvocation = cloneInvocation(invocation, {
-            queue: 'hog' as const,
-            queueParameters: { type: 'fetch-response', ...response },
+        const modifiedInvocation = cloneInvocation(invocation)
+
+        modifiedInvocation.state.vmState!.stack.push({
+            status: response.status,
+            body: response.body,
         })
 
         return this.executor.execute(modifiedInvocation)

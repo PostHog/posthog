@@ -20,6 +20,8 @@ procs:
     temporal-worker-batch-exports:
         # added a sleep to give the docker stuff time to start
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002'
+        env:
+            TEMPORAL_USE_EXTERNAL_LOGGER: 'true'
 
     temporal-worker-data-warehouse:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-warehouse-task-queue --metrics-port 8003'
@@ -30,15 +32,13 @@ procs:
     temporal-worker-data-modeling:
         shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue data-modeling-task-queue --metrics-port 8005'
 
+    temporal-worker-max-ai:
+        # added a sleep to give the docker stuff time to start
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue max-ai-task-queue --metrics-port 8006'
+
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
         shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
-
-    cyclotron-fetch:
-        shell: |-
-            bin/check_postgres_up cyclotron && \
-            bin/check_kafka_clickhouse_up && \
-            bin/start-rust-service cyclotron-fetch
 
     cyclotron-janitor:
         shell: |-
@@ -51,6 +51,11 @@ procs:
             bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
+
+    feature-flags:
+        shell: |-
+            bin/check_postgres_up posthog && \
+            bin/start-rust-service feature-flags
 
     property-defs-rs:
         shell: |-

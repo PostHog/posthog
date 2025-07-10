@@ -1,8 +1,11 @@
+import os
+from posthog.settings.base_variables import DEBUG
 from typing import Optional
 from dagster import Backoff, Field, Array, Jitter, RetryPolicy
 
 # TODO: Remove this once we're fully rolled out but this is better than defaulting to all teams
-TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED = [1, 2, 55348, 47074, 12669, 1589]
+TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED = [1, 2, 55348, 47074, 12669, 1589, 117126]
+TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS = os.getenv("TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS", 1 if DEBUG else 2)
 
 web_analytics_retry_policy_def = RetryPolicy(
     max_retries=3,

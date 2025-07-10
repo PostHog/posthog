@@ -114,10 +114,6 @@ export class CyclotronJobQueueKafka {
                 return acc
             }
 
-            if (res.invocation.queue === 'fetch' && !res.invocation.queueParameters) {
-                throw new Error('Fetch job has no queue parameters')
-            }
-
             return [...acc, res.invocation]
         }, [] as CyclotronJobInvocation[])
 

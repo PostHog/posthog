@@ -250,7 +250,7 @@ export function HogFunctionScene(): JSX.Element {
                   key: 'logs',
                   content: <HogFunctionLogs hogFunctionId={id} />,
               },
-        type === 'site_app' || type === 'site_destination'
+        type === 'site_app' || type === 'site_destination' || type === 'internal_destination'
             ? null
             : {
                   label: 'Testing',

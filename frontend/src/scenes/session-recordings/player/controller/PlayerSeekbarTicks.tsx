@@ -7,12 +7,14 @@ import { autoCaptureEventToDescription } from 'lib/utils'
 import React, { memo, MutableRefObject } from 'react'
 import {
     InspectorListItem,
+    InspectorListItemAnnotationComment,
     InspectorListItemComment,
     InspectorListItemEvent,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
 import { UserActivity } from './UserActivity'
+import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
     return 'data' in x && !!x.data && 'event' in x.data
@@ -20,6 +22,14 @@ function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
 
 function isNotebookComment(x: InspectorListItem): x is InspectorListItemNotebookComment {
     return x.type === 'comment' && x.source === 'notebook'
+}
+
+function isAnnotationComment(x: InspectorListItem): x is InspectorListItemAnnotationComment {
+    return x.type === 'comment' && x.source === 'annotation'
+}
+
+function isAnnotationEmojiComment(x: InspectorListItem): x is InspectorListItemAnnotationComment {
+    return isAnnotationComment(x) && !!x.data.is_emoji && !!x.data.content && isSingleEmoji(x.data.content)
 }
 
 function PlayerSeekbarTick({
@@ -93,7 +103,11 @@ function PlayerSeekbarTick({
                     )
                 }
             >
-                <div className="PlayerSeekbarTick__line" />
+                {isAnnotationEmojiComment(item) ? (
+                    <div className="PlayerSeekbarTick__emoji">{item.data.content}</div>
+                ) : (
+                    <div className="PlayerSeekbarTick__line" />
+                )}
             </Tooltip>
         </div>
     )

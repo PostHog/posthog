@@ -20,7 +20,6 @@ import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/ho
 import {
     CyclotronJobInvocationHogFunction,
     HogFunctionQueueParametersFetchRequest,
-    HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
@@ -30,28 +29,6 @@ import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY } from './hog-executor.service'
-
-const setupFetchResponse = (
-    invocation: CyclotronJobInvocationHogFunction,
-    options?: Partial<HogFunctionQueueParametersFetchResponse>
-): void => {
-    invocation.queue = 'hog'
-    invocation.queueParameters = {
-        type: 'fetch-response',
-        timings: [
-            {
-                kind: 'async_function',
-                duration_ms: 100,
-            },
-        ],
-        response: {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        },
-        body: 'success',
-        ...options,
-    }
-}
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -172,7 +149,7 @@ describe('Hog Executor', () => {
                     teamId: 1,
                     hogFunction: invocation.hogFunction,
                     functionId: invocation.functionId,
-                    queue: 'fetch',
+                    queue: 'hog',
                     queueMetadata: undefined,
                     queueScheduledAt: undefined,
                     queueSource: undefined,
@@ -223,7 +200,6 @@ describe('Hog Executor', () => {
                     "first_name": "Pumpkin",
                   },
                   "method": "POST",
-                  "return_queue": "hog",
                   "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
@@ -263,7 +239,6 @@ describe('Hog Executor', () => {
                     "first_name": "Pumpkin",
                   },
                   "method": "POST",
-                  "return_queue": "hog",
                   "type": "fetch",
                   "url": "https://example.com/posthog-webhook",
                 }
@@ -298,8 +273,9 @@ describe('Hog Executor', () => {
             const result = await executor.execute(invocation)
 
             expect(result.invocation).toMatchObject({
-                queue: 'fetch',
+                queue: 'hog',
                 queueParameters: {
+                    type: 'fetch',
                     url: 'https://example.com/posthog-webhook',
                     method: 'POST',
                     headers: { version: 'v=1.2.3' },
@@ -327,76 +303,6 @@ describe('Hog Executor', () => {
                 },
                 event_url: 'http://localhost:8000/events/1-test',
             })
-        })
-
-        it('executes the full function in a loop', async () => {
-            const result = await executor.execute(createExampleInvocation(hogFunction))
-            const logs = result.logs.splice(0, 100)
-
-            expect(result.finished).toBe(false)
-            expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.state.vmState).toBeTruthy()
-
-            // Simulate what the callback does
-            setupFetchResponse(result.invocation)
-
-            const secondResult = await executor.execute(result.invocation)
-            logs.push(...secondResult.logs)
-
-            expect(secondResult.finished).toBe(true)
-            expect(secondResult.error).toBeUndefined()
-            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
-                [
-                  "Fetch response:, {"status":200,"body":"success"}",
-                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
-                ]
-            `)
-        })
-
-        it('parses the responses body if a string', async () => {
-            const result = await executor.execute(createExampleInvocation(hogFunction))
-            const logs = result.logs.splice(0, 100)
-            setupFetchResponse(result.invocation, { body: JSON.stringify({ foo: 'bar' }) })
-
-            const secondResult = await executor.execute(result.invocation)
-            logs.push(...secondResult.logs)
-
-            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
-                [
-                  "Fetch response:, {"status":200,"body":{"foo":"bar"}}",
-                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
-                ]
-            `)
-        })
-
-        it('handles fetch errors', async () => {
-            const result = await executor.execute(createExampleInvocation(hogFunction))
-            const logs = result.logs.splice(0, 100)
-            setupFetchResponse(result.invocation, {
-                body: JSON.stringify({ foo: 'bar' }),
-                response: null,
-                trace: [
-                    {
-                        kind: 'failurestatus',
-                        message: '404 Not Found',
-                        headers: {},
-                        status: 404,
-                        timestamp: DateTime.utc(),
-                    },
-                ],
-            })
-
-            const secondResult = await executor.execute(result.invocation)
-            logs.push(...secondResult.logs)
-
-            expect(cleanLogs(logs.map((log) => log.message))).toMatchInlineSnapshot(`
-                [
-                  "Fetch failed after 1 attempts",
-                  "Fetch failure of kind failurestatus with status 404 and message 404 Not Found",
-                  "Fetch response:, {"status":404,"body":{"foo":"bar"}}",
-                  "Function completed in REPLACEDms. Sync: 0ms. Mem: 812 bytes. Ops: 22. Event: 'http://localhost:8000/events/1'",
-                ]
-            `)
         })
     })
 
@@ -476,7 +382,7 @@ describe('Hog Executor', () => {
             expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
-            expect(logger.error).toHaveBeenCalledWith(
+            expect(logger.debug).toHaveBeenCalledWith(
                 '🦔',
                 expect.stringContaining('Error filtering function'),
                 truth(
@@ -744,75 +650,6 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('async functions', () => {
-        it('prevents large looped fetch calls', async () => {
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.recursive_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-
-            // Simulate the recusive loop
-            const invocation = createExampleInvocation(fn)
-
-            // Start the function
-            let result = await executor.execute(invocation)
-
-            for (let i = 0; i < 4; i++) {
-                // Run the response one time simulating a successful fetch
-                setupFetchResponse(result.invocation)
-                result = await executor.execute(result.invocation)
-                expect(result.finished).toBe(false)
-                expect(result.error).toBe(undefined)
-                expect(result.invocation.queue).toBe('fetch')
-            }
-
-            // This time we should see an error for hitting the loop limit
-            setupFetchResponse(result.invocation)
-            const result3 = await executor.execute(result.invocation)
-            expect(result3.finished).toBe(true)
-            expect(result3.error).toEqual('Exceeded maximum number of async steps: 5')
-            expect(result3.logs.map((log) => log.message)).toEqual([
-                'Error executing function on event uuid: HogVMException: Exceeded maximum number of async steps: 5',
-            ])
-        })
-
-        it('adds secret headers for certain endpoints', async () => {
-            hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
-
-            const fn = createHogFunction({
-                ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                inputs: {
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs,
-                    url: {
-                        value: 'https://googleads.googleapis.com/1234',
-                        bytecode: ['_h', 32, 'https://googleads.googleapis.com/1234'],
-                    },
-                },
-            })
-
-            const invocation = createExampleInvocation(fn)
-            const result1 = await executor.execute(invocation)
-            expect((result1.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
-                {
-                  "developer-token": "ADWORDS_TOKEN",
-                  "version": "v=1.2.3",
-                }
-            `)
-            // Check it doesn't do it for redirect
-            fn.inputs!.url!.bytecode = ['_h', 32, 'https://nasty.com?redirect=https://googleads.googleapis.com/1234']
-            const invocation2 = createExampleInvocation(fn)
-            const result2 = await executor.execute(invocation2)
-            expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
-                {
-                  "version": "v=1.2.3",
-                }
-            `)
-        })
-    })
-
     describe('slow functions', () => {
         it('limits the execution time and exits appropriately', async () => {
             jest.spyOn(Date, 'now').mockRestore()
@@ -983,7 +820,6 @@ describe('Hog Executor', () => {
                 url: `${baseUrl}/test`,
                 method: 'GET',
                 body: 'test body',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1031,7 +867,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
                 method: 'GET',
-                return_queue: 'hog',
                 max_tries: 2,
             })
 
@@ -1082,7 +917,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: 'http://non-existent-host-name',
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1103,7 +937,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: 'http://localhost',
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1130,7 +963,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             // Set a very short timeout
@@ -1163,7 +995,6 @@ describe('Hog Executor', () => {
                 headers: {
                     'X-Test': 'test',
                 },
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1195,7 +1026,6 @@ describe('Hog Executor', () => {
                 url: `${baseUrl}/test`,
                 method: 'POST',
                 body: 'test body',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1220,7 +1050,6 @@ describe('Hog Executor', () => {
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
                 method: 'GET',
-                return_queue: 'hog',
             })
 
             const result = await executor.executeFetch(invocation)
@@ -1251,7 +1080,6 @@ describe('Hog Executor', () => {
             let invocation = await createFetchInvocation({
                 url: 'https://googleads.googleapis.com/1234',
                 method: 'POST',
-                return_queue: 'hog',
                 headers: {
                     'X-Test': 'test',
                 },
@@ -1269,7 +1097,6 @@ describe('Hog Executor', () => {
             invocation = await createFetchInvocation({
                 url: 'https://nasty.com?redirect=https://googleads.googleapis.com/1234',
                 method: 'POST',
-                return_queue: 'hog',
                 headers: {
                     'X-Test': 'test',
                 },

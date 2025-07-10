@@ -51,7 +51,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
     @action(methods=["POST"], detail=False, url_path="initialize")
     def initialize(self, request: Request) -> Response:
         """
-        This endpoint is used to initialize the setup wizard. It creates a unique hash for the user to authenticate.
+        This endpoint is used to initialize the setup wizard. It creates a unique hash for the user to authenticate themselves.
         """
 
         serializer = SetupWizardSerializer()

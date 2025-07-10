@@ -2,6 +2,7 @@ import builtins
 import json
 from collections.abc import Callable
 from datetime import datetime
+from requests import HTTPError
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.db.models import Prefetch
@@ -9,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from loginas.utils import is_impersonated_session
+import posthoganalytics
 from posthog.api.insight import capture_legacy_api_call
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
@@ -20,7 +22,7 @@ from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from statshog.defaults.django import statsd
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_internal, new_capture_internal, CaptureInternalError
 from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import (
@@ -430,7 +432,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         key = request.GET.get("key")
         value = request.GET.get("value")
         flattened = []
-        if key:
+        if key and not key.startswith("$virt"):
             result = self._get_person_property_values_for_key(key, value)
 
             for value, count in result:
@@ -552,20 +554,58 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
 
-        capture_internal(
-            distinct_id=person.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$delete_person_property",
-                "properties": {"$unset": [request.data["$unset"]]},
-                "distinct_id": person.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        if posthoganalytics.feature_enabled("ingestion-new-capture-internal", person.distinct_ids[0]):
+            try:
+                event = {
+                    "event": "$delete_person_property",
+                    "properties": {
+                        "$unset": [request.data["$unset"]],
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                }
+                resp = new_capture_internal(
+                    self.team.api_token,
+                    person.distinct_ids[0],
+                    event,
+                    True,
+                )
+                resp.raise_for_status()
+
+            except HTTPError as he:
+                return response.Response(
+                    {
+                        "success": False,
+                        "detail": "Unable to delete property",
+                    },
+                    status=he.response.status_code,
+                )
+
+            except CaptureInternalError:
+                return response.Response(
+                    {
+                        "success": False,
+                        "detail": f"Unable to delete property",
+                    },
+                    status=400,
+                )
+
+        else:
+            capture_internal(
+                distinct_id=person.distinct_ids[0],
+                ip=None,
+                site_url=None,
+                token=self.team.api_token,
+                now=datetime.now(),
+                sent_at=None,
+                event={
+                    "event": "$delete_person_property",
+                    "properties": {
+                        "$unset": [request.data["$unset"]],
+                    },
+                    "distinct_id": person.distinct_ids[0],
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
 
         log_activity(
             organization_id=self.organization.id,
@@ -655,20 +695,46 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _set_properties(self, properties, user):
         instance = self.get_object()
-        capture_internal(
-            distinct_id=instance.distinct_ids[0],
-            ip=None,
-            site_url=None,
-            token=instance.team.api_token,
-            now=datetime.now(),
-            sent_at=None,
-            event={
-                "event": "$set",
-                "properties": {"$set": properties},
-                "distinct_id": instance.distinct_ids[0],
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
+        distinct_id = instance.distinct_ids[0]
+
+        if posthoganalytics.feature_enabled("ingestion-new-capture-internal", distinct_id):
+            try:
+                event = {
+                    "event": "$set",
+                    "properties": {
+                        "$set": properties,
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                }
+                resp = new_capture_internal(
+                    instance.team.api_token,
+                    distinct_id,
+                    event,
+                    True,
+                )
+                resp.raise_for_status()
+
+            # Failures in this codepath (old and new) are ignored here
+            except (HTTPError, CaptureInternalError):
+                pass
+
+        else:
+            capture_internal(
+                distinct_id=distinct_id,
+                ip=None,
+                site_url=None,
+                token=instance.team.api_token,
+                now=datetime.now(),
+                sent_at=None,
+                event={
+                    "event": "$set",
+                    "properties": {
+                        "$set": properties,
+                    },
+                    "distinct_id": distinct_id,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
 
         if self.organization.id:  # should always be true, but mypy...
             log_activity(

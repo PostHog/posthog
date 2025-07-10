@@ -178,19 +178,19 @@ export const LLMMessageDisplay = React.memo(
                             return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                         } catch {
                             // If markdown still fails, fall back to plain text
-                            return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                            return <span className="font-mono whitespace-pre-wrap">{content}</span>
                         }
                     } else {
                         // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
                         return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
-                    return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                    return <span className="font-mono whitespace-pre-wrap">{content}</span>
                 }
             }
 
             // Fallback: render as plain text.
-            return <span className="text-xs whitespace-pre-wrap">{content}</span>
+            return <span className="whitespace-pre-wrap">{content}</span>
         }
 
         return (

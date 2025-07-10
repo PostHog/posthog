@@ -145,11 +145,6 @@ export class CyclotronJobQueuePostgres {
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
 
-                    if (this.queue === 'fetch') {
-                        // When updating fetch jobs, we don't want to include the vm state
-                        updates.vmState = undefined
-                    }
-
                     worker.updateJob(id, 'available', updates)
                 }
                 return worker.releaseJob(id)

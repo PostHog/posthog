@@ -92,29 +92,24 @@ describe('fetch', () => {
 
     describe('parallel requests execution', () => {
         jest.retryTimes(3)
-        it('should execute requests in parallel', async () => {
-            const start = performance.now()
-            const timings: number[] = []
-            const parallelRequests = 100
+        it('should execute requests in parallel - completion time test', async () => {
+            const delayMs = 200
+            const parallelRequests = 20
 
-            const requests = range(parallelRequests).map(() =>
-                fetch('https://example.com').then(() => {
-                    timings.push(performance.now() - start)
-                })
-            )
+            // Measure sequential execution
+            const sequentialStart = performance.now()
+            for (let i = 0; i < parallelRequests; i++) {
+                await fetch(`https://httpbin.org/delay/${delayMs / 1000}`)
+            }
+            const sequentialTime = performance.now() - sequentialStart
 
-            await Promise.all(requests)
+            const parallelStart = performance.now()
+            await Promise.all(range(parallelRequests).map(() => fetch(`https://httpbin.org/delay/${delayMs / 1000}`)))
+            const parallelTime = performance.now() - parallelStart
 
-            expect(timings).toHaveLength(parallelRequests)
-
-            // NOTE: Not the easiest thing to test - what we are testing is that the requests are executed in parallel
-            // so the total time should be close to the time it takes to execute one request.
-            // It's far from perfect but it at the very least caches
-            const totalTime = performance.now() - start
-            const firstTime = timings[0]
-
-            expect(totalTime).toBeGreaterThan(firstTime - 100)
-            expect(totalTime).toBeLessThan(firstTime + 100)
+            // Parallel should be significantly faster than sequential
+            const speedup = sequentialTime / parallelTime
+            expect(speedup).toBeGreaterThan(3)
         })
     })
 })

@@ -5,7 +5,7 @@ This module contains common functions for handling experiment exposures,
 including multiple variant handling and exposure filtering logic.
 """
 
-from typing import Optional
+from typing import Optional, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
@@ -13,18 +13,38 @@ from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.models.team.team import Team
-from posthog.schema import MultipleVariantHandling
+from posthog.schema import MultipleVariantHandling, ExperimentExposureCriteria
 
 
-def get_multiple_variant_handling_from_experiment(experiment: Experiment) -> MultipleVariantHandling:
+def get_multiple_variant_handling_from_experiment(
+    exposure_criteria: Union[Experiment, ExperimentExposureCriteria, dict, None],
+) -> MultipleVariantHandling:
     """
     Determines how to handle entities exposed to multiple variants based on experiment configuration.
     """
-    if experiment.exposure_criteria and experiment.exposure_criteria.get("multiple_variant_handling"):
-        return experiment.exposure_criteria.get("multiple_variant_handling")
-    else:
-        # Default to "exclude" if not specified (maintains backwards compatibility)
+    if exposure_criteria is None:
         return MultipleVariantHandling.EXCLUDE
+
+    # Handle Experiment object (backwards compatibility)
+    if hasattr(exposure_criteria, "exposure_criteria"):
+        criteria = exposure_criteria.exposure_criteria
+    else:
+        criteria = exposure_criteria
+
+    if criteria:
+        # Handle both dict and object access patterns
+        if hasattr(criteria, "multiple_variant_handling"):
+            handling = criteria.multiple_variant_handling
+        elif isinstance(criteria, dict):
+            handling = criteria.get("multiple_variant_handling")
+        else:
+            handling = None
+
+        if handling:
+            return handling
+
+    # Default to "exclude" if not specified (maintains backwards compatibility)
+    return MultipleVariantHandling.EXCLUDE
 
 
 def get_variant_selection_expr(
@@ -60,7 +80,9 @@ def get_variant_selection_expr(
             )
 
 
-def get_test_accounts_filter(team: Team, exposure_criteria: Optional[dict] = None) -> list[ast.Expr]:
+def get_test_accounts_filter(
+    team: Team, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
+) -> list[ast.Expr]:
     """
     Returns test account filters based on experiment configuration.
 
@@ -70,15 +92,21 @@ def get_test_accounts_filter(team: Team, exposure_criteria: Optional[dict] = Non
     """
     filter_test_accounts = False
 
-    if exposure_criteria and exposure_criteria.get("filterTestAccounts"):
-        filter_test_accounts = True
+    if exposure_criteria:
+        # Handle both dict and object access patterns
+        if hasattr(exposure_criteria, "filterTestAccounts"):
+            filter_test_accounts = exposure_criteria.filterTestAccounts or False
+        elif isinstance(exposure_criteria, dict):
+            filter_test_accounts = exposure_criteria.get("filterTestAccounts", False)
 
     if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
         return [property_to_expr(property, team) for property in team.test_account_filters]
     return []
 
 
-def get_exposure_event_and_property(feature_flag_key: str, exposure_criteria: Optional[dict] = None) -> tuple[str, str]:
+def get_exposure_event_and_property(
+    feature_flag_key: str, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
+) -> tuple[str, str]:
     """
     Determines which event and feature flag variant property to use for exposures.
 
@@ -89,13 +117,33 @@ def get_exposure_event_and_property(feature_flag_key: str, exposure_criteria: Op
     Returns:
         Tuple of (event_name, feature_flag_variant_property)
     """
-    exposure_config = exposure_criteria.get("exposure_config") if exposure_criteria else None
+    exposure_config = None
 
-    if exposure_config and exposure_config.get("event") != "$feature_flag_called":
-        # For custom exposure events, we extract the event name from the exposure config
-        # and get the variant from the $feature/<key> property
-        feature_flag_variant_property = f"$feature/{feature_flag_key}"
-        event = exposure_config.get("event")
+    if exposure_criteria:
+        # Handle both dict and object access patterns
+        if hasattr(exposure_criteria, "exposure_config"):
+            exposure_config = exposure_criteria.exposure_config
+        elif isinstance(exposure_criteria, dict):
+            exposure_config = exposure_criteria.get("exposure_config")
+
+    if exposure_config:
+        # Handle both dict and object access patterns for exposure_config
+        if hasattr(exposure_config, "event"):
+            event_name = exposure_config.event
+        elif isinstance(exposure_config, dict):
+            event_name = exposure_config.get("event")
+        else:
+            event_name = None
+
+        if event_name and event_name != "$feature_flag_called":
+            # For custom exposure events, we extract the event name from the exposure config
+            # and get the variant from the $feature/<key> property
+            feature_flag_variant_property = f"$feature/{feature_flag_key}"
+            event = event_name
+        else:
+            # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
+            feature_flag_variant_property = "$feature_flag_response"
+            event = "$feature_flag_called"
     else:
         # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
         feature_flag_variant_property = "$feature_flag_response"
@@ -110,7 +158,7 @@ def build_common_exposure_conditions(
     variants: list[str],
     date_range_query: QueryDateRange,
     team: Team,
-    exposure_criteria: Optional[dict] = None,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None,
     feature_flag_key: Optional[str] = None,
 ) -> list[ast.Expr]:
     """
@@ -150,15 +198,38 @@ def build_common_exposure_conditions(
     ]
 
     # Add custom exposure property filters if present
-    exposure_config = exposure_criteria.get("exposure_config") if exposure_criteria else None
-    if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
-        exposure_property_filters: list[ast.Expr] = []
+    exposure_config = None
+    if exposure_criteria:
+        # Handle both dict and object access patterns
+        if hasattr(exposure_criteria, "exposure_config"):
+            exposure_config = exposure_criteria.exposure_config
+        elif isinstance(exposure_criteria, dict):
+            exposure_config = exposure_criteria.get("exposure_config")
 
-        if exposure_config.get("properties"):
-            for property in exposure_config.get("properties"):
-                exposure_property_filters.append(property_to_expr(property, team))
-        if exposure_property_filters:
-            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+    if exposure_config:
+        # Check kind - handle both dict and object access patterns
+        kind = None
+        if hasattr(exposure_config, "kind"):
+            kind = exposure_config.kind
+        elif isinstance(exposure_config, dict):
+            kind = exposure_config.get("kind")
+
+        if kind == "ExperimentEventExposureConfig":
+            exposure_property_filters: list[ast.Expr] = []
+
+            # Get properties - handle both dict and object access patterns
+            properties = None
+            if hasattr(exposure_config, "properties"):
+                properties = exposure_config.properties
+            elif isinstance(exposure_config, dict):
+                properties = exposure_config.get("properties")
+
+            if properties:
+                for property in properties:
+                    exposure_property_filters.append(property_to_expr(property, team))
+
+            if exposure_property_filters:
+                exposure_conditions.append(ast.And(exprs=exposure_property_filters))
 
     # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
     if event == "$feature_flag_called" and feature_flag_key:

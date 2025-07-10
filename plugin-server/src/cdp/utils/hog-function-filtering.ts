@@ -237,7 +237,7 @@ export async function filterFunctionInstrumented(options: {
             })
         }
     } catch (error) {
-        logger.error('🦔', `[${fnKind}] Error filtering function`, {
+        logger.debug('🦔', `[${fnKind}] Error filtering function`, {
             functionId: fn.id,
             functionName: fn.name,
             teamId: fn.team_id,

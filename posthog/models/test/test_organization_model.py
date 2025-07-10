@@ -120,8 +120,8 @@ class TestOrganizationMembership(BaseTest):
         membership.save()
         # check that the event was sent
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "membership level changed",
+            event="membership level changed",
+            distinct_id=user.distinct_id,
             properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
             groups=mock.ANY,
         )
