@@ -215,7 +215,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         obj = self.get_object()
 
         org_memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization)
+            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
             .select_related("user")
             .prefetch_related("role_memberships__role")
         )
