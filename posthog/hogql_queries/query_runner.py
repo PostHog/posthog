@@ -76,7 +76,7 @@ from posthog.schema import (
     WebStatsTableQuery,
     MarketingAnalyticsTableQuery,
 )
-from posthog.hogql_queries.ai.session_events_query_runner.schema import SessionBatchEventsQuery
+from posthog.schema import SessionBatchEventsQuery
 from posthog.schema_helpers import to_dict
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 

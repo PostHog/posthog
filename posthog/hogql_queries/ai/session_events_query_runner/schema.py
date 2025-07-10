@@ -7,93 +7,11 @@ multi-session capabilities for session summary workflows.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT_FIELDS
-from posthog.schema import (
-    CachedEventsQueryResponse,
-    EventsQuery,
-    EventsQueryResponse,
-)
+from posthog.session_recordings.constants import EXTRA_SUMMARY_EVENT_FIELDS
+from posthog.schema import SessionBatchEventsQuery
 from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
-
-
-class SessionBatchEventsQuery(EventsQuery):
-    """
-    Extended EventsQuery for fetching events from multiple sessions efficiently.
-
-    This extends the standard EventsQuery with session-specific capabilities:
-    - Batch querying multiple sessions in a single request
-    - Session-grouped result organization
-
-    Inherits all EventsQuery functionality:
-    - Standard field selection via `select`
-    - Property filtering via `properties` and `fixedProperties`
-    - Time filtering via `after` and `before`
-    - HogQL filtering via `where`
-    - Ordering via `orderBy`
-    - Pagination via `limit` and `offset`
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Override kind to distinguish from base EventsQuery
-    kind: Literal["SessionBatchEventsQuery"] = "SessionBatchEventsQuery"
-
-    # Session-specific fields
-    session_ids: list[str] = Field(
-        ..., description="List of session IDs to fetch events for. Will be translated to $session_id IN filter."
-    )
-
-    group_by_session: bool = Field(default=True, description="Whether to group results by session_id in the response")
-
-    # Override response type to use our extended response
-    response: Optional[SessionBatchEventsQueryResponse] = None
-
-
-class SessionEventsItem(BaseModel):
-    """
-    Events from a single session within a batch query result.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    session_id: str = Field(..., description="Session ID these events belong to")
-
-    events: list[list[Any]] = Field(
-        ...,
-        description="List of events for this session, each event is a list of field values matching the query columns",
-    )
-
-
-class SessionBatchEventsQueryResponse(EventsQueryResponse):
-    """Extended EventsQueryResponse for session batch queries."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Session-grouped results (when group_by_session=True)
-    session_events: Optional[list[SessionEventsItem]] = Field(
-        default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
-    )
-
-    sessions_with_no_events: list[str] = Field(
-        default_factory=list, description="List of session IDs that had no matching events"
-    )
-
-
-class CachedSessionBatchEventsQueryResponse(CachedEventsQueryResponse):
-    """Cached version of SessionBatchEventsQueryResponse."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    session_events: Optional[list[SessionEventsItem]] = Field(
-        default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
-    )
-    sessions_with_no_events: list[str] = Field(
-        default_factory=list, description="List of session IDs that had no matching events"
-    )
 
 
 # Type alias for convenience

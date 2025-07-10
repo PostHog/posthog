@@ -1,11 +1,13 @@
 from typing import Any
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from .schema import (
+from posthog.schema import (
     CachedSessionBatchEventsQueryResponse,
     SessionBatchEventsQuery,
     SessionBatchEventsQueryResponse,
     SessionEventsItem,
+)
+from .schema import (
     SessionEventsResults,
 )
 
