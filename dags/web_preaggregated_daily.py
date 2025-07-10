@@ -90,8 +90,9 @@ def pre_aggregate_web_analytics_data(
             table_name=table_name,
         )
 
-        # Intentionally log query details for debugging
-        context.log.info(insert_query)
+        # Intentionally log query details for debugging (skip in tests)
+        if hasattr(context, "log"):
+            context.log.info(insert_query)
 
         sync_execute(insert_query)
 

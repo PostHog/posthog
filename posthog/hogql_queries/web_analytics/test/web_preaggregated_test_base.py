@@ -47,6 +47,7 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
 
     def tearDown(self):
         cleanup_materialized_columns()
+        super().tearDown()
 
     @abstractmethod
     def _setup_test_data(self):

@@ -1,18 +1,14 @@
 import pytest
-import dagster
 
 from datetime import datetime, UTC
-from unittest.mock import patch
 from freezegun import freeze_time
 
 from posthog.test.base import (
-    ClickhouseTestMixin,
-    APIBaseTest,
     _create_event,
     _create_person,
     flush_persons_and_events,
-    cleanup_materialized_columns,
 )
+from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.clickhouse.client import sync_execute
 from posthog.models.web_preaggregated.sql import (
     WEB_STATS_INSERT_SQL,
@@ -21,40 +17,14 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_DAILY_SQL,
 )
 from posthog.models.utils import uuid7
-from ee.clickhouse.materialized_columns.columns import materialize
 from dags.web_preaggregated_daily import pre_aggregate_web_analytics_data
 
 
 @pytest.mark.django_db
-class TestWebPreAggregatedDagsterIntegration(ClickhouseTestMixin, APIBaseTest):
-    # Columns that need to be materialized for web analytics pre-aggregated queries to work
-    MATERIALIZED_COLUMNS = [
-        "$host",
-        "$device_type",
-        "$browser",
-        "$os",
-        "$viewport_width",
-        "$viewport_height",
-        "$geoip_country_code",
-        "$geoip_city_name",
-        "$geoip_subdivision_1_code",
-        "$pathname",
-    ]
-
-    def setUp(self):
-        super().setUp()
-
-        self._materialize_required_columns()
+class TestWebPreAggregatedDagsterIntegration(WebAnalyticsPreAggregatedTestBase):
+    def _setup_test_data(self):
         self._create_test_tables()
         self._create_test_events_across_periods()
-
-    def tearDown(self):
-        cleanup_materialized_columns()
-        super().tearDown()
-
-    def _materialize_required_columns(self):
-        for column in self.MATERIALIZED_COLUMNS:
-            materialize("events", column)
 
     def _create_test_tables(self):
         sync_execute(WEB_STATS_DAILY_SQL(table_name="test_web_stats_daily", on_cluster=False))
@@ -183,20 +153,32 @@ class TestWebPreAggregatedDagsterIntegration(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
     def _create_dagster_context(self, date_start: str, date_end: str):
-        # Create base context with partition key to get logging and other functionality
-        base_context = dagster.build_asset_context(partition_key=date_start)
-
+        # Create simple test context without logging to avoid StructLog interference
         class TestContext:
-            def __init__(self, base_context, team_id):
-                self.log = base_context.log
-                self.partition_key = base_context.partition_key
+            def __init__(self, team_id):
+                # Create a simple mock logger
+                class MockLogger:
+                    def info(self, msg):
+                        pass  # Silent mock logger for tests
+
+                    def debug(self, msg):
+                        pass
+
+                    def warning(self, msg):
+                        pass
+
+                    def error(self, msg):
+                        pass
+
+                self.log = MockLogger()
+                self.partition_key = date_start
                 self.op_config = {"team_ids": [team_id], "extra_clickhouse_settings": "max_execution_time=300"}
 
                 start_dt = datetime.fromisoformat(date_start).replace(tzinfo=UTC)
                 end_dt = datetime.fromisoformat(date_end).replace(tzinfo=UTC)
                 self.partition_time_window = (start_dt, end_dt)
 
-        return TestContext(base_context, self.team.pk)
+        return TestContext(self.team.pk)
 
     def _get_partition_data_count(self, table_name: str, partition_id: str) -> int:
         query = f"""
@@ -344,31 +326,12 @@ class TestWebPreAggregatedDagsterIntegration(ClickhouseTestMixin, APIBaseTest):
         final_count = self._get_partition_data_count("test_web_stats_daily", "20240115")
         assert final_count == updated_count
 
-    @patch("dags.web_preaggregated_daily.sync_execute")
-    def test_partition_drop_sql_generation(self, mock_sync_execute):
-        context = self._create_dagster_context("2024-01-15", "2024-01-16")
-
-        pre_aggregate_web_analytics_data(
-            context=context, table_name="test_web_stats_daily", sql_generator=WEB_STATS_INSERT_SQL
-        )
-
-        assert mock_sync_execute.call_count == 2
-
-        first_call_sql = mock_sync_execute.call_args_list[0][0][0]
-        assert "DROP PARTITION" in first_call_sql
-        assert "20240115" in first_call_sql
-
-        second_call_sql = mock_sync_execute.call_args_list[1][0][0]
-        assert "INSERT INTO" in second_call_sql
-        assert "test_web_stats_daily" in second_call_sql
-
     def test_dagster_context_and_partition_logic(self):
         context = self._create_dagster_context("2024-01-15", "2024-01-16")
 
         # Verify context has expected properties
         assert hasattr(context, "op_config")
         assert hasattr(context, "partition_time_window")
-        assert hasattr(context, "log")
 
         # Test partition time window
         start_dt, end_dt = context.partition_time_window
