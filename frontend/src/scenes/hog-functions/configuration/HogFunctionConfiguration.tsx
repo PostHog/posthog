@@ -125,6 +125,27 @@ export function HogFunctionConfiguration({
     }
 
     if (!loaded) {
+        if (templateId === 'native-dev-center') {
+            return (
+                <div className="flex flex-col gap-4">
+                    <LemonBanner type="warning">
+                        <div className="text-center">
+                            <h1 className="mb-2">Native Dev Center</h1>
+                            <p className="mb-2">
+                                This is the native dev center. It seems like you aren't serving the local destination.
+                            </p>
+                            <p className="mb-0">
+                                Make sure to run{' '}
+                                <code className="bg-surface-secondary px-1 py-0.5 rounded text-xs">
+                                    pnpm --filter=@posthog/plugin-server serve-native-destination
+                                </code>{' '}
+                                and select your destination.
+                            </p>
+                        </div>
+                    </LemonBanner>
+                </div>
+            )
+        }
         return <NotFound object="Hog function" />
     }
 
