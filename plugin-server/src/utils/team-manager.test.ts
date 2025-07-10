@@ -159,6 +159,48 @@ describe('TeamManager()', () => {
             expect(newTeamByToken).not.toBeNull()
             expect(newTeamByToken!.drop_events_older_than_seconds).toBe(86400)
         })
+
+        it('correctly fetches drop_events_older_than setting when set to 0', async () => {
+            // Get the organization ID from the first team
+            const firstTeam = await teamManager.getTeam(teamId)
+            const organizationId = firstTeam!.organization_id
+
+            // Create a new team with drop_events_older_than set to 0
+            const newTeamId = await createTeam(postgres, organizationId, undefined, {
+                drop_events_older_than: 0, // 0 seconds
+            })
+
+            // Fetch the new team
+            const newTeam = await teamManager.getTeam(newTeamId)
+            expect(newTeam).not.toBeNull()
+            expect(newTeam!.drop_events_older_than_seconds).toBe(0)
+
+            // Verify the setting is also accessible via token
+            const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
+            expect(newTeamByToken).not.toBeNull()
+            expect(newTeamByToken!.drop_events_older_than_seconds).toBe(0)
+        })
+
+        it('correctly fetches drop_events_older_than setting when set to null', async () => {
+            // Get the organization ID from the first team
+            const firstTeam = await teamManager.getTeam(teamId)
+            const organizationId = firstTeam!.organization_id
+
+            // Create a new team with drop_events_older_than set to null
+            const newTeamId = await createTeam(postgres, organizationId, undefined, {
+                drop_events_older_than: null,
+            })
+
+            // Fetch the new team
+            const newTeam = await teamManager.getTeam(newTeamId)
+            expect(newTeam).not.toBeNull()
+            expect(newTeam!.drop_events_older_than_seconds).toBeNull()
+
+            // Verify the setting is also accessible via token
+            const newTeamByToken = await teamManager.getTeamByToken(newTeam!.api_token)
+            expect(newTeamByToken).not.toBeNull()
+            expect(newTeamByToken!.drop_events_older_than_seconds).toBeNull()
+        })
     })
 
     describe('hasAvailableFeature()', () => {
