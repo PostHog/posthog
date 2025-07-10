@@ -1,1 +1,5 @@
+<<<<<<< HEAD
 0790_team_feature_flag_confirmation
+=======
+0790_alter_integration_kind
+>>>>>>> origin/master
