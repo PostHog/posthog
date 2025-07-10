@@ -86,6 +86,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 }
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
+export const MAX_SELECTED_RECORDINGS = 20
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -665,6 +666,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
         handleSelectUnselectAll: ({ checked }: { checked: boolean }) => {
             if (checked) {
+                if (values.sessionRecordings.length > MAX_SELECTED_RECORDINGS) {
+                    lemonToast.error(`Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`)
+                    return
+                }
                 actions.setSelectedRecordingsIds(values.sessionRecordings.map((s) => s.id))
             } else {
                 actions.setSelectedRecordingsIds([])

@@ -21,8 +21,13 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import {
+    DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    MAX_SELECTED_RECORDINGS,
+    sessionRecordingsPlaylistLogic,
+} from './sessionRecordingsPlaylistLogic'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 export interface SessionRecordingPreviewProps {
     recording: SessionRecordingType
@@ -234,6 +239,12 @@ export function SessionRecordingPreview({
                         if (selectedRecordingsIds.some((r) => r === recording.id)) {
                             setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
                         } else {
+                            if (selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS) {
+                                lemonToast.error(
+                                    `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                                )
+                                return
+                            }
                             setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
                         }
                     }}
