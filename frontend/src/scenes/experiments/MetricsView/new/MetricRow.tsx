@@ -102,7 +102,9 @@ export function MetricRow({
                                 tickValues={tickValues}
                                 isSecondary={isSecondary}
                             />
-                            <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                            <div className="absolute top-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]">
+                                <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
+                            </div>
                             <DetailsModal
                                 isOpen={isModalOpen}
                                 onClose={() => setIsModalOpen(false)}
