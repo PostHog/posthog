@@ -11,11 +11,6 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
 )
 from posthog.hogql.errors import ResolutionError
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsBaseView,
-    RevenueAnalyticsCustomerView,
-    RevenueAnalyticsInvoiceItemView,
-)
 
 
 def join_with_persons_revenue_analytics_table(
@@ -44,6 +39,12 @@ def join_with_persons_revenue_analytics_table(
 
 
 def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
+    from products.revenue_analytics.backend.views import (
+        RevenueAnalyticsBaseView,
+        RevenueAnalyticsCustomerView,
+        RevenueAnalyticsInvoiceItemView,
+    )
+
     columns = ["person_id", "revenue", "revenue_last_30_days"]
 
     if not context.database:
