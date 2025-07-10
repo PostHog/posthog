@@ -52,7 +52,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, max_retries=3, user=self._user, team=self._team
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
         ).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",

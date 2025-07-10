@@ -58,7 +58,6 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             api_key=settings.INKEEP_API_KEY,
             streaming=True,
             stream_usage=True,
-            max_retries=3,
             user=self._user,
             team=self._team,
         )

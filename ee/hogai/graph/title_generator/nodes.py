@@ -39,7 +39,6 @@ class TitleGeneratorNode(AssistantNode):
             model="gpt-4.1-nano",
             temperature=0.7,
             max_completion_tokens=100,
-            max_retries=3,
             user=self._user,
             team=self._team,
         )

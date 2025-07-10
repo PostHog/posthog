@@ -297,7 +297,6 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             temperature=0.3,
             disable_streaming=True,
             stop_sequences=["[Done]"],
-            max_retries=3,
             user=self._user,
             team=self._team,
         )
@@ -359,7 +358,6 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
             temperature=0.3,
             disable_streaming=True,
             stop_sequences=["[Done]"],
-            max_retries=3,
             user=self._user,
             team=self._team,
         )
@@ -431,7 +429,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4o", temperature=0.3, disable_streaming=True, max_retries=3, user=self._user, team=self._team
+            model="gpt-4o", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
         ).bind_tools(memory_collector_tools)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:

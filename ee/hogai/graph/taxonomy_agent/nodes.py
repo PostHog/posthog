@@ -143,7 +143,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             temperature=0.3,
             streaming=True,
             stream_usage=True,
-            max_retries=3,
             user=self._user,
             team=self._team,
         )
