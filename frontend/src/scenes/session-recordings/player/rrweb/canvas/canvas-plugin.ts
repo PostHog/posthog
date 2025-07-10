@@ -150,11 +150,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             return
         }
 
-        if (source) {
-            target.width = source.clientWidth || source.width
-            target.height = source.clientHeight || source.height
-        }
-
         await canvasMutation({
             event: e,
             mutation: data,
@@ -171,9 +166,6 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             target.toBlob(
                 (blob) => {
                     if (blob) {
-                        img.style.width = 'initial'
-                        img.style.height = 'initial'
-
                         const url = URL.createObjectURL(blob)
                         // no longer need to read the blob so it's revoked
                         img.onload = () => URL.revokeObjectURL(url)
@@ -214,10 +206,52 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             }
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
-                const el = containers.get(id) || document.createElement('img')
+                const existingContainer = containers.get(id)
+                if (existingContainer) {
+                    return // Already processed
+                }
+
+                // Create wrapper div that gets all the canvas attributes
+                const wrapper = document.createElement('div')
+                const img = document.createElement('img')
+
+                const canvasElement = node as HTMLCanvasElement
+
+                // Copy canvas attributes to wrapper div
+                if (canvasElement.id) {
+                    wrapper.id = canvasElement.id
+                }
+                if (canvasElement.className) {
+                    wrapper.className = canvasElement.className
+                }
+
+                // Copy other potentially relevant attributes to wrapper
+                const attributesToCopy = ['data-testid', 'aria-label', 'title']
+                attributesToCopy.forEach((attr) => {
+                    const value = canvasElement.getAttribute(attr)
+                    if (value) {
+                        wrapper.setAttribute(attr, value)
+                    }
+                })
+
+                // Style the img to fill the wrapper
+                img.style.width = '100%'
+                img.style.height = '100%'
+                img.style.objectFit = 'contain'
+
+                // Set dimensions on wrapper if canvas has them
+                if (canvasElement.width) {
+                    wrapper.style.width = canvasElement.width + 'px'
+                }
+                if (canvasElement.height) {
+                    wrapper.style.height = canvasElement.height + 'px'
+                }
+
+                wrapper.appendChild(img)
+
                 const parent = node.parentNode as Node
-                parent?.replaceChild?.(el, node as Node)
-                containers.set(id, el)
+                parent?.replaceChild?.(wrapper, node as Node)
+                containers.set(id, img)
             }
         },
 
