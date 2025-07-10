@@ -26,6 +26,7 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -84,6 +85,7 @@ export function InsightsTable({
         getTrendsColor,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
+    const { timezone } = useValues(teamLogic)
     const { toggleHiddenLegendIndex, updateHiddenLegendIndexes } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
@@ -285,6 +287,7 @@ export function InsightsTable({
                     compare={compareFilter?.compare}
                     interval={interval}
                     resolvedDateRange={insightData?.resolved_date_range}
+                    timezone={timezone}
                 />
             ),
             render: (_, item: IndexedTrendResult) => {

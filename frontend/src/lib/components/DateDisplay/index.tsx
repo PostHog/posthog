@@ -12,6 +12,7 @@ interface DateDisplayProps {
     interval: IntervalType
     hideWeekRange?: boolean
     resolvedDateRange?: ResolvedDateRangeResponse
+    timezone?: string
     weekStartDay?: number
 }
 
@@ -49,14 +50,15 @@ export function DateDisplay({
     interval,
     hideWeekRange,
     resolvedDateRange,
+    timezone,
     weekStartDay,
 }: DateDisplayProps): JSX.Element {
-    let parsedDate = dayjs.utc(date)
+    let parsedDate = dayjs.tz(date, timezone)
     let weekEnd = null
 
     if (interval === 'week' && resolvedDateRange) {
-        const dateFrom = dayjs.utc(resolvedDateRange.date_from)
-        const dateTo = dayjs.utc(resolvedDateRange.date_to)
+        const dateFrom = dayjs.tz(resolvedDateRange.date_from, timezone)
+        const dateTo = dayjs.tz(resolvedDateRange.date_to, timezone)
         const weekBoundaries = getConstrainedWeekRange(parsedDate, { start: dateFrom, end: dateTo }, weekStartDay || 0)
         parsedDate = weekBoundaries.start
         weekEnd = weekBoundaries.end
@@ -77,7 +79,7 @@ export function DateDisplay({
             {interval === 'week' && !hideWeekRange && weekEnd && (
                 <>
                     {' – '}
-                    <DateDisplay interval="day" date={weekEnd.toJSON()} />
+                    <DateDisplay interval="day" date={weekEnd.toJSON()} timezone={timezone} />
                 </>
             )}
         </>

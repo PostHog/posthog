@@ -45,7 +45,7 @@ export function ActionsLineGraph({
         goalLines,
         insightData,
     } = useValues(trendsDataLogic(insightProps))
-    const { weekStartDay } = useValues(teamLogic)
+    const { weekStartDay, timezone } = useValues(teamLogic)
 
     const { alertThresholdLines } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
@@ -159,6 +159,7 @@ export function ActionsLineGraph({
                                       <DateDisplay
                                           interval={interval || 'day'}
                                           resolvedDateRange={insightData?.resolved_date_range}
+                                          timezone={timezone}
                                           weekStartDay={weekStartDay}
                                           date={day?.toString() || ''}
                                       />
