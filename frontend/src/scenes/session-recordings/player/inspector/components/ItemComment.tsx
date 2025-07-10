@@ -31,24 +31,32 @@ function ItemNotebookComment({ item }: { item: InspectorListItemNotebookComment 
 }
 
 function ItemAnnotationComment({ item }: { item: InspectorListItemAnnotationComment }): JSX.Element {
-    let renderedContent = <>{item.data.content ?? ''}</>
-    if ((item.data.content || '').trim().length > 30) {
-        renderedContent = (
-            <Tooltip
-                title={
-                    <TextContent
-                        text={item.data.content ?? ''}
-                        data-attr="item-annotation-comment-title-rendered-content"
-                    />
-                }
-            >
-                {item.data.content ?? ''}
-            </Tooltip>
-        )
-    }
+    // lazy but good enough check for markdown image urls
+    // we don't want to render markdown in the list row if there's an image since it won't fit
+    const hasMarkdownImage = (item.data.content ?? '').includes('![')
+
+    let rowContent = hasMarkdownImage ? (
+        <>{item.data.content ?? ''}</>
+    ) : (
+        <TextContent text={item.data.content ?? ''} data-attr="item-annotation-comment-title-rendered-content" />
+    )
+
     return (
         <div data-attr="item-annotation-comment" className="font-light w-full px-2 py-1 text-xs truncate text-ellipsis">
-            {renderedContent}
+            {(item.data.content || '').trim().length > 30 ? (
+                <Tooltip
+                    title={
+                        <TextContent
+                            text={item.data.content ?? ''}
+                            data-attr="item-annotation-comment-title-rendered-content"
+                        />
+                    }
+                >
+                    {rowContent}
+                </Tooltip>
+            ) : (
+                rowContent
+            )}
         </div>
     )
 }
