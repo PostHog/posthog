@@ -1,5 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { DeepPartial, forms } from 'kea-forms'
+import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import posthog from 'posthog-js'
@@ -50,7 +50,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectJoiningKey: (selectedKey: string) => ({ selectedKey, joiningTable: values.selectedJoiningTable }),
         toggleJoinTableModal: true,
         toggleEditJoinModal: (join: DataWarehouseViewLink) => ({ join }),
-        toggleNewJoinModal: (join?: DeepPartial<DataWarehouseViewLink>) => ({ join }),
+        toggleNewJoinModal: (join?: Partial<DataWarehouseViewLink>) => ({ join }),
         saveViewLink: (viewLink) => ({ viewLink }),
         deleteViewLink: (table, column) => ({ table, column }),
         setError: (error: string) => ({ error }),
