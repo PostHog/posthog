@@ -1,94 +1,80 @@
 import { humanFriendlyNumber } from 'lib/utils'
 import { ChartCell } from './ChartCell'
-import { MetricHeader } from '../shared/MetricHeader'
-import { type ExperimentVariantResult, formatPercentageChange, getNiceTickValues } from '../shared/utils'
+import { type ExperimentVariantResult, formatPercentageChange } from '../shared/utils'
 import { IconArrowUp, IconTrendingDown } from 'lib/lemon-ui/icons'
-import { ExperimentMetric, ExperimentStatsBase } from '~/queries/schema/schema-general'
+import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
-import {
-    VIEW_BOX_WIDTH,
-    SVG_EDGE_MARGIN,
-    CHART_CELL_VIEW_BOX_HEIGHT,
-    GRID_LINES_OPACITY,
-    CELL_HEIGHT,
-} from './constants'
-import { useChartColors } from '../shared/colors'
-import { useAxisScale } from './useAxisScale'
-import { GridLines } from './GridLines'
+import { CELL_HEIGHT } from './constants'
+import { MetricHeader } from '../shared/MetricHeader'
 import { DetailsButton } from './DetailsButton'
 import { DetailsModal } from './DetailsModal'
 import { useState } from 'react'
 
 interface VariantRowProps {
-    variantResult: ExperimentVariantResult | ExperimentStatsBase // For chart rendering (current variant) or baseline data
-    testVariantResult: ExperimentVariantResult | null // Test variant data for variant column (null for baseline-only)
-    isFirstRow: boolean
-    isLastMetric: boolean
+    variantResult: ExperimentVariantResult
     isLastRow: boolean
-    isBaseline?: boolean // Whether this row represents the baseline
-    metric: ExperimentMetric
-    metricType?: InsightType
-    metricIndex: number
-    experiment: Experiment
     chartRadius: number
-    isSecondary: boolean
-    totalVariantRows: number
+    metricIndex: number
     isAlternatingRow: boolean
-    onDuplicateMetric?: () => void
-    canDuplicateMetric?: boolean
+    hasRowspanCells?: boolean // True if this variant row needs to render the metric and details cells (when no baseline)
+    metric?: ExperimentMetric // Only needed if hasRowspanCells is true
+    metricType?: InsightType // Only needed if hasRowspanCells is true
+    isSecondary?: boolean // Only needed if hasRowspanCells is true
+    isLastMetric?: boolean // Only needed if hasRowspanCells is true
+    totalRows?: number // Only needed if hasRowspanCells is true
+    onDuplicateMetric?: () => void // Only needed if hasRowspanCells is true
+    canDuplicateMetric?: boolean // Only needed if hasRowspanCells is true
+    experiment?: Experiment // Only needed if hasRowspanCells is true
+    result?: NewExperimentQueryResponse // Only needed if hasRowspanCells is true
 }
 
 export function VariantRow({
     variantResult,
-    testVariantResult,
-    isFirstRow,
-    isLastMetric,
     isLastRow,
-    isBaseline = false,
+    chartRadius,
+    metricIndex,
+    isAlternatingRow,
+    hasRowspanCells = false,
     metric,
     metricType,
-    metricIndex,
-    experiment,
-    chartRadius,
     isSecondary,
-    totalVariantRows,
-    isAlternatingRow,
+    isLastMetric,
+    totalRows,
     onDuplicateMetric,
     canDuplicateMetric,
+    experiment,
+    result,
 }: VariantRowProps): JSX.Element {
-    const colors = useChartColors()
-    const scale = useAxisScale(chartRadius, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     // Helper function to format variant data
-    const formatVariantData = (variant: ExperimentStatsBase): { primaryValue: number; formattedValue: string } => {
-        const primaryValue = variant.sum / variant.number_of_samples
+    const formatVariantData = (): { formattedValue: string } => {
+        const primaryValue = variantResult.sum / variantResult.number_of_samples
         const formattedValue =
             metric && 'metric_type' in metric && metric.metric_type === 'mean'
                 ? primaryValue.toFixed(2)
                 : `${(primaryValue * 100).toFixed(2)}%`
-        return { primaryValue, formattedValue }
+        return { formattedValue }
     }
 
-    const result = {
-        variant_results: [variantResult],
-    }
+    const { formattedValue } = formatVariantData()
+    const changeResult = formatPercentageChange(variantResult)
 
     return (
         <tr
             className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
         >
-            {/* Metric column - only render for first row with rowspan */}
-            {isFirstRow && metric && metricType && (
+            {/* Metric column - only render if hasRowspanCells (no baseline case) */}
+            {hasRowspanCells && metric && metricType && (
                 <td
                     className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    rowSpan={totalVariantRows}
+                    rowSpan={totalRows}
                     style={{
-                        height: `${CELL_HEIGHT * totalVariantRows}px`,
-                        maxHeight: `${CELL_HEIGHT * totalVariantRows}px`,
+                        height: `${CELL_HEIGHT * (totalRows || 1)}px`,
+                        maxHeight: `${CELL_HEIGHT * (totalRows || 1)}px`,
                     }}
                 >
                     <MetricHeader
@@ -102,147 +88,83 @@ export function VariantRow({
                 </td>
             )}
 
-            {/* Variant column - show variant key or "Baseline" */}
+            {/* Variant name */}
             <td
                 className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                 } ${isLastRow ? 'border-b border-border-bold' : ''}`}
                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
             >
-                {variantResult ? (
-                    <div className="text-sm text-text-primary whitespace-nowrap">
-                        <span className="text-[#2563eb]">—</span> {variantResult.key}
-                    </div>
-                ) : (
-                    <div className="text-xs text-muted">—</div>
-                )}
+                <div className="text-sm text-text-primary whitespace-nowrap">
+                    <span className="text-[#2563eb]">—</span> {variantResult.key}
+                </div>
             </td>
 
-            {/* Value column - show conversion rate and raw counts */}
+            {/* Value column */}
             <td
                 className={`w-24 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                 } ${isLastRow ? 'border-b border-border-bold' : ''}`}
                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
             >
-                {isBaseline ? (
-                    <div className="text-sm">
-                        <div className="text-text-primary">
-                            {formatVariantData(variantResult as ExperimentStatsBase).formattedValue}
-                        </div>
-                        <div className="text-xs text-muted">
-                            {variantResult.sum} / {humanFriendlyNumber(variantResult.number_of_samples || 0)}
-                        </div>
+                <div className="text-sm">
+                    <div className="text-text-primary">{formattedValue}</div>
+                    <div className="text-xs text-muted">
+                        {variantResult.sum} / {humanFriendlyNumber(variantResult.number_of_samples || 0)}
                     </div>
-                ) : testVariantResult ? (
-                    <div className="text-sm">
-                        <div className="text-text-primary">{formatVariantData(testVariantResult).formattedValue}</div>
-                        <div className="text-xs text-muted">
-                            {testVariantResult.sum} / {humanFriendlyNumber(testVariantResult.number_of_samples || 0)}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="text-xs text-muted">—</div>
-                )}
+                </div>
             </td>
 
-            {/* Change column - show percentage change (empty for baseline) */}
+            {/* Change column */}
             <td
                 className={`w-20 p-3 align-top text-left whitespace-nowrap overflow-hidden ${
                     isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
                 } ${isLastRow ? 'border-b border-border-bold' : ''}`}
                 style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
             >
-                {isBaseline ? (
-                    <div className="text-xs text-muted" />
-                ) : testVariantResult ? (
-                    (() => {
-                        const changeResult = formatPercentageChange(testVariantResult)
-                        return (
-                            <div className="flex items-center gap-1 text-sm">
-                                <span
-                                    className={`${
-                                        changeResult.isSignificant
-                                            ? changeResult.isPositive
-                                                ? 'text-success font-semibold'
-                                                : 'text-danger font-semibold'
-                                            : 'text-text-primary'
-                                    }`}
-                                >
-                                    {changeResult.text}
-                                </span>
-                                {changeResult.isSignificant && changeResult.isPositive !== null && (
-                                    <span
-                                        className={`flex-shrink-0 ${
-                                            changeResult.isPositive ? 'text-success' : 'text-danger'
-                                        }`}
-                                    >
-                                        {changeResult.isPositive ? (
-                                            <IconArrowUp className="w-4 h-4" />
-                                        ) : (
-                                            <IconTrendingDown className="w-4 h-4" />
-                                        )}
-                                    </span>
-                                )}
-                            </div>
-                        )
-                    })()
-                ) : (
-                    <div className="text-xs text-muted">—</div>
-                )}
+                <div className="flex items-center gap-1 text-sm">
+                    <span
+                        className={`${
+                            changeResult.isSignificant
+                                ? changeResult.isPositive
+                                    ? 'text-success font-semibold'
+                                    : 'text-danger font-semibold'
+                                : 'text-text-primary'
+                        }`}
+                    >
+                        {changeResult.text}
+                    </span>
+                    {changeResult.isSignificant && changeResult.isPositive !== null && (
+                        <span className={`flex-shrink-0 ${changeResult.isPositive ? 'text-success' : 'text-danger'}`}>
+                            {changeResult.isPositive ? (
+                                <IconArrowUp className="w-4 h-4" />
+                            ) : (
+                                <IconTrendingDown className="w-4 h-4" />
+                            )}
+                        </span>
+                    )}
+                </div>
             </td>
 
-            {/* Chart column - shows chart for current variant (grid lines for baseline) */}
-            {isBaseline ? (
-                <td
-                    className={`min-w-[400px] p-0 align-top text-center relative overflow-hidden ${
-                        isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
-                    } ${isLastRow ? 'border-b border-border-bold' : ''}`}
-                    style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
-                >
-                    {chartRadius && chartRadius > 0 ? (
-                        <div className="relative h-full">
-                            <svg
-                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${CHART_CELL_VIEW_BOX_HEIGHT}`}
-                                preserveAspectRatio="none"
-                                className="h-full w-full max-w-[1000px]"
-                            >
-                                <GridLines
-                                    tickValues={getNiceTickValues(chartRadius)}
-                                    scale={scale}
-                                    height={CHART_CELL_VIEW_BOX_HEIGHT}
-                                    viewBoxWidth={VIEW_BOX_WIDTH}
-                                    zeroLineColor={colors.ZERO_LINE}
-                                    gridLineColor={colors.BOUNDARY_LINES}
-                                    zeroLineWidth={1.25}
-                                    gridLineWidth={0.75}
-                                    opacity={GRID_LINES_OPACITY}
-                                />
-                            </svg>
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-muted text-xs">—</div>
-                    )}
-                </td>
-            ) : (
-                <ChartCell
-                    variantResult={variantResult as ExperimentVariantResult}
-                    chartRadius={chartRadius}
-                    metricIndex={metricIndex}
-                    isAlternatingRow={isAlternatingRow}
-                    isLastRow={isLastRow}
-                />
-            )}
-            {/* Details column - only render for first row with rowspan */}
-            {isFirstRow && (
+            {/* Chart column */}
+            <ChartCell
+                variantResult={variantResult}
+                chartRadius={chartRadius}
+                metricIndex={metricIndex}
+                isAlternatingRow={isAlternatingRow}
+                isLastRow={isLastRow}
+            />
+
+            {/* Details column - only render if hasRowspanCells (no baseline case) */}
+            {hasRowspanCells && metric && experiment && result && (
                 <td
                     className={`w-1/5 border-r border-border-bold p-3 align-top text-left relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    rowSpan={totalVariantRows}
+                    rowSpan={totalRows}
                     style={{
-                        height: `${CELL_HEIGHT * totalVariantRows}px`,
-                        maxHeight: `${CELL_HEIGHT * totalVariantRows}px`,
+                        height: `${CELL_HEIGHT * (totalRows || 1)}px`,
+                        maxHeight: `${CELL_HEIGHT * (totalRows || 1)}px`,
                     }}
                 >
                     <DetailsButton metric={metric} setIsModalOpen={setIsModalOpen} />
@@ -253,7 +175,7 @@ export function VariantRow({
                         result={result}
                         experiment={experiment}
                         metricIndex={metricIndex}
-                        isSecondary={isSecondary}
+                        isSecondary={isSecondary || false}
                     />
                 </td>
             )}
