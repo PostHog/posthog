@@ -1,6 +1,6 @@
 import { getNiceTickValues } from '../shared/utils'
 import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
-import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE } from './constants'
+import { VIEW_BOX_WIDTH, SVG_EDGE_MARGIN, TICK_PANEL_HEIGHT, TICK_FONT_SIZE_NEW } from './constants'
 import { useAxisScale } from './useAxisScale'
 import { TickLabels } from './TickLabels'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
@@ -68,7 +68,7 @@ export function TableHeader({ chartRadius }: TableHeaderProps): JSX.Element {
                                     scale={scale}
                                     y={TICK_PANEL_HEIGHT + 2}
                                     viewBoxWidth={VIEW_BOX_WIDTH}
-                                    fontSize={TICK_FONT_SIZE}
+                                    fontSize={TICK_FONT_SIZE_NEW}
                                     fontWeight="600"
                                     dominantBaseline="middle"
                                     svgWidth={svgWidth}
