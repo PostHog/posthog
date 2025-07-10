@@ -27,6 +27,7 @@ import {
     HogQLMathType,
     InsightShortId,
     InsightType,
+    IntegrationType,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
@@ -722,8 +723,6 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
-    /** Use recent_events table (last 7 days) for better performance when querying recent data */
-    useRecentEventsTable?: boolean
 }
 
 /**
@@ -2034,6 +2033,14 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     offset?: integer
 }
 
+export interface ErrorTrackingSceneToolOutput
+    extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
+    newFilters?: AnyPropertyFilter[]
+    removedFilterIndexes?: integer[]
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
+}
+
 export interface ErrorTrackingIssueAssignee {
     type: 'user' | 'role'
     id: integer | string
@@ -2046,6 +2053,14 @@ export interface ErrorTrackingIssueAggregations {
     volumeRange: number[]
 }
 
+export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
+
+export interface ErrorTrackingExternalReference {
+    id: string
+    external_url: string
+    integration: ErrorTrackingExternalReferenceIntegration
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2054,6 +2069,7 @@ export interface ErrorTrackingRelationalIssue {
     status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
     /**  @format date-time */
     first_seen: string
+    external_issues?: ErrorTrackingExternalReference[]
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {

@@ -593,7 +593,7 @@ describe('BatchWritingPersonStore', () => {
                 )
 
                 await expect(personStoreForBatch.flush()).rejects.toThrow('Database error')
-                expect(db.updatePerson).toHaveBeenCalledTimes(2) // 1 for update, 1 for fallback
+                expect(db.updatePerson).toHaveBeenCalledTimes(6) // 5 for update, 1 for fallback
                 expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
         })

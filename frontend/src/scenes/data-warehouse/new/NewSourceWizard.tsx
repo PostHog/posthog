@@ -2,8 +2,6 @@ import { IconBell, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -21,6 +19,7 @@ import { sourceWizardLogic } from './sourceWizardLogic'
 import { availableSourcesDataLogic } from './availableSourcesDataLogic'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconBlank } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
@@ -157,7 +156,6 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     const { connectors, manualConnectors } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
         selectConnector(sourceConfig)
@@ -169,18 +167,6 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         setManualLinkingProvider(manualLinkSource)
     }
 
-    const filteredConnectors = connectors.filter((n) => {
-        if (n.name === 'GoogleAds') {
-            return featureFlags[FEATURE_FLAGS.GOOGLE_ADS_DWH]
-        }
-
-        if (n.name === 'GoogleSheets') {
-            return featureFlags[FEATURE_FLAGS.GOOGLE_SHEETS_DWH]
-        }
-
-        return true
-    })
-
     return (
         <>
             <h2 className="mt-4">Managed data warehouse sources</h2>
@@ -190,7 +176,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
-                dataSource={filteredConnectors}
+                dataSource={connectors}
                 loading={false}
                 disableTableWhileLoading={false}
                 columns={[
@@ -198,7 +184,11 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         title: 'Source',
                         width: 0,
                         render: function (_, sourceConfig) {
-                            return <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            return sourceConfig.name ? (
+                                <DataWarehouseSourceIcon type={sourceConfig.name} />
+                            ) : (
+                                <IconBlank />
+                            )
                         },
                     },
                     {
