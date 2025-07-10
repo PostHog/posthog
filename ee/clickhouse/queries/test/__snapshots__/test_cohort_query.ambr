@@ -151,10 +151,10 @@
         HAVING max(is_deleted) = 0
         AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = behavior_query.person_id
   WHERE 1 = 1
-    AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
-           OR (performed_event_condition_None_level_level_0_level_0_level_1_0))
-          AND ((first_time_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                       join_algorithm = 'auto'
+    AND ((((coalesce(performed_event_condition_None_level_level_0_level_0_level_0_0, false))
+           OR (coalesce(performed_event_condition_None_level_level_0_level_0_level_1_0, false)))
+          AND ((coalesce(first_time_condition_None_level_level_0_level_1_level_0_0, false))))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                        join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
@@ -570,8 +570,8 @@
        AND timestamp >= now() - INTERVAL 8 day
      GROUP BY person_id) behavior_query
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                              join_algorithm = 'auto'
+    AND (((coalesce(performed_event_condition_None_level_level_0_level_0_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                               join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence
@@ -825,8 +825,8 @@
      GROUP BY person_id) funnel_query
   WHERE 1 = 1
     AND (((steps_0)
-          OR (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                          join_algorithm = 'auto'
+          OR (coalesce(performed_event_multiple_condition_None_level_level_0_level_1_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                           join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_with_person_properties
@@ -993,8 +993,8 @@
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
     AND (((steps_0)
-          AND (performed_event_multiple_condition_None_level_level_0_level_1_0))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                                           join_algorithm = 'auto'
+          AND (coalesce(performed_event_multiple_condition_None_level_level_0_level_1_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                                            join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_with_event_filters_and_explicit_date
@@ -1059,8 +1059,8 @@
        AND timestamp >= now() - INTERVAL 4 day
      GROUP BY person_id) behavior_query
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order = 1,
-                                                                              join_algorithm = 'auto'
+    AND (((coalesce(performed_event_condition_None_level_level_0_level_0_0, false)))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                                               join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_person
