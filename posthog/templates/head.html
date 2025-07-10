@@ -40,9 +40,9 @@
     // Inject the expected location of JS bundle, use to allow the location of
     // he bundle to be set at runtime, e.g. for PostHog Cloud we serve the
     // frontent JS from a CDN
-    window.JS_URL = "{{ js_url|default:"" }}";
-    window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
-    window.JS_KEA_VERBOSE_LOGGING = {{js_kea_verbose_logging | yesno:"true,false"}};
+    window.JS_URL = "{{ js_url|default:'' }}";
+    window.JS_CAPTURE_TIME_TO_SEE_DATA = {{ js_capture_time_to_see_data | yesno:"true,false" }};
+    window.JS_KEA_VERBOSE_LOGGING = {{ js_kea_verbose_logging | yesno:"true,false" }};
 </script>
 
 {% if debug %}
@@ -53,6 +53,7 @@
         window.$RefreshSig$ = () => (type) => type
         window.__vite_plugin_react_preamble_installed__ = true
     </script>
+
     <!-- Vite development server -->
     <script type="module" src="http://localhost:8234/@vite/client"></script>
     <script type="module" src="http://localhost:8234/src/index.tsx"></script>
