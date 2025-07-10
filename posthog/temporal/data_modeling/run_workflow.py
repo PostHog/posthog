@@ -1013,11 +1013,11 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     logger = await bind_temporal_worker_logger(inputs.team_id)
 
     async def _get_saved_query(model: str) -> DataWarehouseSavedQuery:
-        try:  # UUID?
+        try:
             return await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(
                 id=uuid.UUID(model), team_id=inputs.team_id
             )
-        except ValueError:  # name
+        except ValueError:
             return await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(name=model, team_id=inputs.team_id)
 
     for model in inputs.models:
@@ -1031,13 +1031,13 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
         table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query_table_id)
 
         try:
-            if not table.row.url_pattern.startswith("s3://"):
+            if not table.url_pattern.startswith("s3://"):
                 raise ValueError("Table URL pattern does not start with s3://")
             delta = deltalake.DeltaTable(
                 table.url_pattern,
                 storage_options=_get_credentials(),
             )
-            table.row_count = delta.num_rows
+            table.row_count = delta.to_pyarrow_table().num_rows
             await database_sync_to_async(table.save)()
         except Exception as err:
             await logger.aexception(f"Failed to update table row count for {model}: {err}")
