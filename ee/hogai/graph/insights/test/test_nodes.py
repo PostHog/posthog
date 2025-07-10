@@ -265,7 +265,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_3")
         self.assertIn("Found", result.messages[0].content)
         self.assertIn("INSTRUCTIONS:", result.messages[0].content)
-        self.assertEqual(result.search_insights_query, "")  # Should reset state
+        self.assertEqual(result.search_insights_query, None)
 
     def test_run_with_no_query(self):
         """Test run method with no search query."""
@@ -287,7 +287,7 @@ class TestInsightSearchNode(BaseTest):
         self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id_2")
         self.assertIn("Found", result.messages[0].content)
         self.assertIn("INSTRUCTIONS:", result.messages[0].content)
-        self.assertEqual(result.search_insights_query, "")
+        self.assertEqual(result.search_insights_query, None)
 
     def test_search_insights_team_filtering(self):
         """Test that search only returns insights from the correct team."""

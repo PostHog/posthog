@@ -10,9 +10,7 @@ import structlog
 
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import (
-    AssistantToolCallMessage,
-)
+from posthog.schema import AssistantToolCallMessage
 from ee.hogai.graph.base import AssistantNode
 from .prompts import SINGLE_PASS_INSIGHT_SELECTION_PROMPT
 
@@ -178,7 +176,8 @@ class InsightSearchNode(AssistantNode):
                     ),
                 ],
                 # Reset state values
-                search_insights_query="",
+                search_insights_query=None,
+                root_tool_call_id=None,
             )
 
         except Exception as e:
@@ -208,7 +207,8 @@ class InsightSearchNode(AssistantNode):
                         id=str(uuid4()),
                     ),
                 ],
-                search_insights_query="",
+                search_insights_query=None,
+                root_tool_call_id=None,
             )
 
     def _search_insights(
@@ -478,4 +478,4 @@ Description: {description}
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1-mini", temperature=0.7, max_completion_tokens=100)
+        return ChatOpenAI(model="gpt-4.1-mini", temperature=0.7, max_completion_tokens=1000)

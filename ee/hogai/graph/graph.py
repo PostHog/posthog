@@ -468,7 +468,11 @@ class AssistantGraph(BaseAssistantGraph):
 
         insights_search_node = InsightSearchNode(self._team, self._user)
         builder.add_node(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node)
-        builder.add_conditional_edges(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node.router, path_map=path_map)
+        builder.add_conditional_edges(
+            AssistantNodeName.INSIGHTS_SEARCH,
+            insights_search_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
         return self
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
