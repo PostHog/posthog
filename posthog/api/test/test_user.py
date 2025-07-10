@@ -695,6 +695,55 @@ class TestUserAPI(APIBaseTest):
             self.assertIsNone(team)
             self.assertIsNone(new_user.current_team)
 
+    def test_organization_property_does_not_save_when_no_organizations_found(self):
+        """
+        Test that the organization property doesn't trigger a save when no organizations exist
+        """
+        # Create a brand new user that belongs to no organizations or teams
+        new_user = User.objects.create_user(
+            email="newuser2@posthog.com", password="testpass123", first_name="New", last_name="User"
+        )
+
+        # Access the organization property - this should NOT trigger a save since no organizations exist
+        with mock.patch.object(new_user, "save") as mock_save:
+            organization = new_user.organization
+
+            # Verify no save was called for the organization property
+            mock_save.assert_not_called()
+
+            # Verify organization is None
+            self.assertIsNone(organization)
+            self.assertIsNone(new_user.current_organization)
+
+    def test_organization_property_saves_when_organization_found(self):
+        """
+        Test that the organization property does trigger a save when an organization is found
+        """
+        # Create a new organization and add the user to it
+        new_org = Organization.objects.create(name="Test Organization")
+        self.user.join(organization=new_org)
+
+        # Set current organization to None to simulate the property needing to find and set it
+        self.user.current_organization = None
+        self.user.save()
+
+        # Clear the cached property to force re-evaluation
+        if hasattr(self.user, "_cached_organization"):
+            delattr(self.user, "_cached_organization")
+
+        # Mock the save method to track if it's called
+        with mock.patch.object(self.user, "save") as mock_save:
+            # Access the organization property - this should trigger a save since an organization exists
+            result_organization = self.user.organization
+
+            # Verify save was called with correct parameters
+            mock_save.assert_called_once_with(update_fields=["current_organization"])
+
+            # Verify organization is set correctly (should be one of the user's organizations)
+            self.assertIsNotNone(result_organization)
+            self.assertIn(result_organization, [self.organization, new_org])
+            self.assertEqual(self.user.current_organization, result_organization)
+
     def test_team_property_saves_when_team_found(self):
         """
         Test that the team property does trigger a save when a team is found

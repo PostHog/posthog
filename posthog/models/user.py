@@ -237,7 +237,8 @@ class User(AbstractUser, UUIDClassicModel):
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
             self.current_organization = self.organizations.first()
-            self.save(update_fields=["current_organization"])
+            if self.current_organization is not None:
+                self.save(update_fields=["current_organization"])
         return self.current_organization
 
     @cached_property
