@@ -350,7 +350,7 @@ How would you rate the time range relevancy of the generated query? Choose one:
         )
 
 
-SQL_SYNTAX_CORRECTNESS_PROMPT = """
+SQL_SEMANTICS_CORRECTNESS_PROMPT = """
 <system>
 You are an expert ClickHouse SQL auditor.
 Your job is to decide whether two ClickHouse SQL queries are **semantically equivalent for every possible valid database state**, given the same task description and schema.
@@ -398,7 +398,7 @@ class SQLSemanticsCorrectness(LLMClassifier):
     def __init__(self, **kwargs):
         super().__init__(
             name="sql_semantics_correctness",
-            prompt_template=SQL_SYNTAX_CORRECTNESS_PROMPT,
+            prompt_template=SQL_SEMANTICS_CORRECTNESS_PROMPT,
             choice_scores={
                 "Pass": 1.0,
                 "Fail": 0.0,
