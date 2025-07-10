@@ -1,5 +1,6 @@
 import dagster
-from dags.common import JobOwners
+from dags.common import JobOwners, settings_with_log_comment, dagster_tags
+from posthog.clickhouse import query_tagging
 from posthog.clickhouse.cluster import ClickhouseCluster
 from clickhouse_driver import Client
 from posthog.clickhouse.client import sync_execute
@@ -22,18 +23,20 @@ from dags.web_preaggregated_utils import web_analytics_retry_policy_def
 
 def execute_with_logging(client: Client, sql: str, context: dagster.AssetExecutionContext):
     context.log.info(sql)
-    return client.execute(sql)
+    return client.execute(sql, settings=settings_with_log_comment(context))
 
 
-def check_table_exist(table_name: str) -> AssetCheckResult:
+def check_table_exist(table_name: str, context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
     try:
-        tables_result = sync_execute(
-            f"""
-            SELECT name, engine, total_rows, total_bytes
-            FROM system.tables
-            WHERE database = currentDatabase() AND name = '{table_name}'
-            """
-        )
+        dg_tags = dagster_tags(context)
+        with query_tagging.tags_context(kind="dagster", dagster=dg_tags):
+            tables_result = sync_execute(
+                f"""
+                SELECT name, engine, total_rows, total_bytes
+                FROM system.tables
+                WHERE database = currentDatabase() AND name = '{table_name}'
+                """
+            )
 
         if len(tables_result) == 0:
             return AssetCheckResult(
@@ -168,8 +171,8 @@ def web_analytics_preaggregated_tables(
     name="daily_stats_table_exist",
     description="Check if daily stats table was created",
 )
-def daily_stats_table_exist() -> AssetCheckResult:
-    return check_table_exist("web_stats_daily")
+def daily_stats_table_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_stats_daily", context)
 
 
 @asset_check(
@@ -177,8 +180,8 @@ def daily_stats_table_exist() -> AssetCheckResult:
     name="daily_bounces_table_exist",
     description="Check if daily bounces table was created",
 )
-def daily_bounces_table_exist() -> AssetCheckResult:
-    return check_table_exist("web_bounces_daily")
+def daily_bounces_table_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_bounces_daily", context)
 
 
 @asset_check(
@@ -186,8 +189,8 @@ def daily_bounces_table_exist() -> AssetCheckResult:
     name="hourly_stats_table_exist",
     description="Check if hourly stats table was created",
 )
-def hourly_stats_table_exist() -> AssetCheckResult:
-    return check_table_exist("web_stats_hourly")
+def hourly_stats_table_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_stats_hourly", context)
 
 
 @asset_check(
@@ -195,8 +198,8 @@ def hourly_stats_table_exist() -> AssetCheckResult:
     name="hourly_bounces_table_exist",
     description="Check if hourly bounces table was created",
 )
-def hourly_bounces_table_exist() -> AssetCheckResult:
-    return check_table_exist("web_bounces_hourly")
+def hourly_bounces_table_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_bounces_hourly", context)
 
 
 @asset_check(
@@ -204,8 +207,8 @@ def hourly_bounces_table_exist() -> AssetCheckResult:
     name="combined_stats_view_exist",
     description="Check if combined stats view was created",
 )
-def combined_stats_view_exist() -> AssetCheckResult:
-    return check_table_exist("web_stats_combined")
+def combined_stats_view_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_stats_combined", context)
 
 
 @asset_check(
@@ -213,5 +216,5 @@ def combined_stats_view_exist() -> AssetCheckResult:
     name="combined_bounces_view_exist",
     description="Check if combined bounces view was created",
 )
-def combined_bounces_view_exist() -> AssetCheckResult:
-    return check_table_exist("web_bounces_combined")
+def combined_bounces_view_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_bounces_combined", context)
