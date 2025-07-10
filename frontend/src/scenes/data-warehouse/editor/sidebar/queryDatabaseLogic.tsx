@@ -634,7 +634,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         : []
                 }
 
-                if ('fields' in table) {
+                if ('fields' in table && table !== null) {
                     return Object.values(table.fields).map((field) => ({
                         name: field.name,
                         type: field.type,
@@ -642,7 +642,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     }))
                 }
 
-                if ('columns' in table) {
+                if ('columns' in table && table !== null) {
                     return Object.values(table.columns).map((column) => ({
                         name: column.name,
                         type: column.type,
