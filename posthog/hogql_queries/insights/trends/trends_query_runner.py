@@ -888,6 +888,7 @@ class TrendsQueryRunner(QueryRunner):
                                 "breakdown_value": any_result.get("breakdown_value"),
                                 "compare_label": any_result.get("compare_label"),
                                 "days": any_result.get("days"),
+                                "labels": any_result.get("labels"),
                             }
                         )
                 new_result = self.apply_formula_to_results_group(
