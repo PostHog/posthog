@@ -23,7 +23,7 @@ export class WaitUntilTimeWindowHandler implements ActionHandler {
     }
 }
 
-function isValidDay(date: DateTime, dateConfig: Action['config']['date']): boolean {
+function isValidDay(date: DateTime, dateConfig: Action['config']['day']): boolean {
     if (dateConfig === 'any') {
         return true
     }
@@ -43,7 +43,7 @@ function isValidDay(date: DateTime, dateConfig: Action['config']['date']): boole
     return false
 }
 
-function getNextValidDay(now: DateTime, dateConfig: Action['config']['date']): DateTime {
+function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): DateTime {
     let nextDay = now.plus({ days: 1 }).startOf('day')
 
     while (!isValidDay(nextDay, dateConfig)) {
@@ -53,12 +53,14 @@ function getNextValidDay(now: DateTime, dateConfig: Action['config']['date']): D
     return nextDay
 }
 
-export const getWaitUntilTime = (action: Action): DateTime | null => {
-    const now = DateTime.utc().setZone(action.config.timezone)
+export const getWaitUntilTime = (
+    action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>
+): DateTime | null => {
+    const now = DateTime.utc().setZone(action.config.timezone || 'UTC')
     const config = action.config
 
     if (config.time === 'any') {
-        return getNextValidDay(now, config.date)
+        return getNextValidDay(now, config.day)
     }
 
     const [startTime, endTime] = config.time
@@ -70,13 +72,13 @@ export const getWaitUntilTime = (action: Action): DateTime | null => {
     const endTimeToday = now.set({ hour: endHours, minute: endMinutes, second: 0, millisecond: 0 })
 
     // If we're within the time window today, execute immediately
-    if (now >= nextTime && now <= endTimeToday && isValidDay(now, config.date)) {
+    if (now >= nextTime && now <= endTimeToday && isValidDay(now, config.day)) {
         return null
     }
 
     // If time has passed or day doesn't match, find next valid day
-    if (nextTime <= now || !isValidDay(nextTime, config.date)) {
-        nextTime = getNextValidDay(now, config.date).set({
+    if (nextTime <= now || !isValidDay(nextTime, config.day)) {
+        nextTime = getNextValidDay(now, config.day).set({
             hour: startHours,
             minute: startMinutes,
             second: 0,
