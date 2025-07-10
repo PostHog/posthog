@@ -1,6 +1,6 @@
 import datetime as dt
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -328,11 +328,15 @@ def test_log_warning_for_missing_batch_export_runs():
         (dt.datetime(2024, 1, 1, 10, 0), dt.datetime(2024, 1, 1, 10, 5)),
         (dt.datetime(2024, 1, 1, 10, 5), dt.datetime(2024, 1, 1, 10, 10)),
     ]
-    with patch("products.batch_exports.backend.temporal.monitoring.activity") as mock_activity:
+    with patch("products.batch_exports.backend.temporal.monitoring.LOGGER") as mock_global_logger:
+        mock_logger = MagicMock()
+        mock_global_logger.bind.return_value = mock_logger
+
         batch_export_id = uuid.uuid4()
         _log_warning_for_missing_batch_export_runs(batch_export_id, missing_runs)
-        mock_activity.logger.warning.assert_called_once_with(
-            f"Batch Exports Monitoring: Found 2 missing run(s) for batch export {batch_export_id}:\n"
+
+        mock_logger.warning.assert_called_once_with(
+            "Batch Exports Monitoring: Found 2 missing run(s):\n"
             "- Run 2024-01-01 10:00:00 to 2024-01-01 10:05:00\n"
             "- Run 2024-01-01 10:05:00 to 2024-01-01 10:10:00\n"
         )
@@ -343,11 +347,15 @@ def test_log_warning_for_missing_events():
         EventCount(interval_start="2024-01-01 10:00:00", interval_end="2024-01-01 10:05:00", count=100),
         EventCount(interval_start="2024-01-01 10:05:00", interval_end="2024-01-01 10:10:00", count=200),
     ]
-    with patch("products.batch_exports.backend.temporal.monitoring.activity") as mock_activity:
+    with patch("products.batch_exports.backend.temporal.monitoring.LOGGER") as mock_global_logger:
+        mock_logger = MagicMock()
+        mock_global_logger.bind.return_value = mock_logger
+
         batch_export_id = uuid.uuid4()
         _log_warning_for_missing_events(batch_export_id, missing_events)
-        mock_activity.logger.warning.assert_called_once_with(
-            f"Batch Exports Monitoring: Found missing events for batch export {batch_export_id}:\n"
+
+        mock_logger.warning.assert_called_once_with(
+            f"Batch Exports Monitoring: Found missing events:\n"
             "- 100 events missing in interval 2024-01-01 10:00:00 to 2024-01-01 10:05:00\n"
             "- 200 events missing in interval 2024-01-01 10:05:00 to 2024-01-01 10:10:00\n"
         )

@@ -15,6 +15,9 @@ from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import bind_contextvars, get_logger
+
+LOGGER = get_logger(__name__)
 
 
 def datetime_to_str(dt_obj: dt.datetime) -> str:
@@ -154,6 +157,9 @@ class UpdateBatchExportRunsInputs:
 async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
     """Update BatchExportRuns with the expected number of events."""
 
+    bind_contextvars(batch_export_id=inputs.batch_export_id)
+    logger = LOGGER.bind()
+
     total_rows_updated = 0
     async with Heartbeater():
         for result in inputs.results:
@@ -163,7 +169,7 @@ async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
                 interval_end=str_to_datetime(result.interval_end),
                 count=result.count,
             )
-    activity.logger.info(f"Updated {total_rows_updated} BatchExportRuns")
+    logger.info("Updated %s BatchExportRuns", total_rows_updated)
     return total_rows_updated
 
 
@@ -231,6 +237,9 @@ async def reconcile_event_counts(inputs: ReconcileEventCountsInputs) -> None:
     These will subseqently trigger an alertmanager alert.
     """
 
+    bind_contextvars(batch_export_id=inputs.batch_export_id)
+    logger = LOGGER.bind()
+
     interval_start = str_to_datetime(inputs.overall_interval_start)
     interval_end = str_to_datetime(inputs.overall_interval_end)
 
@@ -268,9 +277,7 @@ async def reconcile_event_counts(inputs: ReconcileEventCountsInputs) -> None:
         if clickhouse_event_count is None:
             # it's possible that we don't have any events in ClickHouse for a given interval, but probably very rare for
             # the batch exports we monitor
-            activity.logger.info(
-                "No events in ClickHouse for batch export %s in interval %s to %s", inputs.batch_export_id, start, end
-            )
+            logger.info("No events in ClickHouse in interval %s to %s", start_str, end_str)
             continue
 
         if exported_event_count.count < clickhouse_event_count.count:
@@ -307,21 +314,25 @@ def _get_expected_intervals(
 def _log_warning_for_missing_batch_export_runs(
     batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
 ):
-    message = (
-        f"Batch Exports Monitoring: Found {len(missing_runs)} missing run(s) for batch export {batch_export_id}:\n"
-    )
-    for start, end in missing_runs:
-        message += f"- Run {datetime_to_str(start)} to {datetime_to_str(end)}\n"
+    bind_contextvars(batch_export_id=batch_export_id)
+    logger = LOGGER.bind()
 
-    activity.logger.warning(message)
+    message = f"Batch Exports Monitoring: Found {len(missing_runs)} missing run(s):\n"
+    for start, end in missing_runs:
+        message += f"- Run {start} to {end}\n"
+
+    logger.warning(message)
 
 
 def _log_warning_for_missing_events(batch_export_id: UUID, missing_events: list[EventCount]):
-    message = f"Batch Exports Monitoring: Found missing events for batch export {batch_export_id}:\n"
+    bind_contextvars(batch_export_id=batch_export_id)
+    logger = LOGGER.bind()
+
+    message = f"Batch Exports Monitoring: Found missing events:\n"
     for event in missing_events:
         message += f"- {event.count} events missing in interval {event.interval_start} to {event.interval_end}\n"
 
-    activity.logger.warning(message)
+    logger.warning(message)
 
 
 @workflow.defn(name="batch-export-monitoring")
@@ -347,9 +358,10 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BatchExportMonitoringInputs):
         """Workflow implementation to monitor a given batch export."""
-        workflow.logger.info(
-            "Starting batch exports monitoring workflow for batch export id %s", inputs.batch_export_id
-        )
+
+        bind_contextvars(batch_export_id=inputs.batch_export_id)
+        logger = LOGGER.bind()
+        logger.info("Starting batch exports monitoring workflow")
 
         batch_export_details = await workflow.execute_activity(
             get_batch_export,
