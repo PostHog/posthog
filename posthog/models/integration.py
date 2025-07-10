@@ -1054,7 +1054,7 @@ class TwilioIntegration:
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
             kind="twilio",
-            integration_id=f"{account_sid}_{phone_number}",
+            integration_id=phone_number,
             defaults={
                 "config": {
                     "account_sid": account_sid,

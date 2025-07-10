@@ -102,16 +102,12 @@ function MessageChannelSection({
     integrations: IntegrationType[]
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
                 {icon}
-                <h2 className="mb-0">{title}</h2>
+                <h3 className="mb-0">{title}</h3>
             </div>
-            {integrations.length === 0 && (
-                <div className="text-muted">
-                    <p>None configured yet.</p>
-                </div>
-            )}
+            {integrations.length === 0 && <span className="text-muted">None configured yet</span>}
             {integrations.map((integration) => (
                 <MessageChannel key={integration.id} integration={integration} />
             ))}
@@ -186,7 +182,7 @@ export function MessageChannels(): JSX.Element {
             />
 
             <div className="flex flex-col gap-4">
-                {integrationsLoading && (
+                {integrationsLoading && !integrations?.length && (
                     <>
                         <LemonSkeleton className="h-20" />
                         <LemonSkeleton className="h-20" />
@@ -206,17 +202,17 @@ export function MessageChannels(): JSX.Element {
                 {allMessagingIntegrations.length > 0 && (
                     <>
                         <MessageChannelSection
-                            icon={<IconLetter className="text-2xl" />}
+                            icon={<IconLetter className="text-xl" />}
                             title="Email addresses"
                             integrations={emailIntegrations}
                         />
                         <MessageChannelSection
-                            icon={<IconSlack className="text-2xl" />}
-                            title="Slack channels"
+                            icon={<IconSlack className="text-xl" />}
+                            title="Slack apps"
                             integrations={slackIntegrations}
                         />
                         <MessageChannelSection
-                            icon={<IconTwilio className="text-2xl" />}
+                            icon={<IconTwilio className="text-xl" />}
                             title="Phone numbers"
                             integrations={twilioIntegrations}
                         />
