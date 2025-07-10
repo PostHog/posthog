@@ -22,6 +22,7 @@ import { ISSUE_STATUS_OPTIONS } from './utils'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
+import { ConnectIssueButton } from './components/ErrorTrackingExternalReference'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export const scene: SceneExport = {
@@ -49,6 +50,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
 
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
+    const hasIntegrations = useFeatureFlag('ERROR_TRACKING_INTEGRATIONS')
 
     useEffect(() => {
         loadIssue()
@@ -59,6 +61,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
+                        {hasIntegrations ? <ConnectIssueButton /> : null}
                         {hasDiscussions && (
                             <LemonButton
                                 type="secondary"
