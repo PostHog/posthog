@@ -94,7 +94,7 @@ class _SharedAssistantState(BaseModel):
     """
     The ID of the message from which the conversation started.
     """
-    graph_status: Optional[Literal["resumed", "interrupted"]] = Field(default=None)
+    graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
     """
     Whether the graph was interrupted or resumed.
     """
