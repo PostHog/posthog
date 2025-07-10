@@ -460,6 +460,31 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         assert data["total_count"] == 1
         assert data["users"][0]["user_id"] == str(self.user.uuid)
 
+    def test_only_active_users_included(self):
+        """Test that only active users are included in the users_with_access endpoint"""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        # Create an inactive user and add them to the organization
+        inactive_user = self._create_user("inactive_user@example.com")
+        inactive_user.is_active = False
+        inactive_user.save()
+
+        # Get users with access
+        res = self._get_users_with_access()
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        data = res.json()
+        user_ids = [user["user_id"] for user in data["users"]]
+
+        # Verify inactive user is not included
+        assert str(inactive_user.uuid) not in user_ids
+
+        # Verify active users are still included
+        assert str(self.user.uuid) in user_ids
+        assert str(self.user2.uuid) in user_ids
+        assert str(self.user3.uuid) in user_ids
+        assert str(self.user4.uuid) in user_ids
+
 
 class TestGlobalAccessControlsPermissions(BaseAccessControlTest):
     def setUp(self):
