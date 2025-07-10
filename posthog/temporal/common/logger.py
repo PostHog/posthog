@@ -20,7 +20,6 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 BACKGROUND_LOGGER_TASKS = set()
 EXTERNAL_LOGGER_NAME = "EXTERNAL"
-EXTERNAL_LOGGER = structlog.get_logger(EXTERNAL_LOGGER_NAME)
 
 
 def get_internal_logger():
@@ -41,9 +40,59 @@ def bind_contextvars(**kwargs):
     structlog.contextvars.bind_contextvars(**temporal_context, **kwargs)
 
 
-def get_external_logger(**kwargs) -> logging.Logger:
-    """Return a bound logger to log user-facing logs."""
-    return EXTERNAL_LOGGER.bind(**kwargs)
+def get_external_logger():
+    """Return an external logger to log user-facing logs.
+
+    This method is intended to be called once at the top level of a module.
+    Afterwards, call `bind()` to bind any variables to this logger, or use
+    `bind_contextvars()` to bind variables directly in the context.
+    """
+    logger = logging.getLogger(EXTERNAL_LOGGER_NAME)
+
+    if not logger.hasHandlers() or logger.propagate:
+        # We use `logger.propagate` as a roundabout way to see if this has been
+        # configured already or not.
+        logger.handlers.clear()
+
+        # Set 'DEBUG' as log level to display all logs from external to user.
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.DEBUG)
+
+        formatter = logging.Formatter("%(message)s")
+        handler.setFormatter(formatter)
+
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+
+    return structlog.get_logger(EXTERNAL_LOGGER_NAME)
+
+
+def get_logger(name: str | None = None):
+    """Return an internal logger after configuring if necessary.
+
+    This method is intended to be called once at the top level of a module.
+    Afterwards, call `bind()` to bind any variables to this logger, or use
+    `bind_contextvars()` to bind variables directly in the context.
+    """
+    logger = logging.getLogger(name or __name__)
+
+    logger.handlers.clear()
+    configure_stdlib_logger(logger)
+
+    return structlog.get_logger(name or __name__)
+
+
+def configure_stdlib_logger(logger: logging.Logger) -> None:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(settings.TEMPORAL_LOG_LEVEL)
+
+    formatter = logging.Formatter("%(message)s")
+    handler.setFormatter(formatter)
+
+    logger.addHandler(handler)
+    logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
+    logger.propagate = False
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:
@@ -179,6 +228,7 @@ def configure_logger_async(
     queue: asyncio.Queue | None = None,
     producer: aiokafka.AIOKafkaProducer | None = None,
     cache_logger_on_first_use: bool = True,
+    loop: None | asyncio.AbstractEventLoop = None,
 ) -> None:
     """Configure a StructLog logger for temporal workflows.
 
@@ -202,7 +252,6 @@ def configure_logger_async(
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.format_exc_info,
         structlog.processors.CallsiteParameterAdder(
             {
                 structlog.processors.CallsiteParameter.FILENAME,
@@ -219,7 +268,9 @@ def configure_logger_async(
     log_producer_error = None
 
     try:
-        log_producer = KafkaLogProducerFromQueueAsync(queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer)
+        log_producer = KafkaLogProducerFromQueueAsync(
+            queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
+        )
     except Exception as e:
         # Skip putting logs in queue if we don't have a producer that can consume the queue.
         # We save the error to log it later as the logger hasn't yet been configured at this time.
@@ -254,7 +305,7 @@ def configure_logger_async(
         logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
 
-    listen_task = create_logger_background_task(log_producer.listen())
+    listen_task = create_logger_background_task(log_producer.listen(), loop=loop)
 
     async def worker_shutdown_handler():
         """Gracefully handle a Temporal Worker shutting down.
@@ -269,16 +320,20 @@ def configure_logger_async(
 
         await asyncio.wait([listen_task])
 
-    create_logger_background_task(worker_shutdown_handler())
+    create_logger_background_task(worker_shutdown_handler(), loop=loop)
 
 
-def create_logger_background_task(task) -> asyncio.Task:
+def create_logger_background_task(task, loop: None | asyncio.AbstractEventLoop = None) -> asyncio.Task:
     """Create an asyncio.Task and add them to BACKGROUND_LOGGER_TASKS.
 
     Adding them to BACKGROUND_LOGGER_TASKS keeps a strong reference to the task, so they won't
     be garbage collected and disappear mid execution.
     """
-    new_task = asyncio.create_task(task)
+    if loop:
+        new_task = loop.create_task(task)
+    else:
+        new_task = asyncio.create_task(task)
+
     BACKGROUND_LOGGER_TASKS.add(new_task)
     new_task.add_done_callback(BACKGROUND_LOGGER_TASKS.discard)
 
@@ -425,6 +480,7 @@ class KafkaLogProducerFromQueueAsync:
         topic: str = KAFKA_LOG_ENTRIES,
         key: str | None = None,
         producer: aiokafka.AIOKafkaProducer | None = None,
+        loop: None | asyncio.AbstractEventLoop = None,
     ):
         self.queue = queue
         self.topic = topic
@@ -438,6 +494,7 @@ class KafkaLogProducerFromQueueAsync:
                 acks="all",
                 api_version="2.5.0",
                 ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
+                loop=loop,
             )
         )
         self.logger = structlog.get_logger()
