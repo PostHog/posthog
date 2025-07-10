@@ -4,7 +4,7 @@ import pytest
 
 from freezegun import freeze_time
 
-from posthog.hogql_queries.ai.session_events_query_runner import (
+from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
     create_session_batch_events_query,
 )

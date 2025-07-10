@@ -262,7 +262,7 @@ def get_query_runner(
             modifiers=modifiers,
         )
     if kind == "SessionBatchEventsQuery":
-        from .ai.session_events_query_runner import SessionBatchEventsQueryRunner
+        from .ai.session_batch_events_query_runner import SessionBatchEventsQueryRunner
 
         return SessionBatchEventsQueryRunner(
             query=cast(SessionBatchEventsQuery | dict[str, Any], query),
