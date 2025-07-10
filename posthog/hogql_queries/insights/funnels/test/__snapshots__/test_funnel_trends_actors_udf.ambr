@@ -1,0 +1,229 @@
+# serializer version: 1
+# name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_returns_recordings
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            matching_events AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel_trends_v8(1, 2, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
+               toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
+               af_tuple.2 AS success_bool,
+               af_tuple.3 AS breakdown,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               [user_events_map[af_tuple.4]] AS matching_events,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                  if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                  if(equals(e.event, 'step three'), 1, 0) AS step_2
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
+        GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
+                                             date_time_input_format='best_effort')
+     WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0))
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_returns_recordings.1
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1b']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_drop_off
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            matching_events AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel_trends_v8(1, 3, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
+               toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
+               af_tuple.2 AS success_bool,
+               af_tuple.3 AS breakdown,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               [user_events_map[af_tuple.4]] AS matching_events,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                  if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                  if(equals(e.event, 'step three'), 1, 0) AS step_2
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
+        GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
+                                             date_time_input_format='best_effort')
+     WHERE and(ifNull(notEquals(success_bool, 1), 1), ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0))
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_drop_off.1
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1a']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_no_to_step
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (SELECT aggregation_target AS actor_id,
+            matching_events AS matching_events,
+            actor_id AS id
+     FROM
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel_trends_v8(1, 3, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
+               toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
+               af_tuple.2 AS success_bool,
+               af_tuple.3 AS breakdown,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               [user_events_map[af_tuple.4]] AS matching_events,
+               aggregation_target AS aggregation_target
+        FROM
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'step one'), 1, 0) AS step_0,
+                  if(equals(e.event, 'step two'), 1, 0) AS step_1,
+                  if(equals(e.event, 'step three'), 1, 0) AS step_2
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
+        GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
+                                             date_time_input_format='best_effort')
+     WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('today', 6, 'UTC')), 0))
+     ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_no_to_step.1
+  '''
+  SELECT DISTINCT session_replay_events.session_id AS session_id
+  FROM session_replay_events
+  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1c']))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
