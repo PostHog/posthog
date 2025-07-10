@@ -56,7 +56,6 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
                     {String(val)}
-                    {}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&
