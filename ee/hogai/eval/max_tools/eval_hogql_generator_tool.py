@@ -78,7 +78,6 @@ async def eval_tool_generate_hogql_query(call_generate_hogql_query, database_sch
         experiment_name="tool_generate_hogql_query",
         task=call_generate_hogql_query,
         scores=[SQLSyntaxCorrectness(), sql_semantics_scorer],
-        metadata={"schema": database_schema},
         data=[
             EvalCase(
                 input=EvalInput(instructions="List all events from the last 7 days"),
