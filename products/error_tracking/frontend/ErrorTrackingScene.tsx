@@ -8,7 +8,6 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -34,6 +33,7 @@ import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
 import { ErrorTrackingSceneTool } from './components/SceneTool'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -234,7 +234,7 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
 }
 
 const Header = (): JSX.Element => {
-    const { user } = useValues(userLogic)
+    const { isDev } = useValues(preflightLogic)
 
     const onClick = (): void => {
         setInterval(() => {
@@ -246,7 +246,7 @@ const Header = (): JSX.Element => {
         <PageHeader
             buttons={
                 <>
-                    {user?.is_staff ? (
+                    {isDev ? (
                         <>
                             <LemonButton
                                 onClick={() => {
