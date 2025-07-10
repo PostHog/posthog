@@ -212,6 +212,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         action, _output = intermediate_steps[-1]
         input = None
         output = ""
+        tool_progress_messages: list[AssistantMessage] = []
 
         try:
             input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input})
@@ -257,12 +258,11 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
 
         if input and not output:
             # Generate progress message before executing tool
-            progress_messages = []
 
             if input.name == "retrieve_entity_property_values":
                 entity = getattr(input.arguments, "entity", "unknown")
                 property_name = getattr(input.arguments, "property_name", "unknown")
-                progress_messages.append(
+                tool_progress_messages.append(
                     AssistantMessage(
                         content=f"🔍 Fetching values for {entity} property '{property_name}'...", id=str(uuid4())
                     )
@@ -270,7 +270,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                 output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
             elif input.name == "retrieve_entity_properties":
                 entity = getattr(input.arguments, "entity", "unknown")
-                progress_messages.append(
+                tool_progress_messages.append(
                     AssistantMessage(content=f"📋 Loading {entity} properties...", id=str(uuid4()))
                 )
                 output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
@@ -280,10 +280,10 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
             # Add success message after tool execution
             if input.name in ["retrieve_entity_property_values", "retrieve_entity_properties"] and output:
                 if "does not exist" not in output and "not found" not in output:
-                    progress_messages.append(AssistantMessage(content=f"✅ Found relevant data", id=str(uuid4())))
+                    tool_progress_messages.append(AssistantMessage(content=f"✅ Found relevant data", id=str(uuid4())))
 
         return PartialAssistantState(
-            messages=progress_messages if "progress_messages" in locals() else [],
+            messages=tool_progress_messages,
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
         )
 
