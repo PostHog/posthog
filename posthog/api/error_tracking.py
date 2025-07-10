@@ -20,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.utils import action
 from posthog.models.utils import UUIDT
+from posthog.models.integration import Integration, GitHubIntegration, LinearIntegration
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingRelease,
@@ -30,6 +31,7 @@ from posthog.models.error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingExternalReference,
 )
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -54,6 +56,73 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 logger = structlog.get_logger(__name__)
 
 
+class ErrorTrackingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Integration
+        fields = ["id", "kind", "display_name"]
+        read_only_fields = ["id", "kind", "display_name"]
+
+
+class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
+    config = serializers.JSONField(write_only=True)
+    issue = serializers.PrimaryKeyRelatedField(write_only=True, queryset=ErrorTrackingIssue.objects.all())
+    integration = ErrorTrackingExternalReferenceIntegrationSerializer(read_only=True)
+    integration_id = serializers.PrimaryKeyRelatedField(
+        write_only=True, queryset=Integration.objects.all(), source="integration"
+    )
+    external_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ErrorTrackingExternalReference
+        fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
+        read_only_fields = ["external_url"]
+
+    def get_external_url(self, reference: ErrorTrackingExternalReference):
+        if reference.integration.kind == Integration.IntegrationKind.LINEAR:
+            url_key = LinearIntegration(reference.integration).url_key()
+            return f"https://linear.app/{url_key}/issue/{reference.external_id}"
+        elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
+            return "https://todo.com"
+
+    def validate(self, data):
+        issue = data["issue"]
+        integration = data["integration"]
+        team = self.context["get_team"]()
+
+        if issue.team_id != team.id:
+            raise serializers.ValidationError("Issue does not belong to this team.")
+
+        if integration.team_id != team.id:
+            raise serializers.ValidationError("Integration does not belong to this team.")
+
+        return data
+
+    def create(self, validated_data) -> ErrorTrackingExternalReference:
+        team = self.context["get_team"]()
+        issue: ErrorTrackingIssue = validated_data.get("issue")
+        integration: Integration = validated_data.get("integration")
+
+        config: dict[str, Any] = validated_data.pop("config")
+
+        if integration.kind == "github":
+            external_id = GitHubIntegration(integration).create_issue(team.pk, issue.id, config)
+        elif integration.kind == "linear":
+            external_id = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
+        else:
+            raise ValidationError("Provider not supported")
+
+        instance = ErrorTrackingExternalReference.objects.create(
+            issue=issue, integration=integration, external_id=external_id, provider=integration.kind
+        )
+        return instance
+
+
+class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingExternalReference.objects.all()
+    serializer_class = ErrorTrackingExternalReferenceSerializer
+
+
 class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
     id = serializers.SerializerMethodField()
     type = serializers.SerializerMethodField()
@@ -63,7 +132,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         fields = ["id", "type"]
 
     def get_id(self, obj):
-        return obj.user_id or obj.role_id
+        return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 
     def get_type(self, obj):
         return "role" if obj.role else "user"
@@ -72,10 +141,11 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
     first_seen = serializers.DateTimeField()
     assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
 
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
+        fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues"]
 
     def update(self, instance, validated_data):
         team = instance.team

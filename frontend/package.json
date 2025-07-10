@@ -48,6 +48,7 @@
     },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
+        "@dagrejs/dagre": "^1.1.5",
         "@dnd-kit/core": "^6.0.8",
         "@dnd-kit/modifiers": "^6.0.1",
         "@dnd-kit/sortable": "^7.0.2",
@@ -177,7 +178,7 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "^1.256.2",
+        "posthog-js": "^1.257.0",
         "posthog-js-lite": "catalog:",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",

@@ -292,7 +292,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
-        isDataWarehouseSeries: [
+        hasDataWarehouseSeries: [
             (s) => [s.isTrends, s.series],
             (isTrends, series): boolean => {
                 return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
@@ -300,11 +300,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         currentDataWarehouseSchemaColumns: [
-            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.dataWarehouseTablesMap],
+            (s) => [
+                s.series,
+                s.isSingleSeries,
+                s.hasDataWarehouseSeries,
+                s.isBreakdownSeries,
+                s.dataWarehouseTablesMap,
+            ],
             (
                 series,
                 isSingleSeries,
-                isDataWarehouseSeries,
+                hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
@@ -312,7 +318,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     !series ||
                     series.length === 0 ||
                     (!isSingleSeries && !isBreakdownSeries) ||
-                    !isDataWarehouseSeries
+                    !hasDataWarehouseSeries
                 ) {
                     return []
                 }

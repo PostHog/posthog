@@ -128,10 +128,12 @@ export const SSOError: StoryFn = () => {
             '/_preflight': preflightJson,
         },
     })
+
     useEffect(() => {
         // Change the URL
         router.actions.push(`${urls.login()}?error_code=improperly_configured_sso`)
     }, [])
+
     return <Login />
 }
 
