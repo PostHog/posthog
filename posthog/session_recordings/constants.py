@@ -21,3 +21,9 @@ COLUMNS_TO_REMOVE_FROM_LLM_CONTEXT = [
     "$exception_fingerprint_record",
     "$exception_functions",
 ]
+
+# How many events to fetch by default
+DEFAULT_TOTAL_EVENTS_PER_QUERY = 10000
+
+# Maximum number of events to fetch per query
+MAX_TOTAL_EVENTS_PER_QUERY = 50000

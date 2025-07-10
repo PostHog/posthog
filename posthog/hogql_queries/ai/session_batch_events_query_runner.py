@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -10,7 +10,11 @@ from posthog.schema import (
     SessionBatchEventsQueryResponse,
     SessionEventsItem,
 )
-from posthog.session_recordings.constants import EXTRA_SUMMARY_EVENT_FIELDS
+from posthog.session_recordings.constants import (
+    DEFAULT_TOTAL_EVENTS_PER_QUERY,
+    EXTRA_SUMMARY_EVENT_FIELDS,
+    MAX_TOTAL_EVENTS_PER_QUERY,
+)
 from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
 
 # Type alias for convenience
@@ -180,16 +184,18 @@ class SessionBatchEventsQueryRunner(QueryRunner):
 
 def create_session_batch_events_query(
     session_ids: list[str],
-    select: Optional[list[str]] = None,
-    events_to_ignore: Optional[list[str]] = None,
-    after: Optional[str] = None,
-    before: Optional[str] = None,
-    max_total_events: Optional[int] = None,
-    offset: Optional[int] = None,
+    select: list[str] | None = None,
+    events_to_ignore: list[str] | None = None,
+    after: str | None = None,
+    before: str | None = None,
+    max_total_events: int = DEFAULT_TOTAL_EVENTS_PER_QUERY,
+    offset: int | None = None,
     include_session_id: bool = True,
     **kwargs: Any,
 ) -> SessionBatchEventsQuery:
     """Create query for getting events for multiple sessions"""
+    if max_total_events > MAX_TOTAL_EVENTS_PER_QUERY:
+        raise ValueError(f"Max total events per session batch query must be less than {MAX_TOTAL_EVENTS_PER_QUERY}")
 
     # Default field selection for session summaries
     if select is None:
