@@ -10592,14 +10592,7 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         extra="forbid",
     )
     type: FilterLogicalOperator
-    values: list[
-        Union[
-            EventPropertyFilter,
-            PersonPropertyFilter,
-            SessionPropertyFilter,
-            RecordingPropertyFilter,
-        ]
-    ]
+    values: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter, RecordingPropertyFilter]]
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):

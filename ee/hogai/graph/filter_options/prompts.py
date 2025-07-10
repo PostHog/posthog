@@ -354,9 +354,9 @@ json
 </examples_and_rules>
 """.strip()
 
-
 PRODUCT_DESCRIPTION_PROMPT = """
-PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings.
+You are an expert at creating filters for PostHog products. Your job is to understand what users want to see in their data and translate that into precise filter configurations.
+Transform natural language requests like "show me users from mobile devices who completed signup" into structured filter objects that will find exactly what they're looking for.
 """.strip()
 
 FILTER_INITIAL_PROMPT = """
