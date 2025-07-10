@@ -17,7 +17,6 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
 from .ordered_csv_renderer import OrderedCsvRenderer
 from ..exporter import (
     EXPORT_FAILED_COUNTER,
@@ -82,7 +81,7 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
-def _convert_response_to_csv_data(data: Any, breakdown_filter: dict | None = None) -> Generator[Any, None, None]:
+def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
@@ -191,70 +190,18 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: dict | None = Non
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
 
-                # Add breakdown columns
+                # Add breakdown column
                 if item.get("breakdown_value") is not None:
-                    breakdown_value = item["breakdown_value"]
-
-                    # Handle multiple breakdowns
-                    if breakdown_filter and breakdown_filter.get("breakdowns"):
-                        # Multiple breakdowns - create separate columns
-                        for i, breakdown_config in enumerate(breakdown_filter["breakdowns"]):
-                            property_name = breakdown_config.get("property", f"breakdown_{i+1}")
-                            if isinstance(breakdown_value, list) and i < len(breakdown_value):
-                                value = breakdown_value[i]
-                            else:
-                                value = breakdown_value
-
-                            # Replace null values with display text
-                            if value == BREAKDOWN_NULL_STRING_LABEL:
-                                value = BREAKDOWN_NULL_DISPLAY
-
-                            line[property_name] = str(value) if value is not None else ""
-
-                    elif breakdown_filter and breakdown_filter.get("breakdown"):
-                        # Single breakdown - use property name
-                        property_name = breakdown_filter["breakdown"]
-                        if isinstance(breakdown_value, list):
-                            # Join multiple values with ::
-                            values = []
-                            for val in breakdown_value:
-                                if val == BREAKDOWN_NULL_STRING_LABEL:
-                                    values.append(BREAKDOWN_NULL_DISPLAY)
-                                else:
-                                    values.append(str(val))
-                            line[property_name] = "::".join(values)
-                        else:
-                            # Single value
-                            if breakdown_value == BREAKDOWN_NULL_STRING_LABEL:
-                                line[property_name] = BREAKDOWN_NULL_DISPLAY
-                            else:
-                                line[property_name] = str(breakdown_value)
-
+                    if isinstance(item["breakdown_value"], list):
+                        line["breakdown"] = "::".join(str(x) for x in item["breakdown_value"])
                     else:
-                        # Fallback when no breakdown filter info available
-                        if isinstance(breakdown_value, list):
-                            formatted_values = []
-                            for val in breakdown_value:
-                                if val == BREAKDOWN_NULL_STRING_LABEL:
-                                    formatted_values.append(BREAKDOWN_NULL_DISPLAY)
-                                else:
-                                    formatted_values.append(str(val))
-                            line["breakdown"] = "::".join(formatted_values)
-                        else:
-                            if breakdown_value == BREAKDOWN_NULL_STRING_LABEL:
-                                line["breakdown"] = BREAKDOWN_NULL_DISPLAY
-                            else:
-                                line["breakdown"] = str(breakdown_value)
+                        line["breakdown"] = str(item["breakdown_value"])
 
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
                 else:
                     for index, data in enumerate(item["data"]):
                         line[label_item["labels"][index]] = data
-
-                    # Add total sum column for time-series data
-                    if item.get("data"):
-                        line["total"] = sum(item["data"])
 
                 yield line
 
@@ -353,7 +300,7 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
 
         if isinstance(query_response, BaseModel):
             query_response = query_response.model_dump(by_alias=True)
-        yield from _convert_response_to_csv_data(query_response, query.get("breakdownFilter"))
+        yield from _convert_response_to_csv_data(query_response)
         return
 
 
