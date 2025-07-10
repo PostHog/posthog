@@ -1149,6 +1149,19 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     return response
 }
 
+export function isValidRelativeOrAbsoluteDate(date: string): boolean {
+    if (isStringDateRegex.test(date)) {
+        return true
+    }
+    if (dayjs(date).isValid()) {
+        return true
+    }
+    if (date === 'all') {
+        return true
+    }
+    return false
+}
+
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
     // use the default mapping if we can
     for (const mapping of dateMapping) {
