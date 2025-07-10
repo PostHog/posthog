@@ -16,6 +16,7 @@ import {
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
+import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
@@ -56,6 +57,7 @@ export class HogFlowExecutorService {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
+        private hogFunctionManager: HogFunctionManagerService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {
         this.metricsService = new HogFlowMetricsService()
@@ -73,6 +75,7 @@ export class HogFlowExecutorService {
         const hogFunctionHandler = new HogFunctionHandler(
             this.hub,
             this.hogFunctionExecutor,
+            this.hogFunctionManager,
             this.hogFunctionTemplateManager
         )
         handlers.set('function_sms', hogFunctionHandler)
