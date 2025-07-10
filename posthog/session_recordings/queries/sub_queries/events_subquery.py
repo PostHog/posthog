@@ -93,11 +93,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     )
                 )
 
-        if self.group_properties:
-            gathered_exprs.append(property_to_expr(self.group_properties, team=self._team))
+        for p in self.group_properties:
+            gathered_exprs.append(property_to_expr(p, team=self._team))
 
         if self._team.person_on_events_mode and self.person_properties:
-            gathered_exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
+            for p in self.person_properties:
+                gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
         queries: list[ast.SelectQuery] = []
         for expr in gathered_exprs:
