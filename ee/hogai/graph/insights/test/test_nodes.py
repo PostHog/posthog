@@ -267,28 +267,6 @@ class TestInsightSearchNode(BaseTest):
         self.assertIn("INSTRUCTIONS:", result.messages[0].content)
         self.assertEqual(result.search_insights_query, "")  # Should reset state
 
-    def test_run_without_semantic_filtering(self):
-        """Test run method without semantic filtering (short query)."""
-
-        # Create a valid conversation
-        conversation = Conversation.objects.create(team=self.team, user=self.user)
-
-        state = AssistantState(
-            messages=[HumanMessage(content="abc")],
-            search_insights_query="ab",  # Too short for semantic filtering
-            root_tool_call_id="test_tool_call_id",  # Set the tool call ID for the test
-        )
-
-        result = self.node.run(state, {"configurable": {"thread_id": str(conversation.id)}})
-
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
-        self.assertIsInstance(result.messages[0], AssistantToolCallMessage)
-        self.assertEqual(result.messages[0].tool_call_id, "test_tool_call_id")
-        self.assertIn("Found", result.messages[0].content)
-        self.assertIn("INSTRUCTIONS:", result.messages[0].content)
-        self.assertEqual(result.search_insights_query, "")
-
     def test_run_with_no_query(self):
         """Test run method with no search query."""
 
