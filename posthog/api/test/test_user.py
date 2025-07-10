@@ -672,12 +672,6 @@ class TestUserAPI(APIBaseTest):
             email="newuser@posthog.com", password="testpass123", first_name="New", last_name="User"
         )
 
-        # First, trigger the organization property to set up the state
-        # This will call save once to set current_organization to None
-        with mock.patch.object(new_user, "save") as mock_save:
-            new_user.organization  # noqa: B018 - property access, but it can actually perform a save
-            mock_save.assert_called_once_with(update_fields=["current_organization"])
-
         # Clear the cached properties to force re-evaluation
         if hasattr(new_user, "_cached_team"):
             delattr(new_user, "_cached_team")
@@ -686,7 +680,7 @@ class TestUserAPI(APIBaseTest):
 
         # Now test the team property - this should not trigger a save since no teams exist
         with mock.patch.object(new_user, "save") as mock_save:
-            team = new_user.team
+            team = new_user.team  # Property access, but it can actually perform a save
 
             # Verify no save was called for the team property
             mock_save.assert_not_called()
@@ -694,6 +688,30 @@ class TestUserAPI(APIBaseTest):
             # Verify team is None
             self.assertIsNone(team)
             self.assertIsNone(new_user.current_team)
+
+    def test_team_property_saves_when_team_found(self):
+        """
+        Test that the team property does trigger a save when a team is found
+        """
+        # Set current organization but no current team
+        self.user.current_team = None
+        self.user.save()
+
+        # Clear the cached property to force re-evaluation
+        if hasattr(self.user, "_cached_team"):
+            delattr(self.user, "_cached_team")
+
+        # Mock the save method to track if it's called
+        with mock.patch.object(self.user, "save") as mock_save:
+            # Access the team property - this should trigger a save since a team exists
+            result_team = self.user.team
+
+            # Verify save was called with correct parameters
+            mock_save.assert_called_once_with(update_fields=["current_team"])
+
+            # Verify team is set correctly
+            self.assertEqual(result_team, self.team)
+            self.assertEqual(self.user.current_team, self.team)
 
     def test_organization_property_does_not_save_when_no_organizations_found(self):
         """
@@ -743,30 +761,6 @@ class TestUserAPI(APIBaseTest):
             self.assertIsNotNone(result_organization)
             self.assertIn(result_organization, [self.organization, new_org])
             self.assertEqual(self.user.current_organization, result_organization)
-
-    def test_team_property_saves_when_team_found(self):
-        """
-        Test that the team property does trigger a save when a team is found
-        """
-        # Set current organization but no current team
-        self.user.current_team = None
-        self.user.save()
-
-        # Clear the cached property to force re-evaluation
-        if hasattr(self.user, "_cached_team"):
-            delattr(self.user, "_cached_team")
-
-        # Mock the save method to track if it's called
-        with mock.patch.object(self.user, "save") as mock_save:
-            # Access the team property - this should trigger a save since a team exists
-            result_team = self.user.team
-
-            # Verify save was called with correct parameters
-            mock_save.assert_called_once_with(update_fields=["current_team"])
-
-            # Verify team is set correctly
-            self.assertEqual(result_team, self.team)
-            self.assertEqual(self.user.current_team, self.team)
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
