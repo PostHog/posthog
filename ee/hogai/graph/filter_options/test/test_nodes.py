@@ -65,7 +65,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
 
     def test_run_no_tool_calls_error(self):
         """Test that run raises ValueError when no tool calls are returned."""
-        # Create a message with no tool calls
+
         message = LangchainAIMessage(content="No tools available", tool_calls=[])
         mock_model = FakeChatOpenAI(responses=[message])
 
@@ -83,7 +83,6 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         """Test that the node passes correct parameters and handles responses properly."""
         tool_calls = [{"name": "test_tool", "args": {}, "id": "test_id"}]
 
-        # Create a message with the expected tool calls
         message = LangchainAIMessage(content="", tool_calls=tool_calls)
         mock_model = FakeChatOpenAI(responses=[message])
 
@@ -92,16 +91,12 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         with patch.object(node, "_get_model", return_value=mock_model):
             state = AssistantState(messages=[], change="filter users by activity", current_filters={"active": True})
 
-            # Run the node - this verifies that correct parameters are passed internally
-            # and that the node handles the response properly
             result = node.run(state, {})
 
-            # Verify the node processed the parameters correctly and returned expected result
             self.assertIsInstance(result, PartialAssistantState)
             assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
 
-            # Verify the tool call was processed
             action, output = result.intermediate_steps[0]
             self.assertEqual(action.tool, "test_tool")
             self.assertEqual(action.tool_input, {})
@@ -119,12 +114,10 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            # Test with empty change
             state = AssistantState(messages=[], change="")
 
             result = node.run(state, {})
 
-            # Test should pass - verify result structure
             self.assertIsInstance(result, PartialAssistantState)
             assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
