@@ -366,15 +366,14 @@ async def start_job_modeling_run(
 ) -> DataModelingJob:
     """Create a DataModelingJob record in an async-safe way."""
     job_create = database_sync_to_async(DataModelingJob.objects.create)
+
     return await job_create(
         team=team,
         saved_query=saved_query,
         status=DataModelingJob.Status.RUNNING,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
-        created_by_id=saved_query.created_by.id
-        if saved_query is not None and saved_query.created_by is not None
-        else None,
+        created_by_id=saved_query.created_by_id if saved_query is not None else None,
     )
 
 
@@ -620,7 +619,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     context = HogQLContext(
         team=team,
-        team_id=team.pk,
+        team_id=team.id,
         enable_select_queries=True,
         limit_top_select=False,
     )
@@ -686,7 +685,7 @@ def _transform_unsupported_decimals(batch: pa.Table, logger: FilteringBoundLogge
                 truncated_string = pc.utf8_slice_codeunits(typing.cast(pa.StringArray, string_column), 0, precision)
                 cast_column_reduced = pc.cast(truncated_string, reduced_decimal_type)
                 new_fields.append(field.with_type(reduced_decimal_type))
-                new_columns.append(cast_column_reduced)
+                new_columns.append(pa.chunked_array([cast_column_reduced]))
         else:
             new_fields.append(field)
             new_columns.append(batch[field.name])
@@ -1024,14 +1023,16 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
             DataModelingJob.objects.filter(saved_query=saved_query).order_by("-created_at").first
         )()
 
-        if job and job.rows_materialized is not None and saved_query.table:
-            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table.id)
-            table.row_count = job.rows_materialized
-            await database_sync_to_async(table.save)()
-            # Optionally log the update if logger is available
-            # If you want to log, you can get a logger as in other activities:
-            # logger = await bind_temporal_worker_logger(inputs.team_id)
-            # await logger.ainfo("Updated row count for table %s to %d", saved_query.name, job.rows_materialized)
+        if job and job.rows_materialized is not None:
+            await database_sync_to_async(update_table_row_count_sync)(saved_query, job)
+
+
+# Moved out of create_table_activity: update_table_row_count_sync
+def update_table_row_count_sync(saved_query, job):
+    table = saved_query.table
+    if table:
+        table.row_count = job.rows_materialized
+        table.save()
 
 
 async def update_saved_query_status(
