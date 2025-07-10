@@ -120,6 +120,7 @@
     .PlayerSeekbarTick {
         --tick-color: var(--text-secondary);
         --tick-width: 3px;
+        --emoji-width: 16px;
 
         position: absolute;
         top: 0;
@@ -147,6 +148,15 @@
             background-color: var(--tick-color);
             border-radius: 2px;
             opacity: 0.5;
+        }
+
+        .PlayerSeekbarTick__emoji {
+            position: absolute;
+            bottom: 5px;
+            width: var(--emoji-width);
+            height: 100%;
+            margin-left: calc(var(--emoji-width) / 2 * -1);
+            opacity: 0.75;
         }
     }
 }

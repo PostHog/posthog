@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import time
 import jwt
+import json
 from datetime import timedelta, datetime
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
@@ -10,7 +11,6 @@ from urllib.parse import urlencode
 from django.db import models
 from prometheus_client import Counter
 import requests
-from requests import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework import status
@@ -29,7 +29,7 @@ from products.messaging.backend.providers.mailjet import MailjetProvider
 import structlog
 
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -296,8 +296,12 @@ class OauthIntegration:
                 additional_authorize_params={"actor": "application"},
                 token_url="https://api.linear.app/oauth/token",
                 token_info_url="https://api.linear.app/graphql",
-                token_info_graphql_query="{ viewer { organization { id name } } }",
-                token_info_config_fields=["data.viewer.organization.id", "data.viewer.organization.name"],
+                token_info_graphql_query="{ viewer { organization { id name urlKey } } }",
+                token_info_config_fields=[
+                    "data.viewer.organization.id",
+                    "data.viewer.organization.name",
+                    "data.viewer.organization.urlKey",
+                ],
                 client_id=settings.LINEAR_APP_CLIENT_ID,
                 client_secret=settings.LINEAR_APP_CLIENT_SECRET,
                 scope="read issues:create",
@@ -420,6 +424,11 @@ class OauthIntegration:
             "id_token": config.pop("id_token", None),
         }
 
+        # Handle case where Salesforce doesn't provide expires_in in initial response
+        if not config.get("expires_in") and kind == "salesforce":
+            # Default to 1 hour for Salesforce if not provided (conservative)
+            config["expires_in"] = 3600
+
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -445,7 +454,15 @@ class OauthIntegration:
         refresh_token = self.integration.sensitive_config.get("refresh_token")
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
-        if not refresh_token or not expires_in or not refreshed_at:
+
+        if not refresh_token:
+            return False
+
+        if not expires_in and self.integration.kind == "salesforce":
+            # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
+            expires_in = 3600
+
+        if not expires_in or not refreshed_at:
             return False
 
         # To be really safe we refresh if its half way through the expiry
@@ -479,7 +496,14 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
-            self.integration.config["expires_in"] = config.get("expires_in")
+
+            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            expires_in = config.get("expires_in")
+            if not expires_in and self.integration.kind == "salesforce":
+                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+
+            self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
@@ -789,8 +813,15 @@ class GoogleCloudIntegration:
         """
         Refresh the access token for the integration if necessary
         """
+        if self.integration.kind == "google-pubsub":
+            scope = "https://www.googleapis.com/auth/pubsub"
+        elif self.integration.kind == "google-cloud-storage":
+            scope = "https://www.googleapis.com/auth/devstorage.read_write"
+        else:
+            raise NotImplementedError(f"Google Cloud integration kind {self.integration.kind} not implemented")
+
         credentials = service_account.Credentials.from_service_account_info(
-            self.integration.sensitive_config, scopes=["https://www.googleapis.com/auth/pubsub"]
+            self.integration.sensitive_config, scopes=[scope]
         )
 
         try:
@@ -936,24 +967,43 @@ class LinearIntegration:
 
         self.integration = integration
 
-    def list_teams(self) -> list[dict]:
-        query = f"{{ teams {{ nodes {{ id name }} }} }}"
+    def url_key(self) -> str:
+        return dot_get(self.integration.config, "data.viewer.organization.urlKey")
 
+    def list_teams(self) -> list[dict]:
+        body = self.query(f"{{ teams {{ nodes {{ id name }} }} }}")
+        teams = dot_get(body, "data.teams.nodes")
+        return teams
+
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
+        title: str = json.dumps(config.pop("title"))
+        description: str = json.dumps(config.pop("description"))
+        linear_team_id = config.pop("team_id")
+
+        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{linear_team_id}" }}) {{ success issue {{ identifier }} }} }}'
+        body = self.query(issue_create_query)
+        linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
+
+        attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
+        link_attachment_query = f'mutation AttachmentCreate {{ attachmentCreate(input: {{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }}) {{ success }} }}'
+        self.query(link_attachment_query)
+
+        return linear_issue_id
+
+    def query(self, query):
         response = requests.post(
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query},
         )
-
-        teams = dot_get(response.json(), "data.teams.nodes")
-        return teams
+        return response.json()
 
 
 class GitHubIntegration:
     integration: Integration
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET") -> Response:
+    def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
         jwt_token = jwt.encode(
             {
                 "iat": int(time.time()),
@@ -1047,6 +1097,9 @@ class GitHubIntegration:
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
+
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
+        pass
 
 
 class MetaAdsIntegration:

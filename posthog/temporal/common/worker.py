@@ -48,6 +48,7 @@ async def create_worker(
         max_concurrent_activities: Maximum number of concurrent activity tasks the
             worker can handle. Defaults to 50.
     """
+
     runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
     client = await connect(
         host,

@@ -30,7 +30,6 @@ import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -73,16 +72,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-            sourceWizardLogic,
-            ['selectConnector', 'handleRedirect', 'setStep'],
-        ],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     actions({
@@ -330,24 +320,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
 
-                                if (
-                                    scene === Scene.PipelineNodeNew &&
-                                    params.searchParams.kind == 'hubspot' &&
-                                    params.searchParams.code
-                                ) {
-                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                                    actions.handleRedirect(params.searchParams.kind, {
-                                        code: params.searchParams.code,
-                                    })
-                                    actions.setStep(2)
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
-                                    )
-                                } else {
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                }
+                                router.actions.replace(urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL))
                                 return
                             }
                         }

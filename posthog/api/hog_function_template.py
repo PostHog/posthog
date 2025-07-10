@@ -123,20 +123,16 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
 
-    def list(self, request: Request, *args, **kwargs):
+    def list(self, request: Request, **kwargs):
         types = ["destination"]
         sub_template_id = request.GET.get("sub_template_id")
-        use_db_templates = request.GET.get("db_templates") == "true"
 
         if "type" in request.GET:
             types = [self.request.GET.get("type", "destination")]
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
 
-        if use_db_templates:
-            templates_list = HogFunctionTemplates.templates_from_db()
-        else:
-            templates_list = HogFunctionTemplates.templates()
+        templates_list = HogFunctionTemplates.templates_from_db()
 
         matching_templates = []
 
@@ -182,14 +178,10 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 
-    def retrieve(self, request: Request, *args, **kwargs):
-        use_db_templates = request.GET.get("db_templates") == "true"
+    def retrieve(self, request: Request, **kwargs):
         template_id = kwargs["pk"]
 
-        if use_db_templates:
-            item = HogFunctionTemplates.template_from_db(template_id)
-        else:
-            item = HogFunctionTemplates.template(template_id)
+        item = HogFunctionTemplates.template_from_db(template_id)
 
         if not item:
             raise NotFound(f"Template with id {template_id} not found.")

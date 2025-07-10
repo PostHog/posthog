@@ -125,7 +125,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
-    async flush(): Promise<void> {
+    async flush(): Promise<TopicMessage[]> {
         const flushStartTime = performance.now()
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
@@ -140,15 +140,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (batchSize === 0) {
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, 0)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
-            return
+            return []
         }
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
 
         try {
-            await Promise.all(
+            const results = await Promise.all(
                 updateEntries.map(([cacheKey, update]) =>
-                    limit(async () => {
+                    limit(async (): Promise<TopicMessage[]> => {
                         try {
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
@@ -156,12 +156,22 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 outcome: 'attempt',
                             })
 
+                            let kafkaMessages: TopicMessage[] = []
                             switch (this.options.dbWriteMode) {
-                                case 'NO_ASSERT':
-                                    await this.updatePersonNoAssert(update, 'batch')
+                                case 'NO_ASSERT': {
+                                    const [_, messages] = await promiseRetry(
+                                        () => this.updatePersonNoAssert(update, 'batch'),
+                                        'updatePersonNoAssert',
+                                        this.options.maxOptimisticUpdateRetries,
+                                        this.options.optimisticUpdateRetryInterval,
+                                        undefined,
+                                        [MessageSizeTooLarge]
+                                    )
+                                    kafkaMessages = messages
                                     break
-                                case 'ASSERT_VERSION':
-                                    await promiseRetry(
+                                }
+                                case 'ASSERT_VERSION': {
+                                    const messages = await promiseRetry(
                                         () => this.updatePersonAssertVersion(update),
                                         'updatePersonAssertVersion',
                                         this.options.maxOptimisticUpdateRetries,
@@ -169,9 +179,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         undefined,
                                         [MessageSizeTooLarge]
                                     )
+                                    kafkaMessages = messages
                                     break
-                                case 'WITH_TRANSACTION':
-                                    await promiseRetry(
+                                }
+                                case 'WITH_TRANSACTION': {
+                                    const messages = await promiseRetry(
                                         () => this.updatePersonWithTransaction(update, 'batch'),
                                         'updatePersonWithTransaction',
                                         this.options.maxOptimisticUpdateRetries,
@@ -179,7 +191,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         undefined,
                                         [MessageSizeTooLarge]
                                     )
+                                    kafkaMessages = messages
                                     break
+                                }
                             }
 
                             personWriteMethodAttemptCounter.inc({
@@ -187,6 +201,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 method: this.options.dbWriteMode,
                                 outcome: 'success',
                             })
+
+                            return kafkaMessages
                         } catch (error) {
                             // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
                             if (error instanceof MessageSizeTooLarge) {
@@ -204,7 +220,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     method: this.options.dbWriteMode,
                                     outcome: 'error',
                                 })
-                                return
+                                return []
                             }
 
                             logger.warn('⚠️', 'Falling back to direct update after max retries', {
@@ -218,13 +234,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                 fallback_reason: 'max_retries',
                             })
 
-                            await this.updatePersonNoAssert(update, 'conflictRetry')
+                            const [_, fallbackMessages] = await this.updatePersonNoAssert(update, 'conflictRetry')
 
                             personWriteMethodAttemptCounter.inc({
                                 db_write_mode: this.options.dbWriteMode,
                                 method: 'fallback',
                                 outcome: 'success',
                             })
+
+                            return fallbackMessages
                         }
                     }).catch((error) => {
                         logger.error('Failed to update person after max retries and direct update fallback', {
@@ -247,10 +265,15 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 )
             )
 
+            // Flatten all Kafka messages from all operations
+            const allKafkaMessages = results.flat()
+
             // Record successful flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
             personFlushLatencyHistogram.observe({ db_write_mode: this.options.dbWriteMode }, flushLatency)
             personFlushOperationsCounter.inc({ db_write_mode: this.options.dbWriteMode, outcome: 'success' })
+
+            return allKafkaMessages
         } catch (error) {
             // Record failed flush
             const flushLatency = (performance.now() - flushStartTime) / 1000
@@ -707,11 +730,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (!existingUpdate) {
             // Create new PersonUpdate from the person and apply the update
             personUpdate = fromInternalPerson(person, distinctId)
-            personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update)
+            personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update, true)
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         } else {
             // Merge updates into existing cached PersonUpdate
-            personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update)
+            personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update, true)
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache
@@ -722,7 +745,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * Helper method to merge an update into a PersonUpdate
      * Handles properties and is_identified merging with proper logic
      */
-    private mergeUpdateIntoPersonUpdate(personUpdate: PersonUpdate, update: Partial<InternalPerson>): PersonUpdate {
+    private mergeUpdateIntoPersonUpdate(
+        personUpdate: PersonUpdate,
+        update: Partial<InternalPerson>,
+        allowCreatedAtUpdate: boolean = false
+    ): PersonUpdate {
         // For properties, we track them in the fine-grained properties_to_set/unset
         if (update.properties) {
             // Add all properties from the update to properties_to_set
@@ -737,12 +764,19 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
 
         // Apply other updates (excluding properties which we handled above)
-        const { properties, is_identified, ...otherUpdates } = update
+        const fieldsToExclude = ['properties', 'is_identified']
+        if (!allowCreatedAtUpdate) {
+            fieldsToExclude.push('created_at')
+        }
+
+        const otherUpdates = Object.fromEntries(
+            Object.entries(update).filter(([key]) => !fieldsToExclude.includes(key))
+        )
         Object.assign(personUpdate, otherUpdates)
 
         // Handle is_identified specially with || operator
-        if (is_identified !== undefined) {
-            personUpdate.is_identified = personUpdate.is_identified || is_identified
+        if (update.is_identified !== undefined) {
+            personUpdate.is_identified = personUpdate.is_identified || update.is_identified
         }
 
         personUpdate.needs_write = true
@@ -787,9 +821,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             delete personUpdate.properties_to_set[key]
         })
 
-        // Apply other updates
-        Object.assign(personUpdate, otherUpdates)
-
         // Handle is_identified specially with || operator
         if (otherUpdates.is_identified !== undefined) {
             personUpdate.is_identified = personUpdate.is_identified || otherUpdates.is_identified
@@ -828,11 +859,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * @param personUpdate the personUpdate to write
      * @returns the actual version of the person after the write
      */
-    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<void> {
+    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<TopicMessage[]> {
         this.incrementDatabaseOperation('updatePersonAssertVersion', personUpdate.distinct_id)
 
         const start = performance.now()
-        const actualVersion = await this.db.updatePersonAssertVersion(personUpdate)
+        const [actualVersion, kafkaMessages] = await this.db.updatePersonAssertVersion(personUpdate)
         this.recordUpdateLatency(
             'updatePersonAssertVersion',
             (performance.now() - start) / 1000,
@@ -843,7 +874,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (actualVersion !== undefined) {
             // Success - optimistic update worked, update version in cache
             personUpdate.version = actualVersion
-            return
+            return kafkaMessages
         }
 
         // Optimistic update failed due to version mismatch
@@ -877,7 +908,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         throw new Error('Assert version update failed, will retry')
     }
 
-    private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<void> {
+    private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<TopicMessage[]> {
         const operation = 'updatePersonTransaction' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
 
@@ -886,7 +917,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const start = performance.now()
 
         // Use a transaction to ensure we get the latest version with FOR UPDATE
-        await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, operation, async (tx) => {
+        const kafkaMessages = await this.db.postgres.transaction(PostgresUse.PERSONS_WRITE, operation, async (tx) => {
             // First fetch the person with FOR UPDATE to lock the row
             const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
                 forUpdate: true,
@@ -898,7 +929,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
             // Create update object without version field (updatePerson handles version internally)
             const { version, ...updateFields } = internalPerson
-            await this.db.updatePerson(latestPerson, updateFields, tx, 'forUpdate')
+            const [_, kafkaMessages] = await this.db.updatePerson(latestPerson, updateFields, tx, 'forUpdate')
+            return kafkaMessages
         })
         this.recordUpdateLatency(
             'updatePersonWithTransaction',
@@ -906,6 +938,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             personUpdate.distinct_id
         )
         observeLatencyByVersion(internalPerson, start, operation)
+        return kafkaMessages
     }
 
     private incrementCount(method: MethodName, distinctId: string): void {

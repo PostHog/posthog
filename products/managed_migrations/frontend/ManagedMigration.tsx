@@ -6,6 +6,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -127,6 +128,14 @@ export function ManagedMigration(): JSX.Element {
                             />
                         </LemonField>
                     </div>
+
+                    <LemonField name="is_eu_region">
+                        <LemonCheckbox
+                            checked={managedMigration.is_eu_region || false}
+                            onChange={(checked) => setManagedMigrationValue('is_eu_region', checked)}
+                            label="Use EU region endpoint"
+                        />
+                    </LemonField>
                 </>
             )}
 

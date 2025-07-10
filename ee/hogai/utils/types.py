@@ -8,7 +8,9 @@ from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
+from ee.models import Conversation
 from posthog.schema import (
+    AssistantEventType,
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
@@ -21,6 +23,11 @@ AIMessageUnion = Union[
     AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+
+AssistantOutput = (
+    tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+)
 
 
 def add_and_merge_messages(

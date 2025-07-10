@@ -60,7 +60,7 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ExternalDataSource.Type.DOIT: (),
     ExternalDataSource.Type.MONGODB: (),
     ExternalDataSource.Type.GOOGLESHEETS: (),
-    ExternalDataSource.Type.META_ADS: META_ADS_ENDPOINTS,
+    ExternalDataSource.Type.METAADS: META_ADS_ENDPOINTS,
 }
 
 PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
@@ -80,7 +80,7 @@ PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.DOIT: (),
     ExternalDataSource.Type.MONGODB: (),
     ExternalDataSource.Type.GOOGLESHEETS: (),
-    ExternalDataSource.Type.META_ADS: META_ADS_INCREMENTAL_ENDPOINTS,
+    ExternalDataSource.Type.METAADS: META_ADS_INCREMENTAL_ENDPOINTS,
 }
 
 PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str, list[IncrementalField]]] = {
@@ -100,5 +100,5 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.DOIT: {},
     ExternalDataSource.Type.MONGODB: {},
     ExternalDataSource.Type.GOOGLESHEETS: {},
-    ExternalDataSource.Type.META_ADS: META_ADS_INCREMENTAL_FIELDS,
+    ExternalDataSource.Type.METAADS: META_ADS_INCREMENTAL_FIELDS,
 }
