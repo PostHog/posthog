@@ -112,6 +112,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertIsInstance(response, SessionBatchEventsQueryResponse)
             # Should have session_events populated since group_by_session=True by default
             self.assertIsNotNone(response.session_events)
+            assert response.session_events is not None
             # Should have 3 sessions in results
             self.assertEqual(len(response.session_events), 3)
             # Verify no sessions had missing events
@@ -154,6 +155,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = SessionBatchEventsQueryRunner(query=query, team=self.team)
             response = runner.calculate()
             # Should have 1 session with events
+            assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)
             # Should track sessions with no events
             self.assertEqual(set(response.sessions_with_no_events), {self.session_2_id, self.session_3_id})
@@ -182,7 +184,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             for ignore_status in [True, False]:
                 if ignore_status:
                     # Use default ignore settings
-                    events_to_ignore = None
+                    events_to_ignore: list[str] | None = None
                 else:
                     # Don't ignore any events
                     events_to_ignore = []
@@ -198,11 +200,13 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 # Verify if the events were ignored of not
                 if ignore_status:
                     # Should have only 1 event (the $pageview), not the feature flag event
+                    assert response.session_events is not None
                     session_1 = response.session_events[0]
                     event_name_1 = session_1.events[0][0]
                     self.assertEqual(event_name_1, "$pageview")
                 else:
                     # Should have 2 events (the $pageview and the feature flag event)
+                    assert response.session_events is not None
                     session_1 = response.session_events[0]
                     event_name_1 = session_1.events[0][0]
                     self.assertEqual(event_name_1, "$pageview")
@@ -260,6 +264,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             expected_columns = ["event", "properties.page", "properties.custom_field"]
             self.assertEqual(response.columns, expected_columns)
             # Verify event data matches selected fields
+            assert response.session_events is not None
             session_1 = response.session_events[0]
             event_row = session_1.events[0]
             self.assertEqual(event_row[0], "$pageview")  # event
@@ -292,6 +297,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNotNone(response.timezone)
             # Should also have the session-specific fields
             self.assertIsNotNone(response.session_events)
+            assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)
             self.assertEqual(response.session_events[0].session_id, self.session_1_id)
             self.assertEqual(response.sessions_with_no_events, [])
@@ -323,6 +329,8 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertIsInstance(calculate_response, SessionBatchEventsQueryResponse)
             self.assertIsInstance(cached_response, CachedSessionBatchEventsQueryResponse)
             # Session-specific data should be identical
+            assert calculate_response.session_events is not None
+            assert cached_response.session_events is not None
             self.assertEqual(len(calculate_response.session_events), len(cached_response.session_events))
             self.assertEqual(calculate_response.sessions_with_no_events, cached_response.sessions_with_no_events)
             # Core data should be identical
@@ -385,6 +393,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Verify first page response
             self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
+            assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)  # One session with 2 events
             session_events = response.session_events[0]
             self.assertEqual(session_events.session_id, session_id)
@@ -410,6 +419,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Verify second page response
             self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
+            assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)
             session_events = response.session_events[0]
             self.assertEqual(session_events.session_id, session_id)
@@ -435,6 +445,7 @@ class TestSessionBatchEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Verify third page response
             self.assertIsInstance(response, CachedSessionBatchEventsQueryResponse)
             self.assertIsNotNone(response.session_events)
+            assert response.session_events is not None
             self.assertEqual(len(response.session_events), 1)
             session_events = response.session_events[0]
             self.assertEqual(session_events.session_id, session_id)
