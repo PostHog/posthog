@@ -9,7 +9,9 @@ class AssistantNodeMixin:
         except CoreMemory.DoesNotExist:
             return None
 
-    async def _aget_core_memory_text(self, team: Team) -> str:
+    async def _aget_core_memory_text(self, team: Team | None = None) -> str:
+        if not team:
+            return ""
         core_memory = await self._aget_core_memory(team)
         if not core_memory:
             return ""

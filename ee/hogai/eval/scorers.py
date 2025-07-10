@@ -367,20 +367,18 @@ Task / natural-language question:
 {{input}}
 ```
 
-Database schema (tables, columns, keys, constraints):
+Database schema (tables and columns):
 ```
-{{schema}}
+{{database_schema}}
 ```
 
 Reference (human-labelled) SQL:
-```
+```sql
 {{expected}}
 ```
 
 Candidate (generated) SQL:
-```
 {{output}}
-```
 </input>
 
 <reminder>
@@ -407,12 +405,25 @@ class SQLSemanticsCorrectness(LLMClassifier):
             **kwargs,
         )
 
-    async def _run_eval_async(self, output, expected=None, **kwargs):
-        if not output.get("query"):
+    async def _run_eval_async(
+        self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
+    ):
+        if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return await super()._run_eval_async(output, serialize_output(expected), **kwargs)
+        return await super()._run_eval_async(
+            self._wrap_output_in_markdown(output), expected, database_schema=database_schema, **kwargs
+        )
 
-    def _run_eval_sync(self, output, expected=None, **kwargs):
-        if not output.get("query"):
-            return Score(name=self._name(), score=None, metadata={"reason": "No query to check"})
-        return super()._run_eval_sync(output, serialize_output(expected), **kwargs)
+    def _run_eval_sync(
+        self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
+    ):
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
+        return super()._run_eval_sync(
+            self._wrap_output_in_markdown(output), expected, database_schema=database_schema, **kwargs
+        )
+
+    def _wrap_output_in_markdown(self, output: str):
+        if output.startswith("```"):
+            return output
+        return f"```sql\n{output}\n```"

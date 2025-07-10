@@ -26,6 +26,23 @@ class HogQLGeneratorArgs(BaseModel):
     instructions: str = Field(description="The instructions for what query to generate.")
 
 
+@database_sync_to_async
+def serialize_database_schema(database: Database, hogql_context: HogQLContext):
+    serialized_database = serialize_database(hogql_context)
+    schema_description = "\n\n".join(
+        (
+            f"Table `{table_name}` with fields:\n"
+            + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+            for table_name, table in serialized_database.items()
+            # Only the most important core tables, plus all warehouse tables
+            if table_name in ["events", "groups", "persons"]
+            or table_name in database.get_warehouse_tables()
+            or table_name in database.get_views()
+        )
+    )
+    return schema_description
+
+
 class HogQLGeneratorTool(MaxTool):
     name: str = "generate_hogql_query"
     description: str = (
@@ -48,7 +65,7 @@ class HogQLGeneratorTool(MaxTool):
         )
 
         schema_description, core_memory = await asyncio.gather(
-            self._get_database_schema(database, hogql_context),
+            serialize_database_schema(database, hogql_context),
             self._aget_core_memory_text(self._team),
         )
 
@@ -64,7 +81,7 @@ class HogQLGeneratorTool(MaxTool):
                         "instructions": instructions,
                     }
                 )
-                parsed_result = self._parse_output(result, hogql_context)
+                parsed_result = await self._parse_output(result, hogql_context)
                 break
             except PydanticOutputParserException as e:
                 prompt += f"Avoid this error: {str(e)}"
@@ -82,22 +99,7 @@ class HogQLGeneratorTool(MaxTool):
             include_raw=False,
         )
 
-    @database_sync_to_async
-    def _get_database_schema(self, database: Database, hogql_context: HogQLContext):
-        serialized_database = serialize_database(hogql_context)
-        schema_description = "\n\n".join(
-            (
-                f"Table `{table_name}` with fields:\n"
-                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
-                for table_name, table in serialized_database.items()
-                # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"]
-                or table_name in database.get_warehouse_tables()
-                or table_name in database.get_views()
-            )
-        )
-        return schema_description
-
+    @database_sync_to_async(thread_sensitive=False)
     def _parse_output(self, output, hogql_context: HogQLContext):  # type: ignore
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
         # We also ensure the generated SQL is valid
