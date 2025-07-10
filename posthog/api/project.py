@@ -15,7 +15,6 @@ from posthog.api.team import TeamSerializer, validate_team_attrs
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
-from ..cloud_utils import get_api_host
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -58,9 +57,6 @@ from posthog.utils import (
     get_week_start_for_country_code,
 )
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET
-from django.core.cache import cache
-from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
-from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -707,53 +703,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="authenticate_wizard",
-        required_scopes=["team:read"],
-        throttle_classes=[SetupWizardAuthenticationRateThrottle],
-    )
-    def authenticate_wizard(self, request, **kwargs):
-        hash = request.data.get("hash")
-        project_id = request.data.get("projectId")
-
-        if not hash:
-            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
-
-        if not project_id:
-            raise serializers.ValidationError({"projectId": ["This field is required."]}, code="required")
-
-        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
-        wizard_data = cache.get(cache_key)
-
-        if wizard_data is None:
-            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
-
-        try:
-            project = Project.objects.get(id=project_id)
-
-            # Verify user has access to this project
-            visible_teams_ids = UserPermissions(request.user).team_ids_visible_for_user
-            if project.id not in visible_teams_ids:
-                raise serializers.ValidationError(
-                    {"projectId": ["You don't have access to this project."]}, code="permission_denied"
-                )
-
-            project_api_token = project.passthrough_team.api_token
-        except Project.DoesNotExist:
-            raise serializers.ValidationError({"projectId": ["This project does not exist."]}, code="not_found")
-
-        wizard_data = {
-            "project_api_key": project_api_token,
-            "host": get_api_host(),
-            "user_distinct_id": request.user.distinct_id,
-        }
-
-        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
-
-        return response.Response({"success": True}, status=200)
 
     @action(methods=["POST"], detail=True)
     def change_organization(self, request: request.Request, id: str, **kwargs) -> response.Response:
