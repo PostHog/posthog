@@ -156,9 +156,8 @@ export type IngestionConsumerConfig = {
  * The mode of db batch writes to use for person batch writing
  * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
  * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
- * WITH_TRANSACTION: Use SELECT FOR UPDATE in transaction to get the latest version of the person (locks the row)
  */
-export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION' | 'WITH_TRANSACTION'
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
