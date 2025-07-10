@@ -49,3 +49,7 @@ print("sha256Hex(null):", sha256Hex(null));
 let data = ["1", "string", "more", "keys"];
 print("data:", data);
 print("sha256HmacChainHex(data):", sha256HmacChainHex(data));
+print("sha256HmacChainHex(data, 'hex'):", sha256HmacChainHex(data, "hex"));
+print("sha256HmacChainHex(data, 'base64'):", sha256HmacChainHex(data, "base64"));
+print("sha256HmacChainHex(data, 'binary'):", sha256HmacChainHex(data, "binary"));
+print("sha256HmacChainHex(data, 'base64url'):", sha256HmacChainHex(data, "base64url"));

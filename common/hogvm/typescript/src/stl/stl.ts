@@ -1065,7 +1065,7 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: 1,
     },
     sha256HmacChainHex: {
-        fn: ([data], _, options) => sha256HmacChainHex(data, options),
+        fn: ([data, encoding], _, options) => sha256HmacChainHex(data, encoding, options),
         description: 'Computes SHA-256 HMAC chain hash',
         example: 'sha256HmacChainHex($1)',
         minArgs: 1,

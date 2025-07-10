@@ -5,3 +5,7 @@ sha256Hex(string): 5216c0931310b31737ef30353830c234901283544e934f54eb75f622cfb86
 sha256Hex(null): null
 data: ['1', 'string', 'more', 'keys']
 sha256HmacChainHex(data): 826820d7eeca97f26ca18096be85fed346f6fd9cc18d64e72c935bea3450dbd9
+sha256HmacChainHex(data, 'hex'): 826820d7eeca97f26ca18096be85fed346f6fd9cc18d64e72c935bea3450dbd9
+sha256HmacChainHex(data, 'base64'): gmgg1+7Kl/JsoYCWvoX+00b2/ZzBjWTnLJNb6jRQ29k=
+sha256HmacChainHex(data, 'binary'): h ×îÊòl¡¾þÓFöýÁdç,[ê4PÛÙ
+sha256HmacChainHex(data, 'base64url'): gmgg1-7Kl_JsoYCWvoX-00b2_ZzBjWTnLJNb6jRQ29k

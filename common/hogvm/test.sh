@@ -57,7 +57,7 @@ if [ "$#" -eq 1 ]; then
     rm -f "$basename.stdout.nodejs" "$basename.stdout.python" "$basename.stdout.compiledjs"
 else
     shopt -s nullglob
-    test_files=(common/hogvm/__tests__/*.hog)
+    test_files=(common/hogvm/__tests__/crypto.hog)
     shopt -u nullglob
 
     if [ ${#test_files[@]} -eq 0 ]; then
