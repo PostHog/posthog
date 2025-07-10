@@ -128,6 +128,8 @@ class CaptureEventInputs:
 def activity_capture_event(inputs: CaptureEventInputs):
     connection.connect()
     record = ProxyRecord.objects.filter(id=inputs.proxy_record_id).first()
+    if record is None:
+        return
     org = Organization.objects.get(id=inputs.organization_id)
 
     posthoganalytics.capture(
