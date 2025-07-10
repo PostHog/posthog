@@ -24,7 +24,7 @@ class SessionRecordingsListingBaseQuery:
     def property_operand(self):
         return PropertyOperatorType.AND if self._query.operand == "AND" else PropertyOperatorType.OR
 
-    def wrapped_with_query_operand(self, exprs=list[ast.Expr]) -> ast.Expr:
+    def wrapped_with_query_operand(self, exprs: list[ast.Expr]) -> ast.Expr:
         return ast.And(exprs=exprs) if self.property_operand == "AND" else ast.Or(exprs=exprs)
 
     @property

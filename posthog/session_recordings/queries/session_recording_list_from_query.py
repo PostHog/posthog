@@ -220,8 +220,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         optional_exprs: list[ast.Expr] = []
 
         # if in PoE mode then we should be pushing person property queries into here
-        events_sub_query = ReplayFiltersEventsSubQuery(self._team, self._query).get_query_for_session_id_matching()
-        if events_sub_query:
+        events_sub_queries = ReplayFiltersEventsSubQuery(self._team, self._query).get_queries_for_session_id_matching()
+        for events_sub_query in events_sub_queries:
             optional_exprs.append(
                 ast.CompareOperation(
                     # this hits the distributed events table from the distributed session_replay_events table

@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -23,7 +22,6 @@ from posthog.session_recordings.queries.utils import (
     is_event_property,
     is_group_property,
     is_person_property,
-    poe_is_active,
 )
 
 
@@ -59,28 +57,82 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return event_exprs, list(event_names)
 
-    def _select_from_events(self, select_expr: ast.Expr) -> ast.SelectQuery:
+    def _select_from_events(self, select_expr: ast.Expr, where_expr: ast.Expr) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=[select_expr],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
             ),
-            where=self._where_predicates(),
+            where=self._where_predicates(where_expr),
             having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
             order_by=[ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])]), order="DESC")],
         )
 
-    def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
-        use_poe = poe_is_active(self._team) and self.person_properties
+    def _get_queries_for_matching(self, select_expr: ast.Expr) -> list[ast.SelectQuery]:
+        """
+        takes each filter in the query that can be queried from the events table
+        and makes a separate query for each
+        this might be slower than the previous approach of having one huge event query
+        but that approach is horribly complex and we keep getting bug reports
+        that are avoidable with a simpler approach
+        """
+        gathered_exprs: list[ast.Expr] = []
+        (event_where_exprs, _) = self._event_predicates
+        if event_where_exprs:
+            gathered_exprs += event_where_exprs
 
-        if self.entities or self.event_properties or self.group_properties or use_poe:
-            return self._select_from_events(ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])))
-        else:
-            return None
+        if self.event_properties:
+            # we only query positive properties here, since negative properties we need to query over the session
+            gathered_exprs.append(
+                property_to_expr(
+                    [
+                        p
+                        for p in self.event_properties
+                        if getattr(p, "operator", None) is None or p.operator not in NEGATIVE_OPERATORS
+                    ],
+                    team=self._team,
+                    scope="replay",
+                )
+            )
+
+        if self.group_properties:
+            gathered_exprs.append(property_to_expr(self.group_properties, team=self._team))
+
+        if self._team.person_on_events_mode and self.person_properties:
+            gathered_exprs.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
+
+        queries: list[ast.SelectQuery] = []
+        for expr in gathered_exprs:
+            queries.append(self._select_from_events(select_expr, expr))
+
+        return queries
+
+    def get_queries_for_session_id_matching(self) -> list[ast.SelectQuery]:
+        return self._get_queries_for_matching(
+            select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))
+        )
 
     def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        return self._select_from_events(ast.Call(name="groupUniqArray", args=[ast.Field(chain=["uuid"])]))
+        select_queries: list[ast.SelectQuery] = self._get_queries_for_matching(
+            select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"]))
+        )
+        select_exprs: list[ast.Expr] = []
+        for q in select_queries:
+            select_exprs.append(
+                ast.CompareOperation(
+                    # this hits the distributed events table from the distributed session_replay_events table
+                    # so we should use GlobalIn
+                    # see https://clickhouse.com/docs/en/sql-reference/operators/in#distributed-subqueries
+                    op=ast.CompareOperationOp.GlobalIn,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=q,
+                )
+            )
+        return self._select_from_events(
+            select_expr=ast.Call(name="groupUniqArray", args=[ast.Field(chain=["uuid"])]),
+            where_expr=self.wrapped_with_query_operand(exprs=select_exprs),
+        )
 
     def get_event_ids_for_session(self) -> SessionRecordingQueryResult:
         query = self.get_query_for_event_id_matching()
@@ -100,8 +152,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             timings=hogql_query_response.timings,
         )
 
-    def _where_predicates(self) -> ast.Expr:
+    def _where_predicates(self, where_expr: ast.Expr) -> ast.Expr:
         exprs: list[ast.Expr] = [
+            where_expr,
             ast.Call(
                 name="notEmpty",
                 args=[ast.Field(chain=["$session_id"])],
@@ -153,52 +206,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 )
             )
 
-        exprs_within_operand: list[ast.Expr] = []
-        (event_where_exprs, _) = self._event_predicates
-        if event_where_exprs:
-            exprs_within_operand += event_where_exprs
-
-        if self.event_properties:
-            # we only query positive properties here, since negative properties we need to query over the session
-            exprs_within_operand.append(
-                property_to_expr(
-                    [
-                        p
-                        for p in self.event_properties
-                        if getattr(p, "operator", None) is None or p.operator not in NEGATIVE_OPERATORS
-                    ],
-                    team=self._team,
-                    scope="replay",
-                )
-            )
-
-        if self.group_properties:
-            exprs_within_operand.append(property_to_expr(self.group_properties, team=self._team))
-
-        if self._team.person_on_events_mode and self.person_properties:
-            exprs_within_operand.append(property_to_expr(self.person_properties, team=self._team, scope="event"))
-
-        if exprs_within_operand:
-            exprs.append(self.wrapped_with_query_operand(exprs=exprs_within_operand))
-
-        # the top level set of exprs are And-ed because the time limits are always applied
         return ast.And(exprs=exprs)
 
     def _having_predicates(self) -> ast.Expr:
-        (_, event_names) = self._event_predicates
-
         exprs: list[ast.Expr] = []
-        if event_names:
-            exprs.append(
-                ast.Call(
-                    name="hasAll" if self.property_operand == PropertyOperatorType.AND else "hasAny",
-                    args=[
-                        ast.Call(name="groupUniqArray", args=[ast.Field(chain=["event"])]),
-                        # KLUDGE: sorting only so that snapshot tests are consistent
-                        ast.Constant(value=sorted(event_names)),
-                    ],
-                )
-            )
 
         if self.event_properties:
             # when we're saying property is not set then we have to check it is not set on every event
@@ -223,10 +234,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                         )
                     )
 
-        if exprs:
-            return self.wrapped_with_query_operand(exprs=exprs)
-        else:
-            return ast.Constant(value=True)
+        return self.wrapped_with_query_operand(exprs=exprs) if exprs else ast.Constant(value=True)
 
     @property
     def action_entities(self):
