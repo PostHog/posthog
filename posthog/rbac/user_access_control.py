@@ -389,7 +389,7 @@ class UserAccessControl:
         # If they aren't the creator then they need to be a project admin, org admin, or have "manage" access to the resource
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
         return self.check_access_level_for_object(
-            self._team, required_level="admin", explicit=True
+            self._team or obj, required_level="admin", explicit=True
         ) or self.check_access_level_for_object(obj, required_level="manage", explicit=True)
 
     def get_access_source_for_object(
