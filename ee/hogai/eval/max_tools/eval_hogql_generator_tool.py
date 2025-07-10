@@ -3,12 +3,13 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from braintrust import EvalCase
+from braintrust import EvalCase, Score
 from pydantic import BaseModel
 
 from ee.hogai.eval.conftest import MaxEval
 from ee.hogai.eval.eval_sql import SQLSyntaxCorrectness
 from ee.hogai.eval.scorers import SQLSemanticsCorrectness
+from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -49,7 +50,7 @@ def call_generate_hogql_query(demo_org_team_user):
             },
         )
 
-        return result
+        return remove_markdown(result)
 
     return callable
 
@@ -62,8 +63,9 @@ async def database_schema(demo_org_team_user):
     return await serialize_database_schema(database, context)
 
 
-def sql_semantics_scorer(input: EvalInput, expected: str, output: str, metadata: dict):
-    return SQLSemanticsCorrectness()(
+async def sql_semantics_scorer(input: EvalInput, expected: str, output: str, metadata: dict) -> Score:
+    metric = SQLSemanticsCorrectness()
+    return await metric.eval_async(
         input=input.instructions, expected=expected, output=output, database_schema=metadata["schema"]
     )
 

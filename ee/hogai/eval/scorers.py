@@ -378,7 +378,9 @@ Reference (human-labelled) SQL:
 ```
 
 Candidate (generated) SQL:
+```sql
 {{output}}
+```
 </input>
 
 <reminder>
@@ -410,20 +412,11 @@ class SQLSemanticsCorrectness(LLMClassifier):
     ):
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return await super()._run_eval_async(
-            self._wrap_output_in_markdown(output), expected, database_schema=database_schema, **kwargs
-        )
+        return await super()._run_eval_async(output, expected, database_schema=database_schema, **kwargs)
 
     def _run_eval_sync(
         self, output: str | None, expected: str | None = None, database_schema: str | None = None, **kwargs
     ):
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No query to check, skipping evaluation"})
-        return super()._run_eval_sync(
-            self._wrap_output_in_markdown(output), expected, database_schema=database_schema, **kwargs
-        )
-
-    def _wrap_output_in_markdown(self, output: str):
-        if output.startswith("```"):
-            return output
-        return f"```sql\n{output}\n```"
+        return super()._run_eval_sync(output, expected, database_schema=database_schema, **kwargs)
