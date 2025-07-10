@@ -601,19 +601,11 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               with:
-                  path: /tmp/.test_durations
-                  key: tests-durations-${{ github.sha }}
+                  path: .test_durations
+                  key: test-durations-${{ github.sha }}
                   restore-keys: |
-                      tests-durations-
+                      test-durations-
                   fail-on-cache-miss: false
-
-            - name: Copy test durations to working directory
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              shell: bash
-              run: |
-                  if [ -f /tmp/.test_durations ]; then
-                      cp /tmp/.test_durations .test_durations
-                  fi
 
             - name: Determine if --snapshot-update should be on
               # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
@@ -861,14 +853,14 @@ jobs:
               run: |
                   jq -s 'add' test-durations-after-partial-*/.test_durations \
                   | jq 'to_entries | sort_by(.key) | from_entries' \
-                  > /tmp/.test_durations
+                  > .test_durations
 
             - name: Cache final test durations
               uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               continue-on-error: true
               with:
-                  path: /tmp/.test_durations
-                  key: tests-durations-${{ github.sha }}
+                  path: .test_durations
+                  key: test-durations-${{ github.sha }}
 
     posthog-analytics:
         name: PostHog CI analytics
