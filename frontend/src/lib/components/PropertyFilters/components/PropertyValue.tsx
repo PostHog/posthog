@@ -250,6 +250,16 @@ export function PropertyValue({
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: value }, index) => {
                 const name = toString(value)
+                const hasVariants = displayOptions.length > 2
+                let tooltip: string | undefined = undefined
+
+                // Add tooltip for boolean values when flag has variants
+                if (typeof value === 'boolean' && hasVariants) {
+                    tooltip = value
+                        ? 'Matches any variant of the flag'
+                        : "Flag is disabled or doesn't match any conditions"
+                }
+
                 return {
                     key: name,
                     label: name,
@@ -259,6 +269,7 @@ export function PropertyValue({
                         </span>
                     ),
                     value,
+                    tooltip,
                 }
             })}
         />
