@@ -956,14 +956,6 @@ class FeatureFlagViewSet(
                     if prop.get("type") == "flag":
                         return True
 
-            # Also check super_groups if they exist
-            super_groups = filters.get("super_groups", [])
-            for group in super_groups:
-                properties = group.get("properties", [])
-                for prop in properties:
-                    if prop.get("type") == "flag":
-                        return True
-
             return False
         except Exception:
             # If we can't determine, err on the side of caution and include the flag
