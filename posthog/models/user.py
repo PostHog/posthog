@@ -13,6 +13,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
+from posthog.helpers.email_utils import EmailNormalizer
 
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
@@ -63,7 +64,7 @@ class UserManager(BaseUserManager):
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
-        email = self.normalize_email(email)
+        email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
