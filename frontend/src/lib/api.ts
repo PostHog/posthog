@@ -155,7 +155,7 @@ import {
     UserType,
 } from '~/types'
 
-import { MaxContextShape } from '../scenes/max/maxTypes'
+import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingStackFrame,
@@ -3554,7 +3554,7 @@ const api = {
                 /** The user message. Null content means we're continuing previous generation. */
                 content: string | null
                 contextual_tools?: Record<string, any>
-                ui_context?: MaxContextShape
+                ui_context?: MaxUIContext
                 conversation?: string | null
                 trace_id: string
             },

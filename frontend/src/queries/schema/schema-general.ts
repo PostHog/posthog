@@ -723,8 +723,6 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
-    /** Use recent_events table (last 7 days) for better performance when querying recent data */
-    useRecentEventsTable?: boolean
 }
 
 /**
