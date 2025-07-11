@@ -1,5 +1,5 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCheck, IconInfo, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
@@ -21,6 +21,7 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -79,6 +80,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
+    const { setSuggestedInsight, onAcceptSuggestedInsight, onRejectSuggestedInsight } = useActions(insightSceneLogic)
+    const { suggestedInsight } = useValues(insightSceneLogic)
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
 
     if (!querySource) {
@@ -419,10 +422,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 kind: NodeKind.DataVisualizationNode,
                                 source,
                             } satisfies DataVisualizationNode
-                            setQuery(node)
+                            setSuggestedInsight(node)
                         } else {
                             const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                            setQuery(node)
+                            setSuggestedInsight(node)
                         }
                     }}
                     initialMaxPrompt="Show me users who "
@@ -447,6 +450,38 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         ))}
                     </div>
                 </MaxTool>
+                {suggestedInsight && (
+                    <div
+                        className="flex gap-1 bg-bg-light rounded border border-primary-3000 py-1 px-1.5 mt-2 justify-center whitespace-nowrap"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
+                        ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                    >
+                        <LemonButton
+                            type="tertiary"
+                            icon={<IconCheck color="var(--success)" />}
+                            onClick={() => {
+                                if (suggestedInsight) {
+                                    setQuery(suggestedInsight)
+                                }
+                                onAcceptSuggestedInsight()
+                            }}
+                            tooltipPlacement="top"
+                            size="small"
+                        >
+                            Accept insight
+                        </LemonButton>
+                        <LemonButton
+                            status="danger"
+                            icon={<IconX />}
+                            onClick={() => onRejectSuggestedInsight()}
+                            tooltipPlacement="top"
+                            size="small"
+                        >
+                            Reject
+                        </LemonButton>
+                    </div>
+                )}
             </div>
         </CSSTransition>
     )
