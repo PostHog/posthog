@@ -28,7 +28,13 @@ from .prompts import (
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from pydantic import BaseModel
-from .toolkit import final_answer, retrieve_entity_property_values, retrieve_entity_properties, ask_user_for_help
+from .toolkit import (
+    final_answer,
+    retrieve_entity_property_values,
+    retrieve_entity_properties,
+    ask_user_for_help,
+    EntityType,
+)
 from abc import ABC
 import json
 
@@ -41,6 +47,7 @@ from .prompts import (
 )
 from posthog.schema import AssistantToolCallMessage, AssistantMessage
 from uuid import uuid4
+
 
 FilterOptionsToolUnion = Union[
     retrieve_entity_properties,
@@ -69,6 +76,11 @@ class FilterOptionsNode(AssistantNode):
             .order_by("group_type_index")
             .values_list("group_type", flat=True)
         )
+
+    @cached_property
+    def _all_entities(self) -> list[str]:
+        """Get all available entities as strings."""
+        return EntityType.values() + self._team_group_types
 
     def _get_react_property_filters_prompt(self) -> str:
         return cast(
@@ -166,18 +178,11 @@ class FilterOptionsNode(AssistantNode):
         if not change.strip():
             change = "Show me all session recordings with default filters"
 
-        entities = [
-            "person",
-            "session",
-            "event",
-            *self._team_group_types,
-        ]
-
         # Use injected prompts if available, otherwise fall back to default prompts
         output_message = chain.invoke(
             {
                 "core_memory": self.core_memory.text if self.core_memory else "",
-                "groups": entities,
+                "groups": self._all_entities,
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,

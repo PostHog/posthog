@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from enum import Enum
 from posthog.models import Team
 from posthog.models.property_definition import PropertyDefinition
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -10,6 +11,19 @@ from posthog.schema import ActorsPropertyTaxonomyQuery, CachedActorsPropertyTaxo
 from posthog.models.property_definition import PropertyType
 from typing import Optional
 from pydantic import BaseModel, Field
+
+
+class EntityType(str, Enum):
+    """Base entity types for filtering."""
+
+    PERSON = "person"
+    SESSION = "session"
+    EVENT = "event"
+
+    @classmethod
+    def values(cls) -> list[str]:
+        """Get all entity type values as strings."""
+        return [entity.value for entity in cls]
 
 
 class ask_user_for_help(BaseModel):
@@ -70,13 +84,7 @@ class FilterOptionsToolkit:
         to create various tools for different group types. Since we don't use function calling here, we want to limit the
         number of tools because non-function calling models can't handle many tools.
         """
-        entities = [
-            "person",
-            "session",
-            "event",
-            *[group.group_type for group in self._groups],
-        ]
-        return entities
+        return EntityType.values() + [group.group_type for group in self._groups]
 
     def _generate_properties_yaml(self, children: list[tuple[str, str | None, str | None]]):
         import yaml
