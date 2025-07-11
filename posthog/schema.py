@@ -1697,6 +1697,7 @@ class NodeKind(StrEnum):
     REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     LOGS_QUERY = "LogsQuery"
+    SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
     SAVED_INSIGHT_NODE = "SavedInsightNode"
@@ -2155,6 +2156,17 @@ class SessionAttributionGroupBy(StrEnum):
     AD_IDS = "AdIds"
     REFERRING_DOMAIN = "ReferringDomain"
     INITIAL_URL = "InitialURL"
+
+
+class SessionEventsItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[list] = Field(
+        ...,
+        description="List of events for this session, each event is a list of field values matching the query columns",
+    )
+    session_id: str = Field(..., description="Session ID these events belong to")
 
 
 class SessionPropertyFilter(BaseModel):
@@ -4008,6 +4020,38 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     types: Optional[list] = None
 
 
+class SessionBatchEventsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[list]
+    session_events: Optional[list[SessionEventsItem]] = Field(
+        default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
+    )
+    sessions_with_no_events: Optional[list[str]] = Field(
+        default=None, description="List of session IDs that had no matching events"
+    )
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list[str]
+
+
 class SessionRecordingType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5702,6 +5746,47 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
+
+
+class CachedSessionBatchEventsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: list
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: str = Field(..., description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[list]
+    session_events: Optional[list[SessionEventsItem]] = Field(
+        default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
+    )
+    sessions_with_no_events: Optional[list[str]] = Field(
+        default=None, description="List of session IDs that had no matching events"
+    )
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: list[str]
 
 
 class CachedSessionsTimelineQueryResponse(BaseModel):
@@ -11982,6 +12067,90 @@ class InsightActorsQueryOptions(BaseModel):
     response: Optional[InsightActorsQueryOptionsResponse] = None
     source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery]
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SessionBatchEventsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    actionId: Optional[int] = Field(default=None, description="Show events matching a given action")
+    after: Optional[str] = Field(default=None, description="Only fetch events that happened after this timestamp")
+    before: Optional[str] = Field(default=None, description="Only fetch events that happened before this timestamp")
+    event: Optional[str] = Field(default=None, description="Limit to events matching this string")
+    filterTestAccounts: Optional[bool] = Field(default=None, description="Filter test accounts")
+    fixedProperties: Optional[
+        list[
+            Union[
+                PropertyGroupFilter,
+                PropertyGroupFilterValue,
+                Union[
+                    EventPropertyFilter,
+                    PersonPropertyFilter,
+                    ElementPropertyFilter,
+                    EventMetadataPropertyFilter,
+                    SessionPropertyFilter,
+                    CohortPropertyFilter,
+                    RecordingPropertyFilter,
+                    LogEntryPropertyFilter,
+                    GroupPropertyFilter,
+                    FeaturePropertyFilter,
+                    HogQLPropertyFilter,
+                    EmptyPropertyFilter,
+                    DataWarehousePropertyFilter,
+                    DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    LogPropertyFilter,
+                    RevenueAnalyticsPropertyFilter,
+                ],
+            ]
+        ]
+    ] = Field(
+        default=None,
+        description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+    )
+    group_by_session: Optional[bool] = Field(
+        default=None, description="Whether to group results by session_id in the response"
+    )
+    kind: Literal["SessionBatchEventsQuery"] = "SessionBatchEventsQuery"
+    limit: Optional[int] = Field(default=None, description="Number of rows to return")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = Field(default=None, description="Number of rows to skip before returning rows")
+    orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
+    personId: Optional[str] = Field(default=None, description="Show events for a given person")
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[SessionBatchEventsQueryResponse] = None
+    select: list[str] = Field(..., description="Return a limited set of data. Required.")
+    session_ids: list[str] = Field(
+        ..., description="List of session IDs to fetch events for. Will be translated to $session_id IN filter."
+    )
+    source: Optional[InsightActorsQuery] = Field(default=None, description="source for querying events for insights")
+    tags: Optional[QueryLogTags] = None
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+    where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
 class ActorsQuery(BaseModel):
