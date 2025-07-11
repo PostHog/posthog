@@ -17,9 +17,9 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    MaxEventContext,
     FailureMessage,
     HumanMessage,
+    MaxEventContext,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -415,7 +415,9 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             node.router(
                 AssistantState(
-                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id="", plan=""
+                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")],
+                    root_tool_call_id=None,
+                    plan=None,
                 ),
             ),
             "end",

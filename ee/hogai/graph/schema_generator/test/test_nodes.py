@@ -53,8 +53,8 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
-            self.assertEqual(new_state.plan, "")
+            self.assertEqual(new_state.intermediate_steps, None)
+            self.assertEqual(new_state.plan, None)
             self.assertEqual(len(new_state.messages), 1)
             self.assertEqual(new_state.messages[0].type, "ai/viz")
             self.assertEqual(new_state.messages[0].answer, self.schema)
@@ -235,7 +235,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
+            self.assertEqual(new_state.intermediate_steps, None)
 
             new_state = node.run(
                 AssistantState(
@@ -247,7 +247,7 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
+            self.assertEqual(new_state.intermediate_steps, None)
 
     def test_node_leaves_failover_after_second_unsuccessful_attempt(self):
         node = DummyGeneratorNode(self.team, self.user)
@@ -267,10 +267,10 @@ class TestSchemaGeneratorNode(BaseTest):
                 ),
                 {},
             )
-            self.assertEqual(new_state.intermediate_steps, [])
+            self.assertEqual(new_state.intermediate_steps, None)
             self.assertEqual(len(new_state.messages), 1)
             self.assertIsInstance(new_state.messages[0], FailureMessage)
-            self.assertEqual(new_state.plan, "")
+            self.assertEqual(new_state.plan, None)
 
     def test_agent_reconstructs_conversation_with_failover(self):
         action = AgentAction(tool="fix", tool_input="validation error", log="exception")

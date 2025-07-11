@@ -143,7 +143,7 @@ class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(first_message.tool_call_id, test_tool_call_id)
 
             # Check that the output state resets tool_call_id
-            self.assertEqual(next_state.root_tool_call_id, "")
+            self.assertEqual(next_state.root_tool_call_id, None)
 
     def test_message_id_generation(self):
         """Test that each message gets a unique UUID."""
