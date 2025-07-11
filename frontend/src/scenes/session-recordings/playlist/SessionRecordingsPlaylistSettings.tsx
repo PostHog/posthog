@@ -100,7 +100,7 @@ function SortedBy({
     )
 }
 
-function ConfirmDeleteRecordings(): JSX.Element {
+function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
     const { selectedRecordingsIds, isDeleteSelectedRecordingsDialogOpen, deleteConfirmationText } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setIsDeleteSelectedRecordingsDialogOpen, setDeleteConfirmationText, handleDeleteSelectedRecordings } =
@@ -151,7 +151,7 @@ function ConfirmDeleteRecordings(): JSX.Element {
                             ? 'Please type the correct confirmation text'
                             : undefined
                     }
-                    onClick={handleDeleteSelectedRecordings}
+                    onClick={() => handleDeleteSelectedRecordings(shortId)}
                 >
                     Delete
                 </LemonButton>
@@ -277,7 +277,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     icon={<IconEllipsis className="rotate-90" />}
                 />
             </div>
-            <ConfirmDeleteRecordings />
+            <ConfirmDeleteRecordings shortId={shortId} />
         </SettingsBar>
     )
 }

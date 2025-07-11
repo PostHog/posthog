@@ -374,7 +374,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             isDeleteSelectedRecordingsDialogOpen,
         }),
         setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
-        handleDeleteSelectedRecordings: true,
+        handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -733,7 +733,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.setSelectedRecordingsIds([])
             }
         },
-        handleDeleteSelectedRecordings: async () => {
+        handleDeleteSelectedRecordings: async ({ shortId }: { shortId?: string }) => {
             await lemonToast.promise(
                 (async () => {
                     try {
@@ -741,7 +741,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         actions.setIsDeleteSelectedRecordingsDialogOpen(false)
                         await api.recordings.bulkDeleteRecordings(values.selectedRecordingsIds)
                         actions.setSelectedRecordingsIds([])
-                        actions.loadAllRecordings()
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            const logic =
+                                sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: shortId }) ??
+                                sessionRecordingsPlaylistSceneLogic({ shortId: shortId })
+                            logic.actions.loadPinnedRecordings()
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
                     } catch (e) {
                         posthog.captureException(e)
                     }
