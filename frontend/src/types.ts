@@ -4327,7 +4327,7 @@ export enum AccessControlLevel {
     Admin = 'admin',
     Viewer = 'viewer',
     Editor = 'editor',
-    Manage = 'manage',
+    Manager = 'manager',
 }
 
 export interface AccessControlTypeBase {

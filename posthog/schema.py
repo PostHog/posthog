@@ -19,7 +19,7 @@ class AccessControlLevel(StrEnum):
     ADMIN = "admin"
     VIEWER = "viewer"
     EDITOR = "editor"
-    MANAGE = "manage"
+    MANAGER = "manager"
 
 
 class MathGroupTypeIndex(float, Enum):

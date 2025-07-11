@@ -45,7 +45,7 @@ class AccessSource(Enum):
 
 AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
-AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manage"]
+AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manager"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
 
 NO_ACCESS_LEVEL = "none"
@@ -379,24 +379,24 @@ class UserAccessControl:
         1. The user is the creator of the object
         2. The user is explicitly a project admin
         3. The user is an org admin
-        4. The user has "manage" access to the resource
+        4. The user has "manager" access to the resource
         """
 
         if getattr(obj, "created_by", None) == self._user:
             # TODO: Should this always be the case, even for projects?
             return True
 
-        # If they aren't the creator then they need to be a project admin, org admin, or have "manage" access to the resource
+        # If they aren't the creator then they need to be a project admin, org admin, or have "manager" access to the resource
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
         resource = model_to_resource(obj)
         project_admin_check = self.check_access_level_for_object(
             self._team or obj, required_level="admin", explicit=True
         )
 
-        # Only check for "manage" access if it's not a project resource
+        # Only check for "manager" access if it's not a project resource
         if resource != "project":
             return project_admin_check or self.check_access_level_for_object(
-                obj, required_level="manage", explicit=True
+                obj, required_level="manager", explicit=True
             )
 
         return project_admin_check
