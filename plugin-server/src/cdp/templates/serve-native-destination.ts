@@ -106,12 +106,24 @@ async function main() {
         const { globals, configuration } = req.body
         const tester = new DestinationTester(hogFunction)
 
-        const result = await tester.invokeMapping(
-            mapping.name,
-            globals,
-            configuration.inputs,
-            configuration.mappings[0].inputs
-        )
+        const convertInputs = (inputs: Record<string, any>): Record<string, any> => {
+            return Object.entries(inputs).reduce((acc, [key, value]) => {
+                if (value.value !== undefined) {
+                    return { ...acc, [key]: value.value }
+                }
+
+                if (value.type === 'object') {
+                    return { ...acc, [key]: convertInputs(value.value) }
+                }
+
+                return acc
+            }, {})
+        }
+
+        const inputs = convertInputs(configuration.inputs)
+        const mappingInputs = convertInputs(configuration.mappings[0].inputs)
+
+        const result = await tester.invokeMapping(mapping.name, globals, inputs, mappingInputs)
 
         res.json({
             result: result,
