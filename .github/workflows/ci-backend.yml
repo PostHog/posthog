@@ -601,11 +601,17 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               with:
-                  path: .test_durations
+                  path: test-durations.json
                   key: test-durations-${{ github.sha }}
                   restore-keys: |
                       test-durations-
                   fail-on-cache-miss: false
+
+            - name: Copy test-durations.json to .test_durations
+              if: ${{ needs.changes.outputs.backend == 'true' }}
+              shell: bash
+              run: |
+                  cp test-durations.json .test_durations
 
             - name: Log test durations
               if: ${{ needs.changes.outputs.backend == 'true' }}
@@ -859,13 +865,13 @@ jobs:
               run: |
                   jq -s 'add' test-durations-after-partial-*/.test_durations \
                   | jq 'to_entries | sort_by(.key) | from_entries' \
-                  > .test_durations
+                  > test-durations.json
 
             - name: Cache final test durations
               uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 #v4
               continue-on-error: true
               with:
-                  path: .test_durations
+                  path: test-durations.json
                   key: test-durations-${{ github.sha }}
 
     posthog-analytics:
