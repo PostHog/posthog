@@ -639,7 +639,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     })
 
                     actions.reportSurveyCreated(createdSurvey, true)
-                    actions.setIsDuplicateToProjectModalOpen(false)
                     return survey
                 } catch (error) {
                     posthog.captureException('Error duplicating survey', {
@@ -667,6 +666,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 actions.reportSurveyCreated(createdSurvey, true)
+                actions.setIsDuplicateToProjectModalOpen(false)
                 return sourceSurvey
             },
         },

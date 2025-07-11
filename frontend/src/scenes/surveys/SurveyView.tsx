@@ -77,14 +77,18 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <LemonButton
-                                                    data-attr="duplicate-survey"
-                                                    fullWidth
-                                                    onClick={duplicateSurvey}
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
-                                                {hasMultipleProjects && <DuplicateToProjectTrigger />}
+                                                {!hasMultipleProjects ? (
+                                                    <LemonButton
+                                                        data-attr="duplicate-survey"
+                                                        fullWidth
+                                                        onClick={duplicateSurvey}
+                                                    >
+                                                        Duplicate
+                                                    </LemonButton>
+                                                ) : (
+                                                    <DuplicateToProjectTrigger />
+                                                )}
+
                                                 <LemonDivider />
                                             </>
                                             {survey.end_date && !survey.archived && (

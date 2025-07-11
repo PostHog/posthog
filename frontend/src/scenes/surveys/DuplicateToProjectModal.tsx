@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -13,7 +13,7 @@ export function DuplicateToProjectTrigger(): JSX.Element {
 
     return (
         <LemonButton fullWidth onClick={() => setIsDuplicateToProjectModalOpen(true)}>
-            Duplicate to another project
+            Duplicate
         </LemonButton>
     )
 }
@@ -33,7 +33,7 @@ export function DuplicateToProjectModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Duplicate survey to another project"
+            title="Duplicate survey"
             onClose={handleCloseModal}
             isOpen={isDuplicateToProjectModalOpen}
             footer={
@@ -65,7 +65,6 @@ export function DuplicateToProjectModal(): JSX.Element {
                     <h4 className="font-semibold">Projects:</h4>
                     <div className="space-y-2 max-h-80 overflow-y-auto border rounded p-2">
                         {currentOrganization?.teams
-                            ?.filter((team) => team.id !== currentTeam?.id)
                             .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
                             .map((team) => (
                                 <LemonButton
@@ -76,7 +75,18 @@ export function DuplicateToProjectModal(): JSX.Element {
                                 >
                                     <div className="flex items-center justify-between w-full">
                                         <span>{team.name}</span>
-                                        {team.is_demo && <span className="text-xs text-muted">Demo</span>}
+                                        <div className="flex items-center gap-2">
+                                            {team.id === currentTeam?.id && (
+                                                <LemonTag size="small" type="primary" className="text-xs">
+                                                    Current
+                                                </LemonTag>
+                                            )}
+                                            {team.is_demo && (
+                                                <LemonTag size="small" type="muted">
+                                                    <span className="text-xs">Demo</span>
+                                                </LemonTag>
+                                            )}
+                                        </div>
                                     </div>
                                 </LemonButton>
                             ))}
