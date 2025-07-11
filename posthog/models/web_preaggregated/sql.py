@@ -58,7 +58,6 @@ def SESSIONS_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
         team_id UInt64,
         host String,
         device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
     PARTITION BY toYYYYMMDD(period_bucket)
@@ -79,7 +78,6 @@ def SESSIONS_HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=Tru
         team_id UInt64,
         host String,
         device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
     ORDER BY {order_by}
@@ -193,7 +191,8 @@ WEB_SESSIONS_COLUMNS = f"""
     sessions_uniq_state AggregateFunction(uniq, String),
     total_session_duration_state AggregateFunction(sum, Int64),
     total_session_count_state AggregateFunction(sum, UInt64),
-    bounces_count_state AggregateFunction(sum, UInt64)
+    bounces_count_state AggregateFunction(sum, UInt64),
+    pageviews_count_state AggregateFunction(sum, UInt64)
 """
 
 
@@ -716,7 +715,8 @@ def WEB_SESSIONS_INSERT_SQL(
         uniqState(person_id) AS persons_uniq_state,
         sumState(session_duration) AS total_session_duration_state,
         sumState(toUInt64(1)) AS total_session_count_state,
-        sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state
+        sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state,
+        sumState(pageviews_count) AS pageviews_count_state
     FROM (
         -- Session-level aggregation with proper filtering and person resolution
         SELECT
@@ -748,7 +748,10 @@ def WEB_SESSIONS_INSERT_SQL(
             any(events__session.initial_geoip_subdivision_1_name) AS initial_geoip_subdivision_1_name,
             any(events__session.initial_geoip_subdivision_city_name) AS initial_geoip_subdivision_city_name,
             any(events__session.entry_pathname) AS entry_pathname,
-            any(events__session.end_pathname) AS end_pathname
+            any(events__session.end_pathname) AS end_pathname,
+
+            -- Calculate pageviews count for this session
+            countIf(events.event = '$pageview') AS pageviews_count
         FROM events
         LEFT JOIN (
             -- Sessions subquery with initial values

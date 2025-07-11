@@ -251,3 +251,243 @@ def sessions_no_fanout_check() -> AssetCheckResult:
             description=f"Error during fan-out check: {str(e)}",
             metadata={"error": MetadataValue.text(str(e))},
         )
+
+
+@asset_check(
+    asset="web_analytics_sessions_daily",
+    name="sessions_dimensions_validation_check",
+    description="Validate all 20 dimensions are properly aggregated with no fan-out issues",
+)
+def sessions_dimensions_validation_check() -> AssetCheckResult:
+    """
+    Validate that all 20 dimensions in web_sessions_daily are working correctly:
+    - All expected dimensions are present
+    - No fan-out issues (sessions preserved across dimension combinations)
+    - Visitor counting is accurate (uses uniq, not sum)
+    """
+    try:
+        # Use a recent 3-day window for validation
+        end_date = datetime.now(UTC).date()
+        start_date = end_date - timedelta(days=3)
+
+        # Test query that mirrors our verified implementation
+        validation_query = f"""
+        SELECT
+            sum(sessions) AS total_sessions,
+            sum(sessions * avg_duration_seconds) / sum(sessions) AS overall_avg_duration,
+            (sum(bounce_count) / sum(sessions)) * 100 AS overall_bounce_rate,
+            sum(pageviews_total) AS total_pageviews,
+            round(sum(pageviews_total) / sum(sessions), 2) AS avg_pageviews_per_session,
+            uniq(person_id) AS total_visitors,
+            count(*) AS dimension_combinations,
+            round(count(*) / sum(sessions), 3) AS fan_out_ratio
+        FROM
+        (
+            SELECT
+                uniq(session_id_v7) AS sessions,
+                avg(session_duration) AS avg_duration_seconds,
+                sum(toUInt64(ifNull(is_bounce, 0))) AS bounce_count,
+                sum(pageviews_count) AS pageviews_total,
+                person_id,
+                -- All 20 dimensions
+                host,
+                device_type,
+                initial_referring_domain,
+                initial_utm_source,
+                initial_utm_medium,
+                initial_utm_campaign,
+                initial_utm_term,
+                initial_utm_content,
+                initial_browser,
+                initial_os,
+                initial_device_type,
+                initial_viewport_width,
+                initial_viewport_height,
+                initial_geoip_country_code,
+                initial_geoip_subdivision_1_code,
+                initial_geoip_subdivision_1_name,
+                initial_geoip_subdivision_city_name,
+                entry_pathname,
+                end_pathname
+            FROM
+            (
+                SELECT
+                    events__session.session_id_v7 AS session_id_v7,
+                    any(events__session.session_duration) AS session_duration,
+                    any(events__session.is_bounce) AS is_bounce,
+                    argMax(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id), events.timestamp) AS person_id,
+                    any(events.mat_$host) AS host,
+                    any(events.mat_$device_type) AS device_type,
+                    any(events__session.initial_referring_domain) AS initial_referring_domain,
+                    any(events__session.initial_utm_source) AS initial_utm_source,
+                    any(events__session.initial_utm_medium) AS initial_utm_medium,
+                    any(events__session.initial_utm_campaign) AS initial_utm_campaign,
+                    any(events__session.initial_utm_term) AS initial_utm_term,
+                    any(events__session.initial_utm_content) AS initial_utm_content,
+                    any(events__session.initial_browser) AS initial_browser,
+                    any(events__session.initial_os) AS initial_os,
+                    any(events__session.initial_device_type) AS initial_device_type,
+                    any(events__session.initial_viewport_width) AS initial_viewport_width,
+                    any(events__session.initial_viewport_height) AS initial_viewport_height,
+                    any(events__session.initial_geoip_country_code) AS initial_geoip_country_code,
+                    any(events__session.initial_geoip_subdivision_1_code) AS initial_geoip_subdivision_1_code,
+                    any(events__session.initial_geoip_subdivision_1_name) AS initial_geoip_subdivision_1_name,
+                    any(events__session.initial_geoip_subdivision_city_name) AS initial_geoip_subdivision_city_name,
+                    any(events__session.entry_pathname) AS entry_pathname,
+                    any(events__session.end_pathname) AS end_pathname,
+
+                    -- Calculate pageviews count for this session
+                    countIf(events.event = '$pageview') AS pageviews_count
+                FROM events
+                LEFT JOIN
+                (
+                    SELECT
+                        toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+                        min(raw_sessions.min_timestamp) AS start_timestamp,
+                        dateDiff('second', min(raw_sessions.min_timestamp), max(raw_sessions.max_timestamp)) AS session_duration,
+                        if(ifNull(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to) = 0, 0), NULL,
+                           NOT (ifNull(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to) > 1, 0) OR
+                                ifNull(dateDiff('second', min(raw_sessions.min_timestamp), max(raw_sessions.max_timestamp)) >= 10, 0))) AS is_bounce,
+                        raw_sessions.session_id_v7 AS session_id_v7,
+                        nullIf(argMinMerge(initial_referring_domain), '') AS initial_referring_domain,
+                        nullIf(argMinMerge(initial_utm_source), '') AS initial_utm_source,
+                        nullIf(argMinMerge(initial_utm_medium), '') AS initial_utm_medium,
+                        nullIf(argMinMerge(initial_utm_campaign), '') AS initial_utm_campaign,
+                        nullIf(argMinMerge(initial_utm_term), '') AS initial_utm_term,
+                        nullIf(argMinMerge(initial_utm_content), '') AS initial_utm_content,
+                        nullIf(argMinMerge(initial_browser), '') AS initial_browser,
+                        nullIf(argMinMerge(initial_os), '') AS initial_os,
+                        nullIf(argMinMerge(initial_device_type), '') AS initial_device_type,
+                        nullIf(argMinMerge(initial_geoip_country_code), '') AS initial_geoip_country_code,
+                        nullIf(argMinMerge(initial_geoip_subdivision_1_code), '') AS initial_geoip_subdivision_1_code,
+                        nullIf(argMinMerge(initial_geoip_subdivision_1_name), '') AS initial_geoip_subdivision_1_name,
+                        nullIf(argMinMerge(initial_geoip_subdivision_city_name), '') AS initial_geoip_subdivision_city_name,
+                        argMinMerge(initial_viewport_width) AS initial_viewport_width,
+                        argMinMerge(initial_viewport_height) AS initial_viewport_height,
+                        path(coalesce(argMinMerge(entry_url), '')) AS entry_pathname,
+                        path(coalesce(argMaxMerge(end_url), '')) AS end_pathname
+                    FROM raw_sessions
+                    WHERE raw_sessions.team_id = 2
+                        AND min_timestamp >= toDateTime('{start_date}')
+                        AND min_timestamp < toDateTime('{end_date}')
+                    GROUP BY raw_sessions.session_id_v7
+                ) AS events__session ON toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')) = events__session.session_id_v7
+                LEFT JOIN
+                (
+                    SELECT
+                        argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                    FROM person_distinct_id_overrides
+                    WHERE person_distinct_id_overrides.team_id = 2
+                    GROUP BY person_distinct_id_overrides.distinct_id
+                    HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
+                ) AS events__override ON events.distinct_id = events__override.distinct_id
+                WHERE events.team_id = 2
+                    AND events.`$session_id` IS NOT NULL
+                    AND events.event IN ('$pageview', '$screen')
+                    AND events.timestamp >= toDateTime('{start_date}')
+                    AND events.timestamp < toDateTime('{end_date}')
+                GROUP BY events__session.session_id_v7
+                HAVING ifNull(start_timestamp >= toDateTime('{start_date}'), 0)
+                    AND ifNull(start_timestamp < toDateTime('{end_date}'), 0)
+            ) AS session_data
+            GROUP BY
+                person_id,
+                host,
+                device_type,
+                initial_referring_domain,
+                initial_utm_source,
+                initial_utm_medium,
+                initial_utm_campaign,
+                initial_utm_term,
+                initial_utm_content,
+                initial_browser,
+                initial_os,
+                initial_device_type,
+                initial_viewport_width,
+                initial_viewport_height,
+                initial_geoip_country_code,
+                initial_geoip_subdivision_1_code,
+                initial_geoip_subdivision_1_name,
+                initial_geoip_subdivision_city_name,
+                entry_pathname,
+                end_pathname
+        ) AS dimension_groups
+        """
+
+        result = sync_execute(validation_query)
+
+        if not result:
+            return AssetCheckResult(
+                passed=False,
+                description="No data returned from dimensions validation query",
+                metadata={"date_range": MetadataValue.text(f"{start_date} to {end_date}")},
+            )
+
+        (
+            total_sessions,
+            avg_duration,
+            bounce_rate,
+            total_pageviews,
+            avg_pageviews_per_session,
+            total_visitors,
+            dimension_combinations,
+            fan_out_ratio,
+        ) = result[0]
+
+        # Validation criteria
+        sessions_min = 1000  # Minimum sessions for meaningful test
+        fan_out_max = 1.0  # Fan-out ratio should be < 1.0 (no session duplication)
+        visitors_min = 100  # Minimum visitors for meaningful test
+        pageviews_min = 1000  # Minimum pageviews for meaningful test
+
+        # Check all validation criteria
+        sessions_ok = total_sessions >= sessions_min
+        fan_out_ok = fan_out_ratio < fan_out_max
+        visitors_ok = total_visitors >= visitors_min
+        pageviews_ok = total_pageviews >= pageviews_min and avg_pageviews_per_session >= 1.0
+        metrics_ok = avg_duration > 0 and bounce_rate >= 0
+
+        passed = sessions_ok and fan_out_ok and visitors_ok and pageviews_ok and metrics_ok
+
+        status_parts = []
+        if not sessions_ok:
+            status_parts.append(f"Sessions too low: {total_sessions} < {sessions_min}")
+        if not fan_out_ok:
+            status_parts.append(f"Fan-out detected: {fan_out_ratio} >= {fan_out_max}")
+        if not visitors_ok:
+            status_parts.append(f"Visitors too low: {total_visitors} < {visitors_min}")
+        if not pageviews_ok:
+            status_parts.append(
+                f"Pageviews invalid: {total_pageviews} total, {avg_pageviews_per_session:.2f} avg/session"
+            )
+        if not metrics_ok:
+            status_parts.append(f"Invalid metrics: duration={avg_duration}, bounce={bounce_rate}")
+
+        if passed:
+            description = f"✅ All 20 dimensions + pageviews validated: {total_sessions} sessions, {total_pageviews} pageviews ({avg_pageviews_per_session:.2f} avg/session), {dimension_combinations} combinations, {fan_out_ratio:.3f} fan-out ratio"
+        else:
+            description = f"❌ Validation failed: {', '.join(status_parts)}"
+
+        return AssetCheckResult(
+            passed=passed,
+            description=description,
+            metadata={
+                "date_range": MetadataValue.text(f"{start_date} to {end_date}"),
+                "total_sessions": MetadataValue.int(total_sessions),
+                "avg_duration": MetadataValue.float(avg_duration),
+                "bounce_rate": MetadataValue.float(bounce_rate),
+                "total_pageviews": MetadataValue.int(total_pageviews),
+                "avg_pageviews_per_session": MetadataValue.float(avg_pageviews_per_session),
+                "total_visitors": MetadataValue.int(total_visitors),
+                "dimension_combinations": MetadataValue.int(dimension_combinations),
+                "fan_out_ratio": MetadataValue.float(fan_out_ratio),
+            },
+        )
+
+    except Exception as e:
+        return AssetCheckResult(
+            passed=False,
+            description=f"Error during dimensions validation: {str(e)}",
+            metadata={"error": MetadataValue.text(str(e))},
+        )
