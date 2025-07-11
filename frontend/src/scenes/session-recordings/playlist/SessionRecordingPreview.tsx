@@ -193,12 +193,37 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
         : recording.recording_duration
 }
 
+function ItemCheckbox({ recording }: { recording: SessionRecordingType }): JSX.Element {
+    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+    const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
+
+    return (
+        <LemonCheckbox
+            checked={selectedRecordingsIds.some((s) => s === recording.id)}
+            dataAttr="select-recording"
+            aria-label="Select recording"
+            disabledReason={
+                selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
+                    ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+                    : undefined
+            }
+            onChange={() => {
+                if (selectedRecordingsIds.some((r) => r === recording.id)) {
+                    setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
+                } else {
+                    setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
+                }
+            }}
+            stopPropagation
+        />
+    )
+}
+
 export function SessionRecordingPreview({ recording, isActive, onClick }: SessionRecordingPreviewProps): JSX.Element {
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
 
-    const { filters, selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+    const { filters } = useValues(sessionRecordingsPlaylistLogic)
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-    const { setSelectedRecordingsIds } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
@@ -216,24 +241,7 @@ export function SessionRecordingPreview({ recording, isActive, onClick }: Sessio
                 )}
                 onClick={() => onClick?.()}
             >
-                <LemonCheckbox
-                    checked={selectedRecordingsIds.some((s) => s === recording.id)}
-                    dataAttr="select-recording"
-                    aria-label="Select recording"
-                    disabledReason={
-                        selectedRecordingsIds.length >= MAX_SELECTED_RECORDINGS
-                            ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                            : undefined
-                    }
-                    onChange={() => {
-                        if (selectedRecordingsIds.some((r) => r === recording.id)) {
-                            setSelectedRecordingsIds(selectedRecordingsIds.filter((r) => r !== recording.id))
-                        } else {
-                            setSelectedRecordingsIds([...selectedRecordingsIds, recording.id])
-                        }
-                    }}
-                    stopPropagation
-                />
+                <ItemCheckbox recording={recording} />
                 <div className="grow overflow-hidden deprecated-space-y-1 ml-1">
                     <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium ph-no-capture">

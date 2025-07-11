@@ -168,7 +168,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 {selectedRecordingsIds.length > 0 && (
                     <SettingsMenu
                         items={getActionsMenuItems()}
-                        label={<LemonBadge.Number count={selectedRecordingsIds.length} size="small" />}
+                        label={<LemonBadge content={selectedRecordingsIds.length.toString()} size="small" />}
                     />
                 )}
                 <SettingsMenu
