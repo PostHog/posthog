@@ -270,13 +270,7 @@ export function OutputPane(): JSX.Element {
     } = useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const {
-        response: dataNodeResponse,
-        responseLoading,
-        responseError,
-        queryId,
-        pollResponse,
-    } = useValues(dataNodeLogic)
+    const { response: dataNodeResponse, dataLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -589,7 +583,7 @@ export function OutputPane(): JSX.Element {
                 <Content
                     activeTab={activeTab}
                     responseError={responseError}
-                    responseLoading={responseLoading}
+                    responseLoading={dataLoading}
                     response={response}
                     sourceQuery={sourceQuery}
                     queryCancelled={queryCancelled}
@@ -628,13 +622,13 @@ export function OutputPane(): JSX.Element {
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
 ): JSX.Element | null {
-    const { query, visualizationType, showEditingUI, response, responseLoading, isChartSettingsPanelOpen } =
+    const { query, visualizationType, showEditingUI, response, dataLoading, isChartSettingsPanelOpen } =
         useValues(dataVisualizationLogic)
 
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!showEditingUI && (!response || responseLoading)) {
+    if (!showEditingUI && (!response || dataLoading)) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <LoadingBar />

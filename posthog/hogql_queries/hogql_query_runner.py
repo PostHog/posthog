@@ -68,8 +68,12 @@ class HogQLQueryRunner(QueryRunner):
     def calculate(self) -> HogQLQueryResponse:
         query = self.to_query()
         paginator = None
-        if isinstance(query, ast.SelectQuery) and not query.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)
+        if isinstance(query, ast.SelectQuery):
+            provided_limit = query.limit.value if isinstance(query.limit, ast.Constant) else None
+            provided_offset = query.offset.value if isinstance(query.offset, ast.Constant) else None
+            paginator = HogQLHasMorePaginator.from_limit_context(
+                limit_context=self.limit_context, limit=provided_limit, offset=provided_offset
+            )
             if self.query.pagination:
                 paginator.limit = self.query.pagination.limit or paginator.limit
                 # offset is the number of rows already fetched
