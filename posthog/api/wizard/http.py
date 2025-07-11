@@ -42,6 +42,8 @@ GEMINI_SUPPORTED_MODELS = {
 
 ALL_SUPPORTED_MODELS = OPENAI_SUPPORTED_MODELS | GEMINI_SUPPORTED_MODELS
 
+MODEL_SEED = 7678464
+
 
 class SetupWizardSerializer(serializers.Serializer):
     hash = serializers.CharField()
@@ -167,6 +169,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             config = GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0,
+                seed=MODEL_SEED,
                 response_mime_type="application/json",
                 response_schema=response_schema,
             )
@@ -202,6 +205,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
             result = openai.chat.completions.create(
                 model=model,
+                seed=MODEL_SEED,
                 messages=messages,
                 response_format={"type": "json_schema", "json_schema": json_schema},  # type: ignore
                 posthog_distinct_id=distinct_id,
