@@ -7,7 +7,6 @@ import { UUIDT } from '~/utils/utils'
 import { Hub, InternalPerson, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import {
     CyclotronJobInvocation,
