@@ -20,6 +20,8 @@ import { availableSourcesDataLogic } from './availableSourcesDataLogic'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,
@@ -156,6 +158,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
     const { connectors, manualConnectors } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
         selectConnector(sourceConfig)
@@ -167,6 +170,14 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
         setManualLinkingProvider(manualLinkSource)
     }
 
+    const filteredConnectors = connectors.filter((n) => {
+        if (n.name === 'MetaAds') {
+            return featureFlags[FEATURE_FLAGS.META_ADS_DWH]
+        }
+
+        return true
+    })
+
     return (
         <>
             <h2 className="mt-4">Managed data warehouse sources</h2>
@@ -176,7 +187,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
-                dataSource={connectors}
+                dataSource={filteredConnectors}
                 loading={false}
                 disableTableWhileLoading={false}
                 columns={[
