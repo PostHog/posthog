@@ -108,7 +108,11 @@ def dagster_tags(
     )
 
     with suppress(Exception):
-        if isinstance(context, dagster.OpExecutionContext):
+        if isinstance(context, dagster.AssetCheckExecutionContext):
+            op = context.op_execution_context
+            if op and op.op:
+                tags.op_name = op.op.name
+        elif isinstance(context, dagster.OpExecutionContext):
             if context.op:
                 tags.op_name = context.op.name
         elif isinstance(context, dagster.AssetExecutionContext):
