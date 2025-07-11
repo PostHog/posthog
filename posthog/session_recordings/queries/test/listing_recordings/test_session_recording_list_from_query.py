@@ -1921,7 +1921,6 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {"date_to": (self.an_hour_ago - relativedelta(days=4)).strftime("%Y-%m-%d")}, []
         )
 
-        # we have to change this test because the behavior of the API did change 🙈
         self._assert_query_matches_session_ids(
             {"date_to": (self.an_hour_ago - relativedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%S")},
             ["three days before base time"],
@@ -1947,9 +1946,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert len(session_recordings) == 1
-        assert session_recordings[0]["session_id"] == session_id
-        assert session_recordings[0]["duration"] == 6 * 60 * 60
+        assert [{"session_id": session_id, "duration": 6 * 60 * 60}] == [
+            {"session_id": sr["session_id"], "duration": sr["duration"]} for sr in session_recordings
+        ]
 
     @snapshot_clickhouse_queries
     def test_person_id_filter(self):

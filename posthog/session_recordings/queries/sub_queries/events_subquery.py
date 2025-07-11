@@ -5,11 +5,10 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import legacy_entity_to_node, MathAvailability
-from posthog.models import Team, Action, Entity
+from posthog.models import Team, Entity
 from posthog.schema import (
     RecordingsQuery,
     HogQLQueryModifiers,
-    NodeKind,
 )
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import (
@@ -35,18 +34,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._hogql_query_modifiers = hogql_query_modifiers
 
     @property
-    def _event_predicates(self):
+    def _event_predicates(self) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
-        event_names: set[int | str] = set()
 
         for entity in self.entities:
-            if entity.kind == NodeKind.ACTIONS_NODE:
-                action = Action.objects.get(pk=int(entity.id), team__project_id=self._team.project_id)
-                event_names.update([ae for ae in action.get_step_events() if ae and ae not in event_names])
-            else:
-                if entity.event and entity.event not in event_names:
-                    event_names.add(entity.event)
-
+            # this is always _positive_ operations
             entity_exprs = [_entity_to_expr(entity=entity)]
 
             if entity.properties:
@@ -54,9 +46,29 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
             event_exprs.append(ast.And(exprs=entity_exprs))
 
-        return event_exprs, list(event_names)
+        return event_exprs
 
-    def _select_from_events(self, select_expr: ast.Expr, where_expr: ast.Expr) -> ast.SelectQuery:
+    @property
+    def _negative_event_predicates(self) -> list[ast.Expr]:
+        event_exprs: list[ast.Expr] = []
+
+        for entity in self.entities:
+            # the entity itself is always a positive expression,
+            # so we don't need to check it here where we're looking only
+            # for negative items to check across the session
+            entity_exprs = []
+
+            for prop in entity.properties or []:
+                # TODO how can we make this work for HogQL property filters
+                if "operator" in prop and prop.operator in NEGATIVE_OPERATORS:
+                    entity_exprs.append(property_to_expr(entity.properties, team=self._team, scope="replay_entity"))
+
+            if entity_exprs:
+                event_exprs.append(ast.And(exprs=entity_exprs))
+
+        return event_exprs
+
+    def _select_from_events(self, select_expr: ast.Expr, where_expr: ast.Expr | list[ast.Expr]) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=[select_expr],
             select_from=ast.JoinExpr(
@@ -77,25 +89,25 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         that are avoidable with a simpler approach
         """
         gathered_exprs: list[ast.Expr] = []
-        (event_where_exprs, _) = self._event_predicates
+        event_where_exprs = self._event_predicates
         if event_where_exprs:
             gathered_exprs += event_where_exprs
 
         for p in self.event_properties:
             gathered_exprs.append(
                 property_to_expr(
-                    [p],
+                    p,
                     team=self._team,
                     scope="replay",
                 )
             )
 
         for p in self.group_properties:
-            gathered_exprs.append(property_to_expr([p], team=self._team))
+            gathered_exprs.append(property_to_expr(p, team=self._team))
 
         if self._team.person_on_events_mode and self.person_properties:
             for p in self.person_properties:
-                gathered_exprs.append(property_to_expr([p], team=self._team, scope="event"))
+                gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
 
         queries: list[ast.SelectQuery] = []
         for expr in gathered_exprs:
@@ -151,9 +163,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             timings=hogql_query_response.timings,
         )
 
-    def _where_predicates(self, where_expr: ast.Expr) -> ast.Expr:
+    def _where_predicates(self, where_expr: ast.Expr | list[ast.Expr] | None) -> ast.Expr:
         exprs: list[ast.Expr] = [
-            where_expr,
             ast.Call(
                 name="notEmpty",
                 args=[ast.Field(chain=["$session_id"])],
@@ -170,6 +181,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 right=ast.Call(name="now", args=[]),
             ),
         ]
+
+        if isinstance(where_expr, ast.Expr):
+            exprs.append(where_expr)
+        elif isinstance(where_expr, list):
+            exprs += where_expr
 
         # TRICKY: we're adding a buffer to the date range to ensure we get all the events
         # you can start sending us events before the session starts
@@ -261,3 +277,42 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     @property
     def person_properties(self) -> list[AnyPropertyFilter] | None:
         return [g for g in (self._query.properties or []) if is_person_property(g)]
+
+    def _negative_guard_query(self) -> ast.SelectQuery | None:
+        if self._query.operand == "OR":
+            return None
+
+        gathered_exprs: list[ast.Expr] = []
+
+        event_where_exprs = self._negative_event_predicates
+        for expr in event_where_exprs:
+            gathered_exprs.append(expr)
+
+        for p in self.event_properties:
+            # TODO how can we detect negative queries
+            if "operator" in p and p.operator in NEGATIVE_OPERATORS:
+                gathered_exprs.append(
+                    property_to_expr(
+                        p,
+                        team=self._team,
+                        scope="replay",
+                    )
+                )
+
+        for p in self.group_properties:
+            if p.operator in NEGATIVE_OPERATORS:
+                gathered_exprs.append(property_to_expr(p, team=self._team))
+
+        if self._team.person_on_events_mode and self.person_properties:
+            for p in self.person_properties:
+                # need a solution here for HogQL property filters
+                if "operator" in p and p.operator in NEGATIVE_OPERATORS:
+                    gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
+
+        if gathered_exprs:
+            return self._select_from_events(
+                select_expr=ast.Alias(alias="session_id", expr=ast.Field(chain=["$session_id"])),
+                where_expr=gathered_exprs,
+            )
+        else:
+            return None
