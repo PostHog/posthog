@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0789_migrate_playlist_types"),
-    ]
+    dependencies = [("posthog", "0790_alter_integration_kind")]
 
     operations = [
         migrations.AddField(
