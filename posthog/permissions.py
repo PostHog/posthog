@@ -477,8 +477,8 @@ class AccessControlPermission(ScopeBasePermission):
         if resource == "INTERNAL":
             return None
 
-        READ_LEVEL = ordered_access_levels(resource)[-2]
-        WRITE_LEVEL = ordered_access_levels(resource)[-1]
+        READ_LEVEL = ordered_access_levels(resource)[-3]
+        WRITE_LEVEL = ordered_access_levels(resource)[-2]
 
         if not required_scopes:
             return READ_LEVEL if request.method in SAFE_METHODS else WRITE_LEVEL
