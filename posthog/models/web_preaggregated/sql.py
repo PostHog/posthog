@@ -48,7 +48,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
 
 
 def SESSIONS_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
-    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     return f"""
@@ -66,7 +66,7 @@ def SESSIONS_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
 
 
 def SESSIONS_HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=None):
-    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
@@ -122,8 +122,6 @@ WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
 WEB_BOUNCES_DIMENSIONS = WEB_ANALYTICS_DIMENSIONS
 
 WEB_SESSIONS_DIMENSIONS = [
-    "host",
-    "device_type",
     "initial_referring_domain",
     "initial_utm_source",
     "initial_utm_medium",
@@ -155,13 +153,6 @@ def get_dimension_columns(dimensions):
 
 
 def get_order_by_clause(dimensions, bucket_column="period_bucket"):
-    base_columns = ["team_id", bucket_column, "host", "device_type"]
-    all_columns = base_columns + dimensions
-    column_list = ",\n    ".join(all_columns)
-    return f"(\n    {column_list}\n)"
-
-
-def get_sessions_order_by_clause(dimensions, bucket_column="period_bucket"):
     base_columns = ["team_id", bucket_column, "host", "device_type"]
     all_columns = base_columns + dimensions
     column_list = ",\n    ".join(all_columns)
@@ -205,7 +196,7 @@ def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
 
 
 def WEB_SESSIONS_ORDER_BY_FUNC(bucket_column="period_bucket"):
-    return get_sessions_order_by_clause(WEB_SESSIONS_DIMENSIONS, bucket_column)
+    return get_order_by_clause(WEB_SESSIONS_DIMENSIONS, bucket_column)
 
 
 def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="daily"):
@@ -685,7 +676,6 @@ def WEB_SESSIONS_INSERT_SQL(
     SELECT
         {time_bucket_func}(session_start_timestamp) AS period_bucket,
         team_id,
-        now() AS updated_at,
         host,
         device_type,
 
@@ -711,8 +701,8 @@ def WEB_SESSIONS_INSERT_SQL(
         end_pathname,
 
         -- Session metrics
-        uniqState(toString(session_id_v7)) AS sessions_uniq_state,
         uniqState(person_id) AS persons_uniq_state,
+        uniqState(toString(session_id_v7)) AS sessions_uniq_state,
         sumState(session_duration) AS total_session_duration_state,
         sumState(toUInt64(1)) AS total_session_count_state,
         sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state,

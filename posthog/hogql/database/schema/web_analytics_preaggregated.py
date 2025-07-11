@@ -55,6 +55,32 @@ WEB_BOUNCES_SPECIFIC_FIELDS = {
     "total_session_count_state": DatabaseField(name="total_session_count_state"),
 }
 
+# Web sessions specific fields (session-level aggregations)
+WEB_SESSIONS_SPECIFIC_FIELDS = {
+    "initial_referring_domain": StringDatabaseField(name="initial_referring_domain", nullable=True),
+    "initial_utm_source": StringDatabaseField(name="initial_utm_source", nullable=True),
+    "initial_utm_medium": StringDatabaseField(name="initial_utm_medium", nullable=True),
+    "initial_utm_campaign": StringDatabaseField(name="initial_utm_campaign", nullable=True),
+    "initial_utm_term": StringDatabaseField(name="initial_utm_term", nullable=True),
+    "initial_utm_content": StringDatabaseField(name="initial_utm_content", nullable=True),
+    "initial_browser": StringDatabaseField(name="initial_browser", nullable=True),
+    "initial_os": StringDatabaseField(name="initial_os", nullable=True),
+    "initial_device_type": StringDatabaseField(name="initial_device_type", nullable=True),
+    "initial_viewport_width": IntegerDatabaseField(name="initial_viewport_width", nullable=True),
+    "initial_viewport_height": IntegerDatabaseField(name="initial_viewport_height", nullable=True),
+    "initial_geoip_country_code": StringDatabaseField(name="initial_geoip_country_code", nullable=True),
+    "initial_geoip_subdivision_1_code": StringDatabaseField(name="initial_geoip_subdivision_1_code", nullable=True),
+    "initial_geoip_subdivision_1_name": StringDatabaseField(name="initial_geoip_subdivision_1_name", nullable=True),
+    "initial_geoip_subdivision_city_name": StringDatabaseField(
+        name="initial_geoip_subdivision_city_name", nullable=True
+    ),
+    "entry_pathname": StringDatabaseField(name="entry_pathname", nullable=True),
+    "end_pathname": StringDatabaseField(name="end_pathname", nullable=True),
+    "total_session_duration_state": DatabaseField(name="total_session_duration_state"),
+    "total_session_count_state": DatabaseField(name="total_session_count_state"),
+    "bounces_count_state": DatabaseField(name="bounces_count_state"),
+}
+
 
 # Base table fields present in all tables
 web_preaggregated_base_fields = {
@@ -161,3 +187,31 @@ class WebBouncesCombinedTable(Table):
 
     def to_printed_hogql(self):
         return "web_bounces_combined"
+
+
+class WebSessionsDailyTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **WEB_SESSIONS_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_sessions_daily"
+
+    def to_printed_hogql(self):
+        return "web_sessions_daily"
+
+
+class WebSessionsHourlyTable(Table):
+    fields: dict[str, FieldOrTable] = {
+        **web_preaggregated_base_fields,
+        **web_preaggregated_base_aggregation_fields,
+        **WEB_SESSIONS_SPECIFIC_FIELDS,
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "web_sessions_hourly"
+
+    def to_printed_hogql(self):
+        return "web_sessions_hourly"

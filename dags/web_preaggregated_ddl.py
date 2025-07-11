@@ -242,8 +242,8 @@ def combined_bounces_view_exist(context: dagster.AssetCheckExecutionContext) -> 
     name="daily_sessions_table_exist",
     description="Check if daily sessions table was created",
 )
-def daily_sessions_table_exist() -> AssetCheckResult:
-    return check_table_exist("web_sessions_daily")
+def daily_sessions_table_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_sessions_daily", context)
 
 
 @asset_check(
@@ -251,8 +251,8 @@ def daily_sessions_table_exist() -> AssetCheckResult:
     name="hourly_sessions_table_exist",
     description="Check if hourly sessions table was created",
 )
-def hourly_sessions_table_exist() -> AssetCheckResult:
-    return check_table_exist("web_sessions_hourly")
+def hourly_sessions_table_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_sessions_hourly", context)
 
 
 @asset_check(
@@ -260,5 +260,5 @@ def hourly_sessions_table_exist() -> AssetCheckResult:
     name="combined_sessions_view_exist",
     description="Check if combined sessions view was created",
 )
-def combined_sessions_view_exist() -> AssetCheckResult:
-    return check_table_exist("web_sessions_combined")
+def combined_sessions_view_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
+    return check_table_exist("web_sessions_combined", context)
