@@ -478,7 +478,7 @@ def get_csp_event(request):
         first_distinct_id = csp_report.get("distinct_id", None)
     else:
         # mimic what get_event does if no data is returned from process_csp_report
-        cors_response(
+        return cors_response(
             request,
             generate_exception_response(
                 "csp_report_capture",

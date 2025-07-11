@@ -2592,7 +2592,7 @@ class TestCapture(BaseTest):
 
         assert status.HTTP_400_BAD_REQUEST == response.status_code
         assert response.json()["code"] == "invalid_payload"
-        assert "All events must have the event name field" in response.json()["detail"]
+        assert "Failed to submit CSP report" in response.json()["detail"]
 
     def test_integration_csp_report_with_report_to_format_returns_204(self):
         report_to_format = [
