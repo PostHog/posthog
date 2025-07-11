@@ -910,12 +910,16 @@ function useMathSelectorOptions({
             (option) => 'value' in option && option.value === BaseMathType.UniqueUsers
         )
         if (uniqueUsersIndex !== -1) {
-            const value = uniqueActorsShown === 'users' ? BaseMathType.UniqueUsers : uniqueActorsShown
-            const label =
-                uniqueActorsShown === 'users' ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
+            const isDau = uniqueActorsShown === 'users'
+            const value = isDau ? BaseMathType.UniqueUsers : uniqueActorsShown
+            const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
+            const tooltip = isDau
+                ? options[uniqueUsersIndex].tooltip
+                : uniqueGroupsMathDefinitions[uniqueActorsShown].description
             options[uniqueUsersIndex] = {
                 value,
                 label,
+                tooltip,
                 labelInMenu: (
                     <div className="flex items-center gap-2">
                         <span>Unique</span>
@@ -934,7 +938,6 @@ function useMathSelectorOptions({
                         />
                     </div>
                 ),
-                tooltip: `Unique ${uniqueActorsShown}`,
                 'data-attr': `math-node-unique-actors-${index}`,
             }
         }
