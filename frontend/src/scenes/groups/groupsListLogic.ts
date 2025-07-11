@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -59,6 +60,39 @@ export const groupsListLogic = kea<groupsListLogicType>([
     listeners(({ actions }) => ({
         setQuery: () => {
             actions.setQueryWasModified(true)
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setQuery: () => {
+            if (router.values.location.pathname.indexOf('/groups') > -1) {
+                const searchParams: Record<string, any> = {}
+
+                if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.properties?.length) {
+                    searchParams.properties = JSON.stringify(values.query.source.properties)
+                }
+
+                return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+            }
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        '/groups/*': (_, { properties }) => {
+            if (properties && values.query.source.kind === NodeKind.GroupsQuery) {
+                try {
+                    const parsedProperties = JSON.parse(properties)
+                    if (parsedProperties && Array.isArray(parsedProperties)) {
+                        actions.setQuery({
+                            ...values.query,
+                            source: {
+                                ...values.query.source,
+                                properties: parsedProperties,
+                            },
+                        })
+                    }
+                } catch {
+                    // Invalid JSON in URL, ignore
+                }
+            }
         },
     })),
     afterMount(({ actions, values }) => {
