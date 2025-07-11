@@ -13708,7 +13708,8 @@
                 "intercom",
                 "email",
                 "linear",
-                "github"
+                "github",
+                "meta-ads"
             ],
             "type": "string"
         },

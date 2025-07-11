@@ -24,7 +24,6 @@ import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { HogFlowMetricsService } from './hogflow-metrics.service'
 import { findContinueAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
@@ -51,14 +50,12 @@ export function createHogFlowInvocation(
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Map<string, ActionHandler>
-    private readonly metricsService: HogFlowMetricsService
 
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {
-        this.metricsService = new HogFlowMetricsService()
         this.actionHandlers = this.initializeActionHandlers()
     }
 
@@ -240,7 +237,7 @@ export class HogFlowExecutorService {
                 if (handlerResult.finished) {
                     result.finished = true
                     // Special case for exit - we just track a success metric
-                    this.metricsService.trackActionMetric(result, currentAction, 'succeeded')
+                    this.trackActionMetric(result, currentAction, 'succeeded')
                 }
 
                 if (handlerResult.scheduledAt) {
@@ -253,7 +250,7 @@ export class HogFlowExecutorService {
             } catch (err) {
                 // Add logs and metric specifically for this action
                 this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.metricsService.trackActionMetric(result, currentAction, 'failed')
+                this.trackActionMetric(result, currentAction, 'failed')
 
                 throw err
             }
@@ -292,7 +289,7 @@ export class HogFlowExecutorService {
             message: `Workflow moved to action '${nextAction.name} (${nextAction.id})'`,
         })
 
-        this.metricsService.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
+        this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
 
         return result
     }
@@ -310,7 +307,7 @@ export class HogFlowExecutorService {
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `Workflow will pause until ${scheduledAt.toISO()}`,
+            message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
         })
 
         return result
@@ -334,6 +331,21 @@ export class HogFlowExecutorService {
             level,
             timestamp: DateTime.now(),
             message,
+        })
+    }
+
+    private trackActionMetric(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        metricName: 'failed' | 'succeeded' | 'filtered'
+    ): void {
+        result.metrics.push({
+            team_id: result.invocation.hogFlow.team_id,
+            app_source_id: result.invocation.hogFlow.id,
+            instance_id: action.id,
+            metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
+            metric_name: metricName,
+            count: 1,
         })
     }
 }
