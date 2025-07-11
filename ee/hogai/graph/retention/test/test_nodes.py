@@ -19,7 +19,7 @@ from posthog.test.base import BaseTest
 
 class TestRetentionPlannerNode(BaseTest):
     def test_retention_planner_prompt_has_tools(self):
-        node = RetentionPlannerNode(self.team)
+        node = RetentionPlannerNode(self.team, self.user)
         with patch.object(RetentionPlannerNode, "_model") as model_mock:
 
             def assert_prompt(prompt):
@@ -44,7 +44,7 @@ class TestRetentionGeneratorNode(BaseTest):
         )
 
     def test_node_runs(self):
-        node = RetentionGeneratorNode(self.team)
+        node = RetentionGeneratorNode(self.team, self.user)
         with patch.object(RetentionGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: RetentionSchemaGeneratorOutput(query=self.schema).model_dump()

@@ -16,8 +16,9 @@ from posthog.hogql import ast
 from posthog.hogql.ast import StringType, Constant
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import (
-    MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
+    LimitContext,
+    get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -41,7 +42,12 @@ from posthog.hogql.functions import (
     find_hogql_function,
     find_hogql_posthog_function,
 )
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, HOGQL_COMPARISON_MAPPING, validate_function_args
+from posthog.hogql.functions.mapping import (
+    ALL_EXPOSED_FUNCTION_NAMES,
+    HOGQL_COMPARISON_MAPPING,
+    validate_function_args,
+    is_allowed_parametric_function,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
@@ -262,7 +268,7 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-class _Printer(Visitor):
+class _Printer(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
@@ -447,16 +453,18 @@ class _Printer(Visitor):
 
         limit = node.limit
         if self.context.limit_top_select and is_top_level_query:
+            max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
-                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
+                    limit.value = min(limit.value, max_limit)
                 else:
                     limit = ast.Call(
                         name="min2",
-                        args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit],
+                        args=[ast.Constant(value=max_limit), limit],
                     )
             else:
-                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+                limit = ast.Constant(value=max_limit)
 
         if node.limit_by is not None:
             clauses.append(
@@ -529,7 +537,9 @@ class _Printer(Visitor):
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
-                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                    node.next_join
+                    or node.join_type == "JOIN"
+                    or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
             else:
@@ -892,6 +902,12 @@ class _Printer(Visitor):
             constant_lambda = lambda left_op, right_op: (
                 left_op <= right_op if left_op is not None and right_op is not None else False
             )
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.InCohort:
+            op = f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            op = f"{left} NOT IN COHORT {right}"
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
@@ -1058,6 +1074,31 @@ class _Printer(Visitor):
         # skipping indexes can be used when possible.
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):
             return optimized_property_group_call
+
+        # Validate parametric arguments
+        if func_meta := (
+            find_hogql_aggregation(node.name)
+            or find_hogql_function(node.name)
+            or find_hogql_posthog_function(node.name)
+        ):
+            if func_meta.parametric_first_arg:
+                if not node.args:
+                    raise QueryError(f"Missing arguments in function '{node.name}'")
+                # Check that the first argument is a constant string
+                first_arg = node.args[0]
+                if not isinstance(first_arg, ast.Constant):
+                    raise QueryError(
+                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.__class__.__name__}"
+                    )
+                if not isinstance(first_arg.type, StringType) or not isinstance(first_arg.value, str):
+                    raise QueryError(
+                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.type.__class__.__name__} '{first_arg.value}'"
+                    )
+                # Check that the constant string is within our allowed set of functions
+                if not is_allowed_parametric_function(first_arg.value):
+                    raise QueryError(
+                        f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported."
+                    )
 
         # Handle format strings in function names before checking function type
         if func_meta := (

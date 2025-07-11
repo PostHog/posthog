@@ -7,6 +7,7 @@ from ee.hogai.graph.query_executor.format import (
     SQLResultsFormatter,
     TrendsResultsFormatter,
 )
+from posthog.clickhouse.query_tagging import tags_context, Product
 from posthog.models.team.team import Team
 from posthog.schema import (
     AssistantFunnelsQuery,
@@ -83,7 +84,8 @@ class AssistantQueryExecutor:
         Raises:
             Exception: If query execution fails with descriptive error messages
         """
-        response_dict = self._execute_query(query, execution_mode)
+        with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            response_dict = self._execute_query(query, execution_mode)
 
         try:
             # Attempt to format results using query-specific formatters

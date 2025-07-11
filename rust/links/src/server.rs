@@ -11,7 +11,8 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let external_redis_client = match RedisClient::new(config.external_link_redis_url.clone()) {
+    let external_redis_client = match RedisClient::new(config.external_link_redis_url.clone()).await
+    {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!("Failed to create Redis client: {}", e);
@@ -19,7 +20,8 @@ where
         }
     };
 
-    let internal_redis_client = match RedisClient::new(config.internal_link_redis_url.clone()) {
+    let internal_redis_client = match RedisClient::new(config.internal_link_redis_url.clone()).await
+    {
         Ok(client) => Arc::new(client),
         Err(e) => {
             tracing::error!("Failed to create Redis client: {}", e);

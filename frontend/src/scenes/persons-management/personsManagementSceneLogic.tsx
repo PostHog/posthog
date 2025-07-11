@@ -95,23 +95,21 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     GroupsAccessStatus.NoAccess,
                 ].includes(groupsAccessStatus)
 
-                const groupTabs: PersonsManagementTab[] = [
-                    ...(showGroupsIntroductionPage
-                        ? [
-                              {
-                                  key: 'groups-0',
-                                  label: 'Groups',
-                                  url: urls.groups(0),
-                                  content: <Groups groupTypeIndex={0} />,
-                              },
-                          ]
-                        : Array.from(groupTypes.values()).map((groupType) => ({
-                              key: `groups-${groupType.group_type_index}`,
-                              label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              url: urls.groups(groupType.group_type_index),
-                              content: <Groups groupTypeIndex={groupType.group_type_index} />,
-                          }))),
-                ]
+                const groupTabs: PersonsManagementTab[] = showGroupsIntroductionPage
+                    ? [
+                          {
+                              key: 'groups-0',
+                              label: 'Groups',
+                              url: urls.groups(0),
+                              content: <Groups groupTypeIndex={0} />,
+                          },
+                      ]
+                    : Array.from(groupTypes.values()).map((groupType) => ({
+                          key: `groups-${groupType.group_type_index}`,
+                          label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                          url: urls.groups(groupType.group_type_index),
+                          content: <Groups groupTypeIndex={groupType.group_type_index} />,
+                      }))
 
                 return groupTabs
             },

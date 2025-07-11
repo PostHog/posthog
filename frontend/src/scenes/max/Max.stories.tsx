@@ -20,8 +20,14 @@ import {
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
 import { maxContextLogic } from './maxContextLogic'
+import { MaxFloatingInput } from './MaxFloatingInput'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic, QUESTION_SUGGESTIONS_DATA } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -38,6 +44,18 @@ const meta: Meta = {
                         is_ai_data_processing_approved: true,
                     },
                 ],
+                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                    200,
+                    {
+                        id: CONVERSATION_ID,
+                        status: 'idle',
+                        title: 'Test Conversation',
+                        created_at: '2025-04-29T17:44:21.654307Z',
+                        updated_at: '2025-04-29T17:44:29.184791Z',
+                        messages: [],
+                    },
+                ],
             },
         }),
     ],
@@ -45,7 +63,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: ['artificial-hog'],
+        featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG, FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
     },
 }
 export default meta
@@ -74,22 +92,39 @@ export const Welcome: StoryFn = () => {
 
     return <Template />
 }
+Welcome.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
 
 export const WelcomeFeaturePreviewAutoEnrolled: StoryFn = () => {
     return <Template />
 }
 WelcomeFeaturePreviewAutoEnrolled.parameters = {
     featureFlags: [],
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const Thread: StoryFn = () => {
     const { setConversationId } = useActions(maxLogic)
     const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -102,12 +137,22 @@ export const EmptyThreadLoading: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -125,23 +170,29 @@ export const GenerationFailureThread: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-
     const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
-
     const { askMax, setMessageStatus } = useActions(threadLogic)
     const { threadRaw, threadLoading } = useValues(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
 
     useEffect(() => {
         if (threadRaw.length === 2 && !threadLoading) {
             setMessageStatus(1, 'error')
         }
-    }, [threadRaw.length, threadLoading])
+    }, [threadRaw.length, threadLoading, setMessageStatus])
 
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
     return <Template />
 }
 
@@ -153,12 +204,22 @@ export const ThreadWithFailedGeneration: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -173,12 +234,22 @@ export const ThreadWithRateLimit: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax('Is Bielefeld real?')
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -193,12 +264,22 @@ export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax('Is Finland real?')
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -211,12 +292,22 @@ export const ThreadWithForm: StoryFn = () => {
     })
 
     const { setConversationId } = useActions(maxLogic)
-    const { askMax } = useActions(maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     useEffect(() => {
-        setConversationId(CONVERSATION_ID)
-        askMax(humanMessage.content)
-    }, [])
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
 
     return <Template />
 }
@@ -232,7 +323,7 @@ export const ThreadWithConversationLoading: StoryFn = () => {
 
     useEffect(() => {
         setConversationId(CONVERSATION_ID)
-    }, [])
+    }, [setConversationId])
 
     return <Template />
 }
@@ -253,7 +344,7 @@ export const ThreadWithEmptyConversation: StoryFn = () => {
 
     useEffect(() => {
         setConversationId('empty')
-    }, [])
+    }, [setConversationId])
 
     return <Template />
 }
@@ -270,7 +361,7 @@ export const ThreadWithInProgressConversation: StoryFn = () => {
 
     useEffect(() => {
         setConversationId('in_progress')
-    }, [])
+    }, [setConversationId])
 
     return <Template sidePanel />
 }
@@ -306,7 +397,7 @@ export const ChatHistory: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -327,7 +418,7 @@ export const ChatHistoryEmpty: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -348,7 +439,7 @@ export const ChatHistoryLoading: StoryFn = () => {
 
     useEffect(() => {
         toggleConversationHistory(true)
-    }, [])
+    }, [toggleConversationHistory])
 
     return <Template sidePanel />
 }
@@ -364,7 +455,7 @@ export const ThreadWithOpenedSuggestionsMobile: StoryFn = () => {
     useEffect(() => {
         // The largest group is the set up group
         setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
-    }, [])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }
@@ -383,7 +474,7 @@ export const ThreadWithOpenedSuggestions: StoryFn = () => {
     useEffect(() => {
         // The largest group is the set up group
         setActiveGroup(QUESTION_SUGGESTIONS_DATA[3])
-    }, [])
+    }, [setActiveGroup])
 
     return <Template sidePanel />
 }
@@ -400,8 +491,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
         },
     })
 
-    const { addOrUpdateContextInsight, enableCurrentPageContext, addOrUpdateActiveInsight } =
-        useActions(maxContextLogic)
+    const { addOrUpdateContextInsight } = useActions(maxContextLogic)
 
     useEffect(() => {
         // Add multiple context insights
@@ -424,24 +514,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
                 series: [{ event: 'sign up' }, { event: 'first action' }],
             } as FunnelsQuery,
         })
-
-        // Add active insights for current page context
-        addOrUpdateActiveInsight(
-            {
-                short_id: 'active-insight-1' as InsightShortId,
-                name: 'Current Page Metrics',
-                description: 'Metrics for the current page',
-                query: {
-                    kind: 'TrendsQuery',
-                    series: [{ event: '$pageview' }],
-                } as TrendsQuery,
-            },
-            false
-        )
-
-        // Enable current page context to show active insights/dashboard
-        enableCurrentPageContext()
-    }, [])
+    }, [addOrUpdateContextInsight])
 
     return <Template sidePanel />
 }
@@ -480,12 +553,202 @@ export const ThreadScrollsToBottomOnNewMessages: StoryFn = () => {
     }, [messagesSet, askMax])
 
     return (
-        <div className="h-[800px] overflow-y-auto SidePanel3000__content">
+        <div className="h-fit max-h-screen overflow-y-auto SidePanel3000__content">
             <Template />
         </div>
     )
 }
 ThreadScrollsToBottomOnNewMessages.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const FloatingInput: StoryFn = () => {
+    const { closeSidePanel } = useActions(sidePanelLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        closeSidePanel()
+        setIsFloatingMaxExpanded(false)
+    }, [])
+
+    return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInput: StoryFn = () => {
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+    }, [])
+
+    return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInputWithContextualTools: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register sample contextual tools
+        registerTool({
+            name: 'create_insight' as AssistantContextualTool,
+            displayName: 'Create insight',
+            description: 'Max can create a new insight',
+            context: {
+                dashboard_id: 'test-dashboard',
+                available_events: ['$pageview', '$identify', 'button_clicked'],
+                current_filters: { date_range: 'last_7_days' },
+            },
+            callback: (toolOutput) => {
+                console.info('Creating insight:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'analyze_funnel' as AssistantContextualTool,
+            displayName: 'Analyze funnel',
+            description: 'Max can analyze a funnel',
+            context: {
+                existing_funnels: ['signup_funnel', 'checkout_funnel'],
+                conversion_metrics: { signup_rate: 0.15, checkout_rate: 0.08 },
+            },
+            callback: (toolOutput) => {
+                console.info('Analyzing funnel:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'export_data' as AssistantContextualTool,
+            displayName: 'Export data',
+            description: 'Max can export data in various formats',
+            context: {
+                available_formats: ['csv', 'json', 'parquet'],
+                current_query: { event: '$pageview', breakdown: 'browser' },
+            },
+            callback: (toolOutput) => {
+                console.info('Exporting data:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInputWithSuggestions: StoryFn = () => {
+    const { setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions } = useActions(maxGlobalLogic)
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+        setShowFloatingMaxSuggestions(true)
+    }, [setIsFloatingMaxExpanded, setShowFloatingMaxSuggestions])
+
+    return <MaxFloatingInput />
+}
+
+export const ExpandedFloatingInputMobileView: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/organizations/@current/': () => [
+                200,
+                {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: true,
+                },
+            ],
+        },
+    })
+
+    return <MaxFloatingInput />
+}
+ExpandedFloatingInputMobileView.parameters = {
+    viewport: {
+        defaultViewport: 'mobile2',
+    },
+}
+
+export const ExpandedFloatingInputThread: StoryFn = () => {
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
+    const { setConversationId } = useActions(maxLogic)
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        setIsFloatingMaxExpanded(true)
+    }, [setIsFloatingMaxExpanded])
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <MaxFloatingInput />
+}
+ExpandedFloatingInputThread.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const MaxInstanceWithContextualTools: StoryFn = () => {
+    const { registerTool } = useActions(maxGlobalLogic)
+
+    useEffect(() => {
+        // Register various contextual tools for MaxInstance
+        registerTool({
+            name: 'query_insights' as AssistantContextualTool,
+            displayName: 'Query insights',
+            description: 'Max can query insights and their properties',
+            context: {
+                available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
+                active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
+                user_permissions: ['read_insights', 'create_insights'],
+            },
+            callback: (toolOutput) => {
+                console.info('Querying insights:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'manage_cohorts' as AssistantContextualTool,
+            displayName: 'Manage cohorts',
+            description: 'Max can manage cohorts and their properties',
+            context: {
+                existing_cohorts: [
+                    { id: 1, name: 'Power Users', size: 1250 },
+                    { id: 2, name: 'New Signups', size: 3400 },
+                ],
+                cohort_types: ['behavioral', 'demographic', 'custom'],
+            },
+            callback: (toolOutput) => {
+                console.info('Managing cohorts:', toolOutput)
+            },
+        })
+
+        registerTool({
+            name: 'feature_flags' as AssistantContextualTool,
+            displayName: 'Feature flags',
+            description: 'Max can manage feature flags and their properties',
+            context: {
+                active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
+                flag_stats: { total: 15, active: 8, inactive: 7 },
+                rollout_percentages: { 'new-dashboard': 25, 'beta-feature': 50 },
+            },
+            callback: (toolOutput) => {
+                console.info('Feature flag action:', toolOutput)
+            },
+        })
+    }, [registerTool])
+
+    return <Template />
+}
+MaxInstanceWithContextualTools.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },

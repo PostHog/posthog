@@ -83,7 +83,6 @@ export const maxLogic = kea<maxLogicType>([
         setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
         setActiveStreamingThreads: (inc: 1 | -1) => ({ inc }),
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
-
         /**
          * Save the logic ID for a conversation ID in a cache.
          */
@@ -409,6 +408,7 @@ export const maxLogic = kea<maxLogicType>([
 
         startNewConversation: () => {
             actions.resetContext()
+            actions.focusInput()
         },
     })),
 
@@ -477,6 +477,12 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
     }
 
     const scrollableEl = element.parentElement // .Navigation3000__scene or .SidePanel3000__content
+
+    // Check if the parent element has overflow-y-auto (for floating input case)
+    if (scrollableEl && scrollableEl.classList.contains('overflow-y-auto')) {
+        return scrollableEl
+    }
+
     if (scrollableEl && !scrollableEl.classList.contains('SidePanel3000__content')) {
         // In this case we need to go up to <main>, since .Navigation3000__scene is not scrollable
         return scrollableEl.parentElement

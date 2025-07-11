@@ -5,7 +5,7 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 from posthog.settings import TEST
 from uuid import UUID
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):

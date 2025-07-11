@@ -10,7 +10,13 @@ const ContextMenu = ContextMenuPrimitive.Root
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 
-const ContextMenuGroup = ContextMenuPrimitive.Group
+const ContextMenuGroup = React.forwardRef<
+    React.ElementRef<typeof ContextMenuPrimitive.Group>,
+    React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Group>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px', className)} {...props} />
+})
+ContextMenuGroup.displayName = ContextMenuPrimitive.Group.displayName
 
 const ContextMenuPortal = ContextMenuPrimitive.Portal
 
@@ -38,7 +44,10 @@ const ContextMenuSubContent = React.forwardRef<
         <ContextMenuPrimitive.SubContent
             ref={ref}
             collisionPadding={collisionPadding}
-            className={cn('primitive-menu-content', className)}
+            className={cn(
+                'primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]',
+                className
+            )}
             {...props}
         >
             <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
@@ -58,7 +67,10 @@ const ContextMenuContent = React.forwardRef<
             <ContextMenuPrimitive.Content
                 ref={ref}
                 collisionPadding={collisionPadding}
-                className={cn(`primitive-menu-content`, className)}
+                className={cn(
+                    `primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]`,
+                    className
+                )}
                 {...props}
             >
                 <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">

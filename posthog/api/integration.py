@@ -3,6 +3,7 @@ import json
 import os
 from typing import Any
 
+from urllib.parse import urlencode
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from rest_framework import mixins, serializers, viewsets
@@ -24,6 +25,7 @@ from posthog.models.integration import (
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
     EmailIntegration,
+    GitHubIntegration,
 )
 
 
@@ -74,6 +76,16 @@ class IntegrationSerializer(serializers.ModelSerializer):
             )
             return instance
 
+        elif validated_data["kind"] == "github":
+            config = validated_data.get("config", {})
+            installation_id = config.get("installation_id")
+
+            if not installation_id:
+                raise ValidationError("An installation_id must be provided")
+
+            instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -113,6 +125,13 @@ class IntegrationViewSet(
                 return response
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+        elif kind == "github":
+            query_params = urlencode({"state": token})
+            installation_url = f"https://github.com/apps/{'posthog-error-tracking'}/installations/new?{query_params}"
+            response = redirect(installation_url)
+            response.set_cookie("ph_github_state", token, max_age=60 * 5)
+
+            return response
 
         raise ValidationError("Kind not supported")
 
@@ -246,6 +265,11 @@ class IntegrationViewSet(
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
+
+    @action(methods=["GET"], detail=True, url_path="github_repos")
+    def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        github = GitHubIntegration(self.get_object())
+        return Response({"repositories": github.list_repositories()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):

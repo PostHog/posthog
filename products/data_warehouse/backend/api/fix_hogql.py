@@ -39,7 +39,8 @@ class FixHogQLViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "error_message": error,
                     }
                 },
-                "team_id": self.team_id,
+                "team": self.team,
+                "user": user,
                 "trace_id": trace_id,
                 "distinct_id": user.distinct_id,
             },

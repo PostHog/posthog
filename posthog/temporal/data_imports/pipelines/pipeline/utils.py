@@ -6,7 +6,7 @@ import math
 import uuid
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import deltalake as deltalake
 import numpy as np
@@ -27,6 +27,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import (
     SourceResponse,
 )
 
+if TYPE_CHECKING:
+    from posthog.warehouse.models import ExternalDataSchema
+
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
     "bigint": pa.int64(),
@@ -39,9 +42,13 @@ DLT_TO_PA_TYPE_MAP = {
     "decimal": pa.float64(),
 }
 
-DEFAULT_NUMERIC_PRECISION = 76
-DEFAULT_NUMERIC_SCALE = 32
+DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
+DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+class BillingLimitsWillBeReachedException(Exception):
+    pass
 
 
 class DuplicatePrimaryKeysException(Exception):
@@ -183,8 +190,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
-        for arro3_field in delta_schema.to_arrow():
-            field = pa.field(arro3_field)
+        for field in delta_schema.to_pyarrow():
             if field.name not in py_table_field_names:
                 if field.nullable:
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
@@ -295,46 +301,111 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
     return table
 
 
-PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at"]
+PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
+
+
+def setup_partitioning(
+    pa_table: pa.Table,
+    existing_delta_table: deltalake.DeltaTable | None,
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> pa.Table:
+    partition_count = schema.partition_count or resource.partition_count
+    partition_size = schema.partition_size or resource.partition_size
+    partition_keys = schema.partitioning_keys or resource.partition_keys or resource.primary_keys
+    partition_format = schema.partition_format or resource.partition_format
+    partition_mode = schema.partition_mode or resource.partition_mode
+
+    if not partition_keys:
+        logger.debug("No partition keys, skipping partitioning")
+        return pa_table
+
+    if existing_delta_table:
+        delta_schema = existing_delta_table.schema().to_pyarrow()
+        if PARTITION_KEY not in delta_schema.names:
+            logger.debug("Delta table already exists without partitioning, skipping partitioning")
+            return pa_table
+
+    partition_result = append_partition_key_to_table(
+        table=pa_table,
+        partition_count=partition_count,
+        partition_size=partition_size,
+        partition_keys=partition_keys,
+        partition_mode=partition_mode,
+        partition_format=partition_format,
+        logger=logger,
+    )
+
+    if partition_result is not None:
+        pa_table, partition_mode, updated_partition_keys = partition_result
+
+        if not schema.partitioning_enabled:
+            logger.debug(
+                f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
+            )
+            schema.set_partitioning_enabled(
+                updated_partition_keys, partition_count, partition_size, partition_mode, partition_format
+            )
+
+    return pa_table
 
 
 def append_partition_key_to_table(
     table: pa.Table,
-    partition_count: int,
-    partition_size: int,
+    partition_count: Optional[int],
+    partition_size: Optional[int],
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
-) -> tuple[pa.Table, PartitionMode, list[str]]:
+) -> None | tuple[pa.Table, PartitionMode, list[str]]:
+    """
+    Partitions the pyarrow table via one of three methods:
+    - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
+    - datetime: Uses a stable timestamp, such as a created_at field, to partition the rows
+    - numerical: Uses a numerical primary key to bucket the rows by count
+    """
+
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
+    mode: PartitionMode | None = partition_mode
+
+    if mode is None:
+        # If the source returns a partition count, then we can bucket by md5
+        if partition_count is not None:
+            mode = "md5"
+
+        # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
+        if (
+            partition_size is not None
+            and len(normalized_partition_keys) == 1
+            and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+        ):
+            mode = "numerical"
+        # If the table has a created_at-ish timestamp, then we can partition by this
+        elif any(column_name in table.column_names for column_name in PARTITION_DATETIME_COLUMN_NAMES):
+            for column_name in PARTITION_DATETIME_COLUMN_NAMES:
+                if (
+                    column_name in table.column_names
+                    and pa.types.is_timestamp(table.field(column_name).type)
+                    and table.column(column_name).null_count != table.num_rows
+                ):
+                    mode = "datetime"
+                    normalized_partition_keys = [column_name]
+
+        if mode is None:
+            logger.debug("append_partition_key_to_table: partitioning skipped, no supported partition mode available")
+            return None
+        else:
+            logger.debug(f"append_partition_key_to_table: partitioning mode {mode} selected")
 
     partition_array: list[str] = []
-
-    mode: PartitionMode = partition_mode or "md5"
-
-    # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
-    if (
-        partition_mode is None
-        and len(normalized_partition_keys) == 1
-        and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
-    ):
-        mode = "numerical"
-    elif partition_mode is None and any(
-        column_name in table.column_names for column_name in PARTITION_DATETIME_COLUMN_NAMES
-    ):
-        for column_name in PARTITION_DATETIME_COLUMN_NAMES:
-            if (
-                column_name in table.column_names
-                and pa.types.is_timestamp(table.field(column_name).type)
-                and table.column(column_name).null_count != table.num_rows
-            ):
-                mode = "datetime"
-                normalized_partition_keys = [column_name]
 
     for batch in table.to_batches():
         for row in batch.to_pylist():
             if mode == "md5":
+                assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
+
                 primary_key_values = [str(row[key]) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
 
@@ -343,6 +414,8 @@ def append_partition_key_to_table(
 
                 partition_array.append(str(partition))
             elif mode == "numerical":
+                assert partition_size is not None, "append_partition_key_to_table: partition_size is None"
+
                 key = normalized_partition_keys[0]
                 partition = row[key] // partition_size
 
@@ -361,13 +434,18 @@ def append_partition_key_to_table(
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
                     partition_array.append(date.strftime(date_format))
+                elif isinstance(date, datetime.date):
+                    partition_array.append(date.strftime(date_format))
+                elif isinstance(date, str):
+                    date = parser.parse(date)
+                    partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")
             else:
                 raise ValueError(f"Partition mode '{mode}' not supported")
 
     new_column = pa.array(partition_array, type=pa.string())
-    logger.debug(f"Partition key added with mode={mode}")
+    logger.debug(f"append_partition_key_to_table: Partition key added with mode={mode}")
 
     return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
 
@@ -451,7 +529,7 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
 def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
     for decimal_type in [
         pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
-        pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE),
+        pa.decimal256(76, DEFAULT_NUMERIC_SCALE),
     ]:
         try:
             return pa.array(values, type=decimal_type)
@@ -498,7 +576,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
     # Support both given schemas and inferred schemas
-    if schema is None:
+    if schema is None or len(schema.names) == 0:
         try:
             # Gather all unique keys from all items, not just the first
             all_keys = set().union(*(d.keys() for d in table_data))
@@ -665,7 +743,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     type=new_field_type,
                 )
             except pa.ArrowInvalid as e:
-                if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
+                if len(e.args) > 0 and (
+                    "does not fit into precision" in e.args[0] or "would cause data loss" in e.args[0]
+                ):
                     number_arr = _build_decimal_type_from_defaults([_convert_to_decimal_or_none(x) for x in all_values])
                     new_field_type = number_arr.type
 

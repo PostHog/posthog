@@ -3,7 +3,8 @@ import {
     IconChevronLeft,
     IconClockRewind,
     IconExternal,
-    IconGear,
+    IconCornerDownRight,
+    IconMinus,
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
@@ -22,11 +23,12 @@ import { urls } from 'scenes/urls'
 
 import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { SidebarQuestionInput } from './components/SidebarQuestionInput'
+import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
@@ -34,9 +36,9 @@ import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
-import { QuestionInput } from './QuestionInput'
-import { QuestionInputWithSuggestions } from './QuestionInputWithSuggestions'
 import { Thread } from './Thread'
+import clsx from 'clsx'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: Max,
@@ -46,6 +48,8 @@ export const scene: SceneExport = {
 
 export function Max(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isFloatingMaxExpanded, floatingMaxPosition } = useValues(maxGlobalLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
 
@@ -53,17 +57,28 @@ export function Max(): JSX.Element {
         return <NotFound object="page" caption="You don't have access to AI features yet." />
     }
 
-    if (sidePanelOpen && selectedTab === SidePanelTab.Max) {
+    if (isFloatingMaxExpanded || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
         return (
             <div className="flex flex-col items-center justify-center w-full grow">
-                <IconSidePanel className="text-3xl text-muted mb-2" />
-                <h3 className="text-xl font-bold mb-1">Max is currently in the sidebar</h3>
+                {isFloatingMaxExpanded ? (
+                    <IconCornerDownRight
+                        className={clsx(
+                            'text-3xl text-muted mb-2',
+                            floatingMaxPosition?.side === 'left' && '-scale-x-100'
+                        )}
+                    />
+                ) : (
+                    <IconSidePanel className="text-3xl text-muted mb-2" />
+                )}
+                <h3 className="text-xl font-bold mb-1">
+                    Max is currently {isFloatingMaxExpanded ? 'floating' : 'in the sidebar'}
+                </h3>
                 <p className="text-sm text-muted mb-2">You can navigate freely around the app, or…</p>
                 <LemonButton
                     type="secondary"
                     size="xsmall"
-                    onClick={() => closeSidePanel()}
-                    sideIcon={<IconArrowLeft />}
+                    onClick={() => (isFloatingMaxExpanded ? setIsFloatingMaxExpanded(false) : closeSidePanel())}
+                    sideIcon={isFloatingMaxExpanded ? <IconArrowUp /> : <IconArrowLeft />}
                 >
                     Get him in here
                 </LemonButton>
@@ -82,13 +97,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
     const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
         useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
+    const { setIsFloatingMaxExpanded } = useActions(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         conversationId: threadLogicKey,
         conversation,
     }
 
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { updateEarlyAccessFeatureEnrollment } = useActions(featurePreviewsLogic)
@@ -100,17 +115,19 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
             updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.ARTIFICIAL_HOG, true)
             setWasUserAutoEnrolled(true)
         }
-    }, [])
+    }, [featureFlags, updateEarlyAccessFeatureEnrollment])
 
     const headerButtons = (
         <>
-            <LemonButton
-                size="small"
-                icon={<IconPlus />}
-                onClick={() => startNewConversation()}
-                tooltip="Start a new chat"
-                tooltipPlacement="bottom"
-            />
+            {!conversationHistoryVisible && !threadVisible && (
+                <LemonButton
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={() => startNewConversation()}
+                    tooltip="Start a new chat"
+                    tooltipPlacement="bottom"
+                />
+            )}
             <LemonButton
                 size="small"
                 sideIcon={<IconClockRewind />}
@@ -118,24 +135,30 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                 tooltip="Open chat history"
                 tooltipPlacement="bottom"
             />
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconGear />}
-                onClick={() => {
-                    openSettingsPanel({ settingId: 'core-memory' })
-                    setTimeout(() => document.getElementById('product-description-textarea')?.focus(), 1)
-                }}
-            >
-                Settings
-            </LemonButton>
+            {featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] && (
+                <LemonButton
+                    size="small"
+                    sideIcon={<IconMinus />}
+                    onClick={() => {
+                        closeSidePanel()
+                        setIsFloatingMaxExpanded(true)
+                    }}
+                    tooltip="Minimize to floating Max"
+                />
+            )}
         </>
     )
 
     return (
         <>
             {sidePanel && (
-                <SidePanelPaneHeader className="transition-all duration-200">
+                <SidePanelPaneHeader
+                    className="transition-all duration-200"
+                    onClose={() => {
+                        startNewConversation()
+                        setIsFloatingMaxExpanded(false)
+                    }}
+                >
                     <div className="flex flex-1">
                         <div className="flex items-center flex-1">
                             <AnimatedBackButton in={!backButtonDisabled}>
@@ -168,13 +191,15 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 <LemonSkeleton className="h-5 w-48 ml-1" />
                             )}
                         </div>
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={() => startNewConversation()}
-                            tooltip="Start a new chat"
-                            tooltipPlacement="bottom"
-                        />
+                        {!conversationHistoryVisible && !threadVisible && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconPlus />}
+                                onClick={() => startNewConversation()}
+                                tooltip="Start a new chat"
+                                tooltipPlacement="bottom"
+                            />
+                        )}
                         <LemonButton
                             size="small"
                             sideIcon={<IconExternal />}
@@ -183,6 +208,17 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                             tooltip="Open as main focus"
                             tooltipPlacement="bottom-end"
                         />
+                        {featureFlags[FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG] && (
+                            <LemonButton
+                                size="small"
+                                sideIcon={<IconMinus />}
+                                onClick={() => {
+                                    closeSidePanel()
+                                    setIsFloatingMaxExpanded(true)
+                                }}
+                                tooltip="Minimize to floating Max"
+                            />
+                        )}
                     </div>
                 </SidePanelPaneHeader>
             )}
@@ -218,15 +254,15 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                         )}
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
-                            <QuestionInputWithSuggestions />
+                            <SidebarQuestionInputWithSuggestions />
                         </div>
                         <HistoryPreview sidePanel={sidePanel} />
                     </div>
                 ) : (
                     /** Must be the last child and be a direct descendant of the scrollable element */
                     <ThreadAutoScroller>
-                        <Thread />
-                        <QuestionInput isFloating />
+                        <Thread className="p-3" />
+                        <SidebarQuestionInput isSticky />
                     </ThreadAutoScroller>
                 )}
             </BindLogic>

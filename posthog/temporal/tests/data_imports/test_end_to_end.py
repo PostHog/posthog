@@ -1,8 +1,10 @@
+from datetime import datetime
 import functools
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, cast
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 import aioboto3
 import deltalake
@@ -21,7 +23,6 @@ from stripe import ListObject
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
@@ -39,7 +40,9 @@ from posthog.schema import (
     HogQLQueryModifiers,
     PersonsOnEventsMode,
 )
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -56,10 +59,15 @@ from posthog.warehouse.models.join import DataWarehouseJoin
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME as STRIPE_PAYOUT_RESOURCE_NAME,
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 
@@ -100,36 +108,56 @@ def mock_stripe_client(
     stripe_balance_transaction,
     stripe_charge,
     stripe_customer,
+    stripe_dispute,
+    stripe_invoiceitem,
     stripe_invoice,
+    stripe_payout,
     stripe_price,
     stripe_product,
+    stripe_refund,
     stripe_subscription,
+    stripe_credit_note,
 ):
     with mock.patch("posthog.temporal.data_imports.pipelines.stripe.StripeClient") as MockStripeClient:
         mock_balance_transaction_list = mock.MagicMock()
         mock_charges_list = mock.MagicMock()
         mock_customers_list = mock.MagicMock()
+        mock_disputes_list = mock.MagicMock()
+        mock_invoice_items_list = mock.MagicMock()
         mock_invoice_list = mock.MagicMock()
+        mock_payouts_list = mock.MagicMock()
         mock_price_list = mock.MagicMock()
         mock_product_list = mock.MagicMock()
+        mock_refunds_list = mock.MagicMock()
         mock_subscription_list = mock.MagicMock()
+        mock_credit_notes_list = mock.MagicMock()
 
         mock_balance_transaction_list.auto_paging_iter.return_value = stripe_balance_transaction["data"]
         mock_charges_list.auto_paging_iter.return_value = stripe_charge["data"]
         mock_customers_list.auto_paging_iter.return_value = stripe_customer["data"]
+        mock_disputes_list.auto_paging_iter.return_value = stripe_dispute["data"]
+        mock_invoice_items_list.auto_paging_iter.return_value = stripe_invoiceitem["data"]
         mock_invoice_list.auto_paging_iter.return_value = stripe_invoice["data"]
+        mock_payouts_list.auto_paging_iter.return_value = stripe_payout["data"]
         mock_price_list.auto_paging_iter.return_value = stripe_price["data"]
         mock_product_list.auto_paging_iter.return_value = stripe_product["data"]
+        mock_refunds_list.auto_paging_iter.return_value = stripe_refund["data"]
         mock_subscription_list.auto_paging_iter.return_value = stripe_subscription["data"]
+        mock_credit_notes_list.auto_paging_iter.return_value = stripe_credit_note["data"]
 
         instance = MockStripeClient.return_value
         instance.balance_transactions.list.return_value = mock_balance_transaction_list
         instance.charges.list.return_value = mock_charges_list
         instance.customers.list.return_value = mock_customers_list
+        instance.disputes.list.return_value = mock_disputes_list
+        instance.invoice_items.list.return_value = mock_invoice_items_list
         instance.invoices.list.return_value = mock_invoice_list
+        instance.payouts.list.return_value = mock_payouts_list
         instance.prices.list.return_value = mock_price_list
         instance.products.list.return_value = mock_product_list
+        instance.refunds.list.return_value = mock_refunds_list
         instance.subscriptions.list.return_value = mock_subscription_list
+        instance.credit_notes.list.return_value = mock_credit_notes_list
 
         yield instance
 
@@ -274,12 +302,15 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+            DATA_WAREHOUSE_REDIS_HOST="localhost",
+            DATA_WAREHOUSE_REDIS_PORT="6379",
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
@@ -395,6 +426,71 @@ async def test_stripe_subscription(team, stripe_subscription, mock_stripe_client
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_subscription["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_dispute(team, stripe_dispute, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_DISPUTE_RESOURCE_NAME,
+        table_name="stripe_dispute",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_dispute["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_payout(team, stripe_payout, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_PAYOUT_RESOURCE_NAME,
+        table_name="stripe_payout",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_payout["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_refund(team, stripe_refund, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_REFUND_RESOURCE_NAME,
+        table_name="stripe_refund",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_refund["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_invoiceitem(team, stripe_invoiceitem, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_INVOICE_ITEM_RESOURCE_NAME,
+        table_name="stripe_invoiceitem",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_invoiceitem["data"],
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
+    await _run(
+        team=team,
+        schema_name=STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+        table_name="stripe_creditnote",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_credit_note["data"],
     )
 
 
@@ -1392,6 +1488,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
     # The last call should be an append
@@ -1401,6 +1498,7 @@ async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_co
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
 
@@ -1470,6 +1568,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
     # The subsequent call should be an append
@@ -1479,6 +1578,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "table_or_uri": mock.ANY,
         "data": mock.ANY,
         "partition_by": mock.ANY,
+        "engine": "rust",
     }
 
 
@@ -1723,9 +1823,12 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1809,9 +1912,12 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     )
     await postgres_connection.commit()
 
+    def mock_setup_partitioning(pa_table, existing_delta_table, schema, resource, logger):
+        return pa_table
+
     # Emulate an existing table with no partitions
     with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.should_partition_table", return_value=False
+        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.setup_partitioning", mock_setup_partitioning
     ):
         workflow_id, inputs = await _run(
             team=team,
@@ -1999,7 +2105,11 @@ async def test_row_tracking_incrementing(team, postgres_config, postgres_connect
     mock_finish_row_tracking.assert_called_once()
 
     assert schema_id is not None
-    row_count_in_redis = get_rows(team.id, schema_id)
+    with override_settings(
+        DATA_WAREHOUSE_REDIS_HOST="localhost",
+        DATA_WAREHOUSE_REDIS_PORT="6379",
+    ):
+        row_count_in_redis = get_rows(team.id, schema_id)
 
     assert row_count_in_redis == 1
 
@@ -2095,25 +2205,6 @@ async def test_stripe_earliest_incremental_value(team, stripe_balance_transactio
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_earliest_incremental_value_v2(team, stripe_balance_transaction, mock_stripe_client):
-    with override_settings(STRIPE_V2_TEAM_IDS=[str(team.id)]):
-        _, inputs = await _run(
-            team=team,
-            schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-            table_name="stripe_balancetransaction",
-            source_type="Stripe",
-            job_inputs={"stripe_secret_key": "sk_test_testkey", "stripe_account_id": "acct_id"},
-            mock_data_response=[],
-            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
-        )
-
-        schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
-        assert schema.incremental_field_earliest_value == stripe_balance_transaction["data"][0]["created"]
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
 async def test_append_only_table(team, mock_stripe_client):
     _, inputs = await _run(
         team=team,
@@ -2133,3 +2224,215 @@ async def test_append_only_table(team, mock_stripe_client):
     # We should now have 2 rows with the same `id`
     assert len(res.results) == 2
     assert res.results[0][0] == res.results[1][0]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_worker_shutdown_triggers_schedule_buffer_one(team, stripe_price, mock_stripe_client):
+    def mock_raise_if_is_worker_shutdown(self):
+        raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
+
+    with (
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.trigger_schedule_buffer_one"
+        ) as mock_trigger_schedule_buffer_one,
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 1),
+    ):
+        _, inputs = await _run(
+            team=team,
+            schema_name=STRIPE_PRICE_RESOURCE_NAME,
+            table_name="stripe_price",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            mock_data_response=stripe_price["data"],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    # assert that the running job was completed successfully and that the new workflow was triggered
+    mock_trigger_schedule_buffer_one.assert_called_once_with(mock.ANY, str(inputs.external_data_schema_id))
+
+    run: ExternalDataJob = await get_latest_run_if_exists(
+        team_id=inputs.team_id, pipeline_id=inputs.external_data_source_id
+    )
+    assert run.status == ExternalDataJob.Status.COMPLETED
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits_too_many_rows(team, postgres_config, postgres_connection):
+    from ee.api.test.test_billing import create_billing_customer
+    from ee.models.license import License
+
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
+    ):
+        await sync_to_async(License.objects.create)(
+            key="12345::67890",
+            plan="enterprise",
+            valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_res = create_billing_customer()
+        usage_summary = mock_res.get("usage_summary") or {}
+        mock_billing_request.return_value.status_code = 200
+        mock_billing_request.return_value.json.return_value = {
+            "license": {
+                "type": "scale",
+            },
+            "customer": {
+                **mock_res,
+                "usage_summary": {**usage_summary, "rows_synced": {"limit": 0, "usage": 0}},
+            },
+        }
+
+        await _run(
+            team=team,
+            schema_name="billing_limits",
+            table_name="postgres_billing_limits",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(
+        team_id=team.id, schema__name="billing_limits"
+    )
+
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits_too_many_rows_previously(team, postgres_config, postgres_connection):
+    from ee.api.test.test_billing import create_billing_customer
+    from ee.models.license import License
+
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.billing_limits (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.billing_limits (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("ee.api.billing.requests.get") as mock_billing_request,
+        mock.patch("posthog.cloud_utils.is_instance_licensed_cached", None),
+    ):
+        source = await sync_to_async(ExternalDataSource.objects.create)(team=team)
+        # A previous job that reached the billing limit
+        await sync_to_async(ExternalDataJob.objects.create)(
+            team=team,
+            rows_synced=10,
+            pipeline=source,
+            finished_at=datetime.now(),
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+        )
+
+        await sync_to_async(License.objects.create)(
+            key="12345::67890",
+            plan="enterprise",
+            valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+        )
+
+        mock_res = create_billing_customer()
+        usage_summary = mock_res.get("usage_summary") or {}
+        mock_billing_request.return_value.status_code = 200
+        mock_billing_request.return_value.json.return_value = {
+            "license": {
+                "type": "scale",
+            },
+            "customer": {
+                **mock_res,
+                "usage_summary": {**usage_summary, "rows_synced": {"limit": 10, "usage": 0}},
+            },
+        }
+
+        await _run(
+            team=team,
+            schema_name="billing_limits",
+            table_name="postgres_billing_limits",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.get)(
+        team_id=team.id, schema__name="billing_limits"
+    )
+
+    assert job.status == ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
+
+    with pytest.raises(Exception):
+        await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pipeline_mb_chunk_size(team, zendesk_brands):
+    with (
+        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
+    ):
+        await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "zendesk_subdomain": "test",
+                "zendesk_api_key": "test_api_key",
+                "zendesk_email_address": "test@posthog.com",
+            },
+            mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
+            ignore_assertions=True,
+        )
+
+    # Returning two items should cause the pipeline to process each item individually
+
+    assert mock_process_pa_table.call_count == 2

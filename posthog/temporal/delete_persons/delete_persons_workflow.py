@@ -10,6 +10,7 @@ import temporalio.common
 import temporalio.workflow
 from django.conf import settings
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
@@ -130,6 +131,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
     """Run queries to delete persons and associated entities."""
     async with Heartbeater():
         logger = get_internal_logger()
+        tag_queries(team_id=inputs.team_id)
 
         select_query = SELECT_QUERY.format(
             person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""

@@ -35,11 +35,11 @@ impl DataSource for FolderSource {
         Ok(keys)
     }
 
-    async fn size(&self, key: &str) -> Result<u64, Error> {
+    async fn size(&self, key: &str) -> Result<Option<u64>, Error> {
         self.assert_valid_path(key).await?;
         let path = self.path.join(key);
         let metadata = tokio::fs::metadata(path).await?;
-        Ok(metadata.len())
+        Ok(Some(metadata.len()))
     }
 
     async fn get_chunk(&self, key: &str, offset: u64, size: u64) -> Result<Vec<u8>, Error> {
@@ -97,7 +97,7 @@ mod tests {
     async fn test_size() {
         let (_temp_dir, source) = setup_test_folder().await;
         let size = source.size("test1.txt").await.unwrap();
-        assert_eq!(size, 11);
+        assert_eq!(size, Some(11));
     }
 
     #[tokio::test]

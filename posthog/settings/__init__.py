@@ -107,6 +107,8 @@ AUTO_LOGIN: bool = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 
+OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
+
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)

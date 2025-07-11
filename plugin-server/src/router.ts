@@ -71,7 +71,7 @@ const buildGetHealth =
         if (statusCode === 200) {
             logger.info('💚', 'Server liveness check succeeded')
         } else {
-            logger.info('💔', 'Server liveness check failed', checkResultsMapping)
+            logger.error('💔', 'Server liveness check failed', { checkResults: checkResultsMapping })
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })

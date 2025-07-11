@@ -3,7 +3,6 @@ import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
@@ -68,6 +67,7 @@ import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'>
 
@@ -257,15 +257,18 @@ function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
         ...cleanedFlag,
         filters: {
             ...cleanedFlag.filters,
-            groups: cleanFilterGroups(cleanedFlag.filters?.groups || []),
-            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups || []),
+            groups: cleanFilterGroups(cleanedFlag.filters?.groups) || [],
+            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups),
         },
     }
 }
 
 // Strip out sort_key from groups before saving. The sort_key is here for React to be able to
 // render the release conditions in the correct order.
-function cleanFilterGroups(groups: FeatureFlagGroupType[]): FeatureFlagGroupType[] {
+function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
+    if (groups === undefined || groups === null) {
+        return undefined
+    }
     return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
 }
 
@@ -364,13 +367,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             submit: (featureFlag) => {
-                if (featureFlag.id) {
-                    actions.saveFeatureFlag(featureFlag)
-                } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Feature Flags',
-                        callback: (folder) => actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: folder }),
-                    })
+                // Use confirmation logic from dedicated file
+                const confirmationShown = checkFeatureFlagConfirmation(
+                    values.originalFeatureFlag,
+                    featureFlag,
+                    !!values.currentTeam?.feature_flag_confirmation_enabled,
+                    values.currentTeam?.feature_flag_confirmation_message || undefined,
+                    () => {
+                        // This callback is called when confirmation is completed or not needed
+                        if (featureFlag.id) {
+                            actions.saveFeatureFlag(featureFlag)
+                        } else {
+                            actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                        }
+                    }
+                )
+
+                // If no confirmation was shown, proceed immediately
+                if (!confirmationShown) {
+                    if (featureFlag.id) {
+                        actions.saveFeatureFlag(featureFlag)
+                    } else {
+                        actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                    }
                 }
             },
         },
@@ -468,7 +487,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         filters: {
                             ...state.filters,
                             multivariate: {
-                                ...(state.filters.multivariate || {}),
+                                ...state.filters.multivariate,
                                 variants: [...variants, NEW_VARIANT],
                             },
                         },

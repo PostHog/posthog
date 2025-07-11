@@ -7,7 +7,7 @@ import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/compone
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
-import posthog from 'posthog-js'
+import posthog, { JsonRecord } from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
@@ -27,11 +27,18 @@ export type ActivityFilters = {
 
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
-    markdown: string
+
     // Images can be embedded directly in the markdown using ![alt text](url) syntax.
     // LemonMarkdown will render them.
     // For optimal display, ensure images are reasonably sized (e.g., width < 800px)
     // and optimized for web (e.g., < 500KB).
+    // We suggest you upload it to a CDN to reduce load times/server load.
+    // If you're a PostHog employee, check https://posthog.com/handbook/engineering/posthog-com/assets out
+    markdown: string
+
+    // Optional fields used if you wanna override this to a specific person rather than Joe
+    name?: string
+    email?: string
 }
 
 export interface ChangesResponse {
@@ -113,7 +120,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         // we can't rely on automatic success action here because we swallow errors so always succeed
                         actions.clearErrorCount()
                         return response
-                    } catch (e) {
+                    } catch {
                         // swallow errors as this isn't user initiated
                         // increment a counter to backoff calling the API while errors persist
                         actions.incrementErrorCount()
@@ -221,48 +228,54 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             (s) => [s.importantChanges],
             (importantChanges): HumanizedActivityLogItem[] => {
                 try {
-                    const importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
+                    let importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
 
-                    let changelogNotification: ChangelogFlagPayload | null = null
                     const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
-                    if (flagPayload) {
-                        changelogNotification = {
-                            markdown: flagPayload['markdown'],
-                            notificationDate: dayjs(flagPayload['notificationDate']),
-                            // The separate image field is no longer used.
-                            // Images should be embedded in the markdown string.
-                        } as ChangelogFlagPayload
-                    }
+                    const changelogNotifications = flagPayload
+                        ? (flagPayload as JsonRecord[]).map(
+                              (notification) =>
+                                  ({
+                                      markdown: notification.markdown,
+                                      notificationDate: dayjs(notification.notificationDate as string),
+                                      email: notification.email,
+                                      name: notification.name,
+                                  } as ChangelogFlagPayload)
+                          )
+                        : null
 
-                    if (changelogNotification) {
+                    if (changelogNotifications) {
                         const lastRead = importantChanges?.last_read ? dayjs(importantChanges.last_read) : null
-                        const changeLogIsUnread =
-                            !!lastRead &&
-                            (lastRead.isBefore(changelogNotification.notificationDate) ||
-                                lastRead == changelogNotification.notificationDate)
 
-                        const changelogNotificationHumanized: HumanizedActivityLogItem = {
-                            email: 'joe@posthog.com',
-                            name: 'Joe',
-                            isSystem: true,
-                            description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
-                            created_at: changelogNotification.notificationDate,
-                            unread: changeLogIsUnread,
-                        }
-                        const notifications = [changelogNotificationHumanized, ...importantChangesHumanized]
-                        notifications.sort((a, b) => {
+                        importantChangesHumanized = [
+                            ...importantChangesHumanized,
+                            ...changelogNotifications.map(
+                                (changelogNotification) =>
+                                    ({
+                                        email: changelogNotification.email || 'joe@posthog.com',
+                                        name: changelogNotification.name || 'Joe',
+                                        isSystem: true,
+                                        description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
+                                        created_at: changelogNotification.notificationDate,
+                                        unread: lastRead?.isSameOrBefore(changelogNotification.notificationDate),
+                                    } as HumanizedActivityLogItem)
+                            ),
+                        ]
+
+                        // Sorting this inside the `if` case because there's no need to sort the changelog notifications
+                        // if there are no changelog notifications, since they come from the backend sorted already.
+                        importantChangesHumanized.sort((a: HumanizedActivityLogItem, b: HumanizedActivityLogItem) => {
                             if (a.created_at.isBefore(b.created_at)) {
                                 return 1
                             } else if (a.created_at.isAfter(b.created_at)) {
                                 return -1
                             }
+
                             return 0
                         })
-                        return notifications
                     }
 
-                    return humanize(importantChanges?.results || [], describerFor, true)
-                } catch (e) {
+                    return importantChangesHumanized
+                } catch {
                     // swallow errors as this isn't user initiated
                     return []
                 }

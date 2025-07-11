@@ -13,6 +13,7 @@ import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import { dropOldEventsStep } from './dropOldEventsStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
 import {
@@ -21,6 +22,7 @@ import {
     pipelineStepDLQCounter,
     pipelineStepErrorCounter,
     pipelineStepMsSummary,
+    pipelineStepStalledCounter,
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
@@ -86,6 +88,25 @@ export class EventPipelineRunner {
         }
         const dropIds = this.hub.eventsToDropByToken?.get(key)
         return dropIds?.includes(event.distinct_id) || dropIds?.includes('*') || false
+    }
+
+    validateEvent(event: PluginEvent): true | { warning: string; data: any } {
+        if (event.event === '$groupidentify') {
+            const groupKey = event.properties?.$group_key
+            if (groupKey && groupKey.toString().length > 400) {
+                return {
+                    warning: 'group_key_too_long',
+                    data: {
+                        eventUuid: event.uuid,
+                        event: event.event,
+                        distinctId: event.distinct_id,
+                        groupKeyLength: groupKey.toString().length,
+                        maxLength: 400,
+                    },
+                }
+            }
+        }
+        return true
     }
 
     /**
@@ -164,6 +185,21 @@ export class EventPipelineRunner {
     async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
 
+        // Validate event properties
+        const validationResult = this.validateEvent(event)
+        if (validationResult !== true) {
+            kafkaAcks.push(
+                captureIngestionWarning(
+                    this.hub.db.kafkaProducer,
+                    event.team_id,
+                    validationResult.warning,
+                    validationResult.data,
+                    { alwaysSend: false }
+                )
+            )
+            return this.registerLastStep('validateEventStep', [event], kafkaAcks)
+        }
+
         let processPerson = true // The default.
 
         // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
@@ -238,11 +274,18 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        const dropOldEventsResult = await this.runStep(dropOldEventsStep, [this, event, team], event.team_id)
+
+        if (dropOldEventsResult == null) {
+            // Event was dropped because it's too old.
+            return this.registerLastStep('dropOldEventsStep', [event], kafkaAcks)
+        }
+
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, dropOldEventsResult], event.team_id)
 
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
+            return this.registerLastStep('pluginsProcessEventStep', [dropOldEventsResult], kafkaAcks)
         }
 
         const { event: transformedEvent } = await this.runStep(
@@ -317,6 +360,10 @@ export class EventPipelineRunner {
         }
     }
 
+    private reportStalled(stepName: string) {
+        pipelineStepStalledCounter.labels(stepName).inc()
+    }
+
     protected async runStep<Step extends (...args: any[]) => any>(
         step: Step,
         args: Parameters<Step>,
@@ -329,12 +376,13 @@ export class EventPipelineRunner {
             `Event pipeline step stalled. Timeout warning after ${this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT} sec! step=${step.name} team_id=${teamId} distinct_id=${this.originalEvent.distinct_id}`,
             () => ({
                 step: step.name,
-                event: JSON.stringify(this.originalEvent),
                 teamId: teamId,
+                event_name: this.originalEvent.event,
                 distinctId: this.originalEvent.distinct_id,
             }),
             this.hub.PIPELINE_STEP_STALLED_LOG_TIMEOUT * 1000,
-            sendException
+            sendException,
+            this.reportStalled.bind(this, step.name)
         )
         try {
             const result = await step(...args)

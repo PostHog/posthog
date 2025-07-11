@@ -6,14 +6,20 @@ import { createContext, useContext, useState } from 'react'
 
 import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS } from '../../constants'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import {
+    EXPERIMENT_MAX_PRIMARY_METRICS,
+    EXPERIMENT_MAX_SECONDARY_METRICS,
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
+} from '../../constants'
 import {
     calculateDelta,
     conversionRateForVariant,
     countDataForVariant,
     credibleIntervalForVariant,
     exposureCountDataForVariant,
-} from '../../experimentCalculations'
+} from '../../legacyExperimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
 import { VariantTag } from '../../ExperimentView/components'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
@@ -507,17 +513,19 @@ export function DeltaChart({
     const {
         experimentId,
         experiment,
-        metricResultsLoading,
-        secondaryMetricResultsLoading,
+        primaryMetricsResultsLoading,
+        secondaryMetricsResultsLoading,
         featureFlags,
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
+        secondaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
-    const { openVariantDeltaTimeseriesModal, duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics } = useActions(experimentLogic)
+    const { openVariantDeltaTimeseriesModal } = useActions(modalsLogic)
 
     // Loading state
-    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+    const resultsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
 
     // Chart dimensions
     const dimensions = useChartDimensions(variants)
@@ -548,6 +556,11 @@ export function DeltaChart({
             metric={metric}
             metricType={metricType}
             isPrimaryMetric={!isSecondary}
+            canDuplicateMetric={
+                isSecondary
+                    ? secondaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_SECONDARY_METRICS
+                    : primaryMetricsLengthWithSharedMetrics < EXPERIMENT_MAX_PRIMARY_METRICS
+            }
             onDuplicateMetricClick={() => {
                 duplicateMetric({ metricIndex, isSecondary })
                 updateExperimentMetrics()

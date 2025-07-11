@@ -11,6 +11,7 @@ import {
     DatabaseSchemaViewTable,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'
 
@@ -24,7 +25,9 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             null as Required<DatabaseSchemaQueryResponse> | null,
             {
                 loadDatabase: async (): Promise<Required<DatabaseSchemaQueryResponse> | null> =>
-                    await performQuery({ kind: NodeKind.DatabaseSchemaQuery } as DatabaseSchemaQuery),
+                    await performQuery(
+                        setLatestVersionsOnQuery({ kind: NodeKind.DatabaseSchemaQuery }) as DatabaseSchemaQuery
+                    ),
             },
         ],
     }),

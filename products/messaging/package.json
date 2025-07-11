@@ -6,11 +6,14 @@
         "@xyflow/react": "*",
         "clsx": "*",
         "elkjs": "*",
+        "fast-deep-equal": "*",
         "fuse.js": "*",
         "kea": "*",
         "kea-forms": "*",
         "kea-loaders": "*",
+        "kea-subscriptions": "*",
         "kea-router": "*",
+        "posthog-js": "*",
         "react": "*",
         "zod": "*"
     }

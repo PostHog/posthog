@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from django.db.models import F
 from dlt.sources import DltSource
+from pympler import asizeof
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -15,22 +16,22 @@ from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import (
     trigger_compaction_job,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
     _append_debug_column_to_pyarrows_table,
     _evolve_pyarrow_schema,
     _get_column_hints,
     _get_primary_keys,
     _handle_null_columns_with_definitions,
-    append_partition_key_to_table,
     normalize_column_name,
     normalize_table_column_names,
+    setup_partitioning,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
@@ -40,7 +41,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.pipelines.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
 )
-from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows
+from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import (
     DataWarehouseTable,
@@ -63,13 +64,13 @@ class PipelineNonDLT:
     _internal_schema = HogQLSchema()
     _load_id: int
     _chunk_size: int = 5000
+    _chunk_size_bytes: int = 200 * 1024 * 1024  # 200 MiB
 
     def __init__(
         self,
         source: DltSource | SourceResponse,
         logger: FilteringBoundLogger,
         job_id: str,
-        is_incremental: bool,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
     ) -> None:
@@ -91,7 +92,6 @@ class PipelineNonDLT:
             self._resource_name = source.name
 
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
-        self._is_incremental = is_incremental
         self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
@@ -99,6 +99,7 @@ class PipelineNonDLT:
         schema: ExternalDataSchema | None = self._job.schema
         assert schema is not None
         self._schema = schema
+        self._is_incremental = schema.is_incremental
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
@@ -131,6 +132,12 @@ class PipelineNonDLT:
             if self._resource.rows_to_sync:
                 increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
 
+                # Check billing limits against incoming rows
+                if will_hit_billing_limit(team_id=self._job.team_id, logger=self._logger):
+                    raise BillingLimitsWillBeReachedException(
+                        f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
+                    )
+
             buffer: list[Any] = []
             py_table = None
             row_count = 0
@@ -155,20 +162,26 @@ class PipelineNonDLT:
                 if isinstance(item, list):
                     if len(buffer) > 0:
                         buffer.extend(item)
-                        if len(buffer) >= self._chunk_size:
+                        if asizeof.asizeof(buffer) >= self._chunk_size_bytes or len(buffer) >= self._chunk_size:
+                            self._logger.debug(f"Processing pipeline buffer (list). Length of buffer = {len(buffer)}")
+
                             py_table = table_from_py_list(buffer)
                             buffer = []
+                        else:
+                            continue
                     else:
-                        if len(item) >= self._chunk_size:
+                        if asizeof.asizeof(item) >= self._chunk_size_bytes or len(item) >= self._chunk_size:
+                            self._logger.debug(f"Processing pipeline item (list). Length of item = {len(item)}")
                             py_table = table_from_py_list(item)
                         else:
                             buffer.extend(item)
                             continue
                 elif isinstance(item, dict):
                     buffer.append(item)
-                    if len(buffer) < self._chunk_size:
+                    if asizeof.asizeof(buffer) < self._chunk_size_bytes and len(buffer) < self._chunk_size:
                         continue
 
+                    self._logger.debug(f"Processing pipeline buffer (dict). Length of buffer = {len(buffer)}")
                     py_table = table_from_py_list(buffer)
                     buffer = []
                 elif isinstance(item, pa.Table):
@@ -227,37 +240,7 @@ class PipelineNonDLT:
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
-        if should_partition_table(delta_table, self._schema, self._resource):
-            partition_count = self._schema.partition_count or self._resource.partition_count
-            partition_size = self._schema.partition_size or self._resource.partition_size
-            partition_keys = (
-                self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
-            )
-            partition_format = self._schema.partition_format or self._resource.partition_format
-            partition_mode = self._schema.partition_mode or self._resource.partition_mode
-            if partition_count and partition_keys and partition_size:
-                # This needs to happen before _evolve_pyarrow_schema
-                pa_table, partition_mode, updated_partition_keys = append_partition_key_to_table(
-                    table=pa_table,
-                    partition_count=partition_count,
-                    partition_size=partition_size,
-                    partition_keys=partition_keys,
-                    partition_mode=partition_mode,
-                    partition_format=partition_format,
-                    logger=self._logger,
-                )
-
-                if not self._schema.partitioning_enabled:
-                    self._logger.debug(
-                        f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}"
-                    )
-                    self._schema.set_partitioning_enabled(
-                        updated_partition_keys, partition_count, partition_size, partition_mode
-                    )
-            else:
-                self._logger.debug(
-                    "Skipping partitioning due to missing partition_count or partition_keys or partition_size"
-                )
+        pa_table = setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
@@ -433,28 +416,6 @@ def _get_incremental_field_value(
     return last_value.as_py()
 
 
-def should_partition_table(
-    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
-) -> bool:
-    if not schema.should_use_incremental_field:
-        return False
-
-    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
-        return True
-
-    if source.partition_count is None:
-        return False
-
-    if delta_table is None:
-        return True
-
-    delta_schema = delta_table.schema().to_arrow()
-    if PARTITION_KEY in delta_schema.names:
-        return True
-
-    return False
-
-
 def supports_partial_data_loading(schema: ExternalDataSchema) -> bool:
     """
     We should be able to roll this out to all source types but initially we only support it for Stripe so we can verify
@@ -476,9 +437,9 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
             for user in schema.team.all_users_with_access():
                 if user.distinct_id is not None:
                     posthoganalytics.capture(
-                        user.distinct_id,
-                        "revenue_analytics_ready",
-                        {"source_type": schema.source.source_type},
+                        distinct_id=user.distinct_id,
+                        event="revenue_analytics_ready",
+                        properties={"source_type": schema.source.source_type},
                     )
 
             # Mark the team as notified, avoiding spamming emails

@@ -71,241 +71,197 @@ describe('BatchWritingGroupStore', () => {
         jest.clearAllMocks()
     })
 
-    describe('Batch Writing Disabled', () => {
-        beforeEach(() => {
-            groupStore = new BatchWritingGroupStore(db)
-        })
-
-        it('should fetch group from db multiple times, write multiple times to db', async () => {
-            const groupStoreForBatch = groupStore.forBatch()
-
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now(), false)
-
-            expect(db.postgres.transaction).toHaveBeenCalledTimes(3)
-            expect(db.fetchGroup).toHaveBeenCalledTimes(3)
-            expect(db.updateGroup).toHaveBeenCalledTimes(3)
-
-            const cacheMetrics = groupStoreForBatch.getCacheMetrics()
-
-            // Validate cache operations counter
-            expect(cacheMetrics.cacheHits).toBe(0)
-            expect(cacheMetrics.cacheMisses).toBe(0)
-        })
-
-        it('should insert group if does not exist in postgres', async () => {
-            jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
-            const groupStoreForBatch = groupStore.forBatch()
-
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
-
-            expect(db.fetchGroup).toHaveBeenCalledTimes(1)
-            expect(db.insertGroup).toHaveBeenCalledTimes(1)
-        })
+    beforeEach(() => {
+        groupStore = new BatchWritingGroupStore(db)
     })
 
-    describe('Batch Writing Enabled', () => {
-        beforeEach(() => {
-            groupStore = new BatchWritingGroupStore(db, { batchWritingEnabled: true })
-        })
+    it('should accumulate writes in cache, write once to db', async () => {
+        const groupStoreForBatch = groupStore.forBatch()
 
-        it('should accumulate writes in cache, write once to db', async () => {
-            const groupStoreForBatch = groupStore.forBatch()
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now())
 
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now(), false)
+        await groupStoreForBatch.flush()
 
-            await groupStoreForBatch.flush()
+        expect(db.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        expect(db.updateGroup).toHaveBeenCalledTimes(0)
+        expect(db.insertGroup).toHaveBeenCalledTimes(0)
+        expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            1,
+            'test',
+            1,
+            { a: 'test', b: 'test', c: 'test', test: 'test' },
+            group.created_at,
+            {},
+            {}
+        )
 
-            expect(db.fetchGroup).toHaveBeenCalledTimes(1)
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
-            expect(db.updateGroup).toHaveBeenCalledTimes(0)
-            expect(db.insertGroup).toHaveBeenCalledTimes(0)
-            expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
-                teamId,
-                1,
-                'test',
-                1,
-                { a: 'test', b: 'test', c: 'test', test: 'test' },
-                group.created_at,
-                {},
-                {}
-            )
+        const cacheMetrics = groupStoreForBatch.getCacheMetrics()
 
-            const cacheMetrics = groupStoreForBatch.getCacheMetrics()
+        expect(cacheMetrics.cacheHits).toBe(2)
+        expect(cacheMetrics.cacheMisses).toBe(0)
+    })
 
-            expect(cacheMetrics.cacheHits).toBe(2)
-            expect(cacheMetrics.cacheMisses).toBe(0)
-        })
+    it('should immediately write to db if new group', async () => {
+        jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
+        const groupStoreForBatch = groupStore.forBatch()
 
-        it('should immediately write to db if new group', async () => {
-            jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
-            const groupStoreForBatch = groupStore.forBatch()
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
 
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
+        expect(db.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+        expect(db.updateGroup).toHaveBeenCalledTimes(0)
+        expect(db.insertGroup).toHaveBeenCalledTimes(1)
+    })
 
-            expect(db.fetchGroup).toHaveBeenCalledTimes(1)
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
-            expect(db.updateGroup).toHaveBeenCalledTimes(0)
-            expect(db.insertGroup).toHaveBeenCalledTimes(1)
-        })
+    it('should accumulate changes in cache after db write, even if new group', async () => {
+        jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
+        const groupStoreForBatch = groupStore.forBatch()
+        const createdAt = DateTime.now()
 
-        it('should accumulate changes in cache after db write, even if new group', async () => {
-            jest.spyOn(db, 'fetchGroup').mockResolvedValue(undefined)
-            const groupStoreForBatch = groupStore.forBatch()
-            const createdAt = DateTime.now()
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, createdAt)
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, createdAt)
 
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, createdAt, false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, createdAt, false)
+        await groupStoreForBatch.flush()
 
-            await groupStoreForBatch.flush()
+        expect(db.fetchGroup).toHaveBeenCalledTimes(1)
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        expect(db.updateGroup).toHaveBeenCalledTimes(0)
+        expect(db.insertGroup).toHaveBeenCalledTimes(1)
 
-            expect(db.fetchGroup).toHaveBeenCalledTimes(1)
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
-            expect(db.updateGroup).toHaveBeenCalledTimes(0)
-            expect(db.insertGroup).toHaveBeenCalledTimes(1)
+        expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            1,
+            'test',
+            1,
+            { a: 'test', b: 'test' },
+            createdAt,
+            {},
+            {}
+        )
+    })
 
-            expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
-                teamId,
-                1,
-                'test',
-                1,
-                { a: 'test', b: 'test' },
-                createdAt,
-                {},
-                {}
-            )
-        })
-
-        it('should retry optimistic update if version mismatch', async () => {
-            let fetchCounter = 0
-            let updateCounter = 0
-            jest.spyOn(db, 'fetchGroup').mockImplementation(() => {
-                fetchCounter++
-                if (fetchCounter === 1) {
-                    return Promise.resolve(group)
-                } else {
-                    const updatedGroup = {
-                        ...group,
-                        version: fetchCounter,
-                    }
-                    return Promise.resolve(updatedGroup)
+    it('should retry optimistic update if version mismatch', async () => {
+        let fetchCounter = 0
+        let updateCounter = 0
+        jest.spyOn(db, 'fetchGroup').mockImplementation(() => {
+            fetchCounter++
+            if (fetchCounter === 1) {
+                return Promise.resolve(group)
+            } else {
+                const updatedGroup = {
+                    ...group,
+                    version: fetchCounter,
                 }
-            })
-            jest.spyOn(db, 'updateGroupOptimistically').mockImplementation(() => {
-                updateCounter++
-                if (updateCounter < 3) {
-                    // Fail the first two updates
-                    return Promise.resolve(undefined)
-                }
-                return Promise.resolve(updateCounter)
-            })
-
-            const groupStoreForBatch = groupStore.forBatch()
-
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now(), false)
-
-            await groupStoreForBatch.flush()
-
-            // Should fetch 3 times, 1 for initial fetch, 2 for retries
-            expect(db.fetchGroup).toHaveBeenCalledTimes(3)
-            // Should make 3 updates, 2 failed, 1 successful
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(3)
-            expect(db.updateGroup).toHaveBeenCalledTimes(0)
-
-            expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
-                teamId,
-                1,
-                'test',
-                3,
-                { a: 'test', b: 'test', c: 'test', test: 'test' },
-                group.created_at,
-                {},
-                {}
-            )
+                return Promise.resolve(updatedGroup)
+            }
+        })
+        jest.spyOn(db, 'updateGroupOptimistically').mockImplementation(() => {
+            updateCounter++
+            if (updateCounter < 3) {
+                // Fail the first two updates
+                return Promise.resolve(undefined)
+            }
+            return Promise.resolve(updateCounter)
         })
 
-        it('should fall back to direct upsert if optimistic update fails', async () => {
-            jest.spyOn(db, 'updateGroupOptimistically').mockResolvedValue(undefined)
-            jest.spyOn(db, 'updateGroup').mockResolvedValue(2)
-            jest.spyOn(db, 'fetchGroup').mockResolvedValue(group)
-            const groupStoreForBatch = groupStore.forBatch()
+        const groupStoreForBatch = groupStore.forBatch()
 
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'updated' }, DateTime.now(), false)
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now())
 
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
-            expect(db.updateGroup).toHaveBeenCalledTimes(0)
-            expect(db.upsertGroupClickhouse).toHaveBeenCalledTimes(0)
+        await groupStoreForBatch.flush()
 
-            await groupStoreForBatch.flush()
+        // Should fetch 3 times, 1 for initial fetch, 2 for retries
+        expect(db.fetchGroup).toHaveBeenCalledTimes(3)
+        // Should make 3 updates, 2 failed, 1 successful
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(3)
+        expect(db.updateGroup).toHaveBeenCalledTimes(0)
 
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(5)
-            expect(db.updateGroup).toHaveBeenCalledTimes(1)
-            expect(db.upsertGroupClickhouse).toHaveBeenCalledTimes(1)
-        })
+        expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            1,
+            'test',
+            3,
+            { a: 'test', b: 'test', c: 'test', test: 'test' },
+            group.created_at,
+            {},
+            {}
+        )
+    })
 
-        it('should share cache between distinct ids', async () => {
-            const groupStoreForBatch = groupStore.forBatch()
+    it('should fall back to direct upsert if optimistic update fails', async () => {
+        jest.spyOn(db, 'updateGroupOptimistically').mockResolvedValue(undefined)
+        jest.spyOn(db, 'updateGroup').mockResolvedValue(2)
+        jest.spyOn(db, 'fetchGroup').mockResolvedValue(group)
+        const groupStoreForBatch = groupStore.forBatch()
 
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now(), false)
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'updated' }, DateTime.now())
 
-            await groupStoreForBatch.flush()
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+        expect(db.updateGroup).toHaveBeenCalledTimes(0)
+        expect(db.upsertGroupClickhouse).toHaveBeenCalledTimes(0)
 
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
-            expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
-                teamId,
-                1,
-                'test',
-                1,
-                { a: 'test', b: 'test', test: 'test' },
-                group.created_at,
-                {},
-                {}
-            )
-        })
+        await groupStoreForBatch.flush()
 
-        it('should not write to db if no properties are changed', async () => {
-            const groupStoreForBatch = groupStore.forBatch()
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(5)
+        expect(db.updateGroup).toHaveBeenCalledTimes(1)
+        expect(db.upsertGroupClickhouse).toHaveBeenCalledTimes(1)
+    })
 
-            // Mock the db.fetchGroup to return a group with the same properties
-            jest.spyOn(db, 'fetchGroup').mockResolvedValue(group)
+    it('should share cache between distinct ids', async () => {
+        const groupStoreForBatch = groupStore.forBatch()
 
-            await groupStoreForBatch.upsertGroup(
-                teamId,
-                projectId,
-                1,
-                'test',
-                group.group_properties,
-                DateTime.now(),
-                false
-            )
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
 
-            await groupStoreForBatch.flush()
+        await groupStoreForBatch.flush()
 
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
-            expect(db.updateGroup).toHaveBeenCalledTimes(0)
-            expect(db.insertGroup).toHaveBeenCalledTimes(0)
-        })
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        expect(db.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            1,
+            'test',
+            1,
+            { a: 'test', b: 'test', test: 'test' },
+            group.created_at,
+            {},
+            {}
+        )
+    })
 
-        it('should capture warning and stop retrying if message size too large', async () => {
-            // we need to mock the kafka producer queueMessages method
-            db.upsertGroupClickhouse = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
+    it('should not write to db if no properties are changed', async () => {
+        const groupStoreForBatch = groupStore.forBatch()
 
-            const groupStoreForBatch = groupStore.forBatch()
+        // Mock the db.fetchGroup to return a group with the same properties
+        jest.spyOn(db, 'fetchGroup').mockResolvedValue(group)
 
-            await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now(), false)
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', group.group_properties, DateTime.now())
 
-            await groupStoreForBatch.flush()
+        await groupStoreForBatch.flush()
 
-            expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
-            expect(db.updateGroup).toHaveBeenCalledTimes(0)
-            expect(db.insertGroup).toHaveBeenCalledTimes(0)
-            expect(captureIngestionWarning).toHaveBeenCalledTimes(1)
-        })
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(0)
+        expect(db.updateGroup).toHaveBeenCalledTimes(0)
+        expect(db.insertGroup).toHaveBeenCalledTimes(0)
+    })
+
+    it('should capture warning and stop retrying if message size too large', async () => {
+        // we need to mock the kafka producer queueMessages method
+        db.upsertGroupClickhouse = jest.fn().mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
+
+        const groupStoreForBatch = groupStore.forBatch()
+
+        await groupStoreForBatch.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+
+        await groupStoreForBatch.flush()
+
+        expect(db.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+        expect(db.updateGroup).toHaveBeenCalledTimes(0)
+        expect(db.insertGroup).toHaveBeenCalledTimes(0)
+        expect(captureIngestionWarning).toHaveBeenCalledTimes(1)
     })
 })

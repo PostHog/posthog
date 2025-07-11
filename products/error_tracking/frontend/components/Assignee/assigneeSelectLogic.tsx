@@ -1,11 +1,10 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
-import { userGroupsLogic } from 'scenes/settings/environment/userGroupsLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import type { OrganizationMemberType, RoleType, UserGroup } from '~/types'
+import type { OrganizationMemberType, RoleType } from '~/types'
 
 import type { assigneeSelectLogicType } from './assigneeSelectLogicType'
 
@@ -19,19 +18,13 @@ export type UserAssignee = {
     user: OrganizationMemberType['user']
 }
 
-export type GroupAssignee = {
-    id: string
-    type: 'group'
-    group: UserGroup
-}
-
 export type RoleAssignee = {
     id: string
     type: 'role'
     role: RoleType
 }
 
-export type Assignee = UserAssignee | GroupAssignee | RoleAssignee | null
+export type Assignee = UserAssignee | RoleAssignee | null
 
 export interface RolesFuse extends Fuse<RoleType> {}
 
@@ -43,17 +36,10 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         values: [
             membersLogic,
             ['meFirstMembers', 'filteredMembers', 'membersLoading'],
-            userGroupsLogic,
-            ['userGroups', 'filteredGroups', 'userGroupsLoading'],
             rolesLogic,
             ['roles', 'rolesLoading'],
         ],
-        actions: [
-            membersLogic,
-            ['setSearch as setMembersSearch', 'ensureAllMembersLoaded'],
-            userGroupsLogic,
-            ['setSearch as setGroupsSearch', 'ensureAllGroupsLoaded'],
-        ],
+        actions: [membersLogic, ['setSearch as setMembersSearch', 'ensureAllMembersLoaded']],
     })),
 
     actions({
@@ -67,20 +53,17 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
 
     listeners(({ values, actions }) => ({
         setSearch: () => {
-            actions.setGroupsSearch(values.search)
             actions.setMembersSearch(values.search)
         },
         ensureAssigneeTypesLoaded: () => {
-            actions.ensureAllGroupsLoaded()
             actions.ensureAllMembersLoaded()
         },
     })),
 
     selectors({
         loading: [
-            (s) => [s.membersLoading, s.userGroupsLoading, s.rolesLoading],
-            (membersLoading, userGroupsLoading, rolesLoading): boolean =>
-                membersLoading || userGroupsLoading || rolesLoading,
+            (s) => [s.membersLoading, s.rolesLoading],
+            (membersLoading, rolesLoading): boolean => membersLoading || rolesLoading,
         ],
 
         rolesFuse: [
@@ -94,20 +77,11 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
         ],
 
         resolveAssignee: [
-            (s) => [s.userGroups, s.roles, s.meFirstMembers],
-            (groups, roles, members): ((assignee: ErrorTrackingIssue['assignee']) => Assignee) => {
+            (s) => [s.roles, s.meFirstMembers],
+            (roles, members): ((assignee: ErrorTrackingIssue['assignee']) => Assignee) => {
                 return (assignee: ErrorTrackingIssue['assignee']) => {
                     if (assignee) {
-                        if (assignee.type === 'user_group') {
-                            const assignedGroup = groups.find((group) => group.id === assignee.id)
-                            return assignedGroup
-                                ? {
-                                      id: assignedGroup.id,
-                                      type: 'group',
-                                      group: assignedGroup,
-                                  }
-                                : null
-                        } else if (assignee.type === 'role') {
+                        if (assignee.type === 'role') {
                             const assignedRole = roles.find((role) => role.id === assignee.id)
                             return assignedRole
                                 ? {

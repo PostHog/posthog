@@ -53,7 +53,6 @@ import {
 import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { insightSceneLogic } from '../insightSceneLogic'
 import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
@@ -122,7 +121,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
         ],
-        actions: [insightDataLogic(props), ['setQuery'], insightSceneLogic, ['setOpenedWithQuery']],
+        actions: [insightDataLogic(props), ['setQuery']],
     })),
     actions({
         setActiveView: (view: InsightType) => ({ view }),
@@ -256,10 +255,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         ? mergeCachedProperties(query.source, values.queryPropertyCache)
                         : query.source,
                 } as InsightVizNode)
-                actions.setOpenedWithQuery(query)
             } else {
                 actions.setQuery(query)
-                actions.setOpenedWithQuery(query)
             }
         },
         setQuery: ({ query }) => {

@@ -117,16 +117,16 @@ async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
 
 
 async def _get_workflows(
-    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], is_incremental: bool
+    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], should_use_incremental_field: bool
 ):
-    query = "ORDER BY CloseTime asc"
-    if is_incremental and db_incremental_field_last_value:
+    query: str | None = None
+    if should_use_incremental_field and db_incremental_field_last_value:
         if not isinstance(db_incremental_field_last_value, datetime.datetime):
             raise Exception(
                 f"Incremental field last value should be a datetime, but instead is {db_incremental_field_last_value.__class__}"
             )
 
-        query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}" {query}'
+        query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
     client = await _get_temporal_client(config)
     workflows = client.list_workflows(query=query)
@@ -135,16 +135,16 @@ async def _get_workflows(
 
 
 async def _get_workflow_histories(
-    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], is_incremental: bool
+    config: TemporalIOSourceConfig, db_incremental_field_last_value: Optional[Any], should_use_incremental_field: bool
 ):
-    query = "ORDER BY CloseTime asc"
-    if is_incremental and db_incremental_field_last_value:
+    query: str | None = None
+    if should_use_incremental_field and db_incremental_field_last_value:
         if not isinstance(db_incremental_field_last_value, datetime.datetime):
             raise Exception(
                 f"Incremental field last value should be a datetime, but instead is {db_incremental_field_last_value.__class__}"
             )
 
-        query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}" {query}'
+        query = f'CloseTime >= "{db_incremental_field_last_value.strftime("%Y-%m-%dT%H:%M:%S.000Z")}"'
 
     client = await _get_temporal_client(config)
     workflows = client.list_workflows(query=query)
@@ -175,12 +175,12 @@ def temporalio_source(
     config: TemporalIOSourceConfig,
     resource: TemporalIOResource,
     db_incremental_field_last_value: Optional[Any],
-    is_incremental: bool = False,
+    should_use_incremental_field: bool = False,
 ) -> SourceResponse:
     if resource == TemporalIOResource.Workflows:
 
         async def get_workflows_iterator():
-            return _get_workflows(config, db_incremental_field_last_value, is_incremental)
+            return _get_workflows(config, db_incremental_field_last_value, should_use_incremental_field)
 
         workflows = _async_iter_to_sync(asyncio.run(get_workflows_iterator()))
 
@@ -193,11 +193,12 @@ def temporalio_source(
             partition_mode="datetime",
             partition_format="day",
             partition_keys=["close_time"],
+            sort_mode="desc",
         )
     elif resource == TemporalIOResource.WorkflowHistories:
 
         async def get_histories_iterator():
-            return _get_workflow_histories(config, db_incremental_field_last_value, is_incremental)
+            return _get_workflow_histories(config, db_incremental_field_last_value, should_use_incremental_field)
 
         workflows = _async_iter_to_sync(asyncio.run(get_histories_iterator()))
 
@@ -210,6 +211,7 @@ def temporalio_source(
             partition_mode="datetime",
             partition_format="day",
             partition_keys=["workflow_close_time"],
+            sort_mode="desc",
         )
     else:
         raise Exception(f"TemporalIOResource '{resource}' not recognised")

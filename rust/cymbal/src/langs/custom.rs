@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
-use crate::frames::{Context, ContextLine, Frame};
+use crate::{
+    frames::{Context, ContextLine, Frame},
+    langs::CommonFrameMetadata,
+};
 
 // Generic frame layout, meant for users hacking up their own implementations
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -21,9 +24,9 @@ pub struct CustomFrame {
     #[serde(default)]
     pub post_context: Vec<String>, // The lines of code after the context line
     #[serde(default)]
-    pub in_app: bool, // Whether the frame is in the user's code
-    #[serde(default)]
     pub resolved: bool, // Whether the frame has been resolved, or is minified/mangled
+    #[serde(flatten)]
+    meta: CommonFrameMetadata,
 }
 
 impl CustomFrame {
@@ -89,7 +92,7 @@ impl From<&CustomFrame> for Frame {
             line: value.lineno,
             column: value.colno,
             source: value.filename.clone(),
-            in_app: value.in_app,
+            in_app: value.meta.in_app,
             resolved_name: Some(value.function.clone()),
             lang: value.lang.clone(),
             resolved: value.resolved,
@@ -97,6 +100,7 @@ impl From<&CustomFrame> for Frame {
             junk_drawer: None,
             context: value.get_context(),
             release: None,
+            synthetic: value.meta.synthetic,
         }
     }
 }

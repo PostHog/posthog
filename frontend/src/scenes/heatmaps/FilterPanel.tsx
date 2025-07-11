@@ -103,7 +103,7 @@ export function FilterPanel({
                         dateFrom={commonFilters?.date_from}
                         dateTo={commonFilters?.date_to}
                         onChange={(fromDate, toDate) => {
-                            setCommonFilters?.({ ...(commonFilters || {}), date_from: fromDate, date_to: toDate })
+                            setCommonFilters?.({ ...commonFilters, date_from: fromDate, date_to: toDate })
                         }}
                         dateOptions={heatmapDateOptions}
                     />
@@ -111,7 +111,7 @@ export function FilterPanel({
                         filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
                         onChange={(value) => {
                             setCommonFilters?.({
-                                ...(commonFilters || {}),
+                                ...commonFilters,
                                 filter_test_accounts: value.filter_test_accounts,
                             })
                         }}

@@ -423,7 +423,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         savedItems: [
             (s) => [s.folders],
             (folders): FileSystemEntry[] =>
-                Object.entries(folders).reduce((acc, [_, items]) => [...acc, ...items], [] as FileSystemEntry[]),
+                Object.entries(folders).reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[]),
         ],
         savedItemsLoading: [
             (s) => [s.folderStates],
@@ -511,10 +511,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             (s) => [s.viableItems],
             (viableItems): Record<string, FileSystemEntry> =>
                 viableItems.reduce(
-                    (acc, item) => ({
-                        ...acc,
-                        [item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id]: item,
-                    }),
+                    (acc, item) =>
+                        Object.assign(acc, {
+                            [item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id]: item,
+                        }),
                     {} as Record<string, FileSystemEntry>
                 ),
         ],

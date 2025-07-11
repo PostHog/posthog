@@ -12,7 +12,6 @@ use crate::{
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup},
-        flag_request::FlagRequest,
         flag_service::FlagService,
     },
     handler::{
@@ -183,6 +182,7 @@ async fn test_evaluate_feature_flags() {
         group_property_overrides: None,
         groups: None,
         hash_key_override: None,
+        flag_keys: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -263,6 +263,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         group_property_overrides: None,
         groups: None,
         hash_key_override: None,
+        flag_keys: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -655,6 +656,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         group_property_overrides: None,
         groups: None,
         hash_key_override: None,
+        flag_keys: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -747,6 +749,7 @@ async fn test_evaluate_feature_flags_details() {
         group_property_overrides: None,
         groups: None,
         hash_key_override: None,
+        flag_keys: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -891,6 +894,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         group_property_overrides: Some(group_property_overrides),
         groups: Some(groups),
         hash_key_override: None,
+        flag_keys: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -971,6 +975,7 @@ async fn test_long_distinct_id() {
         group_property_overrides: None,
         groups: None,
         hash_key_override: None,
+        flag_keys: None,
     };
 
     let request_id = Uuid::new_v4();
@@ -1095,9 +1100,14 @@ fn test_decode_request_content_types() {
 
 #[tokio::test]
 async fn test_fetch_and_filter_flags() {
-    let redis_client = setup_redis_client(None);
+    let redis_reader_client = setup_redis_client(None).await;
+    let redis_writer_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
-    let flag_service = FlagService::new(redis_client.clone(), reader.clone());
+    let flag_service = FlagService::new(
+        redis_reader_client.clone(),
+        redis_writer_client.clone(),
+        reader.clone(),
+    );
     let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
     // Create a mix of survey and non-survey flags
@@ -1151,7 +1161,7 @@ async fn test_fetch_and_filter_flags() {
     // Insert flags into redis
     let flags_json = serde_json::to_string(&flags).unwrap();
     insert_flags_for_team_in_redis(
-        redis_client.clone(),
+        redis_reader_client.clone(),
         team.id,
         team.project_id,
         Some(flags_json),
@@ -1159,18 +1169,12 @@ async fn test_fetch_and_filter_flags() {
     .await
     .unwrap();
 
-    let base_request = FlagRequest {
-        token: Some(team.api_token.clone()),
-        distinct_id: Some("test_user".to_string()),
-        ..Default::default()
-    };
-
     // Test 1: only_evaluate_survey_feature_flags = true
     let query_params = FlagsQueryParams {
         only_evaluate_survey_feature_flags: Some(true),
         ..Default::default()
     };
-    let result = fetch_and_filter(&flag_service, team.project_id, &base_request, &query_params)
+    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 2);
@@ -1184,7 +1188,7 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(false),
         ..Default::default()
     };
-    let result = fetch_and_filter(&flag_service, team.project_id, &base_request, &query_params)
+    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 4);
@@ -1195,7 +1199,7 @@ async fn test_fetch_and_filter_flags() {
 
     // Test 3: only_evaluate_survey_feature_flags not set
     let query_params = FlagsQueryParams::default();
-    let result = fetch_and_filter(&flag_service, team.project_id, &base_request, &query_params)
+    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 4);
@@ -1204,30 +1208,21 @@ async fn test_fetch_and_filter_flags() {
         .iter()
         .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
 
-    // Test 4: Both survey filter and specific keys requested
-    let request = FlagRequest {
-        flag_keys: Some(vec![
-            format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1"),
-            "regular_flag1".to_string(),
-        ]),
-        ..base_request
-    };
-
+    // Test 4: Survey filter only (flag_keys filtering now happens in evaluation logic)
     let query_params = FlagsQueryParams {
         only_evaluate_survey_feature_flags: Some(true),
         ..Default::default()
     };
 
-    let result = fetch_and_filter(&flag_service, team.project_id, &request, &query_params)
+    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
 
-    // Should only return survey1 since both filters are applied:
-    // 1. Survey filter keeps only survey flags
-    // 2. Key filter then keeps only survey1 from those
-    assert_eq!(result.flags.len(), 1);
-    assert_eq!(
-        result.flags[0].key,
-        format!("{}{}", SURVEY_TARGETING_FLAG_PREFIX, "survey1")
-    );
+    // Should return all survey flags since flag_keys filtering now happens in evaluation logic
+    // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation
+    assert_eq!(result.flags.len(), 2);
+    assert!(result
+        .flags
+        .iter()
+        .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
 }

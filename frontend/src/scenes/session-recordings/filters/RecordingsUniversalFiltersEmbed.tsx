@@ -1,14 +1,5 @@
-import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonButtonProps,
-    LemonInput,
-    LemonModal,
-    LemonTab,
-    LemonTabs,
-    Popover,
-} from '@posthog/lemon-ui'
+import { IconArrowRight, IconClock, IconFilter, IconPlus, IconRevert, IconX, IconEye, IconHide } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
@@ -46,8 +37,48 @@ import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPla
 import { savedSessionRecordingPlaylistsLogic } from '../saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { DurationFilter } from './DurationFilter'
-import { HideRecordingsMenu } from './RecordingsUniversalFilters'
 import { SavedFilters } from './SavedFilters'
+
+function HideRecordingsMenu(): JSX.Element {
+    const { hideViewedRecordings, hideRecordingsMenuLabelFor } = useValues(playerSettingsLogic)
+    const { setHideViewedRecordings } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const items = [
+        {
+            label: hideRecordingsMenuLabelFor(false),
+            onClick: () => setHideViewedRecordings(false),
+            active: !hideViewedRecordings,
+            'data-attr': 'hide-viewed-recordings-show-all',
+        },
+        {
+            label: hideRecordingsMenuLabelFor('current-user'),
+            onClick: () => setHideViewedRecordings('current-user'),
+            active: hideViewedRecordings === 'current-user',
+            'data-attr': 'hide-viewed-recordings-hide-current-user',
+        },
+    ]
+
+    // If the person wished to be excluded from the hide recordings menu, we don't show the option to hide recordings that other people have watched
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_EXCLUDE_FROM_HIDE_RECORDINGS_MENU]) {
+        items.push({
+            label: hideRecordingsMenuLabelFor('any-user'),
+            onClick: () => setHideViewedRecordings('any-user'),
+            active: hideViewedRecordings === 'any-user',
+            'data-attr': 'hide-viewed-recordings-hide-any-user',
+        })
+    }
+
+    return (
+        <SettingsMenu
+            highlightWhenActive={false}
+            items={items}
+            icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
+            rounded={true}
+            label={hideRecordingsMenuLabelFor(hideViewedRecordings)}
+        />
+    )
+}
 
 export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
@@ -69,6 +100,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             <MaxTool
                 name="search_session_recordings"
                 displayName="Search recordings"
+                description="Max can set up filters for the recordings list"
                 context={{
                     current_filters: filters,
                 }}
@@ -188,7 +220,7 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
 
@@ -392,61 +424,71 @@ export const RecordingsUniversalFiltersEmbed = ({
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
                             >
-                                <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
+                                <RecordingsUniversalFilterGroup />
                             </UniversalFilters>
                         </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 items-center mt-8 justify-end border-t pt-4 mx-2">
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            onClick={handleResetFilters}
-                            icon={<IconRevert />}
-                            tooltip="Reset any changes you've made to the filters"
-                            disabledReason={
-                                !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
-                            }
-                        >
-                            Reset filters
-                        </LemonButton>
-                        {appliedSavedFilter ? (
+                    <div className="flex justify-between gap-2 border-t pt-4 mx-2 mt-8 ">
+                        <div className="flex flex-wrap gap-2 items-center justify-end">
                             <LemonButton
-                                type="secondary"
+                                type="tertiary"
                                 size="small"
-                                onClick={() => void updateSavedFilter()}
-                                tooltip="Update saved filter"
+                                onClick={handleResetFilters}
+                                icon={<IconRevert />}
+                                tooltip="Reset any changes you've made to the filters"
                                 disabledReason={
-                                    equal(appliedSavedFilter.filters, filters) ? 'No changes to update' : undefined
+                                    !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
                                 }
-                                sideAction={{
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={[
-                                                    {
-                                                        label: 'Save as a new filter',
-                                                        onClick: () => setIsSaveFiltersModalOpen(true),
-                                                    },
-                                                ]}
-                                            />
-                                        ),
-                                    },
-                                }}
                             >
-                                Update "{appliedSavedFilter.name || 'Unnamed'}"
+                                Reset filters
                             </LemonButton>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => setIsSaveFiltersModalOpen(true)}
-                                disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
-                                tooltip="Save filters for later"
-                            >
-                                Save filters
-                            </LemonButton>
-                        )}
+                            {appliedSavedFilter ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => void updateSavedFilter()}
+                                    tooltip="Update saved filter"
+                                    disabledReason={
+                                        equal(appliedSavedFilter.filters, filters) ? 'No changes to update' : undefined
+                                    }
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={[
+                                                        {
+                                                            label: 'Save as a new filter',
+                                                            onClick: () => setIsSaveFiltersModalOpen(true),
+                                                        },
+                                                    ]}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    Update "{appliedSavedFilter.name || 'Unnamed'}"
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setIsSaveFiltersModalOpen(true)}
+                                    disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
+                                    tooltip="Save filters for later"
+                                >
+                                    Add to "Saved filters"
+                                </LemonButton>
+                            )}
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() => setIsFiltersExpanded(false)}
+                            tooltip="Close filters and start watching recordings"
+                        >
+                            {(totalFiltersCount ?? 0) === 0 ? 'Close filters' : 'Start watching'}
+                        </LemonButton>
                     </div>
                     {SaveFiltersModal()}
                 </div>
@@ -468,10 +510,7 @@ export const RecordingsUniversalFiltersEmbed = ({
             content: <SavedFilters setFilters={setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
-    ]
-
-    if (featureFlags[FEATURE_FLAGS.REPLAY_ACTIVE_HOURS_HEATMAP] === 'templates') {
-        tabs.push({
+        {
             key: 'explore',
             label: <div className="px-2">Explore</div>,
             content: (
@@ -484,8 +523,8 @@ export const RecordingsUniversalFiltersEmbed = ({
                 </div>
             ),
             'data-attr': 'session-recordings-explore-tab',
-        })
-    }
+        },
+    ]
 
     return (
         <div className="relative">
@@ -502,13 +541,7 @@ export const RecordingsUniversalFiltersEmbed = ({
     )
 }
 
-const RecordingsUniversalFilterGroup = ({
-    size = 'small',
-    totalFiltersCount,
-}: {
-    size?: LemonButtonProps['size']
-    totalFiltersCount?: number
-}): JSX.Element => {
+const RecordingsUniversalFilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
@@ -522,7 +555,7 @@ const RecordingsUniversalFilterGroup = ({
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
+                        <RecordingsUniversalFilterGroup />
 
                         <Popover
                             overlay={<UniversalFilters.PureTaxonomicFilter fullWidth={false} />}

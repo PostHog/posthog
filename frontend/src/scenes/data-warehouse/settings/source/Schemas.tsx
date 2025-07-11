@@ -29,7 +29,6 @@ import {
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSourceSchema,
-    ExternalDataSourceType,
     ProductKey,
 } from '~/types'
 
@@ -37,6 +36,7 @@ import { SyncMethodForm } from '../../external/forms/SyncMethodForm'
 import { dataWarehouseSettingsLogic } from '../dataWarehouseSettingsLogic'
 import { dataWarehouseSourcesTableSyncMethodModalLogic } from '../dataWarehouseSourcesTableSyncMethodModalLogic'
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 interface SchemasProps {
     id: string
@@ -332,7 +332,14 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 return null
                             }
                             const tagContent = (
-                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>
+                                    {schema.status}
+                                    {schema.latest_error && schema.status === 'Failed' && (
+                                        <span className="ml-0.5 inline-flex items-center justify-center w-3 h-3 bg-danger/90 text-white rounded-full text-[10px] font-medium tracking-tight shadow-md backdrop-blur-sm border border-danger/20">
+                                            ?
+                                        </span>
+                                    )}
+                                </LemonTag>
                             )
                             return schema.latest_error && schema.status === 'Failed' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
@@ -439,15 +446,17 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
 }
 
 const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element => {
+    const logic = dataWarehouseSourcesTableSyncMethodModalLogic({ schema })
+
     const {
         syncMethodModalIsOpen,
         currentSyncMethodModalSchema,
         schemaIncrementalFields,
         schemaIncrementalFieldsLoading,
         saveButtonIsLoading,
-    } = useValues(dataWarehouseSourcesTableSyncMethodModalLogic({ schema }))
+    } = useValues(logic)
     const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } =
-        useActions(dataWarehouseSourcesTableSyncMethodModalLogic({ schema }))
+        useActions(logic)
 
     useEffect(() => {
         if (currentSyncMethodModalSchema?.id) {
@@ -497,8 +506,9 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
                         incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
-                        incremental_available: !!schemaIncrementalFields.length,
-                        incremental_fields: schemaIncrementalFields,
+                        incremental_available: schemaIncrementalFields.incremental_available,
+                        append_available: schemaIncrementalFields.append_available,
+                        incremental_fields: schemaIncrementalFields.incremental_fields,
                     }}
                     onClose={() => {
                         resetSchemaIncrementalFields()

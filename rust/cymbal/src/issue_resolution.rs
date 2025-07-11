@@ -5,11 +5,10 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
 use common_kafka::kafka_producer::send_iter_to_kafka;
 
-use serde_json::json;
 use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
-use crate::assignment_rules::{try_assignment_rules, Assignment};
+use crate::assignment_rules::{try_assignment_rules, Assignee, Assignment};
 use crate::teams::TeamManager;
 use crate::types::FingerprintedErrProps;
 use crate::{
@@ -183,7 +182,7 @@ impl Issue {
         let assignments = sqlx::query_as!(
             Assignment,
             r#"
-            SELECT id, issue_id, user_id, user_group_id, role_id, created_at FROM posthog_errortrackingissueassignment
+            SELECT id, issue_id, user_id, role_id, created_at FROM posthog_errortrackingissueassignment
             WHERE issue_id = $1
             "#,
             self.id
@@ -270,7 +269,13 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(&context, &issue, assignment).await?;
+            send_issue_reopened_alert(
+                &context,
+                &issue,
+                &event_properties.fingerprint.value,
+                assignment,
+            )
+            .await?;
         }
         return Ok(issue);
     }
@@ -321,7 +326,13 @@ pub async fn resolve_issue(
                 event_properties.clone(),
             )
             .await?;
-            send_issue_reopened_alert(&context, &issue, assignment).await?;
+            send_issue_reopened_alert(
+                &context,
+                &issue,
+                &event_properties.fingerprint.value,
+                assignment,
+            )
+            .await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
@@ -332,7 +343,13 @@ pub async fn resolve_issue(
             event_properties.clone(),
         )
         .await?;
-        send_issue_created_alert(&context, &issue, assignment).await?;
+        send_issue_created_alert(
+            &context,
+            &issue,
+            &event_properties.fingerprint.value,
+            assignment,
+        )
+        .await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
     };
@@ -364,23 +381,40 @@ pub async fn process_assignment(
 async fn send_issue_created_alert(
     context: &AppContext,
     issue: &Issue,
+    fingerprint: &String,
     assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_created", issue, assignment).await
+    send_internal_event(
+        context,
+        "$error_tracking_issue_created",
+        issue,
+        fingerprint,
+        assignment,
+    )
+    .await
 }
 
 async fn send_issue_reopened_alert(
     context: &AppContext,
     issue: &Issue,
+    fingerprint: &String,
     assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(context, "$error_tracking_issue_reopened", issue, assignment).await
+    send_internal_event(
+        context,
+        "$error_tracking_issue_reopened",
+        issue,
+        fingerprint,
+        assignment,
+    )
+    .await
 }
 
 async fn send_internal_event(
     context: &AppContext,
     event: &str,
     issue: &Issue,
+    fingerprint: &String,
     new_assignment: Option<Assignment>,
 ) -> Result<(), UnhandledError> {
     let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
@@ -391,32 +425,15 @@ async fn send_internal_event(
         .insert_prop("description", issue.description.clone())
         .expect("Strings are serializable");
     event.insert_prop("status", issue.status.as_str())?;
+    event.insert_prop("fingerprint", fingerprint)?;
 
     if let Some(assignment) = new_assignment {
-        if let Some(user_id) = assignment.user_id {
-            event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "user", "id": user_id.to_string()}),
-                )
-                .expect("Strings are serializable");
-        }
-        if let Some(group_id) = assignment.user_group_id {
-            event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "user_group", "id": group_id.to_string()}),
-                )
-                .expect("Strings are serializable");
-        }
-        if let Some(role_id) = assignment.role_id {
-            event
-                .insert_prop(
-                    "assignee",
-                    json!({"type": "role", "id": role_id.to_string()}),
-                )
-                .expect("Strings are serializable");
-        }
+        let assignee = Assignee::try_from(&assignment)?;
+        let stringified_assignee = serde_json::to_string(&assignee)?;
+
+        event
+            .insert_prop("assignee", stringified_assignee)
+            .expect("Strings are serializable");
     }
 
     send_iter_to_kafka(
@@ -462,11 +479,18 @@ impl Display for IssueStatus {
 
 #[cfg(test)]
 mod test {
-    use crate::sanitize_string;
+    use crate::{assignment_rules::Assignee, sanitize_string};
 
     #[test]
     fn it_replaces_null_characters() {
         let content = sanitize_string("\u{0000} is not valid JSON".to_string());
         assert_eq!(content, "� is not valid JSON");
+    }
+
+    #[test]
+    fn it_correctly_orders_stringified_assignee_keys() {
+        let assignee = Assignee::User(1234);
+        let stringified_assignee = serde_json::to_string(&assignee).unwrap();
+        assert_eq!(stringified_assignee, "{\"type\":\"user\",\"id\":1234}");
     }
 }

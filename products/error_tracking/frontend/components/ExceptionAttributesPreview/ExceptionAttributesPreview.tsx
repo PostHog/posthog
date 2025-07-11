@@ -66,7 +66,7 @@ export function PropertyWrapper({
         return <></>
     }
     return (
-        <LemonTag>
+        <LemonTag className="bg-fill-primary">
             {children}
             <span className="capitalize">{title}</span>
         </LemonTag>

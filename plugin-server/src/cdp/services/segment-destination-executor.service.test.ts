@@ -18,13 +18,13 @@ describe('SegmentDestinationExecutorService', () => {
     let service: SegmentDestinationExecutorService
     let mockFetch: jest.Mock<Promise<FetchResponse>, Parameters<typeof fetch>>
 
-    const amplitudePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-amplitude']
+    const amplitudePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-amplitude']
     const amplitudeAction = amplitudePlugin.destination.actions['logEventV2']
 
-    const gameballPlugin = SEGMENT_DESTINATIONS_BY_ID['segment-gameball']
+    const gameballPlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-gameball']
     const gameballAction = gameballPlugin.destination.actions['trackEvent']
 
-    const pipedrivePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-pipedrive']
+    const pipedrivePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-pipedrive']
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
 
     beforeEach(() => {
@@ -54,7 +54,7 @@ describe('SegmentDestinationExecutorService', () => {
         it('should call the plugin perform method', async () => {
             const fn = createHogFunction({
                 name: 'Plugin test',
-                template_id: 'segment-amplitude',
+                template_id: 'segment-actions-amplitude',
             })
 
             const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
@@ -109,7 +109,7 @@ describe('SegmentDestinationExecutorService', () => {
 
             const fn = createHogFunction({
                 name: 'Plugin test',
-                template_id: 'segment-amplitude',
+                template_id: 'segment-actions-amplitude',
             })
 
             const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
@@ -172,7 +172,7 @@ describe('SegmentDestinationExecutorService', () => {
 
             const fn = createHogFunction({
                 name: 'Plugin test',
-                template_id: 'segment-amplitude',
+                template_id: 'segment-actions-amplitude',
             })
 
             const invocation = createExampleSegmentInvocation(fn, amplitudeInputs)
@@ -297,7 +297,7 @@ describe('SegmentDestinationExecutorService', () => {
 
             const fn = createHogFunction({
                 name: 'Plugin test',
-                template_id: 'segment-gameball',
+                template_id: 'segment-actions-gameball',
             })
 
             const invocation = createExampleSegmentInvocation(fn, gameballInputs)
@@ -376,7 +376,7 @@ describe('SegmentDestinationExecutorService', () => {
 
             const fn = createHogFunction({
                 name: 'Plugin test',
-                template_id: 'segment-pipedrive',
+                template_id: 'segment-actions-pipedrive',
             })
 
             const invocation = createExampleSegmentInvocation(fn, pipedriveInputs)

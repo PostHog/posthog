@@ -9,7 +9,7 @@ import api from 'lib/api'
 import { groupsModel } from '~/models/groupsModel'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { EventsNode, EventsQuery, EventsQueryResponse, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapePropertyAsHogQLIdentifier, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     BaseMathType,
     ChartDisplayType,
@@ -84,7 +84,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             [] as (string | undefined)[],
             {
                 increaseCurrentPage: (state, { timestamp }: { timestamp: string | undefined }) => [...state, timestamp],
-                decreaseCurrentPage: (state) => [...state.filter((_, i) => i !== state.length - 1)],
+                decreaseCurrentPage: (state) => state.filter((_, i) => i !== state.length - 1),
                 resetCurrentPage: () => [],
             },
         ],
@@ -92,9 +92,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             [] as string[],
             {
                 expandRow: (state, { eventId }: { eventId: string }) => [...state, eventId],
-                collapseRow: (state, { eventId }: { eventId: string }) => [
-                    ...state.filter((id: string) => id !== eventId),
-                ],
+                collapseRow: (state, { eventId }: { eventId: string }) => state.filter((id: string) => id !== eventId),
                 resetCollapsedRows: () => [],
             },
         ],
@@ -108,9 +106,8 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             [] as string[],
             {
                 selectForRetry: (state, { eventIds }: { eventIds: string[] }) => [...new Set([...state, ...eventIds])],
-                deselectForRetry: (state, { eventIds }: { eventIds: string[] }) => [
-                    ...state.filter((id: string) => !eventIds.includes(id)),
-                ],
+                deselectForRetry: (state, { eventIds }: { eventIds: string[] }) =>
+                    state.filter((id: string) => !eventIds.includes(id)),
                 resetSelectedForRetry: () => [],
             },
         ],
@@ -227,14 +224,14 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         `tuple(${name}.created_at, ${name}.index, ${name}.key, ${name}.properties, ${name}.updated_at)`
                     )
                 })
-                return query
+                return setLatestVersionsOnQuery(query)
             },
             { resultEqualityCheck: equal },
         ],
         totalEventsQuery: [
             (s) => [s.configuration, s.matchingFilters, s.dateRange],
             (configuration, matchingFilters, dateRange): TrendsQuery | null => {
-                return {
+                return setLatestVersionsOnQuery({
                     kind: NodeKind.TrendsQuery,
                     filterTestAccounts: configuration.filters?.filter_test_accounts,
                     series: [
@@ -256,7 +253,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     modifiers: {
                         personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
-                }
+                })
             },
             { resultEqualityCheck: equal },
         ],

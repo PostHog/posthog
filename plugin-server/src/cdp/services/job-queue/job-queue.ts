@@ -4,6 +4,7 @@
  * the underlying implementation.
  */
 
+import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
 import { PluginsServerConfig } from '../../../types'
@@ -30,6 +31,8 @@ const counterJobsProcessed = new Counter({
     help: 'The number of jobs we are managing to process',
     labelNames: ['queue', 'source'],
 })
+
+export const JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS = 10 * 1000 // Any scheduled jobs need to be scheduled this much in the future to be considered for postgres
 
 export type CyclotronJobQueueRouting = {
     [key: string]: {
@@ -80,7 +83,7 @@ export class CyclotronJobQueue {
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue, source })
-            .set(invocations.length / this.config.CDP_CYCLOTRON_BATCH_SIZE)
+            .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
 
         const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
@@ -139,7 +142,11 @@ export class CyclotronJobQueue {
     }
 
     public async stop() {
-        await Promise.all([this.jobQueuePostgres.stop(), this.jobQueueKafka.stop()])
+        // Important - first shut down the consumers so we aren't processing anything
+        await Promise.all([this.jobQueuePostgres.stopConsumer(), this.jobQueueKafka.stopConsumer()])
+
+        // Only then do we shut down the producers
+        await Promise.all([this.jobQueuePostgres.stopProducer(), this.jobQueueKafka.stopProducer()])
     }
 
     public isHealthy() {
@@ -151,7 +158,11 @@ export class CyclotronJobQueue {
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {
-        if (this.producerForceScheduledToPostgres && invocation.queueScheduledAt) {
+        if (
+            this.producerForceScheduledToPostgres &&
+            invocation.queueScheduledAt &&
+            invocation.queueScheduledAt > DateTime.now().plus({ milliseconds: JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS })
+        ) {
             // Kafka doesn't support delays so if enabled we should force scheduled jobs to postgres
             return 'postgres'
         }
