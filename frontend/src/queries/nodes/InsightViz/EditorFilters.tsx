@@ -1,5 +1,5 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCheck, IconInfo, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
@@ -21,6 +21,7 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -79,6 +80,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
+    const { setSuggestedInsight, onAcceptSuggestedInsight, onRejectSuggestedInsight } = useActions(insightSceneLogic)
+    const { suggestedInsight } = useValues(insightSceneLogic)
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
 
     if (!querySource) {
@@ -108,61 +111,61 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 ...(isRetention
                     ? [
-                          {
-                              key: 'retention-condition',
-                              label: 'Retention condition',
-                              component: RetentionCondition,
-                          },
-                          {
-                              key: 'retention-options',
-                              label: 'Calculation options',
-                              component: RetentionOptions,
-                          },
-                      ]
+                        {
+                            key: 'retention-condition',
+                            label: 'Retention condition',
+                            component: RetentionCondition,
+                        },
+                        {
+                            key: 'retention-options',
+                            label: 'Calculation options',
+                            component: RetentionOptions,
+                        },
+                    ]
                     : []),
                 isFunnels
                     ? {
-                          key: 'query-steps',
-                          component: FunnelsQuerySteps,
-                      }
+                        key: 'query-steps',
+                        component: FunnelsQuerySteps,
+                    }
                     : null,
                 ...(isPaths
                     ? [
-                          {
-                              key: 'event-types',
-                              label: 'Event Types',
-                              component: PathsEventsTypes,
-                          },
-                          hasPathsHogQL && {
-                              key: 'hogql',
-                              label: 'SQL Expression',
-                              component: PathsHogQL,
-                          },
-                          hasPathsAdvanced && {
-                              key: 'wildcard-groups',
-                              label: 'Wildcard Groups',
-                              showOptional: true,
-                              component: PathsWildcardGroups,
-                              tooltip: (
-                                  <>
-                                      Use wildcard matching to group events by unique values in path item names. Use an
-                                      asterisk (*) in place of unique values. For example, instead of
-                                      /merchant/1234/payment, replace the unique value with an asterisk
-                                      /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
-                                  </>
-                              ),
-                          },
-                          {
-                              key: 'start-target',
-                              label: 'Starts at',
-                              component: PathsTargetStart,
-                          },
-                          hasPathsAdvanced && {
-                              key: 'ends-target',
-                              label: 'Ends at',
-                              component: PathsTargetEnd,
-                          },
-                      ]
+                        {
+                            key: 'event-types',
+                            label: 'Event Types',
+                            component: PathsEventsTypes,
+                        },
+                        hasPathsHogQL && {
+                            key: 'hogql',
+                            label: 'SQL Expression',
+                            component: PathsHogQL,
+                        },
+                        hasPathsAdvanced && {
+                            key: 'wildcard-groups',
+                            label: 'Wildcard Groups',
+                            showOptional: true,
+                            component: PathsWildcardGroups,
+                            tooltip: (
+                                <>
+                                    Use wildcard matching to group events by unique values in path item names. Use an
+                                    asterisk (*) in place of unique values. For example, instead of
+                                    /merchant/1234/payment, replace the unique value with an asterisk
+                                    /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
+                                </>
+                            ),
+                        },
+                        {
+                            key: 'start-target',
+                            label: 'Starts at',
+                            component: PathsTargetStart,
+                        },
+                        hasPathsAdvanced && {
+                            key: 'ends-target',
+                            label: 'Ends at',
+                            component: PathsTargetEnd,
+                        },
+                    ]
                     : []),
             ]),
         },
@@ -181,10 +184,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
                 isTrends && hasFormula
                     ? {
-                          key: 'formula',
-                          label: 'Formula',
-                          component: TrendsFormula,
-                      }
+                        key: 'formula',
+                        label: 'Formula',
+                        component: TrendsFormula,
+                    }
                     : null,
             ]),
         },
@@ -209,59 +212,59 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
-                          key: 'toggles',
-                          label: 'Lifecycle Toggles',
-                          component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
-                      }
+                        key: 'toggles',
+                        label: 'Lifecycle Toggles',
+                        component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
+                    }
                     : null,
                 isStickiness
                     ? {
-                          key: 'stickinessCriteria',
-                          label: () => (
-                              <div className="flex">
-                                  <span>Stickiness Criteria</span>
-                                  <Tooltip
-                                      closeDelayMs={200}
-                                      title={
-                                          <div className="deprecated-space-y-2">
-                                              <div>
-                                                  The stickiness criteria defines how many times a user must perform an
-                                                  event inside of a given interval in order to be considered "sticky."
-                                              </div>
-                                          </div>
-                                      }
-                                  >
-                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                                  </Tooltip>
-                              </div>
-                          ),
-                          component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
-                      }
+                        key: 'stickinessCriteria',
+                        label: () => (
+                            <div className="flex">
+                                <span>Stickiness Criteria</span>
+                                <Tooltip
+                                    closeDelayMs={200}
+                                    title={
+                                        <div className="deprecated-space-y-2">
+                                            <div>
+                                                The stickiness criteria defines how many times a user must perform an
+                                                event inside of a given interval in order to be considered "sticky."
+                                            </div>
+                                        </div>
+                                    }
+                                >
+                                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                </Tooltip>
+                            </div>
+                        ),
+                        component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
+                    }
                     : null,
                 isStickiness
                     ? {
-                          key: 'cumulativeStickiness',
-                          label: () => (
-                              <div className="flex">
-                                  <span>Compute as</span>
-                                  <Tooltip
-                                      closeDelayMs={200}
-                                      title={
-                                          <div className="deprecated-space-y-2">
-                                              <div>
-                                                  Choose how to compute stickiness values. Non-cumulative shows exact
-                                                  numbers for each day count, while cumulative shows users active for at
-                                                  least that many days.
-                                              </div>
-                                          </div>
-                                      }
-                                  >
-                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                                  </Tooltip>
-                              </div>
-                          ),
-                          component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
-                      }
+                        key: 'cumulativeStickiness',
+                        label: () => (
+                            <div className="flex">
+                                <span>Compute as</span>
+                                <Tooltip
+                                    closeDelayMs={200}
+                                    title={
+                                        <div className="deprecated-space-y-2">
+                                            <div>
+                                                Choose how to compute stickiness values. Non-cumulative shows exact
+                                                numbers for each day count, while cumulative shows users active for at
+                                                least that many days.
+                                            </div>
+                                        </div>
+                                    }
+                                >
+                                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                </Tooltip>
+                            </div>
+                        ),
+                        component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
+                    }
                     : null,
                 {
                     key: 'properties',
@@ -275,63 +278,63 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
-                          key: 'breakdown',
-                          component: Breakdown,
-                      }
+                        key: 'breakdown',
+                        component: Breakdown,
+                    }
                     : null,
                 hasAttribution
                     ? {
-                          key: 'attribution',
-                          label: () => (
-                              <div className="flex">
-                                  <span>Attribution type</span>
-                                  <Tooltip
-                                      closeDelayMs={200}
-                                      title={
-                                          <div className="deprecated-space-y-2">
-                                              <div>
-                                                  When breaking down funnels, it's possible that the same properties
-                                                  don't exist on every event. For example, if you want to break down by
-                                                  browser on a funnel that contains both frontend and backend events.
-                                              </div>
-                                              <div>
-                                                  In this case, you can choose from which step the properties should be
-                                                  selected from by modifying the attribution type. There are four modes
-                                                  to choose from:
-                                              </div>
-                                              <ul className="list-disc pl-4">
-                                                  <li>
-                                                      First touchpoint: the first property value seen in any of the
-                                                      steps is chosen.
-                                                  </li>
-                                                  <li>
-                                                      Last touchpoint: the last property value seen from all steps is
-                                                      chosen.
-                                                  </li>
-                                                  <li>
-                                                      All steps: the property value must be seen in all steps to be
-                                                      considered in the funnel.
-                                                  </li>
-                                                  <li>
-                                                      Specific step: only the property value seen at the selected step
-                                                      is chosen.
-                                                  </li>
-                                              </ul>
-                                              <div>
-                                                  Read more in the{' '}
-                                                  <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
-                                                      documentation.
-                                                  </Link>
-                                              </div>
-                                          </div>
-                                      }
-                                  >
-                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                                  </Tooltip>
-                              </div>
-                          ),
-                          component: Attribution,
-                      }
+                        key: 'attribution',
+                        label: () => (
+                            <div className="flex">
+                                <span>Attribution type</span>
+                                <Tooltip
+                                    closeDelayMs={200}
+                                    title={
+                                        <div className="deprecated-space-y-2">
+                                            <div>
+                                                When breaking down funnels, it's possible that the same properties
+                                                don't exist on every event. For example, if you want to break down by
+                                                browser on a funnel that contains both frontend and backend events.
+                                            </div>
+                                            <div>
+                                                In this case, you can choose from which step the properties should be
+                                                selected from by modifying the attribution type. There are four modes
+                                                to choose from:
+                                            </div>
+                                            <ul className="list-disc pl-4">
+                                                <li>
+                                                    First touchpoint: the first property value seen in any of the
+                                                    steps is chosen.
+                                                </li>
+                                                <li>
+                                                    Last touchpoint: the last property value seen from all steps is
+                                                    chosen.
+                                                </li>
+                                                <li>
+                                                    All steps: the property value must be seen in all steps to be
+                                                    considered in the funnel.
+                                                </li>
+                                                <li>
+                                                    Specific step: only the property value seen at the selected step
+                                                    is chosen.
+                                                </li>
+                                            </ul>
+                                            <div>
+                                                Read more in the{' '}
+                                                <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
+                                                    documentation.
+                                                </Link>
+                                            </div>
+                                        </div>
+                                    }
+                                >
+                                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                </Tooltip>
+                            </div>
+                        ),
+                        component: Attribution,
+                    }
                     : null,
             ]),
         },
@@ -350,33 +353,33 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         ...(!isCalendarHeatmap
             ? [
-                  {
-                      title: 'Advanced options',
-                      defaultExpanded: false,
-                      editorFilters: filterFalsy([
-                          {
-                              key: 'poe',
-                              component: PoeFilter,
-                          },
-                          {
-                              key: 'sampling',
-                              component: SamplingFilter,
-                          },
-                          isTrends &&
-                              isLineGraph && {
-                                  key: 'goal-lines',
-                                  label: 'Goal lines',
-                                  tooltip: (
-                                      <>
-                                          Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
-                                          limits (Web Vitals, etc.)
-                                      </>
-                                  ),
-                                  component: GoalLines,
-                              },
-                      ]),
-                  },
-              ]
+                {
+                    title: 'Advanced options',
+                    defaultExpanded: false,
+                    editorFilters: filterFalsy([
+                        {
+                            key: 'poe',
+                            component: PoeFilter,
+                        },
+                        {
+                            key: 'sampling',
+                            component: SamplingFilter,
+                        },
+                        isTrends &&
+                        isLineGraph && {
+                            key: 'goal-lines',
+                            label: 'Goal lines',
+                            tooltip: (
+                                <>
+                                    Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
+                                    limits (Web Vitals, etc.)
+                                </>
+                            ),
+                            component: GoalLines,
+                        },
+                    ]),
+                },
+            ]
             : []),
     ]
 
@@ -391,55 +394,89 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <>
-                <MaxTool
-                    name="create_and_query_insight"
-                    displayName="Edit insight"
-                    description="Max can tweak and rework the insight you're viewing"
-                    context={{
-                        current_query: querySource,
-                    }}
-                    callback={(
-                        toolOutput:
-                            | AssistantTrendsQuery
-                            | AssistantFunnelsQuery
-                            | AssistantRetentionQuery
-                            | AssistantHogQLQuery
-                    ) => {
-                        const source = castAssistantQuery(toolOutput)
-                        if (isHogQLQuery(source)) {
-                            const node = {
-                                kind: NodeKind.DataVisualizationNode,
-                                source,
-                            } satisfies DataVisualizationNode
-                            setQuery(node)
-                        } else {
-                            const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
-                            setQuery(node)
-                        }
-                    }}
-                    initialMaxPrompt="Show me users who "
-                    className="EditorFiltersWrapper"
-                    active={maxToolActive}
-                >
-                    <div
-                        className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                            'p-4 rounded border': !embedded,
-                        })}
+                <div className="relative">
+                    <MaxTool
+                        name="create_and_query_insight"
+                        displayName="Edit insight"
+                        description="Max can tweak and rework the insight you're viewing"
+                        context={{
+                            current_query: querySource,
+                        }}
+                        callback={(
+                            toolOutput:
+                                | AssistantTrendsQuery
+                                | AssistantFunnelsQuery
+                                | AssistantRetentionQuery
+                                | AssistantHogQLQuery
+                        ) => {
+                            const source = castAssistantQuery(toolOutput)
+                            if (isHogQLQuery(source)) {
+                                const node = {
+                                    kind: NodeKind.DataVisualizationNode,
+                                    source,
+                                } satisfies DataVisualizationNode
+                                setSuggestedInsight(node)
+                            } else {
+                                const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                                setSuggestedInsight(node)
+                            }
+                        }}
+                        initialMaxPrompt="Show me users who "
+                        className="EditorFiltersWrapper"
                     >
-                        {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                            <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
-                                {editorFilterGroups.map((editorFilterGroup) => (
-                                    <EditorFilterGroup
-                                        key={editorFilterGroup.title}
-                                        editorFilterGroup={editorFilterGroup}
-                                        insightProps={insightProps}
-                                        query={query}
-                                    />
-                                ))}
-                            </div>
-                        ))}
-                    </div>
-                </MaxTool>
+                        <div
+                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                                'p-4 rounded border': !embedded,
+                            })}
+                        >
+                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                    {editorFilterGroups.map((editorFilterGroup) => (
+                                        <EditorFilterGroup
+                                            key={editorFilterGroup.title}
+                                            editorFilterGroup={editorFilterGroup}
+                                            insightProps={insightProps}
+                                            query={query}
+                                        />
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                    </MaxTool>
+
+                    {suggestedInsight && (
+                        <div
+                            className="flex gap-1 bg-bg-light rounded border border-primary-3000 py-1 px-1.5 mt-2 justify-center whitespace-nowrap"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
+                            ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                        >
+                            <LemonButton
+                                type="tertiary"
+                                icon={<IconCheck color="var(--success)" />}
+                                onClick={() => {
+                                    if (suggestedInsight) {
+                                        setQuery(suggestedInsight)
+                                    }
+                                    onAcceptSuggestedInsight()
+                                }}
+                                tooltipPlacement="top"
+                                size="small"
+                            >
+                                Accept insight
+                            </LemonButton>
+                            <LemonButton
+                                status="danger"
+                                icon={<IconX />}
+                                onClick={() => onRejectSuggestedInsight()}
+                                tooltipPlacement="top"
+                                size="small"
+                            >
+                                Reject
+                            </LemonButton>
+                        </div>
+                    )}
+                </div>
 
                 {shouldShowSessionAnalysisWarning ? (
                     <LemonBanner type="info" className="mt-2">

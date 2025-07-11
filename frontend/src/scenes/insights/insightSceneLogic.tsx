@@ -97,6 +97,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }),
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
         upgradeQuery: (query: Node) => ({ query }),
+        setSuggestedInsight: (suggestedInsight: Node | null) => ({ suggestedInsight }),
+        onAcceptSuggestedInsight: true,
+        onRejectSuggestedInsight: true,
     }),
     reducers({
         insightId: [
@@ -174,6 +177,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
+        suggestedInsight: [
+            null as Node | null,
+            {
+                setSuggestedInsight: (_, { suggestedInsight }) => suggestedInsight,
+                onAcceptSuggestedInsight: () => null,
+                onRejectSuggestedInsight: () => null,
+            },
+        ],
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
@@ -310,6 +321,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     overrideQuery: true,
                 }
             )
+        },
+        onAcceptSuggestedInsight: () => {
+            // Query change is handled directly in EditorFilters
+        },
+        onRejectSuggestedInsight: () => {
+            // Suggestion cleared by reducer
         },
     })),
     urlToAction(({ actions, values }) => ({
