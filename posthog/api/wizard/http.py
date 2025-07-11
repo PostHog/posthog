@@ -18,7 +18,7 @@ from openai.types.chat import (
 )
 from posthoganalytics.ai.openai import OpenAI
 from posthoganalytics.ai.gemini import genai
-from google.genai.types import GenerateContentConfig
+from google.genai.types import GenerateContentConfig, Schema
 
 from posthog.rate_limit import SetupWizardQueryRateThrottle
 from rest_framework.exceptions import AuthenticationFailed
@@ -116,7 +116,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
         This endpoint acts as a proxy for the setup wizard when making AI calls.
         """
 
-        # Validate request data
+        from django.conf import settings
+
         serializer = SetupWizardQuerySerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
@@ -153,8 +154,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
         )
 
         if model in GEMINI_SUPPORTED_MODELS:
-            from django.conf import settings
-
             api_key = settings.GEMINI_API_KEY
             if not api_key:
                 raise exceptions.ValidationError("GEMINI_API_KEY is not configured")
@@ -162,8 +161,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             client = genai.Client(api_key=api_key, posthog_client=posthog_client)
 
             converted_schema = json_schema_to_gemini_schema(json_schema)
-
-            from google.genai.types import Schema
 
             response_schema = Schema(**converted_schema)
 
