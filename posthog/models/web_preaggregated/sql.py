@@ -1,10 +1,5 @@
-from django.conf import settings
-
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
-
-CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
-CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by):
@@ -44,19 +39,6 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     """
 
 
-def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granularity="daily"):
-    return f"""
-    CREATE TABLE IF NOT EXISTS {dist_table_name}
-    (
-        period_bucket DateTime,
-        team_id UInt64,
-        host String,
-        device_type String,
-        {columns}
-    ) ENGINE = Distributed('{CLICKHOUSE_CLUSTER}', '{CLICKHOUSE_DATABASE}', {base_table_name}, rand())
-    """
-
-
 WEB_ANALYTICS_DIMENSIONS = [
     "entry_pathname",
     "end_pathname",
@@ -74,6 +56,9 @@ WEB_ANALYTICS_DIMENSIONS = [
     "city_name",
     "region_code",
     "region_name",
+    "has_gclid",
+    "has_gad_source_paid_search",
+    "has_fbclid",
 ]
 
 
@@ -86,6 +71,8 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+            column_definitions.append(f"{d} Bool")
         else:
             column_definitions.append(f"{d} String")
     return ",\n".join(column_definitions)
@@ -153,33 +140,12 @@ def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
     """
 
 
-def create_table_pair(base_table_name, columns, order_by):
-    """Create both a local and distributed table with the same schema"""
-    base_sql = TABLE_TEMPLATE(base_table_name, columns, order_by)
-    dist_sql = DISTRIBUTED_TABLE_TEMPLATE(
-        f"{base_table_name}_distributed", base_table_name, columns, granularity="daily"
-    )
-    return base_sql, dist_sql
-
-
 def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
     return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
 
 
-def DISTRIBUTED_WEB_STATS_DAILY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS, granularity="daily"
-    )
-
-
 def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
     return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
-
-
-def DISTRIBUTED_WEB_BOUNCES_DAILY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_bounces_daily_distributed", "web_bounces_daily", WEB_BOUNCES_COLUMNS, granularity="daily"
-    )
 
 
 def WEB_STATS_HOURLY_SQL():
@@ -188,21 +154,9 @@ def WEB_STATS_HOURLY_SQL():
     )
 
 
-def DISTRIBUTED_WEB_STATS_HOURLY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_stats_hourly_distributed", "web_stats_hourly", WEB_STATS_COLUMNS, granularity="hourly"
-    )
-
-
 def WEB_BOUNCES_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
         "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
-    )
-
-
-def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_bounces_hourly_distributed", "web_bounces_hourly", WEB_BOUNCES_COLUMNS, granularity="hourly"
     )
 
 
@@ -273,6 +227,9 @@ def WEB_STATS_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -321,6 +278,9 @@ def WEB_STATS_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')) AS has_gclid,
+                equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), '1') AS has_gad_source_paid_search,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')) AS has_fbclid,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
@@ -367,7 +327,10 @@ def WEB_STATS_INSERT_SQL(
             country_code,
             city_name,
             region_code,
-            region_name
+            region_name,
+            has_gclid,
+            has_gad_source_paid_search,
+            has_fbclid
         SETTINGS {settings}
     )
     GROUP BY
@@ -391,7 +354,10 @@ def WEB_STATS_INSERT_SQL(
         country_code,
         city_name,
         region_code,
-        region_name
+        region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
     SETTINGS {settings}
     """
 
@@ -434,6 +400,9 @@ def WEB_BOUNCES_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -485,6 +454,9 @@ def WEB_BOUNCES_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')) AS has_gclid,
+                equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), '1') AS has_gad_source_paid_search,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')) AS has_fbclid,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))) AS session_duration,
                 if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
