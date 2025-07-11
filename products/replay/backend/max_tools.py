@@ -46,11 +46,13 @@ class SearchSessionRecordingsTool(MaxTool):
 
         result = await graph.ainvoke(graph_input)
 
-        if "generated_filter_options" not in result and "messages" in result:
+        if "generated_filter_options" not in result:
             last_message = result["messages"][-1]
             help_content = "I need more information to proceed."
+
             tool_call_id = getattr(last_message, "tool_call_id", None)
             content = getattr(last_message, "content", None)
+
             if tool_call_id == "ask_user_for_help":
                 help_content = str(content)
 
