@@ -198,7 +198,7 @@ def send_password_changed_email(user_id: int) -> None:
         },
     )
     message.add_recipient(user.email)
-    message.send()
+    message.send(send_async=False)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
