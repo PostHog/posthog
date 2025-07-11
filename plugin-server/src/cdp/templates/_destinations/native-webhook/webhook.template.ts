@@ -1,4 +1,4 @@
-import { NativeTemplate } from '~/cdp/templates/types'
+import { NativeTemplate } from '~/cdp/types'
 
 export const template: NativeTemplate = {
     free: false,
