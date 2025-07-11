@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
@@ -9,7 +9,7 @@ CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
-    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     return f"""
@@ -19,16 +19,15 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
         team_id UInt64,
         host String,
         device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
-    PARTITION BY toYYYYMM(period_bucket)
+    PARTITION BY toYYYYMMDD(period_bucket)
     ORDER BY {order_by}
     """
 
 
 def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=None):
-    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
     on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
@@ -40,10 +39,10 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
         team_id UInt64,
         host String,
         device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
     ORDER BY {order_by}
+    PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
     {ttl_clause}
     """
 
@@ -56,7 +55,6 @@ def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granul
         team_id UInt64,
         host String,
         device_type String,
-        updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = Distributed('{CLICKHOUSE_CLUSTER}', '{CLICKHOUSE_DATABASE}', {base_table_name}, rand())
     """
@@ -127,6 +125,37 @@ def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
 
 def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
+
+
+def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="daily"):
+    """
+    Generate SQL to drop a partition for a specific date.
+    This enables idempotent operations by ensuring clean state before insertion.
+
+    Args:
+        table_name: Name of the table
+        date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
+        on_cluster: Whether to run on cluster
+        granularity: "daily" or "hourly" - determines partition format
+    """
+    on_cluster_clause = f" ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+
+    if granularity == "hourly":
+        # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
+        if " " in date_start:
+            date_part, hour_part = date_start.split(" ")
+            partition_id = date_part.replace("-", "") + hour_part.zfill(2)
+        else:
+            # If only date provided for hourly, format as "YYYYMMDD00"
+            partition_id = date_start.replace("-", "") + "00"
+    else:
+        # For daily: format date as YYYYMMDD
+        partition_id = date_start.replace("-", "")
+
+    return f"""
+    ALTER TABLE {table_name}{on_cluster_clause}
+    DROP PARTITION '{partition_id}'
+    """
 
 
 def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
@@ -232,7 +261,6 @@ def WEB_STATS_INSERT_SQL(
         team_id,
         host,
         device_type,
-        now() AS updated_at,
         entry_pathname,
         pathname,
         end_pathname,
@@ -395,7 +423,6 @@ def WEB_BOUNCES_INSERT_SQL(
         team_id,
         host,
         device_type,
-        now() AS updated_at,
         entry_pathname,
         end_pathname,
         browser,
@@ -597,9 +624,9 @@ def WEB_BOUNCES_EXPORT_SQL(
 def create_combined_view_sql(table_prefix, on_cluster=True):
     return f"""
     CREATE VIEW IF NOT EXISTS {table_prefix}_combined {ON_CLUSTER_CLAUSE(on_cluster)} AS
-    SELECT * FROM {table_prefix}_daily FINAL WHERE period_bucket < toStartOfDay(now(), 'UTC')
+    SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
-    SELECT * FROM {table_prefix}_hourly FINAL WHERE period_bucket >= toStartOfDay(now(), 'UTC')
+    SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')
     """
 
 

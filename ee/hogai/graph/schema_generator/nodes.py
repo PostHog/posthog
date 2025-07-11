@@ -13,7 +13,6 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
 from .parsers import (
@@ -29,6 +28,7 @@ from .prompts import (
     QUESTION_PROMPT,
 )
 from .utils import SchemaGeneratorOutput
+from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import find_start_message
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -54,8 +54,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(
-            model="gpt-4.1", temperature=0.3, disable_streaming=True, max_retries=3
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
         ).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
