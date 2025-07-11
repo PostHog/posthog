@@ -80,9 +80,10 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
     def get_external_url(self, reference: ErrorTrackingExternalReference):
         if reference.integration.kind == Integration.IntegrationKind.LINEAR:
             url_key = LinearIntegration(reference.integration).url_key()
-            return f"https://linear.app/{url_key}/issue/{reference.external_id}"
+            return f"https://linear.app/{url_key}/issue/{reference.external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
-            return "https://todo.com"
+            org = GitHubIntegration(reference.integration).organization()
+            return f"https://github.com/{org}/{reference.external_context['repo']}/issues/{reference.external_context['id']}"
 
     def validate(self, data):
         issue = data["issue"]
@@ -105,14 +106,16 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         config: dict[str, Any] = validated_data.pop("config")
 
         if integration.kind == "github":
-            external_id = GitHubIntegration(integration).create_issue(team.pk, issue.id, config)
+            external_context = GitHubIntegration(integration).create_issue(config)
         elif integration.kind == "linear":
-            external_id = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
+            external_context = LinearIntegration(integration).create_issue(team.pk, issue.id, config)
         else:
             raise ValidationError("Provider not supported")
 
         instance = ErrorTrackingExternalReference.objects.create(
-            issue=issue, integration=integration, external_id=external_id, provider=integration.kind
+            issue=issue,
+            integration=integration,
+            external_context=external_context,
         )
         return instance
 
@@ -199,7 +202,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     serializer_class = ErrorTrackingIssueSerializer
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+        return (
+            queryset.select_related("assignment")
+            .prefetch_related("external_issues__integration")
+            .filter(team_id=self.team.id)
+        )
 
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
@@ -213,8 +220,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 if not str(record.issue_id) == self.kwargs.get("pk"):
                     return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-                issue_with_first_seen = ErrorTrackingIssue.objects.with_first_seen().get(id=record.issue_id)
-                serializer = self.get_serializer(issue_with_first_seen)
+                issue = (
+                    ErrorTrackingIssue.objects.with_first_seen()
+                    .select_related("assignment")
+                    .prefetch_related("external_issues__integration")
+                    .get(id=record.issue_id)
+                )
+                serializer = self.get_serializer(issue)
                 return Response(serializer.data)
 
         return super().retrieve(request, *args, **kwargs)

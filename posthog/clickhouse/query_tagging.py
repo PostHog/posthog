@@ -69,6 +69,9 @@ class DagsterTags(BaseModel):
     job_snapshot_id: Optional[str]
     execution_plan_snapshot_id: Optional[str]
 
+    op_name: Optional[str]
+    asset_key: Optional[str]
+
 
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
