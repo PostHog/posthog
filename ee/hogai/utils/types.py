@@ -8,7 +8,9 @@ from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
+from ee.models import Conversation
 from posthog.schema import (
+    AssistantEventType,
     AssistantMessage,
     AssistantToolCallMessage,
     FailureMessage,
@@ -21,6 +23,11 @@ AIMessageUnion = Union[
     AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
+
+AssistantOutput = (
+    tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+)
 
 
 def add_and_merge_messages(
@@ -63,6 +70,19 @@ def add_and_merge_messages(
             merged.append(m)
 
     return merged
+
+
+def merge_retry_counts(left: int, right: int) -> int:
+    """Merges two retry counts by taking the maximum value.
+
+    Args:
+        left: The base retry count
+        right: The new retry count
+
+    Returns:
+        The maximum of the two counts
+    """
+    return max(left, right)
 
 
 class _SharedAssistantState(BaseModel):
@@ -126,6 +146,10 @@ class _SharedAssistantState(BaseModel):
     """
     The context for taxonomy agent.
     """
+    query_generation_retry_count: Annotated[int, merge_retry_counts] = Field(default=0)
+    """
+    Tracks the number of times the query generation has been retried.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -155,6 +179,7 @@ class PartialAssistantState(_SharedAssistantState):
             root_tool_calls_count=0,
             root_conversation_start_id="",
             rag_context="",
+            query_generation_retry_count=0,
         )
 
 

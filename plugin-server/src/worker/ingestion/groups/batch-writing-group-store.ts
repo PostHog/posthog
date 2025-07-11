@@ -2,6 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { TopicMessage } from '../../../kafka/producer'
 import { GroupTypeIndex, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
@@ -22,20 +23,90 @@ import {
     groupOptimisticUpdateConflictsPerBatchCounter,
 } from './metrics'
 
+class GroupCache {
+    private cache: Map<string, GroupUpdate | null>
+    private fetchPromises: Map<string, Promise<GroupUpdate | null>>
+    private metrics: CacheMetrics
+
+    constructor() {
+        this.cache = new Map()
+        this.fetchPromises = new Map()
+        this.metrics = {
+            cacheHits: 0,
+            cacheMisses: 0,
+        }
+    }
+
+    has(teamId: TeamId, groupKey: string): boolean {
+        const key = this.getCacheKey(teamId, groupKey)
+        return this.cache.has(key)
+    }
+
+    get(teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
+        const key = this.getCacheKey(teamId, groupKey)
+        const result = this.cache.get(key)
+        if (result !== undefined) {
+            this.metrics.cacheHits++
+        } else {
+            this.metrics.cacheMisses++
+        }
+        return result
+    }
+
+    set(teamId: TeamId, groupKey: string, group: GroupUpdate | null): void {
+        const key = this.getCacheKey(teamId, groupKey)
+        this.cache.set(key, group)
+    }
+
+    delete(teamId: TeamId, groupKey: string): void {
+        const key = this.getCacheKey(teamId, groupKey)
+        this.cache.delete(key)
+    }
+
+    getFetchPromise(teamId: TeamId, groupKey: string): Promise<GroupUpdate | null> | undefined {
+        const key = this.getCacheKey(teamId, groupKey)
+        return this.fetchPromises.get(key)
+    }
+
+    setFetchPromise(teamId: TeamId, groupKey: string, promise: Promise<GroupUpdate | null>): void {
+        const key = this.getCacheKey(teamId, groupKey)
+        this.fetchPromises.set(key, promise)
+    }
+
+    deleteFetchPromise(teamId: TeamId, groupKey: string): void {
+        const key = this.getCacheKey(teamId, groupKey)
+        this.fetchPromises.delete(key)
+    }
+
+    getMetrics(): CacheMetrics {
+        return this.metrics
+    }
+
+    getSize(): number {
+        return this.cache.size
+    }
+
+    entries(): IterableIterator<[string, GroupUpdate | null]> {
+        return this.cache.entries()
+    }
+
+    private getCacheKey(teamId: TeamId, groupKey: string): string {
+        return `${teamId}:${groupKey}`
+    }
+}
+
 interface PropertiesUpdate {
     updated: boolean
     properties: Properties
 }
 
 export interface BatchWritingGroupStoreOptions {
-    batchWritingEnabled: boolean
     maxConcurrentUpdates: number
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
 }
 
 const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
-    batchWritingEnabled: false,
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
@@ -61,99 +132,110 @@ export class BatchWritingGroupStore implements GroupStore {
  */
 
 export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
-    private groupCache: Map<string, GroupUpdate | null>
+    private groupCache: GroupCache
     private databaseOperationCounts: Map<string, number>
-    private fetchPromises: Map<string, Promise<GroupUpdate | null>>
-    private cacheMetrics: CacheMetrics
     private options: BatchWritingGroupStoreOptions
 
     constructor(private db: DB, options?: Partial<BatchWritingGroupStoreOptions>) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
-        this.groupCache = new Map()
+        this.groupCache = new GroupCache()
         this.databaseOperationCounts = new Map()
-        this.fetchPromises = new Map()
-        this.cacheMetrics = {
-            cacheHits: 0,
-            cacheMisses: 0,
-        }
     }
 
-    async flush(): Promise<void> {
-        if (!this.options.batchWritingEnabled) {
-            return
+    async flush(): Promise<TopicMessage[]> {
+        const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
+            const [_, update] = entry
+            return update !== null && update.needsWrite
+        })
+        if (pendingUpdates.length === 0) {
+            return []
         }
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
 
-        await Promise.all(
-            Array.from(this.groupCache.entries())
-                .filter((entry): entry is [string, GroupUpdate] => {
-                    const [_, update] = entry
-                    return update !== null && update.needsWrite
-                })
-                .map(([distinctId, update]) =>
-                    limit(async () => {
-                        try {
-                            await promiseRetry(
-                                () => this.updateGroupOptimistically(update),
-                                'updateGroupOptimistically',
-                                this.options.maxOptimisticUpdateRetries,
-                                this.options.optimisticUpdateRetryInterval,
-                                undefined,
-                                [MessageSizeTooLarge]
-                            )
-                        } catch (error) {
-                            // If the Kafka message is too large, we can't retry, so we need to capture a warning and stop retrying
-                            if (error instanceof MessageSizeTooLarge) {
-                                await captureIngestionWarning(
-                                    this.db.kafkaProducer,
-                                    update.team_id,
-                                    'group_upsert_message_size_too_large',
-                                    {
-                                        groupTypeIndex: update.group_type_index,
-                                        groupKey: update.group_key,
-                                    }
-                                )
-                                return
-                            }
-                            logger.warn('⚠️', 'Falling back to direct upsert after max retries', {
-                                teamId: update.team_id,
-                                groupTypeIndex: update.group_type_index,
-                                groupKey: update.group_key,
-                            })
-                            // Remove the group from the cache, so we don't try to update it again
-                            this.groupCache.delete(this.getCacheKey(update.team_id, update.group_key))
-                            await this.upsertGroupDirectly(
-                                update.team_id,
-                                update.group_type_index,
-                                update.group_key,
-                                update.group_properties,
-                                update.created_at,
-                                true, // forUpdate = true, making us not use the cache
-                                'conflictRetry'
-                            )
-                        }
-                    }).catch((error) => {
-                        logger.error('Failed to update group after max retries and direct upsert fallback', {
-                            error,
-                            distinctId,
-                            teamId: update.team_id,
-                            groupTypeIndex: update.group_type_index,
-                            groupKey: update.group_key,
-                            errorMessage: error instanceof Error ? error.message : String(error),
-                            errorStack: error instanceof Error ? error.stack : undefined,
-                        })
-                        throw error
-                    })
-                )
-        ).catch((error) => {
+        try {
+            await Promise.all(
+                pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
+            )
+            return []
+        } catch (error) {
             logger.error('Failed to flush group updates', {
                 error,
                 errorMessage: error instanceof Error ? error.message : String(error),
                 errorStack: error instanceof Error ? error.stack : undefined,
             })
             throw error
+        }
+    }
+
+    private async processGroupUpdate(update: GroupUpdate, distinctId: string): Promise<void> {
+        try {
+            await promiseRetry(
+                () => this.executeOptimisticUpdate(update),
+                'updateGroupOptimistically',
+                this.options.maxOptimisticUpdateRetries,
+                this.options.optimisticUpdateRetryInterval,
+                undefined,
+                [MessageSizeTooLarge]
+            )
+        } catch (error) {
+            await this.handleOptimisticUpdateFailure(error, update, distinctId)
+        }
+    }
+
+    private async handleOptimisticUpdateFailure(
+        error: unknown,
+        update: GroupUpdate,
+        distinctId: string
+    ): Promise<void> {
+        if (error instanceof MessageSizeTooLarge) {
+            await captureIngestionWarning(
+                this.db.kafkaProducer,
+                update.team_id,
+                'group_upsert_message_size_too_large',
+                {
+                    groupTypeIndex: update.group_type_index,
+                    groupKey: update.group_key,
+                }
+            )
+            return
+        }
+
+        await this.fallbackToDirectUpsert(update, distinctId)
+    }
+
+    private async fallbackToDirectUpsert(update: GroupUpdate, distinctId: string): Promise<void> {
+        logger.warn('⚠️', 'Falling back to direct upsert after max retries', {
+            teamId: update.team_id,
+            groupTypeIndex: update.group_type_index,
+            groupKey: update.group_key,
+            distinctId,
         })
+
+        // Remove from cache to prevent retry
+        this.groupCache.delete(update.team_id, update.group_key)
+
+        try {
+            await this.executeGroupUpsert(
+                update.team_id,
+                update.group_type_index,
+                update.group_key,
+                update.group_properties,
+                update.created_at,
+                true, // forUpdate = true, making us not use the cache
+                'conflictRetry'
+            )
+        } catch (fallbackError) {
+            logger.error('Failed to update group after max retries and direct upsert fallback', {
+                error: fallbackError,
+                teamId: update.team_id,
+                groupTypeIndex: update.group_type_index,
+                groupKey: update.group_key,
+                errorMessage: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+                errorStack: fallbackError instanceof Error ? fallbackError.stack : undefined,
+            })
+            throw fallbackError
+        }
     }
 
     async upsertGroup(
@@ -162,29 +244,16 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
-        timestamp: DateTime,
-        forUpdate: boolean = true
+        timestamp: DateTime
     ): Promise<void> {
         try {
-            if (this.options.batchWritingEnabled) {
-                await this.addGroupUpsertToBatch(teamId, groupTypeIndex, groupKey, properties, timestamp)
-            } else {
-                await this.upsertGroupDirectly(
-                    teamId,
-                    groupTypeIndex,
-                    groupKey,
-                    properties,
-                    timestamp,
-                    forUpdate,
-                    'upsertGroup'
-                )
-            }
+            await this.addToBatch(teamId, groupTypeIndex, groupKey, properties, timestamp)
         } catch (error) {
             await this.handleUpsertError(error, teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
     }
 
-    private async addGroupUpsertToBatch(
+    private async addToBatch(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
@@ -194,7 +263,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, null)
 
         if (!group) {
-            await this.upsertGroupDirectly(
+            await this.executeGroupUpsert(
                 teamId,
                 groupTypeIndex,
                 groupKey,
@@ -206,20 +275,9 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
             return
         }
 
-        logger.info('👥', 'adding group to batch, group already exists', {
-            teamId,
-            groupTypeIndex,
-            groupKey,
-        })
-
         const propertiesUpdate = calculateUpdate(group.group_properties || {}, properties)
         if (propertiesUpdate.updated) {
-            logger.info('👥', 'adding group to batch, group properties updated', {
-                teamId,
-                groupTypeIndex,
-                groupKey,
-            })
-            this.addGroupToCache(teamId, groupKey, {
+            this.groupCache.set(teamId, groupKey, {
                 team_id: teamId,
                 group_type_index: groupTypeIndex,
                 group_key: groupKey,
@@ -231,7 +289,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         }
     }
 
-    private async upsertGroupDirectly(
+    private async executeGroupUpsert(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
@@ -242,27 +300,41 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     ): Promise<void> {
         const operation = 'upsertGroup' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation)
+
         const [propertiesUpdate, createdAt, actualVersion] = await this.db.postgres.transaction(
             PostgresUse.PERSONS_WRITE,
             operation,
             async (tx) =>
-                this.groupUpsertTransaction(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
+                this.executeUpsertTransaction(teamId, groupTypeIndex, groupKey, properties, timestamp, forUpdate, tx)
         )
 
         if (propertiesUpdate.updated) {
-            this.incrementDatabaseOperation('upsertGroupClickhouse' + (source ? `-${source}` : ''))
-            await this.db.upsertGroupClickhouse(
+            await this.upsertToClickhouse(
                 teamId,
                 groupTypeIndex,
                 groupKey,
                 propertiesUpdate.properties,
                 createdAt,
-                actualVersion
+                actualVersion,
+                source
             )
         }
     }
 
-    private async groupUpsertTransaction(
+    private async upsertToClickhouse(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        createdAt: DateTime,
+        actualVersion: number,
+        source: string
+    ): Promise<void> {
+        this.incrementDatabaseOperation('upsertClickhouse' + (source ? `-${source}` : ''))
+        await this.db.upsertGroupClickhouse(teamId, groupTypeIndex, groupKey, properties, createdAt, actualVersion)
+    }
+
+    private async executeUpsertTransaction(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
@@ -304,17 +376,15 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
                     expectedVersion,
                     tx
                 )
-                if (this.options.batchWritingEnabled) {
-                    this.addGroupToCache(teamId, groupKey, {
-                        team_id: teamId,
-                        group_type_index: groupTypeIndex,
-                        group_key: groupKey,
-                        group_properties: propertiesUpdate.properties,
-                        created_at: createdAt,
-                        version: actualVersion,
-                        needsWrite: false,
-                    })
-                }
+                this.groupCache.set(teamId, groupKey, {
+                    team_id: teamId,
+                    group_type_index: groupTypeIndex,
+                    group_key: groupKey,
+                    group_properties: propertiesUpdate.properties,
+                    created_at: createdAt,
+                    version: actualVersion,
+                    needsWrite: false,
+                })
             }
         }
 
@@ -383,7 +453,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         return insertedVersion
     }
 
-    private async updateGroupOptimistically(update: GroupUpdate): Promise<void> {
+    private async executeOptimisticUpdate(update: GroupUpdate): Promise<void> {
         this.incrementDatabaseOperation('updateGroupOptimistically')
         const actualVersion = await this.db.updateGroupOptimistically(
             update.team_id,
@@ -397,14 +467,14 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         )
 
         if (actualVersion !== undefined) {
-            this.incrementDatabaseOperation('upsertGroupClickhouse-updateGroupOptimistically')
-            await this.db.upsertGroupClickhouse(
+            await this.upsertToClickhouse(
                 update.team_id,
                 update.group_type_index,
                 update.group_key,
                 update.group_properties,
                 update.created_at,
-                actualVersion
+                actualVersion,
+                'optimistically'
             )
             return
         }
@@ -422,27 +492,6 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         throw new Error('Optimistic update failed, will retry')
     }
 
-    private isGroupCached(teamId: TeamId, groupKey: string) {
-        const key = this.getCacheKey(teamId, groupKey)
-        return this.groupCache.has(key)
-    }
-
-    private getCachedGroup(teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
-        const key = this.getCacheKey(teamId, groupKey)
-        const result = this.groupCache.get(key)
-        if (result !== undefined) {
-            this.cacheMetrics.cacheHits++
-        } else {
-            this.cacheMetrics.cacheMisses++
-        }
-        return result
-    }
-
-    private addGroupToCache(teamId: TeamId, groupKey: string, group: GroupUpdate | null) {
-        const key = this.getCacheKey(teamId, groupKey)
-        this.groupCache.set(key, group)
-    }
-
     private async getGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
@@ -450,41 +499,36 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
         forUpdate: boolean,
         tx: any
     ): Promise<GroupUpdate | null> {
-        const cacheKey = this.getCacheKey(teamId, groupKey)
-
-        if (this.isGroupCached(teamId, groupKey) && !forUpdate) {
-            const cachedGroup = this.getCachedGroup(teamId, groupKey)
+        if (this.groupCache.has(teamId, groupKey) && !forUpdate) {
+            const cachedGroup = this.groupCache.get(teamId, groupKey)
             if (cachedGroup !== undefined) {
                 return cachedGroup
             }
         }
 
-        let fetchPromise = this.fetchPromises.get(cacheKey)
+        let fetchPromise = this.groupCache.getFetchPromise(teamId, groupKey)
         if (!fetchPromise) {
             groupFetchPromisesCacheOperationsCounter.inc({ operation: 'miss' })
             fetchPromise = (async () => {
                 try {
                     this.incrementDatabaseOperation('fetchGroup')
                     const existingGroup = await this.db.fetchGroup(teamId, groupTypeIndex, groupKey, tx, { forUpdate })
-                    if (this.options.batchWritingEnabled) {
-                        if (existingGroup) {
-                            const groupUpdate = fromGroup(existingGroup)
-                            this.addGroupToCache(teamId, groupKey, {
-                                ...groupUpdate,
-                                needsWrite: false,
-                            })
-                            return groupUpdate
-                        } else {
-                            this.addGroupToCache(teamId, groupKey, null)
-                            return null
-                        }
+                    if (existingGroup) {
+                        const groupUpdate = fromGroup(existingGroup)
+                        this.groupCache.set(teamId, groupKey, {
+                            ...groupUpdate,
+                            needsWrite: false,
+                        })
+                        return groupUpdate
+                    } else {
+                        this.groupCache.set(teamId, groupKey, null)
+                        return null
                     }
-                    return existingGroup ? fromGroup(existingGroup) : null
                 } finally {
-                    this.fetchPromises.delete(cacheKey)
+                    this.groupCache.deleteFetchPromise(teamId, groupKey)
                 }
             })()
-            this.fetchPromises.set(cacheKey, fetchPromise)
+            this.groupCache.setFetchPromise(teamId, groupKey, fetchPromise)
         } else {
             groupFetchPromisesCacheOperationsCounter.inc({ operation: 'hit' })
         }
@@ -514,11 +558,7 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     }
 
     getCacheMetrics(): CacheMetrics {
-        return this.cacheMetrics
-    }
-
-    private getCacheKey(teamId: number, groupKey: string): string {
-        return `${teamId}:${groupKey}`
+        return this.groupCache.getMetrics()
     }
 
     private incrementDatabaseOperation(operation: string): void {
@@ -526,9 +566,10 @@ export class BatchWritingGroupStoreForBatch implements GroupStoreForBatch {
     }
 
     reportBatch(): void {
-        groupCacheSizeHistogram.observe(this.groupCache.size)
-        groupCacheOperationsCounter.inc({ operation: 'hit' }, this.cacheMetrics.cacheHits)
-        groupCacheOperationsCounter.inc({ operation: 'miss' }, this.cacheMetrics.cacheMisses)
+        groupCacheSizeHistogram.observe(this.groupCache.getSize())
+        const metrics = this.groupCache.getMetrics()
+        groupCacheOperationsCounter.inc({ operation: 'hit' }, metrics.cacheHits)
+        groupCacheOperationsCounter.inc({ operation: 'miss' }, metrics.cacheMisses)
         for (const [operation, count] of this.databaseOperationCounts.entries()) {
             groupDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
         }

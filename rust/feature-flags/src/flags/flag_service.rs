@@ -8,7 +8,7 @@ use crate::{
     },
     team::team_models::Team,
 };
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
@@ -17,14 +17,14 @@ use std::sync::Arc;
 pub struct FlagService {
     redis_reader: Arc<dyn RedisClient + Send + Sync>,
     redis_writer: Arc<dyn RedisClient + Send + Sync>,
-    pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+    pg_client: PostgresReader,
 }
 
 impl FlagService {
     pub fn new(
         redis_reader: Arc<dyn RedisClient + Send + Sync>,
         redis_writer: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+        pg_client: PostgresReader,
     ) -> Self {
         Self {
             redis_reader,
@@ -57,7 +57,7 @@ impl FlagService {
                         (Ok(token), false)
                     }
                     Err(e) => {
-                        tracing::debug!("Token validation failed for token '{}': {:?}", token, e);
+                        tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
                         inc(
                             TOKEN_VALIDATION_ERRORS_COUNTER,
                             &[("reason".to_string(), "token_not_found".to_string())],
@@ -177,7 +177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_verify_token() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
@@ -216,7 +216,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
@@ -261,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_flags_from_cache_or_pg() {
-        let redis_client = setup_redis_client(None);
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await

@@ -11,7 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { RevenueAnalyticsInsightsQueryGroupBy } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsGroupBy } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { DateMappingOption } from '~/types'
 
@@ -111,14 +111,14 @@ export const RevenueAnalyticsFilters = (): JSX.Element => {
 
 // We're defining the options here as a Record to get type-safety guarantee we'll
 // include all the options.
-const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsInsightsQueryGroupBy, string> = {
-    [RevenueAnalyticsInsightsQueryGroupBy.COHORT]: 'Cohort',
-    [RevenueAnalyticsInsightsQueryGroupBy.COUNTRY]: 'Country',
-    [RevenueAnalyticsInsightsQueryGroupBy.COUPON]: 'Coupon',
-    [RevenueAnalyticsInsightsQueryGroupBy.COUPON_ID]: 'Coupon ID',
-    [RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON]: 'Initial coupon',
-    [RevenueAnalyticsInsightsQueryGroupBy.INITIAL_COUPON_ID]: 'Initial coupon ID',
-    [RevenueAnalyticsInsightsQueryGroupBy.PRODUCT]: 'Product',
+const BREAKDOWN_BY_MAPPING: Record<RevenueAnalyticsGroupBy, string> = {
+    [RevenueAnalyticsGroupBy.COHORT]: 'Cohort',
+    [RevenueAnalyticsGroupBy.COUNTRY]: 'Country',
+    [RevenueAnalyticsGroupBy.COUPON]: 'Coupon',
+    [RevenueAnalyticsGroupBy.COUPON_ID]: 'Coupon ID',
+    [RevenueAnalyticsGroupBy.INITIAL_COUPON]: 'Initial coupon',
+    [RevenueAnalyticsGroupBy.INITIAL_COUPON_ID]: 'Initial coupon ID',
+    [RevenueAnalyticsGroupBy.PRODUCT]: 'Product',
 }
 
 const BREAKDOWN_BY_OPTIONS: LemonInputSelectOption[] = Object.entries(BREAKDOWN_BY_MAPPING).map(([key, label]) => ({
@@ -137,7 +137,7 @@ const RevenueAnalyticsBreakdownBy = (): JSX.Element => {
             <LemonInputSelect
                 options={BREAKDOWN_BY_OPTIONS}
                 value={groupBy}
-                onChange={(value) => setGroupBy(value as RevenueAnalyticsInsightsQueryGroupBy[])}
+                onChange={(value) => setGroupBy(value as RevenueAnalyticsGroupBy[])}
                 mode="multiple"
                 disablePrompting
                 limit={2}

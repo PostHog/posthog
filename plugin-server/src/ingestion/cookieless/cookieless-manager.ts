@@ -15,7 +15,6 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
-import { now } from '../../utils/now'
 import { TeamManager } from '../../utils/team-manager'
 import { bufferToUint32ArrayLE, uint32ArrayLEToBuffer, UUID7 } from '../../utils/utils'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
@@ -671,7 +670,7 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     const utcDate = new Date(`${yyyymmdd}T00:00:00Z`)
 
     // Current time in UTC
-    const nowUTC = new Date(now())
+    const nowUTC = new Date(Date.now())
 
     // Define the range of the calendar day in UTC
     const startOfDayMinus12 = new Date(utcDate)

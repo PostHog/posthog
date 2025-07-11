@@ -35,7 +35,7 @@ from posthog.temporal.data_imports.pipelines.doit.source import (
     doit_list_reports,
 )
 from posthog.temporal.data_imports.pipelines.google_ads import (
-    GoogleAdsServiceAccountSourceConfig,
+    GoogleAdsOAuthSourceConfig,
     get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,
 )
@@ -43,9 +43,6 @@ from posthog.temporal.data_imports.pipelines.google_sheets.source import (
     GoogleSheetsServiceAccountSourceConfig,
     get_schemas as get_google_sheets_schemas,
     get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
-)
-from posthog.temporal.data_imports.pipelines.hubspot.auth import (
-    get_hubspot_access_token_from_code,
 )
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING,
@@ -67,6 +64,7 @@ from posthog.temporal.data_imports.pipelines.zendesk import (
     validate_credentials as validate_zendesk_credentials,
 )
 from posthog.utils import get_instance_region, str_to_bool
+from posthog.warehouse.api.available_sources import AVAILABLE_SOURCES
 from posthog.warehouse.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
@@ -91,6 +89,11 @@ from posthog.warehouse.models.external_data_schema import (
     filter_snowflake_incremental_fields,
     get_postgres_row_count,
     get_sql_schemas_for_source_type,
+)
+from posthog.temporal.data_imports.pipelines.mongo import (
+    MongoSourceConfig,
+    get_schemas as get_mongo_schemas,
+    filter_mongo_incremental_fields,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -497,10 +500,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.METAADS:
+            new_source_model = self._handle_meta_ads_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.TEMPORALIO:
             new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.DOIT:
             new_source_model, doit_schemas = self._handle_doit_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.MONGODB:
+            new_source_model, mongo_schemas = self._handle_mongo_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.GOOGLESHEETS:
             new_source_model, google_sheets_schemas = self._handle_google_sheets_source(request, *args, **kwargs)
         else:
@@ -514,6 +521,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.MSSQL,
         ]:
             default_schemas = sql_schemas
+        elif source_type == ExternalDataSource.Type.MONGODB:
+            default_schemas = mongo_schemas
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             default_schemas = snowflake_schemas
         elif source_type == ExternalDataSource.Type.BIGQUERY:
@@ -546,19 +555,19 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         for schema in schemas:
             sync_type = schema.get("sync_type")
-            is_incremental = sync_type == "incremental"
+            requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
             sync_time_of_day = schema.get("sync_time_of_day")
 
-            if is_incremental and incremental_field is None:
+            if requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
 
-            if is_incremental and incremental_field_type is None:
+            if requires_incremental_fields and incremental_field_type is None:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -577,7 +586,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "incremental_field": incremental_field,
                         "incremental_field_type": incremental_field_type,
                     }
-                    if is_incremental
+                    if requires_incremental_fields
                     else {}
                 ),
             )
@@ -619,8 +628,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _handle_vitally_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         secret_token = payload.get("secret_token")
-        region = payload.get("region")
-        subdomain = payload.get("subdomain", None)
+
+        region_obj = payload.get("region", {})
+        region = region_obj.get("selection")
+        subdomain = region_obj.get("subdomain", None)
+
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -805,12 +817,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
-        code = payload.get("code")
-        redirect_uri = payload.get("redirect_uri")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
-
-        access_token, refresh_token = get_hubspot_access_token_from_code(code, redirect_uri=redirect_uri)
+        hubspot_integration_id = payload.get("hubspot_integration_id")
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
@@ -822,8 +831,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status="Running",
             source_type=source_type,
             job_inputs={
-                "hubspot_secret_key": access_token,
-                "hubspot_refresh_token": refresh_token,
+                "hubspot_integration_id": hubspot_integration_id,
             },
             prefix=prefix,
         )
@@ -950,6 +958,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type = request.data["source_type"]
 
         customer_id = payload.get("customer_id", "")
+        google_ads_integration_id = payload.get("google_ads_integration_id")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -959,14 +968,79 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={"customer_id": customer_id},
+            job_inputs={"customer_id": customer_id, "google_ads_integration_id": google_ads_integration_id},
             prefix=prefix,
         )
 
-        config = GoogleAdsServiceAccountSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
-        schemas = get_google_ads_schemas(config)
+        config = GoogleAdsOAuthSourceConfig.from_dict({**new_source_model.job_inputs, **{"resource_name": ""}})
+        schemas = get_google_ads_schemas(config, self.team_id)
 
         return new_source_model, list(schemas.keys())
+
+    def _handle_mongo_source(self, request: Request, *args: Any, **kwargs: Any) -> tuple[ExternalDataSource, list[Any]]:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        connection_string = payload.get("connection_string")
+
+        if not connection_string:
+            raise Exception("Missing required parameter: connection_string")
+
+        # Parse connection string to validate and extract database for host validation
+        try:
+            from posthog.temporal.data_imports.pipelines.mongo.mongo import _parse_connection_string
+
+            connection_params = _parse_connection_string(connection_string)
+        except Exception:
+            raise Exception(f"Invalid connection string")
+
+        if not connection_params.get("database"):
+            raise Exception("Database name is required in connection string")
+
+        # Validate database host
+        if not self._validate_mongo_host(connection_params):
+            raise Exception("Cannot use internal database")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "connection_string": connection_string,
+            },
+            prefix=prefix,
+        )
+
+        schemas = get_mongo_schemas(MongoSourceConfig.from_dict(new_source_model.job_inputs))
+
+        return new_source_model, list(schemas.keys())
+
+    def _handle_meta_ads_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        account_id = payload.get("account_id", "")
+        meta_ads_integration_id = payload.get("meta_ads_integration_id")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"account_id": account_id, "meta_ads_integration_id": meta_ads_integration_id},
+            prefix=prefix,
+        )
+
+        return new_source_model
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (
@@ -1087,8 +1161,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
         elif source_type == ExternalDataSource.Type.VITALLY:
             secret_token = request.data.get("secret_token", "")
-            region = request.data.get("region", "")
-            subdomain = request.data.get("subdomain", "")
+            region_obj = request.data.get("region", {})
+            region = region_obj.get("selection", "")
+            subdomain = region_obj.get("subdomain", "")
 
             subdomain_regex = re.compile("^[a-zA-Z-]+$")
             if region == "US" and not subdomain_regex.match(subdomain):
@@ -1166,6 +1241,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             customer_id = request.data.get("customer_id")
             resource_name = request.data.get("resource_name", "")
+            google_ads_integration_id = request.data.get("google_ads_integration_id", "")
 
             if not customer_id:
                 return Response(
@@ -1173,12 +1249,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": "Missing required input: 'customer_id'"},
                 )
 
-            google_ads_config = GoogleAdsServiceAccountSourceConfig(
-                customer_id=customer_id, resource_name=resource_name
+            google_ads_config = GoogleAdsOAuthSourceConfig(
+                customer_id=customer_id,
+                google_ads_integration_id=google_ads_integration_id,
+                resource_name=resource_name,
             )
 
             google_ads_schemas = get_google_ads_schemas(
                 google_ads_config,
+                self.team_id,
             )
 
             ads_incremental_fields = get_google_ads_incremental_fields()
@@ -1435,6 +1514,86 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for table_name, columns in filtered_results
             ]
             return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
+        elif source_type == ExternalDataSource.Type.MONGODB:
+            from pymongo.errors import OperationFailure as MongoOperationFailure
+
+            connection_string = request.data.get("connection_string", None)
+
+            if not connection_string:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Missing required parameter: connection_string"},
+                )
+
+            # Parse connection string to validate and extract parameters
+            try:
+                from posthog.temporal.data_imports.pipelines.mongo.mongo import _parse_connection_string
+
+                connection_params = _parse_connection_string(connection_string)
+            except Exception:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid connection string"},
+                )
+
+            if not connection_params.get("database"):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Database name is required in connection string"},
+                )
+
+            # Validate internal database
+            if not self._validate_mongo_host(connection_params):
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Cannot use internal database"},
+                )
+
+            try:
+                result = get_mongo_schemas(
+                    MongoSourceConfig.from_dict(
+                        {
+                            "connection_string": connection_string,
+                        }
+                    )
+                )
+                if len(result.keys()) == 0:
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": "No collections found in database"},
+                    )
+            except MongoOperationFailure:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"MongoDB authentication failed"},
+                )
+            except Exception as e:
+                capture_exception(e)
+                logger.exception("Could not fetch MongoDB collections", exc_info=e)
+
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": "Failed to connect to MongoDB database"},
+                )
+
+            filtered_results = [
+                (collection_name, filter_mongo_incremental_fields(columns, connection_string, collection_name))
+                for collection_name, columns in result.items()
+            ]
+
+            result_mapped_to_options = [
+                {
+                    "table": collection_name,
+                    "should_sync": False,
+                    "rows": None,  # MongoDB doesn't provide easy row count in schema discovery
+                    "incremental_fields": [],
+                    "incremental_available": False,
+                    "incremental_field": None,
+                    "sync_type": None,
+                }
+                for collection_name, _ in filtered_results
+            ]
+            return Response(status=status.HTTP_200_OK, data=result_mapped_to_options)
         elif source_type == ExternalDataSource.Type.SNOWFLAKE:
             account_id = request.data.get("account_id")
             database = request.data.get("database")
@@ -1604,6 +1763,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ).data,
         )
 
+    @action(methods=["GET"], detail=False)
+    def wizard(self, request: Request, *arg: Any, **kwargs: Any):
+        return Response(
+            status=status.HTTP_200_OK,
+            data={str(key): value.model_dump() for key, value in AVAILABLE_SOURCES.items()},
+        )
+
     def _expose_postgres_error(self, error: OperationalError) -> str | None:
         error_msg = " ".join(str(n) for n in error.args)
 
@@ -1625,6 +1791,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if key in error_msg:
                 return value
         return None
+
+    def _validate_mongo_host(self, connection_params: dict[str, Any]) -> bool:
+        """Validate MongoDB host for non-SRV connections."""
+        if connection_params.get("is_srv"):
+            return True  # SRV connections are always allowed
+
+        return self._validate_database_host(connection_params["host"], self.team_id, False)
 
     def _validate_database_host(self, host: str, team_id: int, using_ssh_tunnel: bool) -> bool:
         if using_ssh_tunnel:

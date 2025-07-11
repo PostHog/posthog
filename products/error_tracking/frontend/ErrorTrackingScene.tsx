@@ -8,7 +8,6 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
@@ -31,6 +30,10 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { useSparklineData } from './hooks/use-sparkline-data'
 import { OccurrenceSparkline } from './OccurrenceSparkline'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from './utils'
+import { ErrorTrackingSceneTool } from './components/SceneTool'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const scene: SceneExport = {
     component: ErrorTrackingScene,
@@ -40,6 +43,7 @@ export const scene: SceneExport = {
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorIngestionLogic)
     const { query } = useValues(errorTrackingSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
     }
@@ -62,8 +66,10 @@ export function ErrorTrackingScene(): JSX.Element {
         emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
     }
 
+    // TODO - fix feature flag check once the feature flag is created etc
     return (
         <ErrorTrackingSetupPrompt>
+            {featureFlags[FEATURE_FLAGS.ERROR_TRACKING_SCENE_TOOL] && <ErrorTrackingSceneTool />}
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
@@ -122,26 +128,38 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
 const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary" transform="rotate(90)" />
 
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(errorTrackingSceneLogic)
+    const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(errorTrackingSceneLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
+
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
+    const recordIndex = props.recordIndex
+
+    const onChange = (newValue: boolean): void => {
+        const includedIds: string[] = []
+
+        if (!shiftKeyHeld || previouslyCheckedRecordIndex === null) {
+            includedIds.push(record.id)
+        } else {
+            const start = Math.min(previouslyCheckedRecordIndex, recordIndex)
+            const end = Math.max(previouslyCheckedRecordIndex, recordIndex) + 1
+            includedIds.push(...results.slice(start, end).map((r) => r.id))
+        }
+
+        setPreviouslyCheckedRecordIndex(recordIndex)
+        setSelectedIssueIds(
+            newValue
+                ? [...new Set([...selectedIssueIds, ...includedIds])]
+                : selectedIssueIds.filter((id) => !includedIds.includes(id))
+        )
+    }
 
     return (
         <div className="flex items-start gap-x-2 group my-1">
-            <LemonCheckbox
-                className="h-[1.2rem]"
-                checked={checked}
-                onChange={(newValue) => {
-                    setSelectedIssueIds(
-                        newValue
-                            ? [...new Set([...selectedIssueIds, record.id])]
-                            : selectedIssueIds.filter((id) => id != record.id)
-                    )
-                }}
-            />
+            <LemonCheckbox className="h-[1.2rem]" checked={checked} onChange={onChange} />
 
             <div className="flex flex-col gap-[2px]">
                 <Link
@@ -216,7 +234,7 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
 }
 
 const Header = (): JSX.Element => {
-    const { user } = useValues(userLogic)
+    const { isDev } = useValues(preflightLogic)
 
     const onClick = (): void => {
         setInterval(() => {
@@ -228,7 +246,7 @@ const Header = (): JSX.Element => {
         <PageHeader
             buttons={
                 <>
-                    {user?.is_staff ? (
+                    {isDev ? (
                         <>
                             <LemonButton
                                 onClick={() => {

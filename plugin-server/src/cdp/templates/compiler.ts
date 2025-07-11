@@ -7,6 +7,7 @@ import path from 'path'
 import { parseJSON } from '../../utils/json-parse'
 import { UUIDT } from '../../utils/utils'
 import { HogBytecode } from '../types'
+import { Semaphore } from '../utils/sempahore'
 
 const ROOT_DIR = path.join(__dirname, '..', '..', '..', '..')
 const CACHE_FILE = path.join(__dirname, '.tmp/cache.json')
@@ -14,36 +15,10 @@ const CACHE_FILE = path.join(__dirname, '.tmp/cache.json')
 let CACHE: Record<string, HogBytecode> | null = null
 const CONCURRENT_WORKERS = 10
 
-class Semaphore {
-    private waiting: Array<() => void> = []
-
-    constructor(private permits: number) {}
-
-    async acquire(): Promise<void> {
-        if (this.permits > 0) {
-            this.permits--
-            return
-        }
-        return new Promise<void>((resolve) => this.waiting.push(resolve))
-    }
-
-    release(): void {
-        if (this.waiting.length > 0) {
-            const next = this.waiting.shift()
-            if (next) {
-                next()
-            }
-        } else {
-            this.permits++
-        }
-    }
-}
-
 const semaphore = new Semaphore(CONCURRENT_WORKERS)
 
 export async function compileHog(hog: string): Promise<HogBytecode> {
-    await semaphore.acquire()
-    try {
+    return semaphore.run(async () => {
         if (CACHE === null) {
             mkdirSync(path.dirname(CACHE_FILE), { recursive: true })
 
@@ -85,7 +60,5 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         await writeFile(CACHE_FILE, JSON.stringify(CACHE, null, 2))
 
         return output
-    } finally {
-        semaphore.release()
-    }
+    })
 }

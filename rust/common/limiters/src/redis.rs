@@ -61,6 +61,7 @@ impl QuotaResource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
 pub enum ServiceName {
+    SessionReplay,
     FeatureFlags,
     Capture,
     Cymbal,
@@ -69,6 +70,7 @@ pub enum ServiceName {
 impl ServiceName {
     pub fn as_string(&self) -> String {
         match self {
+            ServiceName::SessionReplay => "session_replay".to_string(),
             ServiceName::FeatureFlags => "feature_flags".to_string(),
             ServiceName::Capture => "capture".to_string(),
             ServiceName::Cymbal => "cymbal".to_string(),

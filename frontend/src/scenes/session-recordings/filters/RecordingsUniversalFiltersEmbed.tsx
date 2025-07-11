@@ -100,6 +100,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             <MaxTool
                 name="search_session_recordings"
                 displayName="Search recordings"
+                description="Max can set up filters for the recordings list"
                 context={{
                     current_filters: filters,
                 }}
@@ -219,7 +220,7 @@ export const RecordingsUniversalFiltersEmbed = ({
         taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { savedFilters, appliedSavedFilter } = useValues(savedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(savedFiltersLogic)
 
@@ -427,57 +428,67 @@ export const RecordingsUniversalFiltersEmbed = ({
                             </UniversalFilters>
                         </div>
                     </div>
-                    <div className="flex flex-wrap gap-2 items-center mt-8 justify-end border-t pt-4 mx-2">
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            onClick={handleResetFilters}
-                            icon={<IconRevert />}
-                            tooltip="Reset any changes you've made to the filters"
-                            disabledReason={
-                                !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
-                            }
-                        >
-                            Reset filters
-                        </LemonButton>
-                        {appliedSavedFilter ? (
+                    <div className="flex justify-between gap-2 border-t pt-4 mx-2 mt-8 ">
+                        <div className="flex flex-wrap gap-2 items-center justify-end">
                             <LemonButton
-                                type="secondary"
+                                type="tertiary"
                                 size="small"
-                                onClick={() => void updateSavedFilter()}
-                                tooltip="Update saved filter"
+                                onClick={handleResetFilters}
+                                icon={<IconRevert />}
+                                tooltip="Reset any changes you've made to the filters"
                                 disabledReason={
-                                    equal(appliedSavedFilter.filters, filters) ? 'No changes to update' : undefined
+                                    !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
                                 }
-                                sideAction={{
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={[
-                                                    {
-                                                        label: 'Save as a new filter',
-                                                        onClick: () => setIsSaveFiltersModalOpen(true),
-                                                    },
-                                                ]}
-                                            />
-                                        ),
-                                    },
-                                }}
                             >
-                                Update "{appliedSavedFilter.name || 'Unnamed'}"
+                                Reset filters
                             </LemonButton>
-                        ) : (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => setIsSaveFiltersModalOpen(true)}
-                                disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
-                                tooltip="Save filters for later"
-                            >
-                                Save filters
-                            </LemonButton>
-                        )}
+                            {appliedSavedFilter ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => void updateSavedFilter()}
+                                    tooltip="Update saved filter"
+                                    disabledReason={
+                                        equal(appliedSavedFilter.filters, filters) ? 'No changes to update' : undefined
+                                    }
+                                    sideAction={{
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={[
+                                                        {
+                                                            label: 'Save as a new filter',
+                                                            onClick: () => setIsSaveFiltersModalOpen(true),
+                                                        },
+                                                    ]}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    Update "{appliedSavedFilter.name || 'Unnamed'}"
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setIsSaveFiltersModalOpen(true)}
+                                    disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
+                                    tooltip="Save filters for later"
+                                >
+                                    Add to "Saved filters"
+                                </LemonButton>
+                            )}
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() => setIsFiltersExpanded(false)}
+                            tooltip="Close filters and start watching recordings"
+                        >
+                            {(totalFiltersCount ?? 0) === 0 ? 'Close filters' : 'Start watching'}
+                        </LemonButton>
                     </div>
                     {SaveFiltersModal()}
                 </div>

@@ -5,9 +5,9 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
-import { MAX_PRIMARY_METRICS } from '../shared/const'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
 import { ConfidenceIntervalAxis } from './ConfidenceIntervalAxis'
 import { MetricRow } from './MetricRow'
@@ -143,8 +143,9 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">
                             <p>
-                                Add up to {MAX_PRIMARY_METRICS} <span>{isSecondary ? 'secondary' : 'primary'}</span>{' '}
-                                metrics.
+                                Add up to&nbsp;
+                                {isSecondary ? EXPERIMENT_MAX_SECONDARY_METRICS : EXPERIMENT_MAX_PRIMARY_METRICS}&nbsp;
+                                <span>{isSecondary ? 'secondary' : 'primary'}</span> metrics.
                             </p>
                             <p>
                                 {isSecondary

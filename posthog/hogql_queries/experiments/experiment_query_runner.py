@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
+from posthog.exceptions_capture import capture_exception
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
@@ -11,7 +12,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import (
     CONTROL_VARIANT_KEY,
@@ -23,6 +23,14 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     get_data_warehouse_metric_source,
     get_metric_value,
     is_continuous,
+)
+from posthog.hogql_queries.experiments.exposure_query_logic import (
+    build_common_exposure_conditions,
+    get_entity_key,
+    get_exposure_event_and_property,
+    get_multiple_variant_handling_from_experiment,
+    get_test_accounts_filter,
+    get_variant_selection_expr,
 )
 from posthog.hogql_queries.experiments.funnel_query_utils import (
     funnel_evaluation_expr,
@@ -74,6 +82,7 @@ from posthog.schema import (
     ExperimentVariantFunnelsBaseStats,
     ExperimentVariantTrendsBaseStats,
     IntervalType,
+    MultipleVariantHandling,
 )
 
 
@@ -91,9 +100,7 @@ class ExperimentQueryRunner(QueryRunner):
         self.experiment = Experiment.objects.get(id=self.query.experiment_id)
         self.feature_flag = self.experiment.feature_flag
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
-        self.entity_key = "person_id"
-        if isinstance(self.group_type_index, int):
-            self.entity_key = f"$group_{self.group_type_index}"
+        self.entity_key = get_entity_key(self.group_type_index)
 
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
@@ -119,6 +126,9 @@ class ExperimentQueryRunner(QueryRunner):
             self.stats_method = self.experiment.stats_config.get("method", "bayesian")
             if self.stats_method not in ["bayesian", "frequentist"]:
                 self.stats_method = "bayesian"
+
+        # Determine how to handle entities exposed to multiple variants
+        self.multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.experiment)
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -190,16 +200,6 @@ class ExperimentQueryRunner(QueryRunner):
             time_window_clause,
         ]
 
-    def _get_test_accounts_filter(self) -> list[ast.Expr]:
-        if (
-            self.experiment.exposure_criteria
-            and self.experiment.exposure_criteria.get("filterTestAccounts")
-            and isinstance(self.team.test_account_filters, list)
-            and len(self.team.test_account_filters) > 0
-        ):
-            return [property_to_expr(property, self.team) for property in self.team.test_account_filters]
-        return []
-
     def _get_exposure_query(self) -> ast.SelectQuery:
         """
         Returns the query for the exposure data. One row per entity. If an entity is exposed to multiple variants,
@@ -210,76 +210,26 @@ class ExperimentQueryRunner(QueryRunner):
             first_exposure_time
         """
 
-        exposure_config = (
-            self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
+        event, feature_flag_variant_property = get_exposure_event_and_property(
+            feature_flag_key=self.feature_flag.key, exposure_criteria=self.experiment.exposure_criteria
         )
 
-        if exposure_config and exposure_config.get("event") != "$feature_flag_called":
-            # For custom exposure events, we extract the event name from the exposure config
-            # and get the variant from the $feature/<key> property
-            feature_flag_variant_property = f"$feature/{self.feature_flag.key}"
-            event = exposure_config.get("event")
-        else:
-            # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
-            feature_flag_variant_property = "$feature_flag_response"
-            event = "$feature_flag_called"
-
-        # Common criteria for all exposure queries
-        exposure_conditions: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=self.date_range_query.date_from()),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.Constant(value=self.date_range_query.date_to()),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=event),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["properties", feature_flag_variant_property]),
-                right=ast.Constant(value=self.variants),
-            ),
-            *self._get_test_accounts_filter(),
-        ]
-
-        # Custom exposures can have additional properties to narrow the audience
-        if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
-            exposure_property_filters: list[ast.Expr] = []
-
-            if exposure_config.get("properties"):
-                for property in exposure_config.get("properties"):
-                    exposure_property_filters.append(property_to_expr(property, self.team))
-            if exposure_property_filters:
-                exposure_conditions.append(ast.And(exprs=exposure_property_filters))
-
-        # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
-        if event == "$feature_flag_called":
-            exposure_conditions.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["properties", "$feature_flag"]),
-                    right=ast.Constant(value=self.feature_flag.key),
-                ),
-            )
+        # Build common exposure conditions
+        exposure_conditions = build_common_exposure_conditions(
+            event=event,
+            feature_flag_variant_property=feature_flag_variant_property,
+            variants=self.variants,
+            date_range_query=self.date_range_query,
+            team=self.team,
+            exposure_criteria=self.experiment.exposure_criteria,
+            feature_flag_key=self.feature_flag.key,
+        )
 
         exposure_query_select: list[ast.Expr] = [
             ast.Alias(alias="entity_id", expr=ast.Field(chain=[self.entity_key])),
             ast.Alias(
                 alias="variant",
-                expr=parse_expr(
-                    "if(count(distinct {variant_property}) > 1, {multiple_variant_key}, any({variant_property}))",
-                    placeholders={
-                        "variant_property": ast.Field(chain=["properties", feature_flag_variant_property]),
-                        "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
-                    },
-                ),
+                expr=get_variant_selection_expr(feature_flag_variant_property, self.multiple_variant_handling),
             ),
             ast.Alias(
                 alias="first_exposure_time",
@@ -399,7 +349,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 exprs=[
                                     *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                                     event_or_action_to_filter(self.team, metric_source),
-                                    *self._get_test_accounts_filter(),
+                                    *get_test_accounts_filter(self.team, self.experiment.exposure_criteria),
                                 ],
                             ),
                         )
@@ -446,7 +396,7 @@ class ExperimentQueryRunner(QueryRunner):
                     where=ast.And(
                         exprs=[
                             *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
-                            *self._get_test_accounts_filter(),
+                            *get_test_accounts_filter(self.team, self.experiment.exposure_criteria),
                             funnel_steps_to_filter(self.team, metric.series),
                         ],
                     ),
@@ -641,132 +591,143 @@ class ExperimentQueryRunner(QueryRunner):
             settings=HogQLGlobalSettings(max_execution_time=180),
         )
 
-        # NOTE: For now, remove the $multiple variant
-        response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
+        # Remove the $multiple variant only when using exclude handling
+        if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
+            response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
         return sorted_results
 
     def calculate(self) -> ExperimentQueryResponse:
-        sorted_results = self._evaluate_experiment_query()
+        try:
+            sorted_results = self._evaluate_experiment_query()
 
-        # Check if we should use the new Bayesian method
-        use_new_bayesian_method = self.experiment.stats_config and self.experiment.stats_config.get(
-            "use_new_bayesian_method", False
-        )
-        if self.stats_method == "bayesian" and use_new_bayesian_method:
-            bayesian_variants = get_new_variant_results(sorted_results)
-
-            self._validate_event_variants(bayesian_variants)
-
-            control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
-
-            return get_bayesian_experiment_result_new_format(
-                metric=self.metric,
-                control_variant=control_variant,
-                test_variants=test_variants,
+            # Check if we should use the new Bayesian method
+            use_new_bayesian_method = self.experiment.stats_config and self.experiment.stats_config.get(
+                "use_new_bayesian_method", False
             )
+            if self.stats_method == "bayesian" and use_new_bayesian_method:
+                bayesian_variants = get_new_variant_results(sorted_results)
 
-        elif self.stats_method == "frequentist":
-            frequentist_variants = get_new_variant_results(sorted_results)
+                self._validate_event_variants(bayesian_variants)
 
-            self._validate_event_variants(frequentist_variants)
+                control_variant, test_variants = split_baseline_and_test_variants(bayesian_variants)
 
-            control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
+                return get_bayesian_experiment_result_new_format(
+                    metric=self.metric,
+                    control_variant=control_variant,
+                    test_variants=test_variants,
+                )
 
-            return get_frequentist_experiment_result_new_format(
+            elif self.stats_method == "frequentist":
+                frequentist_variants = get_new_variant_results(sorted_results)
+
+                self._validate_event_variants(frequentist_variants)
+
+                control_variant, test_variants = split_baseline_and_test_variants(frequentist_variants)
+
+                return get_frequentist_experiment_result_new_format(
+                    metric=self.metric,
+                    control_variant=control_variant,
+                    test_variants=test_variants,
+                )
+
+            # Legacy stats methods
+            else:
+                variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
+                match self.metric:
+                    case ExperimentMeanMetric():
+                        trends_variants = get_legacy_trends_variant_results(sorted_results)
+                        self._validate_event_variants(trends_variants)
+                        trends_control_variant, trends_test_variants = split_baseline_and_test_variants(trends_variants)
+                        match is_continuous(self.metric.source.math):
+                            case True:
+                                probabilities = calculate_probabilities_v2_continuous(
+                                    control_variant=trends_control_variant,
+                                    test_variants=trends_test_variants,
+                                )
+                                significance_code, p_value = are_results_significant_v2_continuous(
+                                    control_variant=trends_control_variant,
+                                    test_variants=trends_test_variants,
+                                    probabilities=probabilities,
+                                )
+                                credible_intervals = calculate_credible_intervals_v2_continuous(
+                                    [trends_control_variant, *trends_test_variants]
+                                )
+                            # Otherwise, we default to count
+                            case False:
+                                probabilities = calculate_probabilities_v2_count(
+                                    control_variant=trends_control_variant,
+                                    test_variants=trends_test_variants,
+                                )
+                                significance_code, p_value = are_results_significant_v2_count(
+                                    control_variant=trends_control_variant,
+                                    test_variants=trends_test_variants,
+                                    probabilities=probabilities,
+                                )
+                                credible_intervals = calculate_credible_intervals_v2_count(
+                                    [trends_control_variant, *trends_test_variants]
+                                )
+
+                        probability = {
+                            variant.key: probability
+                            for variant, probability in zip(
+                                [trends_control_variant, *trends_test_variants],
+                                probabilities,
+                            )
+                        }
+                        variants = trends_variants
+
+                    case ExperimentFunnelMetric():
+                        funnel_variants = get_legacy_funnels_variant_results(sorted_results)
+                        self._validate_event_variants(funnel_variants)
+                        funnel_control_variant, funnel_test_variants = split_baseline_and_test_variants(funnel_variants)
+                        probabilities = calculate_probabilities_v2_funnel(
+                            control=funnel_control_variant,
+                            variants=funnel_test_variants,
+                        )
+                        significance_code, p_value = are_results_significant_v2_funnel(
+                            control=funnel_control_variant,
+                            variants=funnel_test_variants,
+                            probabilities=probabilities,
+                        )
+                        credible_intervals = calculate_credible_intervals_v2_funnel(
+                            [funnel_control_variant, *funnel_test_variants]
+                        )
+                        probability = {
+                            variant.key: probability
+                            for variant, probability in zip(
+                                [funnel_control_variant, *funnel_test_variants],
+                                probabilities,
+                            )
+                        }
+                        variants = funnel_variants
+
+                    case _:
+                        raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
+
+            return ExperimentQueryResponse(
+                kind="ExperimentQuery",
+                insight=[],
                 metric=self.metric,
-                control_variant=control_variant,
-                test_variants=test_variants,
+                variants=variants,
+                probability=probability,
+                significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
+                significance_code=significance_code,
+                stats_version=2,
+                p_value=p_value,
+                credible_intervals=credible_intervals,
             )
-
-        # Legacy stats methods
-        else:
-            variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
-            match self.metric:
-                case ExperimentMeanMetric():
-                    trends_variants = get_legacy_trends_variant_results(sorted_results)
-                    self._validate_event_variants(trends_variants)
-                    trends_control_variant, trends_test_variants = split_baseline_and_test_variants(trends_variants)
-                    match is_continuous(self.metric.source.math):
-                        case True:
-                            probabilities = calculate_probabilities_v2_continuous(
-                                control_variant=trends_control_variant,
-                                test_variants=trends_test_variants,
-                            )
-                            significance_code, p_value = are_results_significant_v2_continuous(
-                                control_variant=trends_control_variant,
-                                test_variants=trends_test_variants,
-                                probabilities=probabilities,
-                            )
-                            credible_intervals = calculate_credible_intervals_v2_continuous(
-                                [trends_control_variant, *trends_test_variants]
-                            )
-                        # Otherwise, we default to count
-                        case False:
-                            probabilities = calculate_probabilities_v2_count(
-                                control_variant=trends_control_variant,
-                                test_variants=trends_test_variants,
-                            )
-                            significance_code, p_value = are_results_significant_v2_count(
-                                control_variant=trends_control_variant,
-                                test_variants=trends_test_variants,
-                                probabilities=probabilities,
-                            )
-                            credible_intervals = calculate_credible_intervals_v2_count(
-                                [trends_control_variant, *trends_test_variants]
-                            )
-
-                    probability = {
-                        variant.key: probability
-                        for variant, probability in zip(
-                            [trends_control_variant, *trends_test_variants],
-                            probabilities,
-                        )
-                    }
-                    variants = trends_variants
-
-                case ExperimentFunnelMetric():
-                    funnel_variants = get_legacy_funnels_variant_results(sorted_results)
-                    self._validate_event_variants(funnel_variants)
-                    funnel_control_variant, funnel_test_variants = split_baseline_and_test_variants(funnel_variants)
-                    probabilities = calculate_probabilities_v2_funnel(
-                        control=funnel_control_variant,
-                        variants=funnel_test_variants,
-                    )
-                    significance_code, p_value = are_results_significant_v2_funnel(
-                        control=funnel_control_variant,
-                        variants=funnel_test_variants,
-                        probabilities=probabilities,
-                    )
-                    credible_intervals = calculate_credible_intervals_v2_funnel(
-                        [funnel_control_variant, *funnel_test_variants]
-                    )
-                    probability = {
-                        variant.key: probability
-                        for variant, probability in zip(
-                            [funnel_control_variant, *funnel_test_variants],
-                            probabilities,
-                        )
-                    }
-                    variants = funnel_variants
-
-                case _:
-                    raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
-
-        return ExperimentQueryResponse(
-            kind="ExperimentQuery",
-            insight=[],
-            metric=self.metric,
-            variants=variants,
-            probability=probability,
-            significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
-            significance_code=significance_code,
-            stats_version=2,
-            p_value=p_value,
-            credible_intervals=credible_intervals,
-        )
+        except Exception as e:
+            capture_exception(
+                e,
+                additional_properties={
+                    "query_runner": "ExperimentQueryRunner",
+                    "experiment_id": self.experiment.id,
+                },
+            )
+            raise
 
     def _validate_event_variants(
         self,

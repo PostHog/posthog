@@ -105,7 +105,7 @@ async function runSingleTeamPluginComposeWebhook(
                     messageFormat: pluginConfig.config.message_format as string,
                     event: postIngestionEvent,
                     team,
-                    siteUrl: hub.SITE_URL || '',
+                    siteUrl: hub.SITE_URL,
                     // TODO: What about pluginConfig.name ?
                     sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
                     sourcePath: `/pipeline/destinations/${pluginConfig.id}`,

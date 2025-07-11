@@ -124,7 +124,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
         // Check if the IPv4 address is global
         if (!allowUnsafe && !isGlobalIPv4(parsed)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
-            throw new SecureRequestError('Internal hostname')
+            throw new SecureRequestError('Hostname is not allowed')
         }
     }
     if (addrinfo.length === 0) {

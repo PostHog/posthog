@@ -1,0 +1,64 @@
+# serializer version: 1
+# name: TestConversionGoalProcessor.test_integration_actions_node_full_query_execution
+  '''
+  
+  SELECT
+      coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
+      coalesce(events.properties.utm_source, 'Unknown Source') AS source,
+      count('*') AS conversion_0
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+  
+  GROUP BY
+      campaign,
+      source
+  
+  LIMIT 100
+  '''
+# ---
+# name: TestConversionGoalProcessor.test_integration_events_node_full_query_execution
+  '''
+  
+  SELECT
+      coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
+      coalesce(events.properties.utm_source, 'Unknown Source') AS source,
+      count('*') AS conversion_0
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(events.event, 'sign_up'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+  
+  GROUP BY
+      campaign,
+      source
+  
+  LIMIT 100
+  '''
+# ---
+# name: TestConversionGoalProcessor.test_integration_sum_math_full_query_execution
+  '''
+  
+  SELECT
+      coalesce(events.properties.utm_campaign, 'Unknown Campaign') AS campaign,
+      coalesce(events.properties.utm_source, 'Unknown Source') AS source,
+      round(sum(toFloat(coalesce(events.properties.revenue, '0'))), 2) AS conversion_0
+  
+  FROM
+      events
+  
+  WHERE
+      and(equals(events.event, 'purchase'), greaterOrEquals(timestamp, toDate('2023-01-01')))
+  
+  GROUP BY
+      campaign,
+      source
+  
+  LIMIT 100
+  '''
+# ---

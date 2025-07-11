@@ -33,7 +33,7 @@ export function ConversationMessagesDisplay({
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     const outputDisplay = raisedError ? (
-        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-scroll">
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-auto">
             <IconExclamation className="text-base" />
             {isObject(output) ? (
                 <JSONViewer src={output} collapsed={4} />
@@ -178,19 +178,19 @@ export const LLMMessageDisplay = React.memo(
                             return <LemonMarkdown className="whitespace-pre-wrap">{escapedContent}</LemonMarkdown>
                         } catch {
                             // If markdown still fails, fall back to plain text
-                            return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                            return <span className="font-mono whitespace-pre-wrap">{content}</span>
                         }
                     } else {
                         // pre-wrap, because especially in system prompts, we want to preserve newlines even if they aren't fully Markdown-style
                         return <LemonMarkdown className="whitespace-pre-wrap">{content}</LemonMarkdown>
                     }
                 } else {
-                    return <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                    return <span className="font-mono whitespace-pre-wrap">{content}</span>
                 }
             }
 
             // Fallback: render as plain text.
-            return <span className="text-xs whitespace-pre-wrap">{content}</span>
+            return <span className="whitespace-pre-wrap">{content}</span>
         }
 
         return (

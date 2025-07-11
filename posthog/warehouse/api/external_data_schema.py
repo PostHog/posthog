@@ -25,6 +25,7 @@ from posthog.temporal.data_imports.pipelines.google_sheets.source import (
 from posthog.temporal.data_imports.pipelines.google_ads import (
     get_incremental_fields as get_google_ads_incremental_fields,
 )
+from posthog.temporal.data_imports.pipelines.mongo.mongo import filter_mongo_incremental_fields
 from posthog.temporal.data_imports.pipelines.mssql import (
     MSSQLSourceConfig,
     get_schemas as get_mssql_schemas,
@@ -36,6 +37,10 @@ from posthog.temporal.data_imports.pipelines.mysql import (
 from posthog.temporal.data_imports.pipelines.postgres import (
     PostgreSQLSourceConfig,
     get_schemas as get_postgres_schemas,
+)
+from posthog.temporal.data_imports.pipelines.mongo import (
+    MongoSourceConfig,
+    get_schemas as get_mongo_schemas,
 )
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING,
@@ -374,6 +379,17 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 {"field": name, "field_type": field_type, "label": name, "type": field_type}
                 for name, field_type in filter_snowflake_incremental_fields(columns)
             ]
+
+        elif source.source_type == ExternalDataSource.Type.MONGODB:
+            db_schemas = get_mongo_schemas(MongoSourceConfig.from_dict(source.job_inputs))
+            columns = db_schemas.get(instance.name, [])
+            incremental_columns = [
+                {"field": name, "field_type": field_type, "label": name, "type": field_type}
+                for name, field_type in filter_mongo_incremental_fields(
+                    columns, MongoSourceConfig.from_dict(source.job_inputs).connection_string, instance.name
+                )
+            ]
+
         elif source.source_type == ExternalDataSource.Type.GOOGLEADS:
             incremental_fields = get_google_ads_incremental_fields()
             matching_fields = incremental_fields.get(instance.name, None)

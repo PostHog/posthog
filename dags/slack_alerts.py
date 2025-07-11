@@ -11,6 +11,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
     JobOwners.TEAM_REVENUE_ANALYTICS.value: "#alerts-revenue-analytics",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
+    JobOwners.TEAM_GROWTH.value: "#alerts-growth",
 }
 
 
@@ -35,7 +36,7 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
     return job_owner
 
 
-@dagster.run_failure_sensor(default_status=dagster.DefaultSensorStatus.RUNNING)
+@dagster.run_failure_sensor(default_status=dagster.DefaultSensorStatus.RUNNING, monitor_all_code_locations=True)
 def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dagster_slack.SlackResource):
     """Send a notification to Slack when any job fails."""
     # Get the failed run
@@ -56,11 +57,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
         return
 
     # Construct Dagster URL based on environment
-    dagster_domain = (
-        f"dagster.prod-{settings.CLOUD_DEPLOYMENT.lower()}.posthog.dev"
-        if settings.CLOUD_DEPLOYMENT
-        else "dagster.localhost"
-    )
+    dagster_domain = settings.DAGSTER_DOMAIN if settings.DAGSTER_DOMAIN else "dagster.localhost"
     run_url = f"https://{dagster_domain}/runs/{run_id}"
 
     environment = (

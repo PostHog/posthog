@@ -180,7 +180,10 @@ describe('taxonomicBreakdownFilterLogic', () => {
         it('sets a limit', async () => {
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
-                breakdownFilter: {},
+                breakdownFilter: {
+                    breakdown_type: 'event',
+                    breakdown: 'prop',
+                },
                 isTrends: true,
                 updateBreakdownFilter,
                 updateDisplay,
@@ -192,6 +195,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown_type: 'event',
+                breakdown: 'prop',
                 breakdown_limit: 99,
             })
         })
@@ -1134,6 +1139,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
             logic = taxonomicBreakdownFilterLogic({
                 insightProps,
                 breakdownFilter: {
+                    breakdown: 'prop',
+                    breakdown_type: 'event',
                     breakdown_limit: 10,
                 },
                 isTrends: true,
@@ -1147,6 +1154,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
             }).toFinishListeners()
 
             expect(updateBreakdownFilter).toHaveBeenCalledWith({
+                breakdown: 'prop',
+                breakdown_type: 'event',
                 breakdown_limit: 99,
             })
         })

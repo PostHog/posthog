@@ -1,5 +1,6 @@
 from posthog.models.batch_imports import BatchImport, ContentType, BatchImportConfigBuilder
 from posthog.test.base import APIBaseTest, BaseTest
+from datetime import datetime, timedelta
 
 
 class TestBatchImportModel(BaseTest):
@@ -170,3 +171,65 @@ class TestBatchImportAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 201)
+
+    def test_date_range_validation_exceeds_one_year(self):
+        """Test that creating a date range import with more than 1 year fails"""
+
+        start_date = datetime(2023, 1, 1, 0, 0, 0)
+        end_date = start_date + timedelta(days=366)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "mixpanel",
+                "content_type": "mixpanel",
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Date range cannot exceed 1 year", str(response.json()))
+
+    def test_date_range_validation_within_one_year_succeeds(self):
+        """Test that creating a date range import within 1 year succeeds"""
+
+        start_date = datetime(2023, 1, 1, 0, 0, 0)
+        end_date = start_date + timedelta(days=300)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "amplitude",
+                "content_type": "amplitude",
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_date_range_validation_end_before_start_fails(self):
+        """Test that end date before start date fails validation"""
+
+        start_date = datetime(2023, 6, 1, 0, 0, 0)
+        end_date = datetime(2023, 1, 1, 0, 0, 0)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "amplitude",
+                "content_type": "amplitude",
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("End date must be after start date", str(response.json()))

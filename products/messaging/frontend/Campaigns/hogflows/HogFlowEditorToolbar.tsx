@@ -1,18 +1,21 @@
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { Panel } from '@xyflow/react'
 import { useActions } from 'kea'
 
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { HogFlowAction } from './types'
 
-export const TOOLBAR_NODES_TO_SHOW: HogFlowAction['type'][] = [
-    'message',
-    'conditional_branch',
-    'delay',
-    'wait_until_condition',
+export const ACTION_NODES_TO_SHOW: HogFlowAction['type'][] = [
+    'function_email',
+    'function_sms',
+    'function_slack',
+    'function_webhook',
 ]
+
+export const DELAY_NODES_TO_SHOW: HogFlowAction['type'][] = ['delay', 'wait_until_time_window', 'wait_until_condition']
+
+export const LOGIC_NODES_TO_SHOW: HogFlowAction['type'][] = ['conditional_branch', 'random_cohort_branch']
 
 function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JSX.Element | null {
     const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
@@ -40,16 +43,27 @@ function HogFlowEditorToolbarNode({ type }: { type: HogFlowAction['type'] }): JS
 
 export function HogFlowEditorToolbar(): JSX.Element {
     return (
-        <Panel position="top-left" className="bottom">
-            <div className="z-10 rounded-md border shadow-lg bg-surface-primary">
-                <h3 className="px-3 my-2 font-semibold">Workflow steps</h3>
-                <LemonDivider className="my-0" />
-                <div className="flex overflow-y-auto flex-col gap-px p-1">
-                    {TOOLBAR_NODES_TO_SHOW.map((type) => (
-                        <HogFlowEditorToolbarNode key={type} type={type} />
-                    ))}
-                </div>
-            </div>
-        </Panel>
+        <div className="flex overflow-y-auto flex-col gap-px p-2 max-h-120">
+            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                Actions <LemonDivider className="flex-1" />
+            </span>
+            {ACTION_NODES_TO_SHOW.map((type) => (
+                <HogFlowEditorToolbarNode key={type} type={type} />
+            ))}
+
+            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                Delays <LemonDivider className="flex-1" />
+            </span>
+            {DELAY_NODES_TO_SHOW.map((type) => (
+                <HogFlowEditorToolbarNode key={type} type={type} />
+            ))}
+
+            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                Audience split <LemonDivider className="flex-1" />
+            </span>
+            {LOGIC_NODES_TO_SHOW.map((type) => (
+                <HogFlowEditorToolbarNode key={type} type={type} />
+            ))}
+        </div>
     )
 }

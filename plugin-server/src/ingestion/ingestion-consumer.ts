@@ -154,7 +154,6 @@ export class IngestionConsumer {
         this.personStoreManager = new PersonStoreManager(this.hub, measuringPersonStore, batchWritingPersonStore)
 
         this.groupStore = new BatchWritingGroupStore(this.hub.db, {
-            batchWritingEnabled: this.hub.GROUP_BATCH_WRITING_ENABLED,
             maxConcurrentUpdates: this.hub.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.hub.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
@@ -297,7 +296,19 @@ export class IngestionConsumer {
             )
         })
 
-        await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
+        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
+
+        logger.info('🔁', `${this.name} - flushing persons store messages`, {
+            count: personsStoreMessages.length,
+        })
+        if (personsStoreMessages.length > 0 && this.kafkaProducer) {
+            logger.info('🔁', `${this.name} - queueing persons store messages`, {
+                count: personsStoreMessages.length,
+            })
+            await this.kafkaProducer.queueMessages(personsStoreMessages)
+            await this.kafkaProducer.flush()
+        }
+
         personsStoreForBatch.reportBatch()
         groupStoreForBatch.reportBatch()
 

@@ -7,10 +7,11 @@ import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { userLogic } from 'scenes/userLogic'
 
-import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateType, SourceConfig } from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateType } from '~/types'
 
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import type { nonHogFunctionTemplatesLogicType } from './nonHogFunctionTemplatesLogicType'
+import { SourceConfig } from '~/queries/schema/schema-general'
 
 export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType>([
     path((key) => ['scenes', 'data-pipelines', 'utils', 'nonHogFunctionTemplatesLogic', key]),

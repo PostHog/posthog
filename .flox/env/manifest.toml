@@ -55,6 +55,7 @@ POSTHOG_SKIP_MIGRATION_CHECKS = "1"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"
 OPENSSL_LIB_DIR = "$FLOX_ENV/lib"
+DOTENV_FILE = ".env"
 OPENSSL_INCLUDE_DIR = "$FLOX_ENV/include"
 LDFLAGS="-L$FLOX_ENV/lib"
 CPPFLAGS="-I$FLOX_ENV/include"
@@ -99,6 +100,13 @@ if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /
   echo "🚨 Amending /etc/hosts to map hostnames 'kafka', 'clickhouse', 'clickhouse-coordinator' and 'objectstorage' to 127.0.0.1..."
   echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
   echo "✅ /etc/hosts amended"
+fi
+
+if [ -f "$DOTENV_FILE" ]; then
+  set -o allexport
+  source "$DOTENV_FILE"
+  set +o allexport
+  echo "✅ Environment variables loaded from '$DOTENV_FILE' file"
 fi
 
 # The block below only runs when in an interactive shell

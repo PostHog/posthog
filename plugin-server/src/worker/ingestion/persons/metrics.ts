@@ -88,7 +88,7 @@ export const personFlushBatchSizeHistogram = new Histogram({
 export const personWriteMethodAttemptCounter = new Counter({
     name: 'person_write_method_attempt_total',
     help: 'Number of attempts for each write method',
-    labelNames: ['db_write_mode', 'method', 'outcome'], // method: no_assert, assert_version, with_transaction, outcome: success, retry, fallback
+    labelNames: ['db_write_mode', 'method', 'outcome'], // method: no_assert, assert_version; outcome: success, retry, fallback
 })
 
 export const personFallbackOperationsCounter = new Counter({
