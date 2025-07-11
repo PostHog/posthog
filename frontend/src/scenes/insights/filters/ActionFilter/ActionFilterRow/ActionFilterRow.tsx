@@ -25,7 +25,7 @@ import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getEventNamesForAction } from 'lib/utils'
+import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
@@ -741,30 +741,24 @@ function useMathSelectorOptions({
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
 
-    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(() => {
-        if (math === 'unique_group' && mathGroupTypeIndex !== undefined) {
-            const groupKey = `unique_group::${mathGroupTypeIndex}`
-            const groupDef = groupsMathDefinitions[groupKey]
-            return groupDef ? groupKey : 'users'
+    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(
+        getActiveActor('unique_group', mathGroupTypeIndex)
+    )
+    const [weeklyActiveActorsShown, setWeeklyActiveActorsShown] = useState<string>(
+        getActiveActor('weekly_active', mathGroupTypeIndex)
+    )
+    const [monthlyActiveActorsShown, setMonthlyActiveActorsShown] = useState<string>(
+        getActiveActor('monthly_active', mathGroupTypeIndex)
+    )
+
+    function getActiveActor(selectedMath: string, mathGroupTypeIndex: number | null | undefined): string {
+        if (mathGroupTypeIndex === undefined || mathGroupTypeIndex === null || selectedMath !== math) {
+            return 'users'
         }
-        return 'users'
-    })
-    const [weeklyActiveActorsShown, setWeeklyActiveActorsShown] = useState<string>(() => {
-        if (math === 'weekly_active' && mathGroupTypeIndex !== undefined) {
-            const groupKey = `unique_group::${mathGroupTypeIndex}`
-            const groupDef = groupsMathDefinitions[groupKey]
-            return groupDef ? groupKey : 'users'
-        }
-        return 'users'
-    })
-    const [monthlyActiveActorsShown, setMonthlyActiveActorsShown] = useState<string>(() => {
-        if (math === 'monthly_active' && mathGroupTypeIndex !== undefined) {
-            const groupKey = `unique_group::${mathGroupTypeIndex}`
-            const groupDef = groupsMathDefinitions[groupKey]
-            return groupDef ? groupKey : 'users'
-        }
-        return 'users'
-    })
+        const groupKey = `unique_group::${mathGroupTypeIndex}`
+        const groupDef = groupsMathDefinitions[groupKey]
+        return groupDef ? groupKey : 'users'
+    }
 
     let definitions = staticMathDefinitions
     if (mathAvailability === MathAvailability.FunnelsOnly) {
@@ -964,13 +958,29 @@ function useMathSelectorOptions({
             (option) => 'value' in option && option.value === BaseMathType.WeeklyActiveUsers
         )
         if (weeklyActiveUsersIndex !== -1) {
-            const label =
-                weeklyActiveActorsShown === 'users'
-                    ? 'Weekly active users'
-                    : `Weekly active ${aggregationLabel(mathGroupTypeIndex).plural}`
+            const actor = weeklyActiveActorsShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
+            const capitalizedActor = capitalizeFirstLetter(actor)
+            const label = `Weekly active ${actor}`
+            const tooltip =
+                actor === 'user' ? (
+                    options[weeklyActiveUsersIndex].tooltip
+                ) : (
+                    <>
+                        <b>{capitalizedActor} active in the past week (7 days).</b>
+                        <br />
+                        <br />
+                        This is a trailing count that aggregates distinct {actor} in the past 7 days for each day in the
+                        time series.
+                        <br />
+                        <br />
+                        If the group by interval is a week or longer, this is the same as "Unique {capitalizedActor}"
+                        math.
+                    </>
+                )
             options[weeklyActiveUsersIndex] = {
                 value: BaseMathType.WeeklyActiveUsers,
                 label,
+                tooltip,
                 labelInMenu: (
                     <div className="flex items-center gap-2">
                         <span>Weekly active</span>
@@ -996,7 +1006,6 @@ function useMathSelectorOptions({
                         />
                     </div>
                 ),
-                tooltip: `Weekly active ${weeklyActiveActorsShown}`,
                 'data-attr': `math-node-weekly-active-actors-${index}`,
             }
         }
@@ -1005,13 +1014,29 @@ function useMathSelectorOptions({
             (option) => 'value' in option && option.value === BaseMathType.MonthlyActiveUsers
         )
         if (monthlyActiveUsersIndex !== -1) {
-            const label =
-                monthlyActiveActorsShown === 'users'
-                    ? 'Monthly active users'
-                    : `Monthly active ${aggregationLabel(mathGroupTypeIndex).plural}`
+            const actor = monthlyActiveActorsShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
+            const capitalizedActor = capitalizeFirstLetter(actor)
+            const label = `Monthly active ${actor}`
+            const tooltip =
+                actor === 'user' ? (
+                    options[monthlyActiveUsersIndex].tooltip
+                ) : (
+                    <>
+                        <b>{capitalizedActor} active in the past month (30 days).</b>
+                        <br />
+                        <br />
+                        This is a trailing count that aggregates distinct {actor} in the past 30 days for each day in
+                        the time series.
+                        <br />
+                        <br />
+                        If the group by interval is a month or longer, this is the same as "Unique {capitalizedActor}"
+                        math.
+                    </>
+                )
             options[monthlyActiveUsersIndex] = {
                 value: BaseMathType.MonthlyActiveUsers,
                 label,
+                tooltip,
                 labelInMenu: (
                     <div className="flex items-center gap-2">
                         <span>Monthly active</span>
@@ -1037,7 +1062,6 @@ function useMathSelectorOptions({
                         />
                     </div>
                 ),
-                tooltip: `Monthly active ${monthlyActiveActorsShown}`,
                 'data-attr': `math-node-monthly-active-actors-${index}`,
             }
         }
