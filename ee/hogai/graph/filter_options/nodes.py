@@ -9,8 +9,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from ..shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
-from ..base import AssistantNode
+from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from .prompts import (
