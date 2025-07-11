@@ -6,10 +6,8 @@ import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
-    HogFunctionType,
     LogEntry,
     LogEntryLevel,
     MinimalAppMetric,
