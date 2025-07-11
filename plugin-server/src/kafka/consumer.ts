@@ -169,7 +169,6 @@ export class KafkaConsumer {
             'enable.auto.commit': this.config.autoCommit,
             'enable.partition.eof': true,
             rebalance_cb: true,
-            error_cb: true,
             offset_commit_cb: true,
         }
 
