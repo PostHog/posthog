@@ -653,7 +653,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to show the new recordings
-                        const logic = sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
+                        const logic =
+                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
+                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
                         logic.actions.loadPinnedRecordings()
                     } catch (e) {
                         posthog.captureException(e)
@@ -685,7 +687,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to see the recordings without the deleted ones
-                        const logic = sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
+                        const logic =
+                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
+                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
                         logic.actions.loadPinnedRecordings()
                     } catch (e) {
                         posthog.captureException(e)
