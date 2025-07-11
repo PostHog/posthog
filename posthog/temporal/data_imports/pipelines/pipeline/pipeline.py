@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from django.db.models import F
 from dlt.sources import DltSource
+from pympler import asizeof
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -63,6 +64,7 @@ class PipelineNonDLT:
     _internal_schema = HogQLSchema()
     _load_id: int
     _chunk_size: int = 5000
+    _chunk_size_bytes: int = 200 * 1024 * 1024  # 200 MiB
 
     def __init__(
         self,
@@ -161,22 +163,26 @@ class PipelineNonDLT:
                 if isinstance(item, list):
                     if len(buffer) > 0:
                         buffer.extend(item)
-                        if len(buffer) >= self._chunk_size:
+                        if asizeof.asizeof(buffer) >= self._chunk_size_bytes or len(buffer) >= self._chunk_size:
+                            self._logger.debug(f"Processing pipeline buffer (list). Length of buffer = {len(buffer)}")
+
                             py_table = table_from_py_list(buffer)
                             buffer = []
                         else:
                             continue
                     else:
-                        if len(item) >= self._chunk_size:
+                        if asizeof.asizeof(item) >= self._chunk_size_bytes or len(item) >= self._chunk_size:
+                            self._logger.debug(f"Processing pipeline item (list). Length of item = {len(item)}")
                             py_table = table_from_py_list(item)
                         else:
                             buffer.extend(item)
                             continue
                 elif isinstance(item, dict):
                     buffer.append(item)
-                    if len(buffer) < self._chunk_size:
+                    if asizeof.asizeof(buffer) < self._chunk_size_bytes and len(buffer) < self._chunk_size:
                         continue
 
+                    self._logger.debug(f"Processing pipeline buffer (dict). Length of buffer = {len(buffer)}")
                     py_table = table_from_py_list(buffer)
                     buffer = []
                 elif isinstance(item, pa.Table):
