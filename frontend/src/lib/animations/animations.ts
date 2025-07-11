@@ -1,5 +1,5 @@
-import musichog from './musichog.json'
-import sportshog from './sportshog.json'
+import musichog from './musichog.lottie?url'
+import sportshog from './sportshog.lottie?url'
 
 /**
  * We're keeping lottiefiles in this folder.
