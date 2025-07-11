@@ -1,4 +1,4 @@
-import { IconClock } from '@posthog/icons'
+import { IconHourglass } from '@posthog/icons'
 import { LemonLabel } from '@posthog/lemon-ui'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
@@ -12,15 +12,15 @@ import { HogFlowStep, HogFlowStepNodeProps } from './types'
 
 export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
     type: 'wait_until_condition',
-    name: 'Wait until...',
+    name: 'Wait for condition',
     description: 'Wait until a condition is met or a duration has passed.',
-    icon: <IconClock />,
+    icon: <IconHourglass />,
     renderNode: (props) => <StepWaitUntilConditionNode {...props} />,
     renderConfiguration: (node) => <StepWaitUntilConditionConfiguration node={node} />,
     create: () => {
         return {
             action: {
-                name: 'Wait until...',
+                name: 'Wait for condition',
                 description: '',
                 type: 'wait_until_condition',
                 on_error: 'continue',

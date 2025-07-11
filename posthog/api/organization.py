@@ -120,6 +120,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
+            "members_can_use_personal_api_keys",
             "member_count",
             "is_ai_data_processing_approved",
             "default_experiment_stats_method",
