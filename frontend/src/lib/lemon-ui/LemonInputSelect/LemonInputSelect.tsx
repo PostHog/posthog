@@ -614,7 +614,7 @@ export function LemonInputSelect<T = string>({
                                                                   ),
                                                                   tooltip: (
                                                                       <>
-                                                                          Edit this value{' '}
+                                                                          Edit this value
                                                                           <KeyboardShortcut option enter />
                                                                       </>
                                                                   ),
