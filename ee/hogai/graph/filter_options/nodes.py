@@ -296,7 +296,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         # These are AssistantToolCallMessage instances with specific help content
         if state.messages:
             last_message = state.messages[-1]
-            if isinstance(last_message, AssistantToolCallMessage) and last_message.content:
+            if isinstance(last_message, AssistantToolCallMessage):
                 if last_message.tool_call_id == "max_iterations" or last_message.tool_call_id == "ask_user_for_help":
                     return "end"
 
