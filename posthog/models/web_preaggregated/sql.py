@@ -48,7 +48,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
 
 
 def SESSIONS_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
-    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
     on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     return f"""
@@ -61,13 +61,13 @@ def SESSIONS_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
         updated_at DateTime64(6, 'UTC') DEFAULT now(),
         {columns}
     ) ENGINE = {engine}
-    PARTITION BY toYYYYMM(period_bucket)
+    PARTITION BY toYYYYMMDD(period_bucket)
     ORDER BY {order_by}
     """
 
 
 def SESSIONS_HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=None):
-    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
     on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
@@ -204,8 +204,10 @@ def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
 def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
 
+
 def WEB_SESSIONS_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_sessions_order_by_clause(WEB_SESSIONS_DIMENSIONS, bucket_column)
+
 
 def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="daily"):
     """
@@ -236,6 +238,7 @@ def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="da
     ALTER TABLE {table_name}{on_cluster_clause}
     DROP PARTITION '{partition_id}'
     """
+
 
 def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
     """Create both a local and distributed table with the same schema"""
