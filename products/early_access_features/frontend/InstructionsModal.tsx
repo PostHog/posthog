@@ -1,7 +1,7 @@
 import { LemonCollapse, LemonModal, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import EarlyAccessFeatureImage from 'public/early-access-feature-demo.png'
+import EarlyAccessFeatureImage from '~/assets/early-access-feature-demo.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 

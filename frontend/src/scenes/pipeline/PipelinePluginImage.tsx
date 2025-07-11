@@ -1,8 +1,8 @@
 import { IconTerminal } from '@posthog/icons'
 import { parseGithubRepoURL } from 'lib/utils'
-import imgPluginDefault from 'public/plugin-default.svg'
-import IconTransformationSemverFlattener from 'public/transformations/semver-flattener.png'
-import IconTransformationUserAgent from 'public/transformations/user-agent.png'
+import imgPluginDefault from '~/assets/plugin-default.svg'
+import IconTransformationSemverFlattener from '~/assets/transformations/semver-flattener.png'
+import IconTransformationUserAgent from '~/assets/transformations/user-agent.png'
 import { useEffect, useState } from 'react'
 
 import { PluginType } from '~/types'

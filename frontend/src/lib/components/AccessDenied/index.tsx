@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
-import noAccessNopehog from 'public/no-access-nopehog.png'
+import noAccessNopehog from '~/assets/no-access-nopehog.png'
 
 import { supportLogic } from '../Support/supportLogic'
 

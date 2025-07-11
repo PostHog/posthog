@@ -13,8 +13,8 @@ describe('segment templates', () => {
         expect(destination.template).toMatchSnapshot()
     })
 
-    test.each(testCases)('icon for template $id exists in frontend/public/services/', ({ destination }) => {
-        const servicesDir = path.join(__dirname, '../../../.././frontend/public/services')
+    test.each(testCases)('icon for template $id exists in frontend/src/assets/services/', ({ destination }) => {
+        const servicesDir = path.join(__dirname, '../../../.././frontend/src/assets/services')
 
         if (!fs.existsSync(servicesDir)) {
             throw new Error(`Services directory not found: ${servicesDir}`)

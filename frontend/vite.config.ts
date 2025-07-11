@@ -58,7 +58,7 @@ export default defineConfig(({ command }) => {
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',
                     chunkFileNames: isDev ? 'chunk-[name].js' : 'chunk-[name]-[hash].js',
-                    assetFileNames: isDev ? 'assets/[name].[ext]' : 'assets/[name]-[hash].[ext]',
+                    assetFileNames: isDev ? '~/assets/[name].[ext]' : '~/assets/[name]-[hash].[ext]',
                 },
             },
             sourcemap: true,
