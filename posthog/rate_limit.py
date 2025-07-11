@@ -411,7 +411,7 @@ class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
     # This is more aggressive than other throttles because the wizard makes OpenAI calls
     scope = "wizard_authentication"
-    rate = "20/day"
+    rate = "2000/day"
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):

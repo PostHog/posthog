@@ -59,7 +59,7 @@ from posthog.utils import (
 )
 from posthog.api.team import TEAM_CONFIG_FIELDS_SET
 from django.core.cache import cache
-from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
+from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 
 

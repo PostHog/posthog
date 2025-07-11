@@ -23,7 +23,8 @@ from google.genai.types import GenerateContentConfig
 from posthog.rate_limit import SetupWizardQueryRateThrottle
 from rest_framework.exceptions import AuthenticationFailed
 
-from .utils import action
+from ..utils import action
+from .utils import json_schema_to_gemini_schema
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
@@ -160,7 +161,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
             client = genai.Client(api_key=api_key, posthog_client=posthog_client)
 
-            response_schema = json_schema  # TODO: Convert to Schema object
+            converted_schema = json_schema_to_gemini_schema(json_schema)
+
+            from google.genai.types import Schema
+
+            response_schema = Schema(**converted_schema)
 
             config = GenerateContentConfig(
                 system_instruction=system_prompt,
