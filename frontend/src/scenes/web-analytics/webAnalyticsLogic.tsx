@@ -12,7 +12,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
+import {
+    getDefaultInterval,
+    isNotNil,
+    isValidRelativeOrAbsoluteDate,
+    objectsEqual,
+    UnexpectedNeverError,
+    updateDatesWithInterval,
+} from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -78,6 +85,7 @@ import {
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
+import posthog from 'posthog-js'
 
 export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
@@ -679,11 +687,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
             persistConfig,
             {
-                setDates: (_, { dateTo, dateFrom }) => ({
-                    dateTo,
-                    dateFrom,
-                    interval: getDefaultInterval(dateFrom, dateTo),
-                }),
+                setDates: (_, { dateTo, dateFrom }) => {
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
                 setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
                     const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
                     return {
@@ -696,6 +712,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     if (!dateFrom && !dateTo) {
                         dateFrom = INITIAL_DATE_FROM
                         dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                        dateTo = INITIAL_DATE_TO
+                    }
+                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                        dateFrom = INITIAL_DATE_FROM
                     }
                     return {
                         dateTo,
@@ -1180,6 +1202,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             columns,
                         },
                     }
+                }
+
+                let errorTrackingQ: DataTableNode | undefined
+
+                try {
+                    errorTrackingQ = errorTrackingQuery({
+                        orderBy: 'users',
+                        dateRange: dateRange,
+                        filterTestAccounts: filterTestAccounts,
+                        filterGroup: replayFilters.filter_group,
+                        columns: ['error', 'users', 'occurrences'],
+                        limit: 4,
+                    })
+                } catch (e) {
+                    posthog.captureException(e, { dateRange, replayFilters, filterTestAccounts })
                 }
 
                 if (productTab === ProductTab.WEB_VITALS) {
@@ -2177,21 +2214,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal
+                    !conversionGoal && errorTrackingQ
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
                               layout: {
                                   colSpanClassName: 'md:col-span-1',
                               },
-                              query: errorTrackingQuery({
-                                  orderBy: 'users',
-                                  dateRange: dateRange,
-                                  filterTestAccounts: filterTestAccounts,
-                                  filterGroup: replayFilters.filter_group,
-                                  columns: ['error', 'users', 'occurrences'],
-                                  limit: 4,
-                              }),
+                              query: errorTrackingQ,
                               docs: {
                                   url: 'https://posthog.com/docs/error-tracking',
                                   title: 'Error Tracking',

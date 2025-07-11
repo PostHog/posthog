@@ -17,12 +17,15 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { buildGlobalsWithInputs, HogExecutorService } from '../hog-executor.service'
+import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { checkConditions } from './actions/conditional_branch'
-import { calculatedScheduledAt } from './actions/delay'
-import { getRandomCohort } from './actions/random_cohort_branch'
-import { getWaitUntilTime } from './actions/wait_until_time_window'
+import { ActionHandler } from './actions/action.interface'
+import { ConditionalBranchHandler } from './actions/conditional_branch'
+import { DelayHandler } from './actions/delay'
+import { ExitHandler } from './actions/exit.handler'
+import { HogFunctionHandler } from './actions/hog_function'
+import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
+import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { findContinueAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
@@ -40,7 +43,7 @@ export function createHogFlowInvocation(
             actionStepCount: 0,
         },
         teamId: hogFlow.team_id,
-        functionId: hogFlow.id, // TODO: Include version?
+        functionId: hogFlow.id,
         hogFlow,
         queue: 'hogflow',
         queuePriority: 1,
@@ -48,11 +51,38 @@ export function createHogFlowInvocation(
 }
 
 export class HogFlowExecutorService {
+    private readonly actionHandlers: Map<string, ActionHandler>
+
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
-    ) {}
+    ) {
+        this.actionHandlers = this.initializeActionHandlers()
+    }
+
+    private initializeActionHandlers(): Map<HogFlowAction['type'], ActionHandler> {
+        const handlers = new Map<HogFlowAction['type'], ActionHandler>()
+        handlers.set('conditional_branch', new ConditionalBranchHandler())
+        handlers.set('wait_until_condition', new ConditionalBranchHandler())
+        handlers.set('delay', new DelayHandler())
+        handlers.set('wait_until_time_window', new WaitUntilTimeWindowHandler())
+        handlers.set('random_cohort_branch', new RandomCohortBranchHandler())
+
+        const hogFunctionHandler = new HogFunctionHandler(
+            this.hub,
+            this.hogFunctionExecutor,
+            this.hogFunctionTemplateManager
+        )
+        handlers.set('function', hogFunctionHandler)
+        handlers.set('function_sms', hogFunctionHandler)
+        handlers.set('function_slack', hogFunctionHandler)
+        handlers.set('function_email', hogFunctionHandler)
+        handlers.set('function_webhook', hogFunctionHandler)
+
+        handlers.set('exit', new ExitHandler())
+        return handlers
+    }
 
     async buildHogFlowInvocations(
         hogFlows: HogFlow[],
@@ -198,102 +228,26 @@ export class HogFlowExecutorService {
                 invocation,
             })
 
+            const handler = this.actionHandlers.get(currentAction.type)
+            if (!handler) {
+                throw new Error(`Action type '${currentAction.type}' not supported`)
+            }
+
             try {
-                switch (currentAction.type) {
-                    case 'conditional_branch':
-                    case 'wait_until_condition':
-                        const conditionResult = await checkConditions(
-                            invocation,
-                            currentAction.type === 'conditional_branch'
-                                ? currentAction
-                                : {
-                                      ...currentAction,
-                                      type: 'conditional_branch',
-                                      config: {
-                                          conditions: [currentAction.config.condition],
-                                          delay_duration: currentAction.config.max_wait_duration,
-                                      },
-                                  }
-                        )
+                const handlerResult = await handler.execute(invocation, currentAction, result)
 
-                        if (conditionResult.scheduledAt) {
-                            this.scheduleInvocation(result, conditionResult.scheduledAt)
-                            break
-                        } else if (conditionResult.nextAction) {
-                            this.goToNextAction(result, currentAction, conditionResult.nextAction, 'succeeded')
-                            break
-                        }
+                if (handlerResult.finished) {
+                    result.finished = true
+                    // Special case for exit - we just track a success metric
+                    this.trackActionMetric(result, currentAction, 'succeeded')
+                }
 
-                        // If we are not delaying or continuing then we go to the next action
-                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
-                        break
+                if (handlerResult.scheduledAt) {
+                    this.scheduleInvocation(result, handlerResult.scheduledAt)
+                }
 
-                    case 'delay':
-                        const scheduledAt = calculatedScheduledAt(
-                            currentAction.config.delay_duration,
-                            invocation.state.currentAction?.startedAtTimestamp
-                        )
-
-                        // Move to the next action regardless
-                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
-
-                        if (scheduledAt) {
-                            // Schedule it if we have a delay
-                            this.scheduleInvocation(result, scheduledAt)
-                        }
-
-                        break
-
-                    case 'wait_until_time_window':
-                        const nextTime = getWaitUntilTime(currentAction)
-                        if (nextTime) {
-                            this.scheduleInvocation(result, nextTime)
-                        }
-                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
-                        break
-
-                    case 'random_cohort_branch':
-                        const nextActionFromRandomCohort = getRandomCohort(invocation, currentAction)
-                        this.goToNextAction(result, currentAction, nextActionFromRandomCohort, 'succeeded')
-                        break
-
-                    case 'function':
-                        const functionResult = await this.executeHogFunction(invocation, currentAction)
-
-                        // Add all logs
-                        functionResult.logs.forEach((log) => {
-                            result.logs.push({
-                                level: log.level,
-                                timestamp: log.timestamp,
-                                message: `[Action:${currentAction.id}] ${log.message}`,
-                            })
-                        })
-
-                        if (!functionResult.finished) {
-                            // Set the state of the function result on the substate of the flow for the next execution
-                            result.invocation.state.hogFunctionState = functionResult.invocation.state
-                            // Also the queueParameters are required (NOTE: we should really move this to the invocation state)
-                            result.invocation.queueParameters = functionResult.invocation.queueParameters
-                            this.scheduleInvocation(
-                                result,
-                                functionResult.invocation.queueScheduledAt ?? DateTime.now() // If not set then we schedule for now
-                            )
-                            break
-                        }
-
-                        this.goToNextAction(result, currentAction, findContinueAction(invocation), 'succeeded')
-
-                        break
-
-                    case 'exit':
-                        // Exit is the simplest case
-                        result.finished = true
-                        // Special case for exit - we just track a success metric
-                        this.trackActionMetric(result, currentAction, 'succeeded')
-                        break
-
-                    default:
-                        throw new Error(`Action type '${currentAction.type}' not supported`)
+                if (handlerResult.nextAction) {
+                    this.goToNextAction(result, currentAction, handlerResult.nextAction, 'succeeded')
                 }
             } catch (err) {
                 // Add logs and metric specifically for this action
@@ -355,25 +309,10 @@ export class HogFlowExecutorService {
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `Workflow will pause until ${scheduledAt.toISO()}`,
+            message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
         })
 
         return result
-    }
-
-    private trackActionMetric(
-        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
-        action: HogFlowAction,
-        metricName: 'failed' | 'succeeded' | 'filtered'
-    ): void {
-        result.metrics.push({
-            team_id: result.invocation.hogFlow.team_id,
-            app_source_id: result.invocation.hogFlow.id,
-            instance_id: action.id,
-            metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
-            metric_name: metricName,
-            count: 1,
-        })
     }
 
     private logAction(
@@ -397,66 +336,18 @@ export class HogFlowExecutorService {
         })
     }
 
-    private async executeHogFunction(
-        invocation: CyclotronJobInvocationHogFlow,
-        action: Extract<HogFlowAction, { type: 'function' }>
-    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        // Executing a hog function involves a few steps
-        // 1. Finding the template to use
-        // 2. Building the globals
-        // 3. Executing the hog function
-        // 4. Returning the result
-
-        // TODO: Get the existing state from the invocation
-
-        const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(action.config.template_id)
-
-        if (!template) {
-            throw new Error(`Template '${action.config.template_id}' not found`)
-        }
-
-        const hogFunction: HogFunctionType = {
-            id: invocation.hogFlow.id, // We use the hog function flow ID
-            team_id: invocation.teamId,
-            name: `${invocation.hogFlow.name} - ${template.name}`,
-            enabled: true,
-            type: 'destination',
-            deleted: false,
-            hog: '<<TEMPLATE>>',
-            bytecode: template.bytecode,
-            is_addon_required: false,
-            created_at: '',
-            updated_at: '',
-        }
-
-        const teamId = invocation.hogFlow.team_id
-        const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
-
-        const globals: HogFunctionInvocationGlobals = {
-            source: {
-                name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                url: `${projectUrl}/functions/${hogFunction.id}`,
-            },
-            project: {
-                id: hogFunction.team_id,
-                name: '',
-                url: '',
-            },
-            event: invocation.state.event,
-            // TODO: Add person info
-        }
-
-        const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
-            ...invocation,
-            hogFunction,
-            state: invocation.state.hogFunctionState ?? {
-                globals: await buildGlobalsWithInputs(globals, action.config.inputs),
-                timings: [],
-                attempts: 0,
-            },
-        }
-
-        const result = await this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
-        return result
+    private trackActionMetric(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        metricName: 'failed' | 'succeeded' | 'filtered'
+    ): void {
+        result.metrics.push({
+            team_id: result.invocation.hogFlow.team_id,
+            app_source_id: result.invocation.hogFlow.id,
+            instance_id: action.id,
+            metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
+            metric_name: metricName,
+            count: 1,
+        })
     }
 }

@@ -162,6 +162,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
     )
     access_key = serializers.CharField(write_only=True, required=True)
     secret_key = serializers.CharField(write_only=True, required=True)
+    is_eu_region = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
         model = BatchImport
@@ -180,6 +181,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "content_type",
             "access_key",
             "secret_key",
+            "is_eu_region",
         ]
         read_only_fields = [
             "id",
@@ -228,6 +230,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 access_key=validated_data["access_key"],
                 secret_key=validated_data["secret_key"],
                 export_source=DateRangeExportSource(source_type),
+                is_eu_region=validated_data.get("is_eu_region", False),
             ).to_kafka(
                 topic=BatchImportKafkaTopic.HISTORICAL,
                 send_rate=1000,

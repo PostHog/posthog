@@ -1,13 +1,10 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
-import { EmojiCommentRow } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
 
 const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const {
@@ -22,16 +19,16 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const { submitRecordingAnnotation } = useActions(theBuiltOverlayLogic)
 
     return isCommenting ? (
-        <div className="absolute bottom-4 left-4 z-20 w-60">
+        <div className="absolute bottom-4 left-4 z-20 w-90">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
                     logic={playerCommentOverlayLogic}
                     formKey="recordingAnnotation"
                     id="recording-annotation-form"
                     enableFormOnSubmit
-                    className="gap-y-2"
+                    className="flex flex-col gap-y-1"
                 >
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-y-1">
                         <LemonField name="annotationId" className="hidden">
                             <input type="hidden" />
                         </LemonField>
@@ -39,22 +36,14 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             <LemonInput disabled={true} />
                         </LemonField>
                     </div>
-                    <EmojiCommentRow onSelectEmoji={() => setIsCommenting(false)} />
                     <div>
                         <LemonField name="content">
-                            <LemonTextArea
+                            <LemonTextAreaMarkdown
                                 placeholder="Comment on this recording?"
                                 data-attr="create-annotation-input"
                                 maxLength={400}
                             />
                         </LemonField>
-                    </div>
-                    <div
-                        className={cn('flex flex-row gap-2 justify-end items-center text-text-3000 text-sm', {
-                            'text-danger': (recordingAnnotation.content?.length ?? 0) > 400,
-                        })}
-                    >
-                        {recordingAnnotation.content?.length ?? 0} / 400
                     </div>
                     <div className="flex gap-2 mt-2 justify-between">
                         <LemonButton

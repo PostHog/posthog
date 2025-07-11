@@ -132,6 +132,13 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+
+    // topic that plugin VM capture events are produced to
+    CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: string
+
+    HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
+    HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
+    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 }
 
 export type IngestionConsumerConfig = {
@@ -149,9 +156,8 @@ export type IngestionConsumerConfig = {
  * The mode of db batch writes to use for person batch writing
  * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
  * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
- * WITH_TRANSACTION: Use SELECT FOR UPDATE in transaction to get the latest version of the person (locks the row)
  */
-export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION' | 'WITH_TRANSACTION'
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
@@ -683,6 +689,7 @@ export interface Team {
     timezone: string
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
+    drop_events_older_than_seconds: number | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

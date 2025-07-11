@@ -20,7 +20,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                         type: 'wait_until_time_window',
                         config: {
                             timezone: 'UTC',
-                            date: 'any',
+                            day: 'any',
                             time: ['14:00', '16:00'],
                         },
                     },
@@ -78,9 +78,9 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         })
     })
 
-    describe('date restrictions', () => {
+    describe('day restrictions', () => {
         it('should handle weekday restriction', () => {
-            action.config.date = 'weekday'
+            action.config.day = 'weekday'
             jest.setSystemTime(new Date('2025-01-04T17:00:00.000Z')) // Saturday
             const result = getWaitUntilTime(action)
             expect(result).toEqual(
@@ -89,7 +89,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         })
 
         it('should handle weekend restriction', () => {
-            action.config.date = 'weekend'
+            action.config.day = 'weekend'
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = getWaitUntilTime(action)
             expect(result).toEqual(
@@ -98,7 +98,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         })
 
         it('should handle specific days', () => {
-            action.config.date = ['monday', 'wednesday', 'friday']
+            action.config.day = ['monday', 'wednesday', 'friday']
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = getWaitUntilTime(action)
             expect(result).toEqual(
@@ -107,7 +107,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         })
 
         it('should handle single specific day', () => {
-            action.config.date = ['monday']
+            action.config.day = ['monday']
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = getWaitUntilTime(action)
             expect(result).toEqual(
@@ -116,7 +116,7 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         })
 
         it('should handle consecutive days', () => {
-            action.config.date = ['monday', 'tuesday', 'wednesday']
+            action.config.day = ['monday', 'tuesday', 'wednesday']
             jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
             const result = getWaitUntilTime(action)
             expect(result).toEqual(

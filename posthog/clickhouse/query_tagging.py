@@ -54,6 +54,25 @@ class TemporalTags(BaseModel):
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
 
+class DagsterTags(BaseModel):
+    """
+    Tags for Dagster runs
+
+    Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
+    """
+
+    job_name: Optional[str] = None
+    run_id: Optional[str] = None
+    tags: Optional[dict[str, str]] = None
+    root_run_id: Optional[str] = None
+    parent_run_id: Optional[str] = None
+    job_snapshot_id: Optional[str] = None
+    execution_plan_snapshot_id: Optional[str] = None
+
+    op_name: Optional[str] = None
+    asset_key: Optional[str] = None
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -66,6 +85,8 @@ class QueryTags(BaseModel):
 
     # temporalio tags
     temporal: Optional[TemporalTags] = None
+    # dagster specific tags
+    dagster: Optional[DagsterTags] = None
 
     query: Optional[object] = None
     query_settings: Optional[object] = None
@@ -138,6 +159,11 @@ class QueryTags(BaseModel):
     def with_temporal(self, temporal_tags: TemporalTags):
         self.kind = "temporal"
         self.temporal = temporal_tags
+
+    def with_dagster(self, dagster_tags: DagsterTags):
+        """Tags for dagster runs and activities."""
+        self.kind = "dagster"
+        self.dagster = dagster_tags
 
     def to_json(self) -> str:
         return self.model_dump_json(exclude_none=True)

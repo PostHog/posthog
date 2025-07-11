@@ -5,9 +5,40 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findNextAction } from '../hogflow-utils'
+import { findContinueAction } from '../hogflow-utils'
+import { ActionHandler, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
 const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
+
+export class ConditionalBranchHandler implements ActionHandler {
+    async execute(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
+    ): Promise<ActionHandlerResult> {
+        const conditionResult = await checkConditions(
+            invocation,
+            action.type === 'conditional_branch'
+                ? action
+                : {
+                      ...action,
+                      type: 'conditional_branch',
+                      config: {
+                          conditions: [action.config.condition],
+                          delay_duration: action.config.max_wait_duration,
+                      },
+                  }
+        )
+
+        if (conditionResult.scheduledAt) {
+            return { scheduledAt: conditionResult.scheduledAt }
+        } else if (conditionResult.nextAction) {
+            return { nextAction: conditionResult.nextAction }
+        }
+
+        return { nextAction: findContinueAction(invocation) }
+    }
+}
 
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
