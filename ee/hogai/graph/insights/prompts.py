@@ -1,77 +1,29 @@
-from langchain_core.prompts import PromptTemplate
+ITERATIVE_SEARCH_SYSTEM_PROMPT = """
+You are an expert at finding relevant insights from a large database. Your task is to find the 3 most relevant insights that match the user's search query.
 
+You have access to a paginated database of insights. The first page has been loaded for you below. You can read additional pages using the read_insights_page tool if needed.
 
-SEMANTIC_FILTER_PROMPT = PromptTemplate.from_template("""
-Rate the relevance of each insight to the search query.
+Each insight has:
+- ID: Unique numeric identifier
+- Name: The insight name
+- Description: Optional description of what the insight shows
 
-Search Query: "{query}"
+Guidelines:
+1. Focus on finding insights that directly relate to the user's search query
+2. Look for keyword matches in names and descriptions
+3. Consider semantic similarity and practical usefulness
+4. You can iterate through pages to find better matches
+5. Stop when you have found 3 highly relevant insights OR you've exhausted reasonable search options
+6. Return the 3 insight IDs in your final response
 
-Insights to rate:
-{insights_list}
+Available insights (Page 1):
+{first_page_insights}
 
-For each insight, respond with ONLY the number followed by relevance rating:
-Format: "1: high, 2: medium, 3: low, 4: none"
-
-Ratings:
-- high: Directly matches or strongly relates to the query
-- medium: Somewhat related or partially matches
-- low: Barely related or generic connection
-- none: No meaningful connection
-
-Your response:""")
-
-STRUCTURED_SEMANTIC_FILTER_PROMPT = """
-Categorize these insights by relevance to the search query: {query}
-
-Insights:
-{insights_list}
-
-Rating criteria:
-- high: Exact match or directly relevant
-- medium: Partial match or related
-- low: Generic connection
-- none: No meaningful connection
-
-Note: ⭐ EXACT MATCH insights should generally be 'high' unless unrelated.
-
-Group insight names by relevance level.
+{pagination_instructions}
 """
 
-IMPROVED_SEMANTIC_FILTER_PROMPT = PromptTemplate.from_template("""
-Rate the relevance of each insight to the search query. Pay special attention to exact keyword matches in insight names (marked with ⭐ EXACT MATCH).
+ITERATIVE_SEARCH_USER_PROMPT = """
+Find 3 insights matching this search query: {query}
 
-Search Query: "{query}"
-
-Insights to rate:
-{insights_list}
-
-For each insight, respond with ONLY the number followed by relevance rating:
-Format: "1: high, 2: medium, 3: low, 4: none"
-
-Ratings:
-- high: Exact keyword match in name OR directly matches query intent
-- medium: Partial keyword match OR somewhat related to query
-- low: Generic connection to query topics
-- none: No meaningful connection
-
-IMPORTANT: Insights marked with ⭐ EXACT MATCH should generally be rated 'high' unless completely unrelated to the query context.
-
-Your response:""")
-
-SINGLE_PASS_INSIGHT_SELECTION_PROMPT = """
-Find the single most relevant insight for the user's search query.
-
-Search Query: {query}
-
-Available Insights:
-{insights_list}
-
-First, analyze each insight's relevance to the query. Then select the single best match.
-
-Your analysis should consider:
-- Direct keyword matches in insight names
-- Semantic similarity to the query intent
-- Practical usefulness for the user's likely needs
-
-Return the exact insight name that best matches the query.
+Return the insight IDs as a list of numbers.
 """
