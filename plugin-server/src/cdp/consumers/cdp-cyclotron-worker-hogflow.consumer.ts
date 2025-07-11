@@ -41,8 +41,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                // TODO: Load person and add filter globals
-
                 const dbPerson = await this.personsManager.get({
                     teamId: hogFlow.team_id,
                     distinctId: hogFlowInvocationState.event.distinct_id,
@@ -62,7 +60,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
                     person,
-                    // TODO: what to do about groups?
+                    // TODO: Load groups as well
                     groups: {},
                 })
 

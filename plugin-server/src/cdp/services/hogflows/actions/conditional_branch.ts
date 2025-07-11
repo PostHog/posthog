@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
+import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findNextAction } from '../hogflow-utils'
