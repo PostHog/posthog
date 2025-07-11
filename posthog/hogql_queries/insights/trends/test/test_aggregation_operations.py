@@ -238,35 +238,26 @@ def test_actor_id_returns_correct_field(
     assert str(result) == expected_actor_field
 
 
+@pytest.mark.parametrize(
+    "math,math_group_type_index,expected_group_field",
+    [
+        [BaseMathType.WEEKLY_ACTIVE, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        [BaseMathType.MONTHLY_ACTIVE, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+    ],
+)
 @pytest.mark.django_db
-def test_weekly_active_groups_query_orchestration():
+def test_active_groups_query_orchestration(math, math_group_type_index, expected_group_field):
     team = Team()
     series = EventsNode(
         event="$pageview",
-        math=BaseMathType.WEEKLY_ACTIVE,
-        math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+        math=math,
+        math_group_type_index=math_group_type_index,
     )
     query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
     agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
 
     assert agg_ops.requires_query_orchestration() is True
-    assert str(agg_ops.actor_id()) == "sql(e.$group_0)", "Should use group field as actor id"
-    result = agg_ops.select_aggregation()
-    assert isinstance(result, ast.Placeholder)
-
-
-@pytest.mark.django_db
-def test_monthly_active_groups_query_orchestration():
-    team = Team()
-    series = EventsNode(
-        event="$pageview", math=BaseMathType.MONTHLY_ACTIVE, math_group_type_index=MathGroupTypeIndex.NUMBER_1
-    )
-    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
-
-    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
-
-    assert agg_ops.requires_query_orchestration() is True
-    assert str(agg_ops.actor_id()) == "sql(e.$group_1)", "Should use group field as actor id"
+    assert str(agg_ops.actor_id()) == expected_group_field, "Should use group field as actor id"
     result = agg_ops.select_aggregation()
     assert isinstance(result, ast.Placeholder)
