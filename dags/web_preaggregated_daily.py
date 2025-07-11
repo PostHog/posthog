@@ -6,7 +6,7 @@ import dagster
 from dagster import DailyPartitionsDefinition, BackfillPolicy
 import structlog
 import chdb
-from dags.common import JobOwners
+from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS,
@@ -14,6 +14,7 @@ from dags.web_preaggregated_utils import (
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
 )
+from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 
 from posthog.models.web_preaggregated.sql import (
@@ -21,8 +22,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
-)
-from posthog.hogql.database.schema.web_analytics_s3 import (
+    DROP_PARTITION_SQL,
     get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
@@ -70,6 +70,18 @@ def pre_aggregate_web_analytics_data(
     date_end = end_datetime.strftime("%Y-%m-%d")
 
     try:
+        # Drop the partition first, ensuring a clean state before insertion
+        # Note: No ON CLUSTER needed since tables are replicated (not sharded) and replication handles distribution
+        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start, on_cluster=False)
+        context.log.info(f"Dropping partition for {date_start}: {drop_partition_query}")
+
+        try:
+            sync_execute(drop_partition_query)
+            context.log.info(f"Successfully dropped partition for {date_start}")
+        except Exception as drop_error:
+            # Partition might not exist when running for the first time or when running in a empty backfill, which is fine
+            context.log.info(f"Partition for {date_start} doesn't exist or couldn't be dropped: {drop_error}")
+
         insert_query = sql_generator(
             date_start=date_start,
             date_end=date_end,
@@ -107,6 +119,7 @@ def web_bounces_daily(
     Aggregates bounce rate, session duration, and other session-level metrics
     by various dimensions (UTM parameters, geography, device info, etc.).
     """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return pre_aggregate_web_analytics_data(
         context=context,
         table_name="web_bounces_daily",
@@ -132,6 +145,7 @@ def web_stats_daily(context: dagster.AssetExecutionContext) -> None:
     Aggregates pageview counts, unique visitors, and unique sessions
     by various dimensions (pathnames, UTM parameters, geography, device info, etc.).
     """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return pre_aggregate_web_analytics_data(
         context=context,
         table_name="web_stats_daily",
@@ -259,6 +273,7 @@ def web_stats_daily_export(context: dagster.AssetExecutionContext) -> dagster.Ou
     """
     Exports web_stats_daily data directly to S3 partitioned by team using ClickHouse's native S3 export.
     """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return export_web_analytics_data_by_team(
         context=context,
         table_name="web_stats_daily",
@@ -278,6 +293,7 @@ def web_bounces_daily_export(context: dagster.AssetExecutionContext) -> dagster.
     """
     Exports web_bounces_daily data directly to S3 partitioned by team using ClickHouse's native S3 export.
     """
+    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return export_web_analytics_data_by_team(
         context=context,
         table_name="web_bounces_daily",

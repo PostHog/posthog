@@ -173,7 +173,6 @@ class EventsQueryRunner(QueryRunner):
                             timings=self.timings,
                         )
                     )
-                    # Note: We'll add inserted_at filter later only if we actually use recent_events table
 
             # where & having
             with self.timings.measure("where"):
@@ -217,40 +216,9 @@ class EventsQueryRunner(QueryRunner):
                     events_query.order_by = order_by
                     return events_query
 
-                # Choose table based on useRecentEventsTable flag
-                # Only use recent_events if the date range is within the last 7 days
-                use_recent_events = self.query.useRecentEventsTable
-                if use_recent_events:
-                    # Check if the query date range falls within the last 7 days
-                    current_time = now()
-                    seven_days_ago = current_time - timedelta(days=7)
-
-                    # Parse the after date - if it's before 7 days ago, we need the full events table
-                    if self.query.after and self.query.after != "all":
-                        after_date = relative_date_parse(self.query.after, self.team.timezone_info)
-                        if after_date < seven_days_ago:
-                            use_recent_events = False
-
-                table_name = "recent_events" if use_recent_events else "events"
-
-                # Add partition pruning for recent_events table
-                if use_recent_events and self.query.after and self.query.after != "all":
-                    # Add inserted_at filter for partition pruning
-                    parsed_date = relative_date_parse(self.query.after, self.team.timezone_info)
-                    # Add a buffer for potential delays between timestamp and inserted_at
-                    inserted_after = parsed_date - timedelta(hours=1)
-                    where_list.append(
-                        parse_expr(
-                            "inserted_at > {inserted_at}",
-                            {"inserted_at": ast.Constant(value=inserted_after)},
-                            timings=self.timings,
-                        )
-                    )
-                    where = ast.And(exprs=where_list) if len(where_list) > 0 else None
-
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,
@@ -269,7 +237,7 @@ class EventsQueryRunner(QueryRunner):
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        f"SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM {table_name}"
+                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
                     )
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
