@@ -1,6 +1,7 @@
 import merge from 'deepmerge'
 
 import { defaultConfig } from '~/config/config'
+import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
@@ -9,15 +10,15 @@ import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-e
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
-    HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionTemplate,
+    HogFunctionTemplateCompiled,
     HogFunctionType,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
 import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
-import { HogFunctionTemplate, HogFunctionTemplateCompiled } from '../types'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
@@ -116,13 +117,13 @@ export class TemplateTester {
         }
     }
 
-    private async compileInputs(_inputs: Record<string, any>): Promise<Record<string, HogFunctionInputType>> {
+    private async compileInputs(_inputs: Record<string, any>): Promise<Record<string, CyclotronInputType>> {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
                 acc[input.key] = input.default
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         const allInputs = { ...defaultInputs, ..._inputs }
 
@@ -143,7 +144,7 @@ export class TemplateTester {
                 bytecode: value,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
     }
 
     async invoke(
@@ -225,7 +226,7 @@ export class TemplateTester {
                 bytecode: item.bytecode,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 
