@@ -4,14 +4,14 @@ import uuid
 import pytest
 import snowflake.connector
 
-from products.batch_exports.backend.temporal.destination_tests import (
+from products.batch_exports.backend.api.destination_tests import (
     SnowflakeDatabaseTestStep,
     SnowflakeEstablishConnectionTestStep,
     SnowflakeSchemaTestStep,
     SnowflakeWarehouseTestStep,
     Status,
 )
-from products.batch_exports.backend.temporal.snowflake_batch_export import (
+from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     load_private_key,
 )
 
