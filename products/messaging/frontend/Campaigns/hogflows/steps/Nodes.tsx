@@ -17,6 +17,7 @@ export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentTyp
     dropzone: DropzoneNode,
     // Everything else is a HogFlowActionNode
     trigger: HogFlowActionNode,
+    function: HogFlowActionNode,
     function_email: HogFlowActionNode,
     function_sms: HogFlowActionNode,
     function_webhook: HogFlowActionNode,

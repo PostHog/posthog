@@ -88,6 +88,7 @@ export enum NodeKind {
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
     LogsQuery = 'LogsQuery',
+    SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -2111,6 +2112,48 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     limit?: integer
     offset?: integer
     columns?: string[]
+}
+
+export interface SessionEventsItem {
+    /** Session ID these events belong to */
+    session_id: string
+    /** List of events for this session, each event is a list of field values matching the query columns */
+    events: [][]
+}
+
+export interface SessionBatchEventsQuery
+    extends Omit<EventsQuery, 'kind' | 'response'>,
+        DataNode<SessionBatchEventsQueryResponse> {
+    kind: NodeKind.SessionBatchEventsQuery
+    /** Whether to group results by session_id in the response */
+    group_by_session?: boolean
+    /** List of session IDs to fetch events for. Will be translated to $session_id IN filter. */
+    session_ids: string[]
+    response?: SessionBatchEventsQueryResponse
+}
+
+export interface SessionBatchEventsQueryResponse extends EventsQueryResponse {
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
+    results: any[][]
+    /** Events grouped by session ID. Only populated when group_by_session=True. */
+    session_events?: SessionEventsItem[]
+    /** List of session IDs that had no matching events */
+    sessions_with_no_events?: string[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+}
+
+export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & {
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
+    results: any[][]
+    /** Events grouped by session ID. Only populated when group_by_session=True. */
+    session_events?: SessionEventsItem[]
+    /** List of session IDs that had no matching events */
+    sessions_with_no_events?: string[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
