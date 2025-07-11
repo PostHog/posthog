@@ -733,16 +733,42 @@ class FeatureFlagViewSet(
                             """
                             (
                                 (
-                                    filters->'groups'->0->>'rollout_percentage' = '100'
-                                    AND (filters->'groups'->0->'properties')::text = '[]'::text
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
                                     AND (filters->'multivariate' IS NULL OR jsonb_array_length(filters->'multivariate'->'variants') = 0)
                                 )
                                 OR
                                 (
-                                    jsonb_array_length(filters->'multivariate'->'variants') = 1
-                                    AND filters->'multivariate'->'variants'->0->>'rollout_percentage' = '100'
-                                    AND filters->'groups'->0->>'rollout_percentage' = '100'
-                                    AND (filters->'groups'->0->'properties')::text = '[]'::text
+                                    EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'multivariate'->'variants') AS variant
+                                        WHERE variant->>'rollout_percentage' = '100'
+                                    )
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                )
+                                OR
+                                (
+                                    filters->'super_groups' IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'super_groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
+                                )
+                                OR
+                                (
+                                    filters->'holdout_groups' IS NOT NULL
+                                    AND EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(filters->'holdout_groups') AS elem
+                                        WHERE elem->>'rollout_percentage' = '100'
+                                        AND (elem->'properties')::text = '[]'::text
+                                    )
                                 )
                             )
                             """
