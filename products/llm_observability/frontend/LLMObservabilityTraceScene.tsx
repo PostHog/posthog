@@ -43,6 +43,7 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
+    getRecordingStatus,
     getSessionID,
     hasSessionID,
     isLLMTraceEvent,
@@ -536,6 +537,7 @@ const EventContent = React.memo(
                                                 size="xsmall"
                                                 data-attr="llm-observability"
                                                 sessionId={getSessionID(event) || undefined}
+                                                recordingStatus={getRecordingStatus(event) || undefined}
                                                 timestamp={removeMilliseconds(event.createdAt)}
                                             />
                                         )}

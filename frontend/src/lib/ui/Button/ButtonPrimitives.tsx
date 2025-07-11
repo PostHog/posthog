@@ -11,7 +11,7 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 type ButtonVariant = 'default' | 'outline'
 
-export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
+export type ButtonSize = 'xxs' | 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
 interface ButtonGroupContextValue {
     sizeContext: ButtonSize
@@ -124,6 +124,8 @@ export const buttonPrimitiveVariants = cva({
             outline: 'button-primitive--variant-outline',
         },
         size: {
+            xxs: `button-primitive--size-xxs button-primitive--height-xxs text-sm`,
+            xs: `button-primitive--size-xs button-primitive--height-xs text-sm`,
             sm: `button-primitive--size-sm button-primitive--height-sm text-sm`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
@@ -159,7 +161,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         hasSideActionRight: {
-            true: 'rounded-md',
+            true: 'rounded',
             false: '',
         },
         isSideActionRight: {
@@ -177,23 +179,22 @@ export const buttonPrimitiveVariants = cva({
         {
             hasSideActionRight: true,
             size: 'sm',
-            className: `
-                pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]
-            `,
+            className: 'pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]',
         },
         {
             hasSideActionRight: true,
             size: 'base',
-            className: `
-                pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]
-            `,
+            className: 'pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]',
         },
         {
             hasSideActionRight: true,
             size: 'lg',
-            className: `
-                pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]
-            `,
+            className: 'pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]',
+        },
+        {
+            hasSideActionRight: true,
+            menuItem: true,
+            className: 'rounded-sm',
         },
     ],
 })

@@ -58,6 +58,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         })
                         closeCalculateRunningTimeModal()
                     }}
+                    disabled={!recommendedRunningTime || metricResultLoading}
                 />
             }
         >

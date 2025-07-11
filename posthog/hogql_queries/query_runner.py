@@ -39,6 +39,7 @@ from posthog.schema import (
     DashboardFilter,
     DateRange,
     EventsQuery,
+    SessionBatchEventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
@@ -152,6 +153,7 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     ActorsQuery,
     EventsQuery,
+    SessionBatchEventsQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -255,6 +257,16 @@ def get_query_runner(
 
         return EventsQueryRunner(
             query=cast(EventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "SessionBatchEventsQuery":
+        from .ai.session_batch_events_query_runner import SessionBatchEventsQueryRunner
+
+        return SessionBatchEventsQueryRunner(
+            query=cast(SessionBatchEventsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

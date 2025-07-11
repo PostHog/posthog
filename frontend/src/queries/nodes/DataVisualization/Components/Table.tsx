@@ -12,6 +12,7 @@ import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { convertTableValue, dataVisualizationLogic, TableDataCell } from '../dataVisualizationLogic'
+import posthog from 'posthog-js'
 
 interface TableProps {
     query: DataVisualizationNode
@@ -51,6 +52,16 @@ export const Table = (props: TableProps): JSX.Element => {
                 style: (_, data) => {
                     const cf = conditionalFormattingRules
                         .filter((n) => n.columnName === column.name)
+                        .filter((n) => {
+                            const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
+                            if (!isValidHog) {
+                                posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
+                                    formatRule: n,
+                                })
+                            }
+
+                            return isValidHog
+                        })
                         .map((n) => {
                             const res = execHog(n.bytecode, {
                                 globals: {

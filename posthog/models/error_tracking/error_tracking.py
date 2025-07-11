@@ -65,10 +65,6 @@ class ErrorTrackingIssue(UUIDModel):
 
 
 class ErrorTrackingExternalReference(UUIDModel):
-    class Provider(models.TextChoices):
-        LINEAR = "linear", "Linear"
-        GITHUB = "github", "GitHub"
-
     issue = models.ForeignKey(
         ErrorTrackingIssue,
         on_delete=models.CASCADE,
@@ -79,8 +75,11 @@ class ErrorTrackingExternalReference(UUIDModel):
         Integration,
         on_delete=models.CASCADE,
     )
-    provider = models.TextField(choices=Provider.choices, null=False, blank=False)
-    external_id = models.TextField(null=False, blank=False)
+    # DEPRECATED: provider can be fetched through the integration model
+    provider = deprecate_field(models.TextField(null=False, blank=False))
+    # DEPRECATED: ids should be placed inside the external_context json field
+    external_id = deprecate_field(models.TextField(null=False, blank=False))
+    external_context = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 

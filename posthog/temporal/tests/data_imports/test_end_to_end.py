@@ -2409,3 +2409,30 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pipeline_mb_chunk_size(team, zendesk_brands):
+    with (
+        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
+    ):
+        await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "zendesk_subdomain": "test",
+                "zendesk_api_key": "test_api_key",
+                "zendesk_email_address": "test@posthog.com",
+            },
+            mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
+            ignore_assertions=True,
+        )
+
+    # Returning two items should cause the pipeline to process each item individually
+
+    assert mock_process_pa_table.call_count == 2

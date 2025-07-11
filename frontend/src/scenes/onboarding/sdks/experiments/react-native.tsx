@@ -8,7 +8,7 @@ import { ExperimentsImplementationSnippet } from './ExperimentsImplementationSni
 export function ExperimentsReactNativeInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallRNInstructions />
+            <SDKInstallRNInstructions hideWizard />
             <LemonDivider thick dashed className="my-4" />
             <ExperimentsImplementationSnippet sdkKey={SDKKey.REACT_NATIVE} />
         </>

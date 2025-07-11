@@ -310,6 +310,122 @@ class TestOauthIntegrationModel(BaseTest):
 
         mock_reload.assert_not_called()
 
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_integration_without_expires_in_initial_response(self, mock_post):
+        """Test that Salesforce integrations without expires_in get default 1 hour expiry"""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "instance_url": "https://fake.salesforce.com",
+                # Note: no expires_in field
+            }
+
+            with freeze_time("2024-01-01T12:00:00Z"):
+                integration = OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {
+                        "code": "code",
+                        "state": "next=/projects/test",
+                    },
+                )
+
+            # Should have default 1 hour (3600 seconds) expiry
+            assert integration.config["expires_in"] == 3600
+            assert integration.config["refreshed_at"] == 1704110400
+
+    def test_salesforce_access_token_expired_without_expires_in(self):
+        """Test that Salesforce tokens without expires_in info use 1 hour default"""
+        now = datetime.now()
+        with freeze_time(now):
+            # Create integration without expires_in
+            integration = self.create_integration(
+                kind="salesforce",
+                config={"refreshed_at": int(time.time())},  # No expires_in
+                sensitive_config={"refresh_token": "REFRESH"},
+            )
+
+        oauth_integration = OauthIntegration(integration)
+
+        with freeze_time(now):
+            # Token should not be expired initially
+            assert not oauth_integration.access_token_expired()
+
+        with freeze_time(now + timedelta(minutes=29)):
+            # Should not be expired before 30 minutes (half of 1 hour default)
+            assert not oauth_integration.access_token_expired()
+
+        with freeze_time(now + timedelta(minutes=31)):
+            # Should be expired after 30 minutes (halfway point of 1 hour)
+            assert oauth_integration.access_token_expired()
+
+    def test_non_salesforce_access_token_expired_without_expires_in(self):
+        """Test that non-Salesforce integrations without expires_in return False"""
+        now = datetime.now()
+        with freeze_time(now):
+            # Create non-Salesforce integration without expires_in - override the default
+            integration = Integration.objects.create(
+                team=self.team,
+                kind="hubspot",
+                config={"refreshed_at": int(time.time())},  # No expires_in
+                sensitive_config={"refresh_token": "REFRESH"},
+            )
+
+        oauth_integration = OauthIntegration(integration)
+
+        with freeze_time(now + timedelta(hours=5)):
+            # Should never expire without expires_in for non-Salesforce
+            assert not oauth_integration.access_token_expired()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_access_token_without_expires_in_response(self, mock_post, mock_reload):
+        """Test that Salesforce refresh without expires_in in response gets 1 hour default"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            # Note: no expires_in field in refresh response
+        }
+
+        integration = self.create_integration(kind="salesforce", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        # Should have default 1 hour (3600 seconds) expiry
+        assert integration.config["expires_in"] == 3600
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_non_salesforce_refresh_access_token_preserves_none_expires_in(self, mock_post, mock_reload):
+        """Test that non-Salesforce integrations preserve None expires_in from refresh response"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            # Note: no expires_in field in refresh response
+        }
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        # Should preserve None for non-Salesforce
+        assert integration.config["expires_in"] is None
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
 
 class TestGoogleCloudIntegrationModel(BaseTest):
     mock_keyfile = {

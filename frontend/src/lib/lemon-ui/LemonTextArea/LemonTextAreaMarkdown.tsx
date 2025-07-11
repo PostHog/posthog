@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconMarkdown, IconTools } from 'lib/lemon-ui/icons'
+import { IconMarkdown, IconTools, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea, LemonTextAreaProps } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -47,11 +47,15 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                     autoFocus
                                     value={value}
                                     onChange={onChange}
+                                    footer={
+                                        editAreaProps.footer || (
+                                            <div className="text-secondary inline-flex items-center gap-x-1 text-sm">
+                                                <IconMarkdown className="text-lg" />
+                                                <span>Markdown formatting support</span>
+                                            </div>
+                                        )
+                                    }
                                 />
-                                <div className="text-secondary inline-flex items-center gap-x-1">
-                                    <IconMarkdown className="text-2xl" />
-                                    <span>Markdown formatting support</span>
-                                </div>
                                 {objectStorageAvailable ? (
                                     <LemonFileInput
                                         accept={'image/*'}
@@ -60,6 +64,12 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                         onChange={setFilesToUpload}
                                         loading={uploading}
                                         value={filesToUpload}
+                                        callToAction={
+                                            <div className="text-sm">
+                                                <IconUploadFile className="text-md" /> Click or drag and drop to upload
+                                                images
+                                            </div>
+                                        }
                                     />
                                 ) : (
                                     <div className="text-secondary inline-flex items-center gap-x-1">

@@ -8,6 +8,7 @@ import {
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { forwardRef, Fragment, useEffect, useRef, useState } from 'react'
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 
 type Category = { label: string; value: string; hint?: string; icon?: React.ReactNode }
 type Suggestion = { label: string; value: string; hint?: string; icon?: React.ReactNode }
@@ -292,9 +293,13 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                 setSuggestions(newSuggestions)
                                 setCurrentHint(newHint)
                             }}
-                            className="primitive-menu-content min-w-[var(--radix-popover-trigger-width)] max-w-none"
+                            className="primitive-menu-content min-w-[var(--radix-popover-trigger-width)] max-w-none max-h-[calc(var(--radix-popover-content-available-height)-var(--radix-popover-trigger-height))]"
                         >
-                            <ul className="flex flex-col gap-px p-1">
+                            <ScrollableShadows
+                                direction="vertical"
+                                styledScrollbars
+                                innerClassName="primitive-menu-content-inner"
+                            >
                                 <ListBox.Item asChild key={value} aria-disabled="true">
                                     <ButtonPrimitive
                                         menuItem
@@ -340,7 +345,7 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
                                         <IconInfo /> {currentHint}
                                     </ButtonPrimitive>
                                 )}
-                            </ul>
+                            </ScrollableShadows>
                         </PopoverPrimitiveContent>
                     )}
                 </PopoverPrimitive>
