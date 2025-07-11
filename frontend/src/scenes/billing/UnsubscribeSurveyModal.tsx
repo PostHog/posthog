@@ -18,7 +18,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SurveyEventProperties } from 'posthog-js'
 import { useState } from 'react'
 
-import { BillingProductV2AddonType, BillingProductV2Type, SurveyEventProperties } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingLogic } from './billingLogic'
