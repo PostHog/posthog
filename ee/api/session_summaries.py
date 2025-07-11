@@ -18,7 +18,6 @@ from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.cloud_utils import is_cloud
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
 logger = structlog.get_logger(__name__)
@@ -101,6 +100,14 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     def _validate_sessions_exist(self, session_ids: list[str]) -> None:
         """Validate that all session IDs exist and belong to the team"""
-        for session_id in session_ids:
-            if not SessionReplayEvents().exists(session_id=session_id, team=self.team):
-                raise exceptions.ValidationError(f"Session {session_id} not found or does not belong to this team")
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        # Use the optimized exists_multiple method that only checks within TTL
+        replay_events = SessionReplayEvents()
+        found_sessions = replay_events.exists_multiple(session_ids, self.team)
+
+        # Check for missing sessions
+        missing_sessions = set(session_ids) - found_sessions
+        if missing_sessions:
+            missing_list = ", ".join(sorted(missing_sessions))
+            raise exceptions.ValidationError(f"Sessions not found or do not belong to this team: {missing_list}")

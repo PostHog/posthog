@@ -74,6 +74,41 @@ class SessionReplayEvents:
         )
         return result[0][0] > 0
 
+    def exists_multiple(self, session_ids: list[str], team: Team) -> set[str]:
+        """
+        Check which session IDs exist for the given team within TTL.
+        Returns a set of session IDs that exist.
+        """
+        if not session_ids:
+            return set()
+
+        # Only check within TTL days (no need to check older sessions for summaries)
+        ttl = ttl_days(team)
+        return self._check_exists_multiple_within_days(ttl, session_ids, team)
+
+    @staticmethod
+    def _check_exists_multiple_within_days(days: int, session_ids: list[str], team: Team) -> set[str]:
+        """
+        Check which session IDs exist within the specified number of days.
+        Returns a set of session IDs that exist.
+        """
+        result = sync_execute(
+            """
+            SELECT DISTINCT session_id
+            FROM session_replay_events
+            PREWHERE team_id = %(team_id)s
+            AND session_id IN %(session_ids)s
+            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= now()
+            """,
+            {
+                "team_id": team.pk,
+                "session_ids": session_ids,
+                "days": days,
+            },
+        )
+        return {row[0] for row in result}
+
     @staticmethod
     def get_metadata_query(
         recording_start_time: Optional[datetime] = None,
