@@ -61,6 +61,8 @@ export type GroupType = {
 export type CyclotronPerson = {
     id: string
     properties: Record<string, any>
+    name: string
+    url: string
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -85,11 +87,7 @@ export type HogFunctionInvocationGlobals = {
         /* Special fields in Hog */
         url: string
     }
-    person?: CyclotronPerson & {
-        /** Special fields in Hog */
-        name: string
-        url: string
-    }
+    person?: CyclotronPerson
     groups?: Record<string, GroupType>
 
     // Unique to sources - will be modified later
@@ -270,13 +268,14 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
+    person?: CyclotronPerson
+    filterGlobals: HogFunctionFilterGlobals
 }
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     actionStepCount: number
     // variables: Record<string, any> // NOTE: not used yet but
-    personId?: string
     currentAction?: {
         id: string
         startedAtTimestamp: number

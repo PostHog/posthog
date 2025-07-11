@@ -7,6 +7,7 @@ import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
+    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
     LogEntryLevel,
@@ -17,7 +18,6 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { PersonsManagerService } from '../managers/persons-manager.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
@@ -35,7 +35,6 @@ export class HogFlowExecutorService {
 
     constructor(
         private hub: Hub,
-        private personsManager: PersonsManagerService,
         private hogFunctionExecutor: HogExecutorService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {
@@ -44,18 +43,20 @@ export class HogFlowExecutorService {
 
     public createHogFlowInvocation(
         globals: HogFunctionInvocationGlobals,
-        hogFlow: HogFlow
+        hogFlow: HogFlow,
+        filterGlobals: HogFunctionFilterGlobals
     ): CyclotronJobInvocationHogFlow {
         return {
             id: new UUIDT().toString(),
             state: {
-                personId: globals.person?.id ?? '',
                 event: globals.event,
                 actionStepCount: 0,
             },
             teamId: hogFlow.team_id,
             functionId: hogFlow.id, // TODO: Include version?
             hogFlow,
+            person: globals.person, // This is outside of state as we don't persist it
+            filterGlobals,
             queue: 'hogflow',
             queuePriority: 1,
         }
@@ -118,7 +119,7 @@ export class HogFlowExecutorService {
                 continue
             }
 
-            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow)
+            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocations.push(invocation)
         }
 
