@@ -54,18 +54,22 @@ from products.batch_exports.backend.temporal.heartbeat import (
     HeartbeatParseError,
 )
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
-from products.batch_exports.backend.temporal.pre_export_stage import (
-    ProducerFromInternalS3Stage,
-    execute_batch_export_insert_activity_using_s3_stage,
+from products.batch_exports.backend.temporal.pipeline.consumer import (
+    Consumer as ConsumerFromStage,
+    run_consumer_from_stage,
+)
+from products.batch_exports.backend.temporal.pipeline.entrypoint import (
+    execute_batch_export_using_internal_stage,
+)
+from products.batch_exports.backend.temporal.pipeline.producer import (
+    Producer as ProducerFromInternalStage,
 )
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
-    ConsumerFromStage,
     Producer,
     RecordBatchQueue,
     resolve_batch_exports_model,
     run_consumer,
-    run_consumer_from_stage,
     wait_for_schema_or_producer,
 )
 from products.batch_exports.backend.temporal.temporary_file import (
@@ -919,7 +923,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         )
 
         if _use_internal_stage(inputs):
-            await execute_batch_export_insert_activity_using_s3_stage(
+            await execute_batch_export_using_internal_stage(
                 insert_into_s3_activity_from_stage,
                 insert_inputs,
                 interval=inputs.interval,
@@ -991,7 +995,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
         data_interval_end = dt.datetime.fromisoformat(inputs.data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = ProducerFromInternalS3Stage()
+        producer = ProducerFromInternalStage()
         assert inputs.batch_export_id is not None
         producer_task = await producer.start(
             queue=queue,

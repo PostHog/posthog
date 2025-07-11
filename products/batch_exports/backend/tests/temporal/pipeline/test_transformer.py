@@ -3,7 +3,7 @@ import typing
 
 import pytest
 
-from products.batch_exports.backend.temporal.transformer import dump_dict
+from products.batch_exports.backend.temporal.pipeline.transformer import dump_dict
 
 
 def create_deeply_nested_dict(depth: int, value: str = "test") -> typing.Any:

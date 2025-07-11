@@ -253,24 +253,24 @@ describe('Hogflow Executor', () => {
             const result = await executor.execute(invocation)
 
             expect(result.finished).toEqual(false)
-            expect(result.invocation.state.hogFunctionState).toEqual(expect.any(Object))
+            expect(result.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
-                  "Workflow will pause until 2025-01-01T00:00:00.000+00:00",
+                  "Workflow will pause until 2025-01-01T00:00:00.000Z",
                 ]
             `)
 
             const result2 = await executor.execute(result.invocation)
 
             expect(result2.finished).toEqual(false)
-            expect(result2.invocation.state.hogFunctionState).toEqual(expect.any(Object))
+            expect(result2.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "[Action:function_id_1] Fetch 2, 200",
-                  "Workflow will pause until 2025-01-01T00:00:00.000+00:00",
+                  "Workflow will pause until 2025-01-01T00:00:00.000Z",
                 ]
             `)
 

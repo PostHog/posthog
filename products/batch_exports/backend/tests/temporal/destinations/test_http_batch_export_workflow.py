@@ -28,7 +28,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     iter_records,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.http_batch_export import (
+from products.batch_exports.backend.temporal.destinations.http_batch_export import (
     HeartbeatDetails,
     HttpBatchExportInputs,
     HttpBatchExportWorkflow,

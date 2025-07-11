@@ -42,7 +42,7 @@ export class HogFunctionHandler implements ActionHandler {
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
-            result.invocation.state.hogFunctionState = functionResult.invocation.state
+            result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
             // Also the queueParameters are required
             result.invocation.queueParameters = functionResult.invocation.queueParameters
             return {
@@ -108,7 +108,7 @@ export class HogFunctionHandler implements ActionHandler {
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
-            state: invocation.state.hogFunctionState ?? {
+            state: invocation.state.currentAction?.hogFunctionState ?? {
                 globals: await buildGlobalsWithInputs(globals, action.config.inputs),
                 timings: [],
                 attempts: 0,

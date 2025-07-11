@@ -33,16 +33,16 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.heartbeat import (
-    BatchExportRangeHeartbeatDetails,
-    DateRange,
-    should_resume_from_activity_heartbeat,
-)
-from products.batch_exports.backend.temporal.postgres_batch_export import (
+from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     Fields,
     PostgresInsertInputs,
     PostgreSQLClient,
     PostgreSQLField,
+)
+from products.batch_exports.backend.temporal.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+    should_resume_from_activity_heartbeat,
 )
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
