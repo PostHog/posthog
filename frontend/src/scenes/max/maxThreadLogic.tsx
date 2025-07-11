@@ -282,13 +282,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                     await values.toolMap[toolName]?.callback(toolResult)
                                     // The `navigate` tool is the only one doing client-side formatting currently
                                     if (toolName === 'navigate') {
-                                        actions.askMax(null) // Continue generation
                                         parsedResponse.content = parsedResponse.content.replace(
                                             toolResult.page_key,
                                             breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
                                         )
                                     }
                                 }
+                                actions.askMax(null) // Continue generation after applying tool
                                 actions.addMessage({
                                     ...parsedResponse,
                                     status: 'completed',

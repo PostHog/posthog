@@ -296,6 +296,7 @@ class RootNode(RootNodeUIContextMixin):
                         (
                             "system",
                             f"<{tool_name}>\n"
+                            "This is the state of the UI after all the tool calls have been applied. Make sure it's been aligned with the user's request.\n"
                             f"{get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
@@ -533,22 +534,6 @@ class RootNodeTools(AssistantNode):
             if not isinstance(result, LangchainToolMessage):
                 raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
 
-            # If this is a navigation tool call, pause the graph execution
-            # so that the frontend can re-initialise Max with a new set of contextual tools.
-            if tool_call.name == "navigate":
-                navigate_message = AssistantToolCallMessage(
-                    content=str(result.content) if result.content else "",
-                    ui_payload={tool_call.name: result.artifact},
-                    id=str(uuid4()),
-                    tool_call_id=tool_call.id,
-                    visible=True,
-                )
-                # Raising a `NodeInterrupt` ensures the assistant graph stops here and
-                # surfaces the navigation confirmation to the client. The next user
-                # interaction will resume the graph with potentially different
-                # contextual tools.
-                raise NodeInterrupt(navigate_message)
-
             new_state = tool_class._state  # latest state, in case the tool has updated it
             last_message = new_state.messages[-1]
             if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
@@ -562,20 +547,14 @@ class RootNodeTools(AssistantNode):
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content=str(result.content) if result.content else "",
-                        ui_payload={tool_call.name: result.artifact},
-                        id=str(uuid4()),
-                        tool_call_id=tool_call.id,
-                        visible=True,
-                    )
-                ],
-                root_tool_call_id=None,  # Tool handled already
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
-                root_tool_calls_count=tool_call_count + 1,
+            raise NodeInterrupt(
+                AssistantToolCallMessage(
+                    content=str(result.content) if result.content else "",
+                    ui_payload={tool_call.name: result.artifact},
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                    visible=True,
+                )
             )
         else:
             raise ValueError(f"Unknown tool called: {tool_call.name}")
