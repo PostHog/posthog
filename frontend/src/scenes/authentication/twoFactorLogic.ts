@@ -98,7 +98,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     }),
     loaders(() => ({
         startSetup: [
-            {} as { secret: string; success: boolean } | null,
+            null as { secret: string; success: boolean } | null,
             {
                 openTwoFactorSetupModal: async (_, breakpoint) => {
                     breakpoint()
