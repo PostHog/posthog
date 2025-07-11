@@ -20,6 +20,10 @@ import { template as piiHashingTemplate } from './_transformations/pii-hashing/p
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
+import { template as nativeEmailTemplate } from './_workflow_actions/email/native-email.template'
+import { template as slackMessageTemplate } from './_workflow_actions/message/slack-message.template'
+import { template as twilioSmsTemplate } from './_workflow_actions/sms/twilio-sms.template'
+import { template as nativeWebhookTemplate } from './_workflow_actions/webhook/native-webhook.template'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
@@ -60,6 +64,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
+export const HOG_FUNCTION_TEMPLATES_HOGFLOW_ACTIONS: HogFunctionTemplate[] = [
+    nativeEmailTemplate,
+    twilioSmsTemplate,
+    slackMessageTemplate,
+    nativeWebhookTemplate,
+]
+
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
     ...HOG_FUNCTION_TEMPLATES_SEGMENT_DESTINATIONS,
@@ -68,4 +79,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
+    ...HOG_FUNCTION_TEMPLATES_HOGFLOW_ACTIONS,
 ]
