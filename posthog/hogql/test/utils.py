@@ -19,6 +19,7 @@ def pretty_print_in_tests(query: str | None, team_id: int) -> str:
         .replace("HAVING", "\nHAVING")
         .replace("LIMIT", "\nLIMIT")
         .replace("SETTINGS", "\nSETTINGS")
+        .replace("UNION ALL", "\nUNION ALL")
         .replace(f"team_id, {team_id})", "team_id, 420)")
     )
     query = re.sub(r"in_cohort__[0-9]+", "in_cohort__XX", query)
