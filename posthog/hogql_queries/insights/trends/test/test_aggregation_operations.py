@@ -16,6 +16,7 @@ from posthog.schema import (
     EventsNode,
     PropertyMathType,
     DataWarehouseNode,
+    MathGroupTypeIndex,
 )
 
 
@@ -190,3 +191,73 @@ def test_math_multiplier_with_datawarehouse_node():
     assert field_arg.chain == ["cost_micros"]
     assert isinstance(multiplier_arg, ast.Constant)
     assert multiplier_arg.value == 1 / 1000000
+
+
+@pytest.mark.parametrize(
+    "math,math_property,math_group_type_index,expected_actor_field",
+    [
+        # Person-based math types
+        [BaseMathType.TOTAL, None, None, "sql(e.person_id)"],
+        [BaseMathType.DAU, None, None, "sql(e.person_id)"],
+        [BaseMathType.WEEKLY_ACTIVE, None, None, "sql(e.person_id)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, None, "sql(e.person_id)"],
+        [BaseMathType.UNIQUE_SESSION, None, None, "sql(e.person_id)"],
+        [PropertyMathType.AVG, "$browser", None, "sql(e.person_id)"],
+        [PropertyMathType.SUM, "$browser", None, "sql(e.person_id)"],
+        [CountPerActorMathType.AVG_COUNT_PER_ACTOR, None, None, "sql(e.person_id)"],
+        # Group-based math types
+        [BaseMathType.WEEKLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        [BaseMathType.WEEKLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+        [BaseMathType.WEEKLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_2, "sql(e.$group_2)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+        [BaseMathType.MONTHLY_ACTIVE, None, MathGroupTypeIndex.NUMBER_2, "sql(e.$group_2)"],
+        ["unique_group", None, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        ["unique_group", None, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+        ["unique_group", None, MathGroupTypeIndex.NUMBER_2, "sql(e.$group_2)"],
+        # Property math with group index should use person_id
+        [PropertyMathType.AVG, "$browser", MathGroupTypeIndex.NUMBER_0, "sql(e.person_id)"],
+        [PropertyMathType.SUM, "$browser", MathGroupTypeIndex.NUMBER_1, "sql(e.person_id)"],
+        [CountPerActorMathType.AVG_COUNT_PER_ACTOR, None, MathGroupTypeIndex.NUMBER_2, "sql(e.person_id)"],
+    ],
+)
+def test_actor_id_returns_correct_field(
+    math: Union[BaseMathType, PropertyMathType, CountPerActorMathType, Literal["unique_group"]],
+    math_property: str,
+    math_group_type_index: MathGroupTypeIndex,
+    expected_actor_field: str,
+):
+    team = Team()
+    series = EventsNode(
+        event="$pageview", math=math, math_property=math_property, math_group_type_index=math_group_type_index
+    )
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+    result = agg_ops.actor_id()
+    assert str(result) == expected_actor_field
+
+
+@pytest.mark.parametrize(
+    "math,math_group_type_index,expected_group_field",
+    [
+        [BaseMathType.WEEKLY_ACTIVE, MathGroupTypeIndex.NUMBER_0, "sql(e.$group_0)"],
+        [BaseMathType.MONTHLY_ACTIVE, MathGroupTypeIndex.NUMBER_1, "sql(e.$group_1)"],
+    ],
+)
+@pytest.mark.django_db
+def test_active_groups_query_orchestration(math, math_group_type_index, expected_group_field):
+    team = Team()
+    series = EventsNode(
+        event="$pageview",
+        math=math,
+        math_group_type_index=math_group_type_index,
+    )
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
+
+    agg_ops = AggregationOperations(team, series, ChartDisplayType.ACTIONS_LINE_GRAPH, query_date_range, False)
+
+    assert agg_ops.requires_query_orchestration() is True
+    assert str(agg_ops.actor_id()) == expected_group_field, "Should use group field as actor id"
+    result = agg_ops.select_aggregation()
+    assert isinstance(result, ast.Placeholder)

@@ -57,6 +57,7 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
     TrendsFormulaNode,
+    MathGroupTypeIndex,
 )
 from posthog.schema import Series as InsightActorsQuerySeries
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -1829,6 +1830,26 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-02-01",
             IntervalType.MONTH,
             [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+            None,
+            None,
+        )
+
+        assert response.results[0]["data"] == [0, 4, 0]
+
+    def test_trends_aggregation_monthly_active_groups_long_interval(self):
+        self._create_test_events_for_groups()
+
+        response = self._run_trends_query(
+            "2019-12-31",
+            "2020-02-01",
+            IntervalType.MONTH,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.MONTHLY_ACTIVE,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                )
+            ],
             None,
             None,
         )
