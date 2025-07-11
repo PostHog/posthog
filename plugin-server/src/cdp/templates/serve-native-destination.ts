@@ -84,7 +84,12 @@ async function main() {
     // Enable CORS for localhost
     app.use(
         cors({
-            origin: ['http://localhost:8000', 'http://localhost:8010'],
+            origin: [
+                'http://localhost:8000',
+                'http://localhost:8010',
+                'https://us.posthog.com',
+                'https://eu.posthog.com',
+            ],
         })
     )
 
@@ -119,7 +124,7 @@ async function main() {
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`)
         console.log(
-            `You can test your destination by going to http://localhost:8010/pipeline/new/destination/hog-native-dev-center`
+            `You can test your destination by going to https://us.posthog.com/pipeline/new/destination/hog-native-dev-center`
         )
     })
 }
