@@ -40,7 +40,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
-from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -659,20 +658,13 @@ class TrendsQueryRunner(QueryRunner):
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
 
-        # If user requests 'all' time, determine the true earliest timestamp
-        earliest_timestamp = None
-        if self.query.dateRange and self.query.dateRange.date_from == "all":
-            earliest_timestamp = get_earliest_timestamp_from_series(
-                self.team, [series.series for series in self.series]
-            )
-
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
-            earliest_timestamp_fallback=earliest_timestamp,
+            # earliest_timestamp_fallback=earliest_timestamp,
         )
 
     @cached_property

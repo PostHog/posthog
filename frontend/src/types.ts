@@ -656,6 +656,8 @@ export interface TeamType extends TeamBasicType {
     product_intents?: ProductIntentType[]
     default_data_theme?: number
     flags_persistence_default: boolean
+    feature_flag_confirmation_enabled: boolean
+    feature_flag_confirmation_message: string
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
 }
@@ -4150,6 +4152,7 @@ export type IntegrationKind =
     | 'email'
     | 'linear'
     | 'github'
+    | 'meta-ads'
 
 export interface IntegrationType {
     id: number
