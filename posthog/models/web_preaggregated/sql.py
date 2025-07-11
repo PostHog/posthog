@@ -1,10 +1,5 @@
-from django.conf import settings
-
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
-
-CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
-CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
 
 
 def TABLE_TEMPLATE(table_name, columns, order_by):
@@ -41,19 +36,6 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     ORDER BY {order_by}
     PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')
     {ttl_clause}
-    """
-
-
-def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granularity="daily"):
-    return f"""
-    CREATE TABLE IF NOT EXISTS {dist_table_name}
-    (
-        period_bucket DateTime,
-        team_id UInt64,
-        host String,
-        device_type String,
-        {columns}
-    ) ENGINE = Distributed('{CLICKHOUSE_CLUSTER}', '{CLICKHOUSE_DATABASE}', {base_table_name}, rand())
     """
 
 
@@ -153,33 +135,12 @@ def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
     """
 
 
-def create_table_pair(base_table_name, columns, order_by):
-    """Create both a local and distributed table with the same schema"""
-    base_sql = TABLE_TEMPLATE(base_table_name, columns, order_by)
-    dist_sql = DISTRIBUTED_TABLE_TEMPLATE(
-        f"{base_table_name}_distributed", base_table_name, columns, granularity="daily"
-    )
-    return base_sql, dist_sql
-
-
 def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
     return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
 
 
-def DISTRIBUTED_WEB_STATS_DAILY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_stats_daily_distributed", "web_stats_daily", WEB_STATS_COLUMNS, granularity="daily"
-    )
-
-
 def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
     return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
-
-
-def DISTRIBUTED_WEB_BOUNCES_DAILY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_bounces_daily_distributed", "web_bounces_daily", WEB_BOUNCES_COLUMNS, granularity="daily"
-    )
 
 
 def WEB_STATS_HOURLY_SQL():
@@ -188,21 +149,9 @@ def WEB_STATS_HOURLY_SQL():
     )
 
 
-def DISTRIBUTED_WEB_STATS_HOURLY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_stats_hourly_distributed", "web_stats_hourly", WEB_STATS_COLUMNS, granularity="hourly"
-    )
-
-
 def WEB_BOUNCES_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
         "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
-    )
-
-
-def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
-    return DISTRIBUTED_TABLE_TEMPLATE(
-        "web_bounces_hourly_distributed", "web_bounces_hourly", WEB_BOUNCES_COLUMNS, granularity="hourly"
     )
 
 
