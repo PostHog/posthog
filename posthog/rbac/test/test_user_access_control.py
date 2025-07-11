@@ -332,9 +332,9 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
         assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
 
-    def test_setting_explicit_manage_access(self):
+    def test_setting_explicit_manager_access(self):
         """
-        Test that the new 'manage' access level works correctly and is above 'editor' in the hierarchy.
+        Test that the new 'manager' access level works correctly and is above 'editor' in the hierarchy.
         """
         # Test that creators have "manager" access to their files by default:
         # - User is creator of dashboard -> has "manager" access
@@ -557,8 +557,8 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
         assert serializer.get_user_access_level(self.dashboard) == "editor"  # falls to default_access_level
 
-    def test_manage_access_level_serializer(self):
-        # Test that the new 'manage' level works in serializers
+    def test_manager_access_level_serializer(self):
+        # Test that the new 'manager' level works in serializers
         self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="manager")
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
         assert serializer.get_user_access_level(self.dashboard) == "manager"

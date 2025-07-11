@@ -50,7 +50,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                         {canEditAccessControls === false ? (
                             <LemonBanner type="warning">
                                 <Tooltip
-                                    title={`You don't have permission to edit access controls for ${suffix}. You must be the creator of it, a Project admin, an Organization admin, or have manage access to the resource.`}
+                                    title={`You don't have permission to edit access controls for ${suffix}. You must be the creator of it, a Project admin, an Organization admin, or have manager access to the resource.`}
                                 >
                                     <div className="flex items-center gap-2">
                                         <IconWarning className={clsx('LemonBanner__icon')} />
