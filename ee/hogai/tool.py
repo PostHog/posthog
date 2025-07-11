@@ -77,8 +77,15 @@ def _import_max_tools() -> None:
             continue  # We mustn't import test modules in prod
         try:
             importlib.import_module(f"products.{module_info.name}.backend.max_tools")
-        except ModuleNotFoundError:
-            pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
+        except ModuleNotFoundError as e:
+            # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
+            if str(e) in (
+                f"No module named 'products.{module_info.name}.backend'",
+                f"No module named 'products.{module_info.name}.backend.max_tools'",
+            ):
+                pass
+            else:
+                raise
 
 
 def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:

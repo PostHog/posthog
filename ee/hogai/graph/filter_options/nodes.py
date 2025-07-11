@@ -7,9 +7,7 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 
-from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
@@ -47,6 +45,7 @@ from .prompts import (
 )
 from posthog.schema import AssistantToolCallMessage, AssistantMessage
 from uuid import uuid4
+from ee.hogai.llm import MaxChatOpenAI
 
 
 FilterOptionsToolUnion = Union[
@@ -91,10 +90,8 @@ class FilterOptionsNode(AssistantNode):
         )
 
     def _get_model(self, state: AssistantState):
-        return ChatOpenAI(
-            model="gpt-4o",
-            streaming=False,
-            temperature=0.2,
+        return MaxChatOpenAI(
+            model="gpt-4o", streaming=False, temperature=0.2, user=self._user, team=self._team
         ).bind_tools(
             [
                 retrieve_entity_properties,
@@ -116,7 +113,6 @@ class FilterOptionsNode(AssistantNode):
 
         # Always include the base system and conversation setup
         system_messages = [
-            ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
             ("system", dynamic_filter_prompt),  # Use dynamic prompt instead of static
             ("system", self._get_react_property_filters_prompt()),
             ("system", HUMAN_IN_THE_LOOP_PROMPT),
