@@ -170,3 +170,70 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                 },
                 [non_target_vip_session],
             )
+
+        @snapshot_clickhouse_queries
+        def test_only_negative_anded(self):
+            session_id_one = str(uuid7())
+            user_id = str(uuid7())
+
+            produce_replay_summary(
+                distinct_id=user_id,
+                session_id=session_id_one,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+            )
+
+            create_event(
+                team=self.team,
+                distinct_id=user_id,
+                timestamp=self.an_hour_ago,
+                properties={"$session_id": session_id_one, "$window_id": "1", "pathname": "/my-target-page"},
+            )
+
+            create_event(
+                team=self.team,
+                distinct_id=user_id,
+                timestamp=self.an_hour_ago,
+                properties={"$session_id": session_id_one, "$window_id": "1", "pathname": "/my-other-page"},
+            )
+
+            session_id_two = str(uuid7())
+            user_id = str(uuid7())
+
+            produce_replay_summary(
+                distinct_id=user_id,
+                session_id=session_id_two,
+                first_timestamp=self.an_hour_ago,
+                team_id=self.team.id,
+            )
+
+            create_event(
+                team=self.team,
+                distinct_id=user_id,
+                timestamp=self.an_hour_ago,
+                properties={"$session_id": session_id_two, "$window_id": "1", "pathname": "/my-other-other-page"},
+            )
+
+            create_event(
+                team=self.team,
+                distinct_id=user_id,
+                timestamp=self.an_hour_ago,
+                properties={"$session_id": session_id_two, "$window_id": "1", "pathname": "/my-other-page"},
+            )
+
+            self._assert_query_matches_session_ids(
+                {
+                    "operand": "AND",
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
+                            "properties": [
+                                {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
+                            ],
+                        },
+                    ],
+                },
+                [session_id_two],
+            )

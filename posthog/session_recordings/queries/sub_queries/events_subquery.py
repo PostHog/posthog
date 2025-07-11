@@ -101,6 +101,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         for expr in gathered_exprs:
             queries.append(self._select_from_events(select_expr, expr))
 
+        negative_guard_query = self._negative_guard_query()
+        if negative_guard_query:
+            queries.append(negative_guard_query)
+
         return queries
 
     def get_queries_for_session_id_matching(self) -> list[ast.SelectQuery]:
