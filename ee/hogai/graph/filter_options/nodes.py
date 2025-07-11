@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
-from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
+from ..shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ..base import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
@@ -34,13 +34,13 @@ from .toolkit import (
     retrieve_entity_properties,
     ask_user_for_help,
     EntityType,
+    FilterOptionsToolkit,
 )
 from abc import ABC
 import json
 
 from pydantic import ValidationError
 
-from ee.hogai.graph.filter_options.toolkit import FilterOptionsToolkit
 from .prompts import (
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
