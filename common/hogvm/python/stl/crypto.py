@@ -4,16 +4,34 @@ import base64
 from typing import Literal
 
 
-def md5Hex(data: str | None) -> str | None:
+def md5(data: str | None, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str | None:
     if data is None:
         return None
-    return hashlib.md5(data.encode()).hexdigest()
+    digest = hashlib.md5(data.encode()).digest()
+    
+    if encoding == "hex":
+        return digest.hex()
+    elif encoding == "base64":
+        return base64.b64encode(digest).decode()
+    elif encoding == "base64url":
+        return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    elif encoding == "binary":
+        return digest.decode("latin1")
 
 
-def sha256Hex(data: str | None) -> str | None:
+def sha256(data: str | None, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str | None:
     if data is None:
         return None
-    return hashlib.sha256(data.encode()).hexdigest()
+    digest = hashlib.sha256(data.encode()).digest()
+    
+    if encoding == "hex":
+        return digest.hex()
+    elif encoding == "base64":
+        return base64.b64encode(digest).decode()
+    elif encoding == "base64url":
+        return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    elif encoding == "binary":
+        return digest.decode("latin1")
 
 
 def sha256HmacChain(data: list, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
