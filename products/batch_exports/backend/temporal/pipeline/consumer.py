@@ -30,7 +30,7 @@ EXTERNAL_LOGGER = get_external_logger()
 class Consumer:
     """Consumer for batch exports.
 
-    This is an alernative implementation of the `spmc.Consumer` class that consumes data from a producer which is in
+    This is an alternative implementation of the `spmc.Consumer` class that consumes data from a producer which is in
     turn reading data from the internal S3 staging area.
 
     Attributes:

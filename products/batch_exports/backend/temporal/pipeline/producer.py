@@ -18,12 +18,12 @@ from products.batch_exports.backend.temporal.spmc import (
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
 
 
 class Producer:
     """
-    This is an alernative implementation of the `spmc.Producer` class that reads data from the internal S3 staging area.
+    This is an alternative implementation of the `spmc.Producer` class that reads data from the internal S3 staging area.
     """
 
     def __init__(self):

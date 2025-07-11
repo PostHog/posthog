@@ -21,7 +21,7 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 
-LOGGER = get_logger()
+LOGGER = get_logger(__name__)
 
 
 async def execute_batch_export_using_internal_stage(
@@ -130,7 +130,7 @@ async def execute_batch_export_using_internal_stage(
 
     except Exception:
         finish_inputs.status = BatchExportRun.Status.FAILED
-        finish_inputs.latest_error = "An unexpected error has ocurred"
+        finish_inputs.latest_error = "An unexpected error has occurred"
         raise
 
     finally:
