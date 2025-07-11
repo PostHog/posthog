@@ -12669,6 +12669,7 @@
                     "$ref": "#/definitions/integer"
                 }
             },
+            "required": ["limit", "offset", "hasMore"],
             "type": "object"
         },
         "HogQLPropertyFilter": {

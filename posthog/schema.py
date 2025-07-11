@@ -3451,9 +3451,9 @@ class HogQLPaginationConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    hasMore: Optional[bool] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
+    hasMore: bool
+    limit: int
+    offset: int
 
 
 class HogQLPropertyFilter(BaseModel):

@@ -73,7 +73,7 @@ class HogQLQueryRunner(QueryRunner):
             if self.query.pagination:
                 paginator.limit = self.query.pagination.limit or paginator.limit
                 # offset is the number of rows already fetched
-                paginator.offset = (self.query.pagination.offset or 0) + (self.query.pagination.limit or 0)
+                paginator.offset = self.query.pagination.offset + self.query.pagination.limit
 
         func = cast(
             Callable[..., HogQLQueryResponse],

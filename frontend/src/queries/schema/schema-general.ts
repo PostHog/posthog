@@ -407,9 +407,9 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
 }
 
 export interface HogQLPaginationConfig {
-    limit?: integer
-    offset?: integer
-    hasMore?: boolean
+    limit: integer
+    offset: integer
+    hasMore: boolean
 }
 
 export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
