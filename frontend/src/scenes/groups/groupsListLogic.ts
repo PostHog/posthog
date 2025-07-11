@@ -7,13 +7,17 @@ import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { GroupTypeIndex } from '~/types'
+import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
 
 export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex
 }
+
+const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
@@ -32,6 +36,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
     actions(() => ({
         setQuery: (query: DataTableNode) => ({ query }),
         setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
+        setGroupFilters: (filters: GroupPropertyFilter[]) => ({ filters }),
     })),
     reducers({
         query: [
@@ -49,6 +54,19 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     propertiesViaUrl: true,
                 } as DataTableNode),
             { setQuery: (_, { query }) => query },
+        ],
+        groupFilters: [
+            INITIAL_GROUPS_FILTER,
+            persistConfig,
+            {
+                setGroupFilters: (_, { filters }) => filters,
+                setQuery: (state, { query }) => {
+                    if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
+                        return query.source.properties
+                    }
+                    return state
+                },
+            },
         ],
         queryWasModified: [
             false,
@@ -108,6 +126,20 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 },
             })
             actions.setQueryWasModified(false)
+        }
+
+        const shouldRestoreFiltersFromLocalStorage =
+            values.query.source.kind === NodeKind.GroupsQuery &&
+            !values.query.source.properties?.length &&
+            values.groupFilters?.length
+        if (shouldRestoreFiltersFromLocalStorage) {
+            actions.setQuery({
+                ...values.query,
+                source: {
+                    ...values.query.source,
+                    properties: values.groupFilters,
+                },
+            })
         }
     }),
 ])
