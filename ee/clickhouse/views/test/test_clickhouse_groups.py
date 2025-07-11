@@ -3,7 +3,6 @@ from uuid import UUID
 
 from freezegun.api import freeze_time
 from orjson import orjson
-
 from flaky import flaky
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
@@ -21,6 +20,7 @@ from posthog.test.base import (
     _create_event,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
@@ -504,7 +504,13 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    def test_get_group_activities_success(self):
+    @patch("ee.clickhouse.views.groups.new_capture_internal")
+    def test_get_group_activities_success(self, mock_capture):
+        # Mock the response to return a 200 OK
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_capture.return_value = mock_response
+
         group_type_mapping = GroupTypeMapping.objects.create(
             team=self.team,
             project_id=self.team.project_id,
@@ -540,7 +546,13 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
 
     @freeze_time("2021-05-02")
-    def test_get_group_activities_invalid_group(self):
+    @patch("ee.clickhouse.views.groups.new_capture_internal")
+    def test_get_group_activities_invalid_group(self, mock_capture):
+        # Mock the response to return a 200 OK
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_capture.return_value = mock_response
+
         group_type_mapping = GroupTypeMapping.objects.create(
             team=self.team,
             project_id=self.team.project_id,
