@@ -20,6 +20,7 @@ import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-wa
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -375,7 +376,17 @@ export class CdpApi {
                 },
             }
 
-            const invocation = this.hogFlowExecutor.createHogFlowInvocation(triggerGlobals, compoundConfiguration)
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: globals.event,
+                person: globals.person,
+                groups: globals.groups,
+            })
+
+            const invocation = this.hogFlowExecutor.createHogFlowInvocation(
+                triggerGlobals,
+                compoundConfiguration,
+                filterGlobals
+            )
             const response = await this.hogFlowExecutor.executeTest(invocation)
 
             res.json({

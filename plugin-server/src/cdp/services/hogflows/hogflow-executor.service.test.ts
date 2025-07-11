@@ -94,7 +94,7 @@ describe('Hogflow Executor', () => {
             bytecode: await compileHog(exampleHogMultiFetch),
         })
 
-        executor = new HogFlowExecutorService(hub, personManager, hogExecutor, hogFunctionTemplateManager)
+        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager)
     })
 
     describe('general event processing', () => {
