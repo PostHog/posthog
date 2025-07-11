@@ -1,6 +1,6 @@
 import './SidePanel.scss'
 
-import { IconEllipsis, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
+import { IconAdvanced, IconEllipsis, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -19,7 +19,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
-import {} from './panels/activity/SidePanelActivity'
+import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import {} from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelMax } from './panels/SidePanelMax'
@@ -28,7 +28,8 @@ import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
-import { SidePanelInfo } from './panels/SidePanelInfo'
+import { SidePanelInfo } from './panels/info-panel/SidePanelInfo'
+import { SidePanelSettings } from './panels/SidePanelSettings'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -72,22 +73,17 @@ export const SIDE_PANEL_TABS: Record<
         Icon: SidePanelActivationIcon,
         Content: SidePanelActivation,
     },
-    // [SidePanelTab.Settings]: {
-    //     label: 'Settings',
-    //     Icon: IconGear,
-    //     Content: SidePanelSettings,
-    // },
+    [SidePanelTab.Settings]: {
+        label: 'Settings',
+        Icon: IconGear,
+        Content: SidePanelSettings,
+    },
 
-    // [SidePanelTab.Activity]: {
-    //     label: 'Team activity',
-    //     Icon: SidePanelActivityIcon,
-    //     Content: SidePanelActivity,
-    // },
-    // [SidePanelTab.Discussion]: {
-    //     label: 'Discussion',
-    //     Icon: SidePanelDiscussionIcon,
-    //     Content: SidePanelDiscussion,
-    // },
+    [SidePanelTab.Activity]: {
+        label: 'Team activity',
+        Icon: SidePanelActivityIcon,
+        Content: SidePanelActivity,
+    },
     [SidePanelTab.Exports]: {
         label: 'Exports',
         Icon: SidePanelExportsIcon,
@@ -99,14 +95,9 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelStatus,
         noModalSupport: true,
     },
-    // [SidePanelTab.AccessControl]: {
-    //     label: 'Access control',
-    //     Icon: IconLock,
-    //     Content: SidePanelAccessControl,
-    // },
     [SidePanelTab.SceneInfo]: {
-        label: 'Info',
-        Icon: IconInfo,
+        label: 'Context',
+        Icon: IconAdvanced,
         Content: SidePanelInfo,
     },
 }

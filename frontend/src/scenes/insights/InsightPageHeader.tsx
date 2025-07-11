@@ -61,13 +61,6 @@ import { projectLogic } from 'scenes/projectLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import {
-    ScenePanel,
-    ScenePanelActions,
-    ScenePanelCommonActions,
-    ScenePanelDivider,
-    ScenePanelMetaInfo,
-} from '~/layout/scenes/SceneLayout'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { SceneAddToDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDropdownMenu'
@@ -85,6 +78,13 @@ import {
     NotebookNodeType,
     QueryBasedInsightModel,
 } from '~/types'
+import {
+    SidePanelInfoActions,
+    SidePanelInfoCommonActions,
+    SidePanelInfoContent,
+    SidePanelInfoDivider,
+    SidePanelInfoMetaInfo,
+} from '~/layout/navigation-3000/sidepanel/panels/info-panel/utils'
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -125,7 +125,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { push } = useActions(router)
     const [tags, setTags] = useState(insight.tags)
     const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+    const sidePanelInfo = featureFlags[FEATURE_FLAGS.SIDE_PANEL_INFO]
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
@@ -223,7 +223,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
-                        {!newSceneLayout && insightMode !== ItemMode.Edit && hasDashboardItemId && (
+                        {!sidePanelInfo && insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
                                 <AlertsButton
                                     insight={insight}
@@ -290,7 +290,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             />
                         )}
 
-                        {!newSceneLayout && (
+                        {!sidePanelInfo && (
                             <More
                                 overlay={
                                     <>
@@ -525,7 +525,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 caption={
                     <>
-                        {!newSceneLayout && (
+                        {!sidePanelInfo && (
                             <>
                                 {!!(canEditInsight || insight.description) && (
                                     <EditableField
@@ -577,9 +577,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
 
-            <ScenePanel>
+            <SidePanelInfoContent>
                 <>
-                    <ScenePanelMetaInfo>
+                    <SidePanelInfoMetaInfo>
                         {!!(canEditInsight || insight.name) && (
                             <>
                                 <SceneName
@@ -617,11 +617,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             by={insight.last_modified_by}
                             prefix="Last modified"
                         />
-                    </ScenePanelMetaInfo>
+                    </SidePanelInfoMetaInfo>
 
-                    <ScenePanelDivider />
+                    <SidePanelInfoDivider />
 
-                    <ScenePanelCommonActions>
+                    <SidePanelInfoCommonActions>
                         <SceneCommonButtons
                             duplicate={
                                 hasDashboardItemId
@@ -637,9 +637,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 },
                             }}
                         />
-                    </ScenePanelCommonActions>
+                    </SidePanelInfoCommonActions>
 
-                    <ScenePanelActions>
+                    <SidePanelInfoActions>
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton />}
 
                         <SceneAddToDropdownMenu
@@ -788,7 +788,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </ButtonPrimitive>
                         )}
 
-                        <ScenePanelDivider />
+                        <SidePanelInfoDivider />
 
                         <LemonSwitch
                             data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
@@ -826,7 +826,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {hasDashboardItemId && (
                             <>
-                                <ScenePanelDivider />
+                                <SidePanelInfoDivider />
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.Notebook}
                                     minAccessLevel={AccessControlLevel.Editor}
@@ -855,9 +855,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 </AccessControlAction>
                             </>
                         )}
-                    </ScenePanelActions>
+                    </SidePanelInfoActions>
                 </>
-            </ScenePanel>
+            </SidePanelInfoContent>
         </>
     )
 }

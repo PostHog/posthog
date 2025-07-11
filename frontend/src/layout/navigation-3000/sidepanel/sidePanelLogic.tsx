@@ -14,8 +14,9 @@ import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelInfoLogic } from './panels/info-panel/sidePanelInfoLogic'
 
-const ALWAYS_EXTRA_TABS = [SidePanelTab.Settings, SidePanelTab.Activity, SidePanelTab.Status, SidePanelTab.Exports]
+const ALWAYS_EXTRA_TABS = [SidePanelTab.Status, SidePanelTab.Exports]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
@@ -40,6 +41,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['sceneSidePanelContext'],
             teamLogic,
             ['currentTeam'],
+            sidePanelInfoLogic,
+            ['sidePanelInfoEnabledTabs'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     })),
@@ -51,10 +54,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.sidePanelOpen,
                 s.isCloudOrDev,
                 s.featureFlags,
-                s.sceneSidePanelContext,
                 s.currentTeam,
+                s.sidePanelInfoEnabledTabs,
             ],
-            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
+            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, currentTeam, sidePanelInfoEnabledTabs) => {
                 const tabs: SidePanelTab[] = []
 
                 if (
@@ -70,7 +73,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-                // tabs.push(SidePanelTab.Activity)
+                if (sidePanelInfoEnabledTabs.length > 0) {
+                    tabs.push(SidePanelTab.SceneInfo)
+                }
+                tabs.push(SidePanelTab.Activity)
 
                 if (currentTeam?.created_at) {
                     const teamCreatedAt = dayjs(currentTeam.created_at)
@@ -80,16 +86,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                // if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
-                //     tabs.push(SidePanelTab.Discussion)
-                // }
-                tabs.push(SidePanelTab.SceneInfo)
-
-                // if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
-                //     tabs.push(SidePanelTab.AccessControl)
-                // }
                 tabs.push(SidePanelTab.Exports)
-                // tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.Settings)
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)

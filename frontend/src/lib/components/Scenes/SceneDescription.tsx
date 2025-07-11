@@ -41,7 +41,7 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
                     id="page-description-input"
                     data-attr={`${dataAttr}-description-input`}
                     autoFocus
-                    className="-ml-1.5"
+                    className="-mx-1.5"
                 />
             </div>
             <div className="flex gap-1">
@@ -70,7 +70,7 @@ export function SceneDescription({ defaultValue, onSave, dataAttr }: SceneDescri
     ) : (
         <div className="gap-0">
             <Label intent="menu">Description</Label>
-            <div className="-ml-1.5">
+            <div className="-mx-1.5">
                 <ButtonPrimitive
                     className="hyphens-auto flex gap-1 items-center"
                     lang="en"

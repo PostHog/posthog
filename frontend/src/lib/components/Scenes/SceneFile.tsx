@@ -27,7 +27,7 @@ export function SceneFile(): JSX.Element | null {
         <div className="flex flex-col">
             <Label intent="menu">File</Label>
             <DropdownMenu>
-                <div className="-ml-1.5">
+                <div className="-mx-1.5">
                     <DropdownMenuTrigger asChild>
                         <ButtonPrimitive menuItem>
                             <IconFolderOpen />

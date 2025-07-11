@@ -53,7 +53,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
                     data-attr={`${dataAttr}-name-input`}
                     autoFocus
                     error={!!error}
-                    className="-ml-1.5"
+                    className="-mx-1.5"
                 />
             </div>
             <div className="flex gap-1">
@@ -82,7 +82,7 @@ export function SceneName({ defaultValue, onSave, dataAttr }: SceneNameProps): J
     ) : (
         <div className="flex flex-col gap-0">
             <Label intent="menu">Name</Label>
-            <div className="-ml-1.5">
+            <div className="-mx-1.5">
                 <ButtonPrimitive
                     className="hyphens-auto flex gap-1 items-center"
                     lang="en"

@@ -23,7 +23,7 @@ export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Elem
     )
 }
 
-const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
+export const DiscussionContent = ({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element => {
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
     const { setReplyingComment } = useActions(commentsLogic(logicProps))
 

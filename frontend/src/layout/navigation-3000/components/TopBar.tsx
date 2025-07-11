@@ -10,9 +10,11 @@ import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -23,6 +25,8 @@ import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
+import { SidePanelTopBarContextActions } from '../sidepanel/panels/info-panel/utils'
+import { sidePanelInfoLogic } from '../sidepanel/panels/info-panel/sidePanelInfoLogic'
 
 /** Sync with --breadcrumbs-height-compact. */
 export const BREADCRUMBS_HEIGHT_COMPACT = 44
@@ -43,6 +47,9 @@ export function TopBar(): JSX.Element | null {
     const effectiveCompactionRate = mobileLayout ? 0 : compactionRate
     const isOnboarding = router.values.location.pathname.includes('/onboarding/')
     const hasRenameState = !!renameState
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sidePanelInfoFlag = featureFlags[FEATURE_FLAGS.SIDE_PANEL_INFO]
+    const { sceneHasSidePanel } = useValues(sidePanelInfoLogic)
 
     useLayoutEffect(() => {
         function handleScroll(): void {
@@ -112,7 +119,9 @@ export function TopBar(): JSX.Element | null {
                                     </div>
                                 </React.Fragment>
                             ))}
-                            {projectTreeRefEntry && (
+
+                            {/* If the scene has a side panel, we don't show the project tree buttons */}
+                            {projectTreeRefEntry && !sceneHasSidePanel && (
                                 <>
                                     <LemonButton
                                         size="xsmall"
@@ -159,9 +168,15 @@ export function TopBar(): JSX.Element | null {
                     </div>
                 </FlaggedFeature>
                 <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
-                <div className="shrink-1">
-                    <TopBarSettingsButton />
-                </div>
+
+                {/* If the side panel info flag is enabled, we show the side panel top bar actions */}
+                {sidePanelInfoFlag ? (
+                    <SidePanelTopBarContextActions />
+                ) : (
+                    <div className="shrink-1">
+                        <TopBarSettingsButton />
+                    </div>
+                )}
             </div>
         </div>
     ) : null
