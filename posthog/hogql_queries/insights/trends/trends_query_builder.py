@@ -740,7 +740,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             filters.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    left=ast.Field(chain=["e", f"$group_{int(cast(int, self.series.math_group_type_index))}"]),
                     right=ast.Constant(value=""),
                 )
             )
