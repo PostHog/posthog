@@ -73,6 +73,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         DEDUPLICATION_REDIS_PORT: 6379,
         DEDUPLICATION_REDIS_PASSWORD: '',
         DEDUPLICATION_TTL_SECONDS: 60,
+        DEDUPLICATION_REDIS_PREFIX: 'deduplication:',
         BASE_DIR: '..',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
         TASK_TIMEOUT: 30,
