@@ -15,10 +15,10 @@ from temporalio.testing import ActivityEnvironment
 from posthog import constants
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
+from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger_async
-from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -118,7 +118,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import WORKFLOWS
+        from products.batch_exports.backend.temporal.registry import WORKFLOWS
 
         return WORKFLOWS
 
@@ -133,7 +133,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import ACTIVITIES
+        from products.batch_exports.backend.temporal.registry import ACTIVITIES
 
         return ACTIVITIES
 

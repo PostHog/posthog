@@ -10,8 +10,8 @@ from django.conf import settings
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
-from posthog.otel_instrumentation import initialize_otel
 from posthog.models import Organization, Team
+from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 
@@ -108,7 +108,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import WORKFLOWS
+        from products.batch_exports.backend.temporal.registry import WORKFLOWS
 
         return WORKFLOWS
 
@@ -123,7 +123,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from products.batch_exports.backend.temporal import ACTIVITIES
+        from products.batch_exports.backend.temporal.registry import ACTIVITIES
 
         return ACTIVITIES
 

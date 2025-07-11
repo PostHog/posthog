@@ -49,7 +49,7 @@ from posthog.temporal.session_recordings import (
 from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
-from products.batch_exports.backend.temporal import (
+from products.batch_exports.backend.temporal.registry import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )

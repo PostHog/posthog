@@ -13,7 +13,9 @@ from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
-from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.batch_exports.backend.temporal.registry import (
+    WORKFLOWS as BATCH_EXPORT_WORKFLOWS,
+)
 
 
 class Command(BaseCommand):
