@@ -1,5 +1,1 @@
-<<<<<<< HEAD
-0790_alter_integration_kind
-=======
 0792_alter_proxyrecord_status
->>>>>>> origin/master
