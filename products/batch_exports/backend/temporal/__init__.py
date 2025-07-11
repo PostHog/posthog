@@ -36,9 +36,10 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
 )
 from products.batch_exports.backend.temporal.monitoring import (
     BatchExportMonitoringWorkflow,
-    check_for_missing_batch_export_runs,
+    fetch_exported_event_counts,
     get_batch_export,
-    get_event_counts,
+    get_clickhouse_event_counts,
+    reconcile_event_counts,
     update_batch_export_runs,
 )
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
@@ -73,9 +74,10 @@ ACTIVITIES = [
     noop_activity,
     update_batch_export_backfill_model_status,
     get_batch_export,
-    get_event_counts,
+    get_clickhouse_event_counts,
     update_batch_export_runs,
-    check_for_missing_batch_export_runs,
     insert_into_internal_stage_activity,
+    fetch_exported_event_counts,
+    reconcile_event_counts,
     insert_into_s3_activity_from_stage,
 ]
