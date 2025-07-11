@@ -79,7 +79,7 @@ class ErrorTrackingExternalReference(UUIDModel):
     provider = deprecate_field(models.TextField(null=False, blank=False))
     # DEPRECATED: ids should be placed inside the external_context json field
     external_id = deprecate_field(models.TextField(null=False, blank=False))
-    external_context = models.JSONField(null=False, blank=False)
+    external_context = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
