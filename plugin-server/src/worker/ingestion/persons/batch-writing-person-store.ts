@@ -2,6 +2,8 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
+import { NoRowsUpdatedError } from '~/utils/utils'
+
 import { TopicMessage } from '../../../kafka/producer'
 import {
     InternalPerson,
@@ -165,7 +167,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval,
                                         undefined,
-                                        [MessageSizeTooLarge]
+                                        [MessageSizeTooLarge, NoRowsUpdatedError]
                                     )
                                     kafkaMessages = messages
                                     break
@@ -177,7 +179,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval,
                                         undefined,
-                                        [MessageSizeTooLarge]
+                                        [MessageSizeTooLarge, NoRowsUpdatedError]
                                     )
                                     kafkaMessages = messages
                                     break
@@ -189,7 +191,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval,
                                         undefined,
-                                        [MessageSizeTooLarge]
+                                        [MessageSizeTooLarge, NoRowsUpdatedError]
                                     )
                                     kafkaMessages = messages
                                     break
@@ -219,6 +221,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                     db_write_mode: this.options.dbWriteMode,
                                     method: this.options.dbWriteMode,
                                     outcome: 'error',
+                                })
+                                return []
+                            } else if (error instanceof NoRowsUpdatedError) {
+                                logger.warn('⚠️', 'Person no longer exists, skipping update', {
+                                    teamId: update.team_id,
+                                    personId: update.id,
+                                    distinctId: update.distinct_id,
                                 })
                                 return []
                             }
@@ -579,10 +588,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
-                      properties_last_updated_at: { ...result.properties_last_updated_at },
-                      properties_last_operation: result.properties_last_operation
-                          ? { ...result.properties_last_operation }
-                          : {},
                       created_at: result.created_at,
                   }
         } else {
@@ -606,10 +611,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 : {
                       ...result,
                       properties: { ...result.properties },
-                      properties_last_updated_at: { ...result.properties_last_updated_at },
-                      properties_last_operation: result.properties_last_operation
-                          ? { ...result.properties_last_operation }
-                          : {},
                       properties_to_set: { ...result.properties_to_set },
                       properties_to_unset: [...result.properties_to_unset],
                   }
@@ -660,6 +661,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             mergedPersonUpdate.properties_to_unset = [
                 ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
             ]
+
+            mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
@@ -731,10 +734,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             // Create new PersonUpdate from the person and apply the update
             personUpdate = fromInternalPerson(person, distinctId)
             personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update, true)
+            personUpdate.id = person.id
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         } else {
             // Merge updates into existing cached PersonUpdate
             personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update, true)
+            personUpdate.id = person.id
             this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         }
         // Return the merged person from the cache
@@ -772,6 +777,17 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         const otherUpdates = Object.fromEntries(
             Object.entries(update).filter(([key]) => !fieldsToExclude.includes(key))
         )
+        if (allowCreatedAtUpdate) {
+            // Get minimum of existing and new created_at
+            if (update.created_at) {
+                if (personUpdate.created_at) {
+                    otherUpdates.created_at =
+                        personUpdate.created_at < update.created_at ? personUpdate.created_at : update.created_at
+                } else {
+                    otherUpdates.created_at = update.created_at
+                }
+            }
+        }
         Object.assign(personUpdate, otherUpdates)
 
         // Handle is_identified specially with || operator
@@ -834,8 +850,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     private async updatePersonNoAssert(
         personUpdate: PersonUpdate,
-        source: string
+        source: string,
+        mergeDepth: number = 0
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+        const MAX_MERGE_DEPTH = 5 // Prevent infinite recursion
+
         const operation = 'updatePersonNoAssert' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
         // Convert PersonUpdate back to InternalPerson for database call
@@ -846,10 +865,27 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
-        const response = await this.db.updatePerson(person, updateFields, undefined, 'updatePersonNoAssert')
-        this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
-        observeLatencyByVersion(person, start, 'updatePersonNoAssert')
-        return response
+
+        try {
+            const response = await this.db.updatePerson(person, updateFields, undefined, 'updatePersonNoAssert')
+            this.recordUpdateLatency(
+                'updatePersonNoAssert',
+                (performance.now() - start) / 1000,
+                personUpdate.distinct_id
+            )
+            observeLatencyByVersion(person, start, 'updatePersonNoAssert')
+            return response
+        } catch (error) {
+            if (error instanceof NoRowsUpdatedError && mergeDepth < MAX_MERGE_DEPTH) {
+                // Try to refresh the person ID in case it was merged
+                const refreshedPersonUpdate = await this.refreshPersonIdAfterMerge(personUpdate)
+                if (refreshedPersonUpdate) {
+                    // Recursively retry with the refreshed person ID
+                    return await this.updatePersonNoAssert(refreshedPersonUpdate, source, mergeDepth + 1)
+                }
+            }
+            throw error
+        }
     }
 
     /**
@@ -859,53 +895,69 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
      * @param personUpdate the personUpdate to write
      * @returns the actual version of the person after the write
      */
-    private async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<TopicMessage[]> {
+    private async updatePersonAssertVersion(
+        personUpdate: PersonUpdate,
+        mergeDepth: number = 0
+    ): Promise<TopicMessage[]> {
+        const MAX_MERGE_DEPTH = 5 // Prevent infinite recursion
+
         this.incrementDatabaseOperation('updatePersonAssertVersion', personUpdate.distinct_id)
 
         const start = performance.now()
-        const [actualVersion, kafkaMessages] = await this.db.updatePersonAssertVersion(personUpdate)
-        this.recordUpdateLatency(
-            'updatePersonAssertVersion',
-            (performance.now() - start) / 1000,
-            personUpdate.distinct_id
-        )
-        observeLatencyByVersion(personUpdate, start, 'updatePersonAssertVersion')
 
-        if (actualVersion !== undefined) {
-            // Success - optimistic update worked, update version in cache
-            personUpdate.version = actualVersion
-            return kafkaMessages
+        try {
+            const [actualVersion, kafkaMessages] = await this.db.updatePersonAssertVersion(personUpdate)
+            this.recordUpdateLatency(
+                'updatePersonAssertVersion',
+                (performance.now() - start) / 1000,
+                personUpdate.distinct_id
+            )
+            observeLatencyByVersion(personUpdate, start, 'updatePersonAssertVersion')
+
+            if (actualVersion !== undefined) {
+                // Success - optimistic update worked, update version in cache
+                personUpdate.version = actualVersion
+                return kafkaMessages
+            }
+
+            // Optimistic update failed due to version mismatch
+            personOptimisticUpdateConflictsPerBatchCounter.inc()
+
+            // Fetch latest person data to get current version and properties
+            this.incrementDatabaseOperation('fetchPerson', personUpdate.distinct_id)
+            const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
+
+            if (latestPerson) {
+                // Use fine-grained merge: start with latest properties from DB and apply our specific changes
+                const mergedProperties = { ...latestPerson.properties }
+
+                // Apply our properties_to_set
+                Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
+                    mergedProperties[key] = value
+                })
+
+                // Apply our properties_to_unset
+                personUpdate.properties_to_unset.forEach((key) => {
+                    delete mergedProperties[key]
+                })
+
+                // Update the PersonUpdate with latest data and merged properties
+                personUpdate.properties = mergedProperties
+                personUpdate.version = latestPerson.version
+            }
+
+            throw new Error('Assert version update failed, will retry')
+        } catch (error) {
+            if (error instanceof NoRowsUpdatedError && mergeDepth < MAX_MERGE_DEPTH) {
+                // Try to refresh the person ID in case it was merged
+                const refreshedPersonUpdate = await this.refreshPersonIdAfterMerge(personUpdate)
+                if (refreshedPersonUpdate) {
+                    // Recursively retry with the refreshed person ID
+                    return await this.updatePersonAssertVersion(refreshedPersonUpdate, mergeDepth + 1)
+                }
+            }
+            throw error
         }
-
-        // Optimistic update failed due to version mismatch
-        personOptimisticUpdateConflictsPerBatchCounter.inc()
-
-        // Fetch latest person data to get current version and properties
-        this.incrementDatabaseOperation('fetchPerson', personUpdate.distinct_id)
-        const latestPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
-
-        if (latestPerson) {
-            // Use fine-grained merge: start with latest properties from DB and apply our specific changes
-            const mergedProperties = { ...latestPerson.properties }
-
-            // Apply our properties_to_set
-            Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
-                mergedProperties[key] = value
-            })
-
-            // Apply our properties_to_unset
-            personUpdate.properties_to_unset.forEach((key) => {
-                delete mergedProperties[key]
-            })
-
-            // Update the PersonUpdate with latest data and merged properties
-            personUpdate.properties = mergedProperties
-            personUpdate.properties_last_updated_at = latestPerson.properties_last_updated_at || {}
-            personUpdate.properties_last_operation = latestPerson.properties_last_operation || {}
-            personUpdate.version = latestPerson.version
-        }
-
-        throw new Error('Assert version update failed, will retry')
     }
 
     private async updatePersonWithTransaction(personUpdate: PersonUpdate, source: string): Promise<TopicMessage[]> {
@@ -960,5 +1012,40 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             (updateLatencyPerDistinctIdSeconds.get(updateType) || 0) + latencySeconds
         )
         this.updateLatencyPerDistinctIdSeconds.set(distinctId, updateLatencyPerDistinctIdSeconds)
+    }
+
+    /**
+     * Refreshes the person ID for a given distinct ID by fetching from the database.
+     * This handles cases where the person was merged and the ID changed.
+     * @param personUpdate the PersonUpdate that failed to update
+     * @returns updated PersonUpdate with new person ID if found, null if person no longer exists
+     */
+    private async refreshPersonIdAfterMerge(personUpdate: PersonUpdate): Promise<PersonUpdate | null> {
+        const currentPerson = await this.db.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
+
+        if (!currentPerson) {
+            // Person truly doesn't exist anymore
+            return null
+        }
+
+        // Clear the old person ID from cache since it's been merged
+        this.clearPersonCacheForPersonId(personUpdate.team_id, personUpdate.id)
+
+        // Update our cache mapping to reflect the new person ID
+        this.setDistinctIdToPersonId(personUpdate.team_id, personUpdate.distinct_id, currentPerson.id)
+
+        // Create updated PersonUpdate with the new person ID and version
+        const updatedPersonUpdate = {
+            ...personUpdate,
+            id: currentPerson.id,
+            version: currentPerson.version,
+            // Also update other fields that might have changed due to merge
+            uuid: currentPerson.uuid,
+            created_at: currentPerson.created_at,
+            is_identified: currentPerson.is_identified || personUpdate.is_identified,
+            properties: currentPerson.properties,
+        }
+
+        return updatedPersonUpdate
     }
 }

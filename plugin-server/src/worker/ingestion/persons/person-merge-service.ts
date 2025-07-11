@@ -420,6 +420,7 @@ export class PersonMergeService {
                 const [person, updatePersonMessages] = await this.context.personStore.updatePersonForMerge(
                     mergeInto,
                     {
+                        id: otherPerson.id,
                         created_at: createdAt,
                         properties: properties,
                         is_identified: true,
@@ -510,5 +511,9 @@ export class PersonMergeService {
 
     public getUpdateIsIdentified(): boolean {
         return this.context.updateIsIdentified
+    }
+
+    getContext(): PersonContext {
+        return this.context
     }
 }

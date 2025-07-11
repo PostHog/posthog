@@ -311,8 +311,6 @@ describe('DB', () => {
 
             expect(fetched_person.is_identified).toEqual(false)
             expect(fetched_person.properties).toEqual({})
-            expect(fetched_person.properties_last_operation).toEqual({})
-            expect(fetched_person.properties_last_updated_at).toEqual({})
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
         })
@@ -326,8 +324,6 @@ describe('DB', () => {
 
             expect(fetched_person.is_identified).toEqual(true)
             expect(fetched_person.properties).toEqual({})
-            expect(fetched_person.properties_last_operation).toEqual({})
-            expect(fetched_person.properties_last_updated_at).toEqual({})
             expect(fetched_person.uuid).toEqual(uuid)
             expect(fetched_person.team_id).toEqual(team.id)
         })

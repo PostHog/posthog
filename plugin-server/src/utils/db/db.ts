@@ -679,17 +679,13 @@ export class DB {
             `
             UPDATE posthog_person SET
                 properties = $1,
-                properties_last_updated_at = $2,
-                properties_last_operation = $3,
-                is_identified = $4,
+                is_identified = $2,
                 version = COALESCE(version, 0)::numeric + 1
-            WHERE team_id = $5 AND uuid = $6 AND version = $7
+            WHERE team_id = $3 AND uuid = $4 AND version = $5
             RETURNING *
             `,
             [
                 JSON.stringify(personUpdate.properties),
-                JSON.stringify(personUpdate.properties_last_updated_at),
-                JSON.stringify(personUpdate.properties_last_operation),
                 personUpdate.is_identified,
                 personUpdate.team_id,
                 personUpdate.uuid,
