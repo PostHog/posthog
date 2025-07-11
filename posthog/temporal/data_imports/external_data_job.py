@@ -102,6 +102,9 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
     ExternalDataSource.Type.GOOGLEADS: ["PERMISSION_DENIED"],
+    ExternalDataSource.Type.METAADS: [
+        "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
+    ],
 }
 
 

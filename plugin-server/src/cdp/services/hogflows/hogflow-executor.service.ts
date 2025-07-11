@@ -45,6 +45,26 @@ export class HogFlowExecutorService {
         this.actionHandlers = this.initializeActionHandlers()
     }
 
+    public createHogFlowInvocation(
+        globals: HogFunctionInvocationGlobals,
+        hogFlow: HogFlow
+    ): CyclotronJobInvocationHogFlow {
+        return {
+            id: new UUIDT().toString(),
+            state: {
+                personId: globals.person?.id ?? '',
+                event: globals.event,
+                actionStepCount: 0,
+            },
+            teamId: hogFlow.team_id,
+            functionId: hogFlow.id, // TODO: Include version?
+            hogFlow,
+            queue: 'hogflow',
+            queuePriority: 1,
+            getPerson: () => this.personsManager.getPerson(hogFlow.team_id, globals.event.distinct_id),
+        }
+    }
+
     private initializeActionHandlers(): Map<HogFlowAction['type'], ActionHandler> {
         const handlers = new Map<HogFlowAction['type'], ActionHandler>()
         handlers.set('conditional_branch', new ConditionalBranchHandler())
@@ -66,23 +86,6 @@ export class HogFlowExecutorService {
 
         handlers.set('exit', new ExitHandler())
         return handlers
-    }
-
-    createHogFlowInvocation(globals: HogFunctionInvocationGlobals, hogFlow: HogFlow): CyclotronJobInvocationHogFlow {
-        return {
-            id: new UUIDT().toString(),
-            state: {
-                personId: globals.person?.id ?? '',
-                event: globals.event,
-                actionStepCount: 0,
-            },
-            teamId: hogFlow.team_id,
-            functionId: hogFlow.id, // TODO: Include version?
-            hogFlow,
-            queue: 'hogflow',
-            queuePriority: 1,
-            getPerson: () => this.personsManager.getPerson(hogFlow.team_id, globals.event.distinct_id),
-        }
     }
 
     async buildHogFlowInvocations(
@@ -240,7 +243,7 @@ export class HogFlowExecutorService {
                 if (handlerResult.finished) {
                     result.finished = true
                     // Special case for exit - we just track a success metric
-                    this.metricsService.trackActionMetric(result, currentAction, 'succeeded')
+                    this.trackActionMetric(result, currentAction, 'succeeded')
                 }
 
                 if (handlerResult.scheduledAt) {
@@ -253,7 +256,7 @@ export class HogFlowExecutorService {
             } catch (err) {
                 // Add logs and metric specifically for this action
                 this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.metricsService.trackActionMetric(result, currentAction, 'failed')
+                this.trackActionMetric(result, currentAction, 'failed')
 
                 throw err
             }
@@ -292,7 +295,7 @@ export class HogFlowExecutorService {
             message: `Workflow moved to action '${nextAction.name} (${nextAction.id})'`,
         })
 
-        this.metricsService.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
+        this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
 
         return result
     }
@@ -310,7 +313,7 @@ export class HogFlowExecutorService {
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `Workflow will pause until ${scheduledAt.toISO()}`,
+            message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
         })
 
         return result
@@ -334,6 +337,21 @@ export class HogFlowExecutorService {
             level,
             timestamp: DateTime.now(),
             message,
+        })
+    }
+
+    private trackActionMetric(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        metricName: 'failed' | 'succeeded' | 'filtered'
+    ): void {
+        result.metrics.push({
+            team_id: result.invocation.hogFlow.team_id,
+            app_source_id: result.invocation.hogFlow.id,
+            instance_id: action.id,
+            metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
+            metric_name: metricName,
+            count: 1,
         })
     }
 }

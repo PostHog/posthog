@@ -164,6 +164,8 @@ class PipelineNonDLT:
                         if len(buffer) >= self._chunk_size:
                             py_table = table_from_py_list(buffer)
                             buffer = []
+                        else:
+                            continue
                     else:
                         if len(item) >= self._chunk_size:
                             py_table = table_from_py_list(item)

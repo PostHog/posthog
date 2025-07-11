@@ -12,14 +12,13 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from ee.hogai.llm import MaxChatOpenAI
 from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 
 # Import moved inside functions to avoid circular imports
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -293,7 +292,6 @@ class RootNode(RootNodeUIContextMixin):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
-                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                     *[
                         (
                             "system",
@@ -347,7 +345,14 @@ class RootNode(RootNodeUIContextMixin):
         # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
         # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
         # only made evals less useful precisely because of the false determinism.
-        base_model = ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True, max_retries=3)
+        base_model = MaxChatOpenAI(
+            model="gpt-4o",
+            temperature=0.3,
+            streaming=True,
+            stream_usage=True,
+            user=self._user,
+            team=self._team,
+        )
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
