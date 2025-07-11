@@ -189,7 +189,7 @@ def send_password_changed_email(user_id: int) -> None:
     message = EmailMessage(
         use_http=True,
         campaign_key=f"password-changed-{user.uuid}-{timezone.now().timestamp()}",
-        subject=f"Your password has been changed",
+        subject="Your password has been changed",
         template_name="password_changed",
         template_context={
             "preheader": "Your password has been changed",
