@@ -22,7 +22,7 @@ export function md5Hex(data: string | null, options?: ExecOptions): string | nul
     return crypto.createHash('md5').update(data).digest('hex')
 }
 
-export function sha256HmacChainHex(data: string[], encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex', options?: ExecOptions): string {
+export function sha256HmacChain(data: string[], encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex', options?: ExecOptions): string {
     const crypto = options?.external?.crypto
     if (!crypto) {
         throw new Error('The crypto module is required for "sha256HmacChainHex" to work.')

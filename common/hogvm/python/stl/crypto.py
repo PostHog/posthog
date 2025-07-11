@@ -16,7 +16,7 @@ def sha256Hex(data: str | None) -> str | None:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
-def sha256HmacChainHex(data: list, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
+def sha256HmacChain(data: list, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
     if len(data) < 2:
         raise ValueError("Data array must contain at least two elements.")
 

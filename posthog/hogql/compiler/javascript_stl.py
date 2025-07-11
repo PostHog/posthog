@@ -317,6 +317,10 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function sha256HmacChainHex (data, options) { return 'sha256HmacChainHex not implemented' }",
         [],
     ],
+    "sha256HmacChain": [
+        "function sha256HmacChain (data, options) { return 'sha256HmacChain not implemented' }",
+        [],
+    ],
     "isIPAddressInRange": [
         """
 function isIPAddressInRange(address, prefix) {

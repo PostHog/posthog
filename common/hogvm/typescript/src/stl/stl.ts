@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
-import { md5Hex, sha256Hex, sha256HmacChainHex } from './crypto'
+import { md5Hex, sha256Hex, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -1065,11 +1065,18 @@ export const STL: Record<string, STLFunction> = {
         maxArgs: 1,
     },
     sha256HmacChainHex: {
-        fn: ([data, encoding], _, options) => sha256HmacChainHex(data, encoding, options),
+        fn: ([data], _, options) => sha256HmacChain(data, 'hex', options),
         description: 'Computes SHA-256 HMAC chain hash',
         example: 'sha256HmacChainHex($1)',
         minArgs: 1,
         maxArgs: 1,
+    },
+    sha256HmacChain: {
+        fn: ([data, encoding], _, options) => sha256HmacChain(data, encoding, options),
+        description: 'Computes SHA-256 HMAC chain hash',
+        example: 'sha256HmacChainHex($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
     },
     isIPAddressInRange: {
         fn: ([address, prefix]) => isIPAddressInRange(address, prefix),

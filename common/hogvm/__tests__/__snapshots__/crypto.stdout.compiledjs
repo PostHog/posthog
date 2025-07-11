@@ -5,7 +5,7 @@ sha256Hex(string): 5216c0931310b31737ef30353830c234901283544e934f54eb75f622cfb86
 sha256Hex(null): null
 data: ['1', 'string', 'more', 'keys']
 sha256HmacChainHex(data): sha256HmacChainHex not implemented
-sha256HmacChainHex(data, 'hex'): sha256HmacChainHex not implemented
-sha256HmacChainHex(data, 'base64'): sha256HmacChainHex not implemented
-sha256HmacChainHex(data, 'binary'): sha256HmacChainHex not implemented
-sha256HmacChainHex(data, 'base64url'): sha256HmacChainHex not implemented
+sha256HmacChain(data, 'hex'): sha256HmacChain not implemented
+sha256HmacChain(data, 'base64'): sha256HmacChain not implemented
+sha256HmacChain(data, 'binary'): sha256HmacChain not implemented
+sha256HmacChain(data, 'base64url'): sha256HmacChain not implemented
