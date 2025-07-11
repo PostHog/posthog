@@ -40,7 +40,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
-from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -75,6 +74,10 @@ from posthog.schema import (
 )
 from posthog.utils import format_label_date, multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
+
+# If we are running a query that has no date range ("all"/all time),
+# we use this as a fallback for the earliest timestamp that we have data for
+EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
 
 
 class TrendsQueryRunner(QueryRunner):
@@ -659,12 +662,9 @@ class TrendsQueryRunner(QueryRunner):
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
 
-        # If user requests 'all' time, determine the true earliest timestamp
         earliest_timestamp = None
         if self.query.dateRange and self.query.dateRange.date_from == "all":
-            earliest_timestamp = get_earliest_timestamp_from_series(
-                self.team, [series.series for series in self.series]
-            )
+            earliest_timestamp = EARLIEST_TIMESTAMP
 
         return QueryDateRange(
             date_range=self.query.dateRange,
