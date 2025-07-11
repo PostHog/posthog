@@ -273,7 +273,7 @@ class TrendsActorsQueryBuilder:
 
     def _actor_id_expr(self) -> ast.Expr:
         if is_groups_math(self.entity):
-            return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
+            return ast.Field(chain=["e", f"$group_{int(cast(int, self.entity.math_group_type_index))}"])
         return ast.Field(chain=["e", "person_id"])
 
     def _actor_distinct_id_expr(self) -> ast.Expr | None:
@@ -486,7 +486,7 @@ class TrendsActorsQueryBuilder:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"]),
+                    left=ast.Field(chain=["e", f"$group_{int(cast(int, self.entity.math_group_type_index))}"]),
                     right=ast.Constant(value=""),
                 )
             )
