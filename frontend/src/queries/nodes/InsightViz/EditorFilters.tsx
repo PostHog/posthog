@@ -1,7 +1,8 @@
-import { IconCheck, IconInfo, IconX } from '@posthog/icons'
+import { IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useRef, useEffect } from 'react'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -79,10 +80,19 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         shouldShowSessionAnalysisWarning,
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
-    const { setQuery } = useActions(insightVizDataLogic(insightProps))
-    const { setSuggestedInsight, onAcceptSuggestedInsight, onRejectSuggestedInsight } = useActions(insightSceneLogic)
-    const { suggestedInsight } = useValues(insightSceneLogic)
+
+    const { setSuggestedInsight, onRejectSuggestedInsight } = useActions(insightSceneLogic)
+    const { suggestedInsight, previousQuery } = useValues(insightSceneLogic)
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+
+    const hasScrolled = useRef(false)
+
+    // Reset scroll flag when banner disappears
+    useEffect(() => {
+        if (!suggestedInsight || !previousQuery) {
+            hasScrolled.current = false
+        }
+    }, [suggestedInsight, previousQuery])
 
     if (!querySource) {
         return null
@@ -424,58 +434,53 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         initialMaxPrompt="Show me users who "
                         className="EditorFiltersWrapper"
                     >
-                        <div
-                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
-                                'p-4 rounded border': !embedded,
-                            })}
-                        >
-                            {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
-                                <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
-                                    {editorFilterGroups.map((editorFilterGroup) => (
-                                        <EditorFilterGroup
-                                            key={editorFilterGroup.title}
-                                            editorFilterGroup={editorFilterGroup}
-                                            insightProps={insightProps}
-                                            query={query}
-                                        />
-                                    ))}
+                        <div>
+                            <div
+                                className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                                    'p-4 rounded border': !embedded,
+                                })}
+                            >
+                                {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
+                                    <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">
+                                        {editorFilterGroups.map((editorFilterGroup) => (
+                                            <EditorFilterGroup
+                                                key={editorFilterGroup.title}
+                                                editorFilterGroup={editorFilterGroup}
+                                                insightProps={insightProps}
+                                                query={query}
+                                            />
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+
+                            {suggestedInsight && previousQuery && (
+                                <div className="flex justify-end">
+                                    <div
+                                        className="inline-block bg-white border border-gray-300 rounded-md"
+                                        // style={{ clipPath: 'polygon(0% 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%)' }}
+                                        ref={(el) => {
+                                            if (el && !hasScrolled.current) {
+                                                el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                                hasScrolled.current = true
+                                            }
+                                        }}
+                                    >
+                                        <LemonButton
+                                            status="danger"
+                                            onClick={() => onRejectSuggestedInsight()}
+                                            tooltipPlacement="top"
+                                            size="small"
+                                            icon={<IconX />}
+                                            className="!bg-transparent border-0"
+                                        >
+                                            Reject Max's changes
+                                        </LemonButton>
+                                    </div>
                                 </div>
-                            ))}
+                            )}
                         </div>
                     </MaxTool>
-
-                    {suggestedInsight && (
-                        <div
-                            className="flex gap-1 bg-bg-light rounded border border-primary-3000 py-1 px-1.5 mt-2 justify-center whitespace-nowrap"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
-                            ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-                        >
-                            <LemonButton
-                                type="tertiary"
-                                icon={<IconCheck color="var(--success)" />}
-                                onClick={() => {
-                                    if (suggestedInsight) {
-                                        setQuery(suggestedInsight)
-                                    }
-                                    onAcceptSuggestedInsight()
-                                }}
-                                tooltipPlacement="top"
-                                size="small"
-                            >
-                                Accept insight
-                            </LemonButton>
-                            <LemonButton
-                                status="danger"
-                                icon={<IconX />}
-                                onClick={() => onRejectSuggestedInsight()}
-                                tooltipPlacement="top"
-                                size="small"
-                            >
-                                Reject
-                            </LemonButton>
-                        </div>
-                    )}
                 </div>
 
                 {shouldShowSessionAnalysisWarning ? (

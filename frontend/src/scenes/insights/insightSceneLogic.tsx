@@ -98,8 +98,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
         upgradeQuery: (query: Node) => ({ query }),
         setSuggestedInsight: (suggestedInsight: Node | null) => ({ suggestedInsight }),
-        onAcceptSuggestedInsight: true,
         onRejectSuggestedInsight: true,
+        storePreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
     }),
     reducers({
         insightId: [
@@ -181,8 +181,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             null as Node | null,
             {
                 setSuggestedInsight: (_, { suggestedInsight }) => suggestedInsight,
-                onAcceptSuggestedInsight: () => null,
-                onRejectSuggestedInsight: () => null,
+            },
+        ],
+        previousQuery: [
+            null as Node | null,
+            {
+                storePreviousQuery: (_, { previousQuery }) => previousQuery,
             },
         ],
     }),
@@ -297,7 +301,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    listeners(({ sharedListeners, values }) => ({
+    listeners(({ sharedListeners, values, actions }) => ({
         setInsightMode: sharedListeners.reloadInsightLogic,
         setSceneState: sharedListeners.reloadInsightLogic,
         upgradeQuery: async ({ query }) => {
@@ -322,11 +326,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 }
             )
         },
-        onAcceptSuggestedInsight: () => {
-            // Query change is handled directly in EditorFilters
-        },
         onRejectSuggestedInsight: () => {
-            // Suggestion cleared by reducer
+            // Revert to previous query when rejecting suggestion
+            if (values.previousQuery && values.insightDataLogicRef?.logic) {
+                values.insightDataLogicRef.logic.actions.setQuery(values.previousQuery)
+            }
+            actions.setSuggestedInsight(null)
+            actions.storePreviousQuery(null)
+        },
+
+        setSuggestedInsight: ({ suggestedInsight }) => {
+            if (suggestedInsight && values.insightDataLogicRef?.logic) {
+                const currentQuery = values.insightDataLogicRef.logic.values.query
+                actions.storePreviousQuery(currentQuery)
+                values.insightDataLogicRef.logic.actions.setQuery(suggestedInsight)
+            }
         },
     })),
     urlToAction(({ actions, values }) => ({
