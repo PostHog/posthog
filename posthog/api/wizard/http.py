@@ -206,6 +206,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             result = openai.chat.completions.create(
                 model=model,
                 seed=MODEL_SEED,
+                temperature=0,
                 messages=messages,
                 response_format={"type": "json_schema", "json_schema": json_schema},  # type: ignore
                 posthog_distinct_id=distinct_id,
