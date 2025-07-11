@@ -418,7 +418,7 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True, max_retries=3).bind_tools(
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True, max_retries=3).bind_tools(
             memory_collector_tools
         )
 
