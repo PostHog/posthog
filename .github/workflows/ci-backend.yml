@@ -611,7 +611,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
-                  cp test-durations.json .test_durations
+                  cp test-durations.json .test_durations || true
 
             - name: Log test durations
               if: ${{ needs.changes.outputs.backend == 'true' }}
