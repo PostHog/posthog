@@ -85,7 +85,15 @@ const recordingDisabledReason = (
             </>
         )
     } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
-        return 'Replay was not active when capturing this event'
+        return (
+            <>
+                Replay was not active when capturing this event.{' '}
+                <Link to="https://posthog.com/docs/session-replay/troubleshooting#recordings-are-not-being-captured">
+                    Learn why
+                </Link>{' '}
+                not all recordings are captured.
+            </>
+        )
     }
 
     return null
