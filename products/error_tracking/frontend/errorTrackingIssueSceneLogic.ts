@@ -1,10 +1,10 @@
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { ErrorEventProperties, ErrorEventType } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { Scene } from 'scenes/sceneTypes'
+import { Params, Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -16,11 +16,18 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
 
-import { errorFiltersLogic } from './components/ErrorFilters/errorFiltersLogic'
+import {
+    ERROR_TRACKING_DEFAULT_DATE_RANGE,
+    ERROR_TRACKING_DEFAULT_FILTER_GROUP,
+    ERROR_TRACKING_DEFAULT_SEARCH_QUERY,
+    ERROR_TRACKING_DEFAULT_TEST_ACCOUNT,
+    errorFiltersLogic,
+} from './components/ErrorFilters/errorFiltersLogic'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingIssueQuery } from './queries'
-import { ERROR_TRACKING_DETAILS_RESOLUTION } from './utils'
+import { ERROR_TRACKING_DETAILS_RESOLUTION, syncSearchParams, updateSearchParams } from './utils'
+import equal from 'fast-deep-equal'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
@@ -234,6 +241,67 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
                 }
             },
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, { dateRange, filterGroup, filterTestAccounts, searchQuery }: Params): void => {
+            const hasParams = !!dateRange || !!filterGroup || !!filterTestAccounts || !!searchQuery
+
+            if (dateRange && !equal(dateRange, values.dateRange)) {
+                actions.setDateRange(dateRange)
+            } else if (hasParams && !dateRange) {
+                actions.setDateRange(ERROR_TRACKING_DEFAULT_DATE_RANGE)
+            }
+            if (filterGroup && !equal(filterGroup, values.filterGroup)) {
+                actions.setFilterGroup(filterGroup)
+            } else if (hasParams && !filterGroup) {
+                actions.setFilterGroup(ERROR_TRACKING_DEFAULT_FILTER_GROUP)
+            }
+            if (filterTestAccounts && !equal(filterTestAccounts, values.filterTestAccounts)) {
+                actions.setFilterTestAccounts(filterTestAccounts)
+            } else if (hasParams && !filterTestAccounts) {
+                actions.setFilterTestAccounts(ERROR_TRACKING_DEFAULT_TEST_ACCOUNT)
+            }
+            if (searchQuery && !equal(searchQuery, values.searchQuery)) {
+                actions.setSearchQuery(searchQuery)
+            } else if (hasParams && !searchQuery) {
+                actions.setSearchQuery(ERROR_TRACKING_DEFAULT_SEARCH_QUERY)
+            }
+        }
+        return {
+            '*': urlToAction,
+        }
+    }),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            }
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(
+                    params,
+                    'filterTestAccounts',
+                    values.filterTestAccounts,
+                    ERROR_TRACKING_DEFAULT_TEST_ACCOUNT
+                )
+                updateSearchParams(params, 'searchQuery', values.searchQuery, ERROR_TRACKING_DEFAULT_SEARCH_QUERY)
+                updateSearchParams(params, 'filterGroup', values.filterGroup, ERROR_TRACKING_DEFAULT_FILTER_GROUP)
+                updateSearchParams(params, 'dateRange', values.dateRange, ERROR_TRACKING_DEFAULT_DATE_RANGE)
+                return params
+            })
+        }
+
+        return {
+            setDateRange: () => buildURL(),
+            setFilterGroup: () => buildURL(),
+            setSearchQuery: () => buildURL(),
+            setFilterTestAccounts: () => buildURL(),
         }
     }),
 ])
