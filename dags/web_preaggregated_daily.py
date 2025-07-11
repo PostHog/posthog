@@ -72,7 +72,7 @@ def pre_aggregate_web_analytics_data(
     try:
         # Drop the partition first, ensuring a clean state before insertion
         # Note: No ON CLUSTER needed since tables are replicated (not sharded) and replication handles distribution
-        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start, on_cluster=False)
+        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start)
         context.log.info(f"Dropping partition for {date_start}: {drop_partition_query}")
 
         try:
