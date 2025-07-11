@@ -529,7 +529,6 @@ export interface InsightErrorStateProps {
     query?: Record<string, any> | Node | null
     queryId?: string | null
     fixWithAIComponent?: JSX.Element
-    allowRetry?: boolean
 }
 
 export function InsightErrorState({
@@ -538,7 +537,6 @@ export function InsightErrorState({
     query,
     queryId,
     fixWithAIComponent,
-    allowRetry = false,
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -590,19 +588,15 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                {allowRetry && (
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        onClick={() =>
-                            loadData(
-                                query?.kind && shouldQueryBeAsync(query as Node) ? 'force_async' : 'force_blocking'
-                            )
-                        }
-                    >
-                        Try again
-                    </LemonButton>
-                )}
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() =>
+                        loadData(query?.kind && shouldQueryBeAsync(query as Node) ? 'force_async' : 'force_blocking')
+                    }
+                >
+                    Try again
+                </LemonButton>
                 <QueryDebuggerButton query={query} />
                 {fixWithAIComponent ?? null}
             </div>
