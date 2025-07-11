@@ -28,7 +28,7 @@ from .utils import json_schema_to_gemini_schema
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
-SETUP_WIZARD_MODEL = "o4-mini"  # Default model, can be overridden
+SETUP_WIZARD_DEFAULT_MODEL = "o4-mini"
 
 OPENAI_SUPPORTED_MODELS = {
     "o4-mini",
@@ -61,7 +61,7 @@ class SetupWizardSerializer(serializers.Serializer):
 class SetupWizardQuerySerializer(serializers.Serializer):
     message = serializers.CharField()
     json_schema = serializers.JSONField()
-    model = serializers.CharField(default=SETUP_WIZARD_MODEL)
+    model = serializers.CharField(default=SETUP_WIZARD_DEFAULT_MODEL)
 
     def validate_model(self, value):
         """Validate that the model is supported"""
