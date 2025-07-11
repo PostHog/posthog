@@ -751,7 +751,7 @@ function useMathSelectorOptions({
     } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
         definitions = calendarHeatmapMathDefinitions
     }
-    const isGroupsEnabled = !needsUpgradeForGroups || !canStartUsingGroups
+    const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
