@@ -63,7 +63,9 @@ def get_external_logger():
 
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
-        logger.propagate = False
+
+        if not settings.TEST:
+            logger.propagate = False
 
     return structlog.get_logger(EXTERNAL_LOGGER_NAME)
 
@@ -92,7 +94,9 @@ def configure_stdlib_logger(logger: logging.Logger) -> None:
 
     logger.addHandler(handler)
     logger.setLevel(settings.TEMPORAL_LOG_LEVEL)
-    logger.propagate = False
+
+    if not settings.TEST:
+        logger.propagate = False
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:

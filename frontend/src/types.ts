@@ -3861,6 +3861,8 @@ interface BreadcrumbBase {
     key: string | number | [scene: Scene | string, key: string | number]
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
+    /** Whether to show a custom popover for the project */
+    isPopoverProject?: boolean
 }
 export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
@@ -4148,6 +4150,7 @@ export type IntegrationKind =
     | 'email'
     | 'linear'
     | 'github'
+    | 'meta-ads'
 
 export interface IntegrationType {
     id: number

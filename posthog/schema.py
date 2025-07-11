@@ -1538,6 +1538,7 @@ class IntegrationKind(StrEnum):
     EMAIL = "email"
     LINEAR = "linear"
     GITHUB = "github"
+    META_ADS = "meta-ads"
 
 
 class IntervalType(StrEnum):
