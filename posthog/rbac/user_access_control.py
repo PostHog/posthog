@@ -388,9 +388,18 @@ class UserAccessControl:
 
         # If they aren't the creator then they need to be a project admin, org admin, or have "manage" access to the resource
         # TRICKY: If self._team isn't set, this is likely called for a Team itself so we pass in the object
-        return self.check_access_level_for_object(
+        resource = model_to_resource(obj)
+        project_admin_check = self.check_access_level_for_object(
             self._team or obj, required_level="admin", explicit=True
-        ) or self.check_access_level_for_object(obj, required_level="manage", explicit=True)
+        )
+
+        # Only check for "manage" access if it's not a project resource
+        if resource != "project":
+            return project_admin_check or self.check_access_level_for_object(
+                obj, required_level="manage", explicit=True
+            )
+
+        return project_admin_check
 
     def get_access_source_for_object(
         self, obj: Model, resource: Optional[APIScopeObject] = None
