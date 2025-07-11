@@ -4,36 +4,15 @@ from langchain_core.runnables import RunnableConfig
 from ..schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
 from ..schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ..schema_generator.utils import SchemaGeneratorOutput
-from ..taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
-from .prompts import SQL_REACT_SYSTEM_PROMPT
-from .toolkit import SQL_SCHEMA, SQLTaxonomyAgentToolkit
+from .toolkit import SQL_SCHEMA
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql.ai import HOGQL_EXAMPLE_MESSAGE, IDENTITY_MESSAGE, SCHEMA_MESSAGE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError, NotImplementedError as HogQLNotImplementedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.schema import AssistantHogQLQuery
-
-
-class SQLPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = SQLTaxonomyAgentToolkit(self._team)
-        prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", SQL_REACT_SYSTEM_PROMPT),
-            ],
-            template_format="mustache",
-        )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
-
-
-class SQLPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        toolkit = SQLTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
-
 
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
@@ -47,8 +26,7 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         database = create_hogql_database(team=self._team)
-        self.hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
-
+        self.hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
         serialized_database = serialize_database(self.hogql_context)
         schema_description = "\n\n".join(
             (
@@ -81,7 +59,7 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         assert result.query is not None
         try:
             print_ast(parse_select(result.query), context=self.hogql_context, dialect="clickhouse")
-        except (ExposedHogQLError, ResolutionError) as err:
+        except (ExposedHogQLError, HogQLNotImplementedError, ResolutionError) as err:
             err_msg = str(err)
             if err_msg.startswith("no viable alternative"):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs

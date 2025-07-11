@@ -55,7 +55,6 @@ class EditCurrentInsightTool(MaxTool):
             raise ValueError("Last message has no tool calls")
 
         state.root_tool_insight_plan = query_description
-        state.root_tool_insight_type = query_kind
         state.root_tool_call_id = last_message.tool_calls[0].id
 
         writer = get_stream_writer()

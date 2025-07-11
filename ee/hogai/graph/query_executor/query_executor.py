@@ -25,7 +25,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.clickhouse.client.execute_async import get_query_status
 from rest_framework.exceptions import APIException
 from posthog.errors import ExposedCHQueryError
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, NotImplementedError as HogQLNotImplementedError
 from time import sleep
 import json
 from django.core.serializers.json import DjangoJSONEncoder
@@ -162,7 +162,7 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
-        except (APIException, ExposedHogQLError, ExposedCHQueryError) as err:
+        except (APIException, ExposedHogQLError, HogQLNotImplementedError, ExposedCHQueryError) as err:
             # Handle known query execution errors with user-friendly messages
             err_message = str(err)
             if isinstance(err, APIException):
