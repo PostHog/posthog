@@ -6,19 +6,16 @@ import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { HogFlowActionRunnerConditionalBranch } from './action.conditional_branch'
-import { findActionById, findActionByType } from './utils'
+import { findActionById, findActionByType } from '../hogflow-utils'
+import { checkConditions } from './conditional_branch'
 
-describe('HogFlowActionRunnerCondition', () => {
-    let runner: HogFlowActionRunnerConditionalBranch
+describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'conditional_branch' }>
 
     beforeEach(() => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
-
-        runner = new HogFlowActionRunnerConditionalBranch()
 
         const hogFlow = new FixtureHogFlowBuilder()
             .withWorkflow({
@@ -75,18 +72,15 @@ describe('HogFlowActionRunnerCondition', () => {
     describe('no matching events', () => {
         it('should return finished if no matches', async () => {
             invocation.state.event!.event = 'no-match'
-            const result = await runner.run(invocation, action)
-            expect(result).toEqual({
-                done: true,
-            })
+            const result = await checkConditions(invocation, action)
+            expect(result).toEqual({})
         })
 
         describe('wait logic', () => {
             it('should handle wait duration and schedule next check', async () => {
                 action.config.delay_duration = '2h'
-                const result = await runner.run(invocation, action)
+                const result = await checkConditions(invocation, action)
                 expect(result).toEqual({
-                    done: false,
                     // Should schedule for 10 minutes from now
                     scheduledAt: DateTime.utc().plus({ minutes: 10 }),
                 })
@@ -94,9 +88,8 @@ describe('HogFlowActionRunnerCondition', () => {
 
             it('should not schedule for later than the max wait duration', async () => {
                 action.config.delay_duration = '5m'
-                const result = await runner.run(invocation, action)
+                const result = await checkConditions(invocation, action)
                 expect(result).toEqual({
-                    done: false,
                     // Should schedule for 5 minutes from now
                     scheduledAt: DateTime.utc().plus({ minutes: 5 }),
                 })
@@ -105,7 +98,7 @@ describe('HogFlowActionRunnerCondition', () => {
             it('should throw error if action started at timestamp is invalid', async () => {
                 invocation.state.currentAction = undefined
                 action.config.delay_duration = '300s'
-                await expect(async () => runner.run(invocation, action)).rejects.toThrow(
+                await expect(async () => checkConditions(invocation, action)).rejects.toThrow(
                     "'startedAtTimestamp' is not set or is invalid"
                 )
             })
@@ -122,10 +115,9 @@ describe('HogFlowActionRunnerCondition', () => {
         })
 
         it('should match condition and go to action', async () => {
-            const result = await runner.run(invocation, action)
+            const result = await checkConditions(invocation, action)
             expect(result).toEqual({
-                done: true,
-                goToAction: findActionById(invocation.hogFlow, 'condition_1'),
+                nextAction: findActionById(invocation.hogFlow, 'condition_1'),
             })
         })
 
@@ -139,10 +131,9 @@ describe('HogFlowActionRunnerCondition', () => {
                 },
             ]
 
-            const result = await runner.run(invocation, action)
+            const result = await checkConditions(invocation, action)
             expect(result).toEqual({
-                done: true,
-                goToAction: findActionById(invocation.hogFlow, 'condition_2'),
+                nextAction: findActionById(invocation.hogFlow, 'condition_2'),
             })
         })
     })
