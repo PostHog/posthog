@@ -96,8 +96,6 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     }
                     newFilter.schema_map = overrideSchema
 
-                    // Remove the 'event' field as it's not allowed in ConversionGoalFilter3 (DataWarehouseNode)
-                    // Cast to any to handle the DataWarehouseNode-specific fields
                     const dwFilter = newFilter as any
                     delete dwFilter.event // Remove the event field that causes validation to fail
 
