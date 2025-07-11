@@ -172,53 +172,18 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
             )
 
         @snapshot_clickhouse_queries
-        def test_only_negative_anded(self):
-            session_id_one = str(uuid7())
-            user_id = str(uuid7())
-
-            produce_replay_summary(
-                distinct_id=user_id,
-                session_id=session_id_one,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
+        def test_two_negative_anded(self):
+            _target_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-target-page", "vip": True}
             )
-
-            create_event(
-                team=self.team,
-                distinct_id=user_id,
-                timestamp=self.an_hour_ago,
-                properties={"$session_id": session_id_one, "$window_id": "1", "pathname": "/my-target-page"},
+            _target_non_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-target-page", "vip": False}
             )
-
-            create_event(
-                team=self.team,
-                distinct_id=user_id,
-                timestamp=self.an_hour_ago,
-                properties={"$session_id": session_id_one, "$window_id": "1", "pathname": "/my-other-page"},
+            _non_target_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-other-page", "vip": True}
             )
-
-            session_id_two = str(uuid7())
-            user_id = str(uuid7())
-
-            produce_replay_summary(
-                distinct_id=user_id,
-                session_id=session_id_two,
-                first_timestamp=self.an_hour_ago,
-                team_id=self.team.id,
-            )
-
-            create_event(
-                team=self.team,
-                distinct_id=user_id,
-                timestamp=self.an_hour_ago,
-                properties={"$session_id": session_id_two, "$window_id": "1", "pathname": "/my-other-other-page"},
-            )
-
-            create_event(
-                team=self.team,
-                distinct_id=user_id,
-                timestamp=self.an_hour_ago,
-                properties={"$session_id": session_id_two, "$window_id": "1", "pathname": "/my-other-page"},
+            non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
+                {"$pathname": "/my-other-page", "vip": False}
             )
 
             self._assert_query_matches_session_ids(
@@ -229,11 +194,17 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                             "id": "$pageview",
                             "name": "$pageview",
                             "type": "events",
+                            "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is+not"}],
+                        },
+                        {
+                            "id": "$pageview",
+                            "name": "$pageview",
+                            "type": "events",
                             "properties": [
                                 {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
                             ],
                         },
                     ],
                 },
-                [session_id_two],
+                [non_target_non_vip_session],
             )

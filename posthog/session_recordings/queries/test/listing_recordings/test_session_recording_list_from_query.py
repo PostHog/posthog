@@ -16,6 +16,7 @@ from posthog.models import GroupTypeMapping, Person
 from posthog.models.action import Action
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
+from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import (
     SessionRecordingListFromQuery,
     SessionRecordingQueryResult,
@@ -4061,9 +4062,10 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
     def test_can_filter_for_does_not_contain_event_properties(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
+        paul_google_session = str(uuid7())
         produce_replay_summary(
             distinct_id="user",
-            session_id="1",
+            session_id=paul_google_session,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
@@ -4072,15 +4074,17 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user",
             timestamp=self.an_hour_ago,
             properties={
-                "$session_id": "1",
-                "$window_id": "1",
+                "$session_id": paul_google_session,
+                "$window_id": str(uuid7()),
                 "email": "paul@google.com",
+                "has": "paul@google.com",
             },
         )
 
+        paul_paul_session = str(uuid7())
         produce_replay_summary(
             distinct_id="user",
-            session_id="3",
+            session_id=paul_paul_session,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
@@ -4089,15 +4093,17 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user",
             timestamp=self.an_hour_ago,
             properties={
-                "$session_id": "3",
-                "$window_id": "1",
+                "$session_id": paul_paul_session,
+                "$window_id": str(uuid7()),
                 "email": "paul@paul.com",
+                "has": "paul@paul.com",
             },
         )
 
+        no_email_session = str(uuid7())
         produce_replay_summary(
             distinct_id="user",
-            session_id="4",
+            session_id=no_email_session,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
@@ -4106,8 +4112,9 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user",
             timestamp=self.an_hour_ago,
             properties={
-                "$session_id": "4",
-                "$window_id": "1",
+                "$session_id": no_email_session,
+                "$window_id": str(uuid7()),
+                "has": "no email",
                 # no email
             },
         )
@@ -4123,7 +4130,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                     },
                 ]
             },
-            ["1", "4"],
+            [paul_google_session, no_email_session],
         )
 
     @parameterized.expand(
