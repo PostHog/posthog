@@ -27,19 +27,12 @@ class SessionSummariesSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(),
         min_length=1,
-        max_length=20,
-        help_text="List of session IDs to summarize (max 20)",
+        max_length=50,
+        help_text="List of session IDs to summarize (max 50)",
     )
     focus_area = serializers.CharField(
         required=False, allow_blank=True, max_length=500, help_text="Optional focus area for the summary"
     )
-
-    def validate_session_ids(self, value):
-        if not value:
-            raise serializers.ValidationError("At least one session ID is required")
-        if len(value) > 20:
-            raise serializers.ValidationError("Cannot summarize more than 20 sessions at once")
-        return value
 
 
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
