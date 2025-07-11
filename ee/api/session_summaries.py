@@ -17,6 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.cloud_utils import is_cloud
 from posthog.models import User
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
@@ -38,6 +39,7 @@ class SessionSummariesSerializer(serializers.Serializer):
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "session_recording"  # Keeping recording, as Replay is the main source of info for summary, for now
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionSummariesSerializer
 
     @extend_schema(
