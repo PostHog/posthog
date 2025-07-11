@@ -617,7 +617,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
               run: |
-                  cat .test_durations
+                  cat .test_durations || true
 
             - name: Determine if --snapshot-update should be on
               # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
