@@ -52,22 +52,3 @@ export default function ViewRecordingButton({
         </ViewRecordingTrigger>
     )
 }
-
-export const recordingDisabledReason = (
-    properties: {
-        $session_id?: string
-        $recording_status?: string
-    },
-    eventType: string = 'event'
-): JSX.Element | string | null => {
-    if (!properties.$session_id) {
-        return 'There is no `$session_id`'
-    } else if (
-        properties.$recording_status &&
-        !['active', 'sampled', 'buffering'].includes(properties.$recording_status)
-    ) {
-        return `Replay was not active when capturing this ${eventType}`
-    }
-
-    return null
-}

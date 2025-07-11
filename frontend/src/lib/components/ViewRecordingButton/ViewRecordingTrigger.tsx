@@ -1,4 +1,4 @@
-import { Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ReactNode, useEffect } from 'react'
@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { MatchedRecording } from '~/types'
 
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
-import { recordingDisabledReason } from './ViewRecordingButton'
 
 export default function ViewRecordingTrigger({
     sessionId,
@@ -67,8 +66,27 @@ export default function ViewRecordingTrigger({
             )
         }
     }
-    const disabledReason = recordingDisabledReason({ $session_id: sessionId, $recording_status: recordingStatus })
+    const disabledReason = recordingDisabledReason(sessionId, recordingStatus)
     const link = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
     return children(onClick, link, disabledReason, maybeUnwatchedIndicator)
+}
+
+const recordingDisabledReason = (
+    sessionId: string | undefined,
+    recordingStatus: string | undefined
+): JSX.Element | string | null => {
+    if (!sessionId) {
+        return (
+            <>
+                No session ID associated with this event.{' '}
+                <Link to="https://posthog.com/docs/data/sessions#automatically-sending-session-ids">Learn how</Link> to
+                set it on all events.
+            </>
+        )
+    } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
+        return 'Replay was not active when capturing this event'
+    }
+
+    return null
 }
