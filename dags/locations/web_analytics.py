@@ -3,6 +3,7 @@ import dagster
 from . import resources
 
 from dags import (
+    web_preaggregated_accuracy_checks,
     web_preaggregated_asset_checks,
     web_preaggregated_daily,
     web_preaggregated_ddl,
@@ -16,8 +17,10 @@ defs = dagster.Definitions(
         web_preaggregated_ddl.web_analytics_combined_views,
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
+        web_preaggregated_daily.web_sessions_daily,
         web_preaggregated_daily.web_stats_daily_export,
         web_preaggregated_daily.web_bounces_daily_export,
+        web_preaggregated_daily.web_sessions_daily_export,
         web_preaggregated_hourly.web_stats_hourly,
         web_preaggregated_hourly.web_bounces_hourly,
     ],
@@ -29,12 +32,19 @@ defs = dagster.Definitions(
         web_preaggregated_asset_checks.bounces_hourly_has_data,
         web_preaggregated_asset_checks.stats_export_chdb_queryable,
         web_preaggregated_asset_checks.bounces_export_chdb_queryable,
+        web_preaggregated_accuracy_checks.sessions_accuracy_check,
+        web_preaggregated_accuracy_checks.sessions_data_freshness_check,
+        web_preaggregated_accuracy_checks.sessions_no_fanout_check,
+        web_preaggregated_accuracy_checks.sessions_dimensions_validation_check,
         web_preaggregated_ddl.daily_stats_table_exist,
         web_preaggregated_ddl.daily_bounces_table_exist,
+        web_preaggregated_ddl.daily_sessions_table_exist,
         web_preaggregated_ddl.hourly_stats_table_exist,
         web_preaggregated_ddl.hourly_bounces_table_exist,
+        web_preaggregated_ddl.hourly_sessions_table_exist,
         web_preaggregated_ddl.combined_stats_view_exist,
         web_preaggregated_ddl.combined_bounces_view_exist,
+        web_preaggregated_ddl.combined_sessions_view_exist,
     ],
     jobs=[
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,
