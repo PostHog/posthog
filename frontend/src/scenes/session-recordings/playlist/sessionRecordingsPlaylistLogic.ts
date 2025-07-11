@@ -42,9 +42,9 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
-import { bulkAddRecordingsToPlaylist, bulkDeleteRecordingsToPlaylist } from '../player/utils/playerUtils'
 import { lemonToast } from '@posthog/lemon-ui'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
+import { urls } from 'scenes/urls'
 export type PersonUUID = string
 
 interface Params {
@@ -649,7 +649,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             await lemonToast.promise(
                 (async () => {
                     try {
-                        await bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds, true)
+                        await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to show the new recordings
@@ -667,6 +667,13 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     pending: `Adding ${values.selectedRecordingsIds.length} recording${
                         values.selectedRecordingsIds.length > 1 ? 's' : ''
                     } to the collection...`,
+                },
+                {},
+                {
+                    button: {
+                        label: 'View playlist',
+                        action: () => router.actions.push(urls.replayPlaylist(short_id)),
+                    },
                 }
             )
         },
@@ -674,7 +681,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             await lemonToast.promise(
                 (async () => {
                     try {
-                        await bulkDeleteRecordingsToPlaylist(short_id, values.selectedRecordingsIds, true)
+                        await api.recordings.bulkDeleteRecordingsFromPlaylist(short_id, values.selectedRecordingsIds)
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to see the recordings without the deleted ones

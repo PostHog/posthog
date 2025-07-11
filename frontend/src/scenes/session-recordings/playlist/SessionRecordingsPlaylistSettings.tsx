@@ -123,6 +123,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 {
                     label: 'Remove from collection',
                     onClick: () => handleBulkDeleteFromPlaylist(shortId),
+                    'data-attr': 'remove-from-collection',
                 },
             ]
         }
@@ -135,6 +136,7 @@ export function SessionRecordingsPlaylistTopSettings({
                         label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
                         onClick: () => handleBulkAddToPlaylist(playlist.short_id),
                     })),
+                    'data-attr': 'add-to-collection',
                 },
             ]
         }
