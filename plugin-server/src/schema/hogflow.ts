@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { CyclotronInputSchema } from './cyclotron'
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -69,9 +71,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('wait_until_time_window'),
         config: z.object({
-            timezone: z.string(),
+            timezone: z.string().nullable(),
             // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-            date: z.union([
+            day: z.union([
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),
@@ -85,24 +87,56 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
-    // Native message
+    // Native messages
     z.object({
         ..._commonActionFields,
-        type: z.literal('message'),
+        type: z.literal('function_email'),
         config: z.object({
-            message: z.any(),
-            channel: z.string(),
+            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+            template_id: z.literal('template-hogflow-send-email-native'),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
 
-    // Function
+    // CDP functions
     z.object({
         ..._commonActionFields,
         type: z.literal('function'),
         config: z.object({
-            function_id: z.string(),
+            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+            template_id: z.string(),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_sms'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-hogflow-send-sms-twilio'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_slack'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-hogflow-send-message-slack'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_webhook'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-hogflow-send-webhook'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+
+    // Exit
     z.object({
         ..._commonActionFields,
         type: z.literal('exit'),
