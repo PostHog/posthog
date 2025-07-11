@@ -1324,44 +1324,27 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams) => {
             if (!searchParams.open_query && !searchParams.open_view && !searchParams.open_insight) {
                 return
             }
 
-            let tabAdded = false
+            // Wait for Monaco to be ready before proceeding
+            if (!props.monaco) {
+                return
+            }
 
-            const createQueryTab = async (): Promise<void> => {
-                if (searchParams.open_view) {
-                    // Open view
-                    const viewId = searchParams.open_view
-
-                    if (values.dataWarehouseSavedQueries.length === 0) {
-                        await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
-                    }
-
-                    const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
-                    if (!view) {
-                        lemonToast.error('View not found')
-                        return
-                    }
-
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query.query
-
-                    actions.editView(queryToOpen, view)
-                    tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
-                } else if (searchParams.open_insight) {
+            try {
+                if (searchParams.open_insight) {
                     if (searchParams.open_insight === 'new') {
                         // Add new blank tab
                         actions.createTab()
-                        tabAdded = true
                         router.actions.replace(router.values.location.pathname)
                         return
                     }
 
-                    // Open Insight
+                    // Load insight data first
                     const shortId = searchParams.open_insight
                     const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
                     if (!insight) {
@@ -1369,68 +1352,41 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         return
                     }
 
+                    // Get the query from the insight
                     let query = ''
                     if (insight.query?.kind === NodeKind.DataVisualizationNode) {
                         query = (insight.query as DataVisualizationNode).source.query
                     }
 
-                    const queryToOpen = searchParams.open_query ? searchParams.open_query : query
+                    // Create a new model with a unique URI to prevent state conflicts
+                    const uri = props.monaco.Uri.parse(`insight-${insight.short_id}-${Date.now()}`)
 
-                    actions.editInsight(queryToOpen, insight)
-
-                    // Only run the query if the results aren't already cached locally and we're not using the open_query search param
-                    if (
-                        insight.query?.kind === NodeKind.DataVisualizationNode &&
-                        insight.query &&
-                        !searchParams.open_query
-                    ) {
-                        dataNodeLogic({
-                            key: values.dataLogicKey,
-                            query: (insight.query as DataVisualizationNode).source,
-                        }).mount()
-
-                        const response = dataNodeLogic({
-                            key: values.dataLogicKey,
-                            query: (insight.query as DataVisualizationNode).source,
-                        }).values.response
-
-                        if (!response) {
-                            actions.runQuery()
-                        }
-                    } else {
-                        actions.runQuery()
+                    // Create a new tab with fresh state
+                    const newTab: QueryTab = {
+                        uri,
+                        insight,
+                        name: insight.name || 'Untitled',
+                        sourceQuery: insight.query as DataVisualizationNode | undefined,
                     }
 
-                    tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
-                } else if (searchParams.open_query) {
-                    // Open query string
-                    actions.createTab(searchParams.open_query)
-                    tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
+                    // Add the new tab and select it
+                    actions.addTab(newTab)
+                    actions.selectTab(newTab)
+
+                    // Set up the editor state
+                    actions.setSourceQuery({
+                        kind: NodeKind.DataVisualizationNode,
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query,
+                        },
+                        display: ChartDisplayType.ActionsTable,
+                    })
                 }
+            } catch (error) {
+                lemonToast.error('Failed to load insight')
+                console.error(error)
             }
-
-            const waitUntilMonaco = async (): Promise<void> => {
-                return await new Promise((resolve, reject) => {
-                    let intervalCount = 0
-                    const interval = setInterval(() => {
-                        intervalCount++
-
-                        if (props.monaco && !tabAdded) {
-                            clearInterval(interval)
-                            resolve()
-                        } else if (intervalCount >= 10_000 / 300) {
-                            clearInterval(interval)
-                            reject()
-                        }
-                    }, 300)
-                })
-            }
-
-            await waitUntilMonaco().then(async () => {
-                await createQueryTab()
-            })
         },
     })),
     afterMount(({ actions }) => {
