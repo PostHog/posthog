@@ -199,7 +199,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     serializer_class = ErrorTrackingIssueSerializer
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+        return (
+            queryset.select_related("assignment")
+            .prefetch_related("external_issues__integration")
+            .filter(team_id=self.team.id)
+        )
 
     def retrieve(self, request, *args, **kwargs):
         fingerprint = self.request.GET.get("fingerprint")
@@ -213,8 +217,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 if not str(record.issue_id) == self.kwargs.get("pk"):
                     return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-                issue_with_first_seen = ErrorTrackingIssue.objects.with_first_seen().get(id=record.issue_id)
-                serializer = self.get_serializer(issue_with_first_seen)
+                issue = (
+                    ErrorTrackingIssue.objects.with_first_seen()
+                    .select_related("assignment")
+                    .prefetch_related("external_issues__integration")
+                    .get(id=record.issue_id)
+                )
+                serializer = self.get_serializer(issue)
                 return Response(serializer.data)
 
         return super().retrieve(request, *args, **kwargs)
