@@ -1,8 +1,8 @@
 import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import defaultLogo from 'public/posthog-logo.svg'
-import cloudLogo from 'public/posthog-logo-cloud.svg'
-import demoLogo from 'public/posthog-logo-demo.svg'
+import defaultLogo from '~/assets/posthog-logo.svg'
+import cloudLogo from '~/assets/posthog-logo-cloud.svg'
+import demoLogo from '~/assets/posthog-logo-demo.svg'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function WelcomeLogo({ view }: { view?: string }): JSX.Element {

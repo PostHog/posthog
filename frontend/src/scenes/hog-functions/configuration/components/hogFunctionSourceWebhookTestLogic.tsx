@@ -68,7 +68,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
             submit: async (data) => {
                 actions.setTestResult(null)
 
-                const response = await fetch(`${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`, {
+                const response = await fetch(`${window.location.origin}/src/assets/webhooks/${props.id ?? 'unknown'}`, {
                     method: 'POST',
                     headers: tryJsonParse(data.headers),
                     body: data.body,
@@ -95,7 +95,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
 
                 return `curl -X POST ${headers} \\
   -d '${testInvocation.body}' \\
-  ${window.location.origin}/public/webhooks/${props.id ?? 'unknown'}`
+  ${window.location.origin}/src/assets/webhooks/${props.id ?? 'unknown'}`
             },
         ],
     }),

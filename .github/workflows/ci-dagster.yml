@@ -53,7 +53,7 @@ jobs:
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
-                        - frontend/public/email/*
+                        - frontend/src/assets/email/*
                         # These scripts are used in the CI
                         - bin/check_kafka_clickhouse_up
 
