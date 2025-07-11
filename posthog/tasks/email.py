@@ -184,6 +184,24 @@ def send_password_reset(user_id: int, token: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+def send_password_changed_email(user_id: int) -> None:
+    user = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"password-changed-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Your password has been changed",
+        template_name="password_changed",
+        template_context={
+            "preheader": "Your password has been changed",
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(

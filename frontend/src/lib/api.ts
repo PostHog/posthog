@@ -211,6 +211,8 @@ export class ApiError extends Error {
     code: string | null
     /** Django REST Framework `statusText` - used in downstream error handling. */
     statusText: string | null
+    /** Django REST Framework `attr` - used in downstream error handling. */
+    attr: string | null
 
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
@@ -222,6 +224,7 @@ export class ApiError extends Error {
         this.detail = data?.detail || null
         this.code = data?.code || null
         this.link = data?.link || null
+        this.attr = data?.attr || null
     }
 
     /**
