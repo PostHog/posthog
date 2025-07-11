@@ -42,7 +42,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     finish_batch_export_run,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.redshift_batch_export import (
+from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
     RedshiftHeartbeatDetails,

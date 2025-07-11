@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0790_alter_integration_kind")]
+    dependencies = [("posthog", "0791_errortrackingexternalreference_external_context_and_more")]
 
     operations = [
         migrations.AlterField(

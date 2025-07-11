@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from django.conf import settings
 
-from products.batch_exports.backend.temporal.destination_tests import (
+from products.batch_exports.backend.api.destination_tests import (
     S3EnsureBucketTestStep,
     Status,
 )
