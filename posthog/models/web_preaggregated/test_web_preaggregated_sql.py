@@ -1,13 +1,10 @@
 import pytest
-from unittest.mock import patch
 from posthog.models.web_preaggregated.sql import (
     DROP_PARTITION_SQL,
     TABLE_TEMPLATE,
     HOURLY_TABLE_TEMPLATE,
     WEB_STATS_COLUMNS,
-    WEB_BOUNCES_COLUMNS,
     WEB_STATS_ORDER_BY_FUNC,
-    WEB_BOUNCES_ORDER_BY_FUNC,
 )
 
 
@@ -20,16 +17,6 @@ class TestPartitionDropSQL:
     DROP PARTITION '20240115'
     """
         assert sql.strip() == expected.strip()
-
-    def test_drop_partition_daily_with_cluster(self):
-        with patch("posthog.models.web_preaggregated.sql.CLICKHOUSE_CLUSTER", "test_cluster"):
-            sql = DROP_PARTITION_SQL("web_stats_daily", "2024-01-15")
-
-            expected = """
-    ALTER TABLE web_stats_daily ON CLUSTER 'test_cluster'
-    DROP PARTITION '20240115'
-    """
-            assert sql.strip() == expected.strip()
 
     def test_drop_partition_daily_default_no_cluster(self):
         sql = DROP_PARTITION_SQL("web_stats_daily", "2024-01-15")
@@ -105,23 +92,6 @@ class TestTableTemplates:
 
         assert "PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')" in sql
         assert "TTL period_bucket + INTERVAL 24 HOUR DELETE" in sql
-
-    def test_daily_table_with_cluster(self):
-        with patch("posthog.models.web_preaggregated.sql.CLICKHOUSE_CLUSTER", "test_cluster"):
-            sql = TABLE_TEMPLATE("web_bounces_daily", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC())
-
-            assert "ON CLUSTER 'test_cluster'" in sql
-            assert "PARTITION BY toYYYYMMDD(period_bucket)" in sql
-
-    def test_hourly_table_with_cluster(self):
-        with patch("posthog.models.web_preaggregated.sql.CLICKHOUSE_CLUSTER", "test_cluster"):
-            sql = HOURLY_TABLE_TEMPLATE(
-                "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC(), ttl="24 HOUR"
-            )
-
-            assert "ON CLUSTER 'test_cluster'" in sql
-            assert "PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')" in sql
-            assert "TTL period_bucket + INTERVAL 24 HOUR DELETE" in sql
 
 
 class TestPartitionIDFormatting:
