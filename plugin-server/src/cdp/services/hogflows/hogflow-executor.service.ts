@@ -307,7 +307,7 @@ export class HogFlowExecutorService {
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `Workflow will pause until ${scheduledAt.toISO()}`,
+            message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
         })
 
         return result

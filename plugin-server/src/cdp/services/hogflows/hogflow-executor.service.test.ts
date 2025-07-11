@@ -259,7 +259,7 @@ describe('Hogflow Executor', () => {
                 [
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
-                  "Workflow will pause until 2025-01-01T00:00:00.000+00:00",
+                  "Workflow will pause until 2025-01-01T00:00:00.000Z",
                 ]
             `)
 
@@ -270,7 +270,7 @@ describe('Hogflow Executor', () => {
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "[Action:function_id_1] Fetch 2, 200",
-                  "Workflow will pause until 2025-01-01T00:00:00.000+00:00",
+                  "Workflow will pause until 2025-01-01T00:00:00.000Z",
                 ]
             `)
 
