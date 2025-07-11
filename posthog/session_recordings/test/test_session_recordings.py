@@ -1926,7 +1926,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             total_requested=2,
         )
 
-    def test_bulk_delete_with_existing_postgres_records(self):
+    @patch("ee.session_recordings.session_recording_extensions.persist_recording")
+    def test_bulk_delete_with_existing_postgres_records(self, mock_persist_recording):
         """Test bulk delete with recordings that already have PostgreSQL records"""
         Person.objects.create(
             team=self.team,
