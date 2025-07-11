@@ -11,6 +11,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -588,16 +589,32 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    onClick={() =>
-                        loadData(query?.kind && shouldQueryBeAsync(query as Node) ? 'force_async' : 'force_blocking')
-                    }
-                >
-                    Try again
-                </LemonButton>
-                <QueryDebuggerButton query={query} />
+                {query && (
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() =>
+                            loadData(query.kind && shouldQueryBeAsync(query as Node) ? 'force_async' : 'force_blocking')
+                        }
+                        sideAction={{
+                            dropdown: {
+                                overlay: (
+                                    <LemonMenuOverlay
+                                        items={[
+                                            {
+                                                label: 'Open in query debugger',
+                                                to: urls.debugQuery(query),
+                                            },
+                                        ]}
+                                    />
+                                ),
+                                placement: 'bottom-end',
+                            },
+                        }}
+                    >
+                        Try again
+                    </LemonButton>
+                )}
                 {fixWithAIComponent ?? null}
             </div>
             <QueryIdDisplay queryId={queryId} />
