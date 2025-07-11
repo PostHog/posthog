@@ -1,12 +1,13 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+
 from .oauth_application import OAuthApplicationPublicMetadataViewSet
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.early_access_features.backend.api as early_access_feature
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
-from products.messaging.backend.api import MessageTemplatesViewSet
+from products.messaging.backend.api import MessageTemplatesViewSet, MessageCategoryViewSet
 import products.logs.backend.api as logs
 from posthog.api import data_color_theme, hog_flow, metalytics, project, wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -736,6 +737,13 @@ environments_router.register(
     r"messaging_templates",
     MessageTemplatesViewSet,
     "environment_messaging_templates",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"messaging_categories",
+    MessageCategoryViewSet,
+    "environment_messaging_categories",
     ["team_id"],
 )
 
