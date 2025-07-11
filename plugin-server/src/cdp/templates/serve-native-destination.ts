@@ -110,7 +110,7 @@ async function main() {
             mapping.name,
             globals,
             configuration.inputs,
-            configuration.mappings.inputs
+            configuration.mappings[0].inputs
         )
 
         res.json({
