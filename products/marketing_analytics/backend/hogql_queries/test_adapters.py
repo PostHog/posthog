@@ -229,11 +229,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         if not csv_path.exists():
             raise AssertionError(f"CSV file must exist at {csv_path}")
 
-        # Use hardcoded column schema
         columns = config.column_schema
         logger.info(f"Setting up table {config.table_name} with columns: {list(columns.keys())}")
 
-        # Create table
         table, source, credential, csv_df, cleanup_fn = create_data_warehouse_table_from_csv(
             csv_path,
             config.table_name,
@@ -294,7 +292,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert isinstance(query, ast.SelectQuery), f"{adapter_name} should return SelectQuery"
         assert len(query.select) == EXPECTED_COLUMN_COUNT, f"{adapter_name} should have {EXPECTED_COLUMN_COUNT} columns"
 
-        # Check column aliases
         actual_aliases = [col.alias for col in query.select if hasattr(col, "alias")]
         assert actual_aliases == EXPECTED_COLUMN_ALIASES, f"{adapter_name} has incorrect column aliases"
 
@@ -317,9 +314,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         """Test that adapter validation fails when required fields are missing."""
         table = self._create_mock_table("test_table", "BigQuery")
         source_map = self._create_source_map(
-            campaign="",  # Missing required field
-            source="",  # Missing required field
-            date="",  # Missing required field
+            campaign="",
+            source="",
+            date="",
         )
 
         config = ExternalConfig(
@@ -365,9 +362,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             campaign="campaign_id",
             source="source_name",
             date="report_date",
-            impressions=None,  # Optional field
-            clicks=None,  # Optional field
-            currency=None,  # Optional field
+            impressions=None,
+            clicks=None,
+            currency=None,
         )
 
         config = ExternalConfig(
@@ -599,7 +596,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
     def test_union_query_compatibility(self):
         """Test that different adapters generate UNION-compatible queries."""
-        # Create configs for different adapters
         configs = [
             (
                 BigQueryAdapter,
@@ -623,7 +619,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             ),
         ]
 
-        # Build queries from all adapters
         queries = []
         for adapter_class, config in configs:
             adapter = adapter_class(config=config, context=self.context)
@@ -631,7 +626,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             self._validate_query_structure(query, adapter_class.__name__)
             queries.append(query)
 
-        # Create and validate UNION query
         union_query_set = ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
         union_query = ast.SelectQuery(
             select=[
@@ -653,7 +647,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             campaign="campaign_name",
             source="'Facebook'",
             cost="spend_amount",
-            currency="spend_currency",  # Dynamic currency
+            currency="spend_currency",
         )
 
         config = ExternalConfig(
@@ -669,11 +663,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         self._validate_query_structure(query, "BigQueryAdapter")
 
-        # Find cost column and verify currency conversion
         cost_select = next((col for col in query.select if hasattr(col, "alias") and col.alias == "cost"), None)
         assert cost_select is not None, "Cost column should exist"
 
-        # Verify currency conversion structure
         cost_expr = cost_select.expr
         assert isinstance(cost_expr, ast.Call), "Cost should be a function call"
         assert cost_expr.name == "toFloat", "Cost should be converted to float"
@@ -688,15 +680,14 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         """Test BigQuery adapter with real CSV data."""
         table_info = self._setup_csv_table("bigquery")
 
-        # Create realistic source map based on CSV columns
         source_map = Mock(spec=SourceMap)
         source_map.campaign = "campaign1"
-        source_map.source = None  # Will use default
+        source_map.source = None
         source_map.cost = "spend1"
         source_map.date = "date1"
         source_map.impressions = "impressions1"
         source_map.clicks = "clicks1"
-        source_map.currency = None  # Will use default
+        source_map.currency = None
 
         config = ExternalConfig(
             table=table_info.table,
@@ -709,21 +700,17 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
-        # Execute and validate results
         results = self._execute_query_and_validate(query)
 
-        # Calculate and validate metrics
         total_cost = sum(float(row[4] or 0) for row in results)
         total_impressions = sum(int(row[2] or 0) for row in results)
         total_clicks = sum(int(row[3] or 0) for row in results)
 
-        # Validate expected data from BigQuery CSV
         assert len(results) == 14, "Expected 14 campaigns from BigQuery CSV"
         assert abs(total_cost - 18.66) < 0.01, f"Expected cost $18.66, got ${total_cost}"
         assert total_impressions == 1676, f"Expected 1676 impressions, got {total_impressions}"
         assert total_clicks == 12, f"Expected 12 clicks, got {total_clicks}"
 
-        # Validate data consistency
         sources = [row[1] for row in results]
         assert all(source == "Unknown Source" for source in sources), "All sources should be 'Unknown Source'"
 
@@ -741,36 +728,29 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         adapter = GoogleAdsAdapter(config=config, context=self.context)
 
-        # Validate adapter
         validation_result = adapter.validate()
         assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
 
-        # Build and execute query
         query = adapter.build_query()
         results = self._execute_query_and_validate(query)
 
-        # Calculate and validate metrics
         total_cost = sum(float(row[4] or 0) for row in results)
         total_impressions = sum(int(row[2] or 0) for row in results)
         total_clicks = sum(int(row[3] or 0) for row in results)
 
-        # Validate expected data from Google Ads CSV (campaign + stats JOIN)
         assert len(results) == 12, "Expected 12 campaigns from Google Ads JOIN"
         assert abs(total_cost - 644.50) < 0.01, f"Expected cost $644.50, got ${total_cost}"
         assert total_impressions == 1687, f"Expected 1687 impressions, got {total_impressions}"
         assert total_clicks == 72, f"Expected 72 clicks, got {total_clicks}"
 
-        # Validate source consistency
         sources = [row[1] for row in results]
         assert all(source == "google" for source in sources), "All sources should be 'google'"
 
     def test_multi_adapter_union_with_real_data(self):
         """Test UNION query with multiple adapters using real data."""
-        # Set up tables
         bigquery_info = self._setup_csv_table("bigquery")
         s3_info = self._setup_csv_table("s3")
 
-        # Create BigQuery adapter
         bigquery_source_map = Mock(spec=SourceMap)
         bigquery_source_map.campaign = "campaign1"
         bigquery_source_map.source = None
@@ -788,7 +768,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             schema_name="marketing_data",
         )
 
-        # Create S3 adapter
         s3_source_map = Mock(spec=SourceMap)
         s3_source_map.campaign = "campaign2"
         s3_source_map.source = None
@@ -806,23 +785,19 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             schema_name="marketing_data",
         )
 
-        # Create adapters and build queries
         facebook_adapter = BigQueryAdapter(config=facebook_config, context=self.context)
         tiktok_adapter = AWSAdapter(config=tiktok_config, context=self.context)
 
         facebook_query = facebook_adapter.build_query()
         tiktok_query = tiktok_adapter.build_query()
 
-        # Create and execute UNION query
         union_query = ast.SelectSetQuery.create_from_queries([facebook_query, tiktok_query], "UNION ALL")
         results = self._execute_query_and_validate(union_query)
 
-        # Calculate and validate combined metrics
         total_cost = sum(float(row[4] or 0) for row in results)
         total_impressions = sum(int(row[2] or 0) for row in results)
         total_clicks = sum(int(row[3] or 0) for row in results)
 
-        # Validate combined results from BigQuery + S3 CSV data
         assert len(results) == 28, "Expected 28 campaigns from union (BigQuery: 14 + S3: 14)"
         assert abs(total_cost - 127.17) < 0.01, f"Expected cost $127.17 (combined sources), got ${total_cost}"
         assert total_impressions == 2219, f"Expected 2219 impressions (combined), got {total_impressions}"
@@ -847,7 +822,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         adapter = BigQueryAdapter(config=config, context=self.context)
 
-        # Test graceful error handling during query building
         with patch.object(adapter, "_get_campaign_name_field", side_effect=Exception("Test error")):
             query = adapter.build_query()
             assert query is None, "Should return None on error instead of raising"
@@ -856,7 +830,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         """Test validation error handling with various error conditions."""
         table = self._create_mock_table("validation_error_table", "BigQuery")
 
-        # Test with None source_map - this should cause validation to fail gracefully
         config = ExternalConfig(
             table=table,
             source_map=None,
@@ -867,15 +840,12 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         adapter = BigQueryAdapter(config=config, context=self.context)
 
-        # Test that validation handles None source_map gracefully
         result = adapter.validate()
-        # Should not raise exception, but return invalid result
         assert hasattr(result, "is_valid"), "Should return ValidationResult object"
         assert not result.is_valid, "Should return invalid result for None source_map"
 
     def test_missing_csv_files_handling(self):
         """Test behavior when CSV files are missing."""
-        # Create a test config for a non-existent table
         old_configs = self.test_data_configs.copy()
         self.test_data_configs["nonexistent_table"] = DataConfig(
             csv_filename="test/nonexistent/missing.csv",
@@ -890,7 +860,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             with pytest.raises(AssertionError, match="CSV file must exist"):
                 self._setup_csv_table("nonexistent_table")
         finally:
-            # Restore original configs
             self.test_data_configs = old_configs
 
     # ================================================================
@@ -899,8 +868,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
     def test_adapter_performance_with_large_queries(self):
         """Test adapter performance with complex queries."""
-        # This test would be expanded in a real production environment
-        # to include performance benchmarks and memory usage monitoring
         table = self._create_mock_table("performance_table", "BigQuery")
         source_map = self._create_source_map()
 
@@ -914,7 +881,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         adapter = BigQueryAdapter(config=config, context=self.context)
 
-        # Measure query generation time
         import time
 
         start_time = time.time()
@@ -926,7 +892,6 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
     def test_memory_usage_with_multiple_adapters(self):
         """Test memory usage when creating multiple adapters."""
-        # This test ensures we don't have memory leaks
         adapters = []
         for i in range(10):
             table = self._create_mock_table(f"memory_test_table_{i}", "BigQuery")
@@ -941,10 +906,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             adapter = BigQueryAdapter(config=config, context=self.context)
             adapters.append(adapter)
 
-        # Verify all adapters work
         for adapter in adapters:
             result = adapter.validate()
             assert result.is_valid, "All adapters should validate successfully"
 
-        # Clean up
         adapters.clear()
