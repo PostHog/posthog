@@ -316,7 +316,7 @@ class BigQueryProjectTestStep(DestinationTestStep):
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        from products.batch_exports.backend.temporal.bigquery_batch_export import (
+        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
             BigQueryClient,
         )
 
@@ -390,7 +390,7 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         """Run this test step."""
         from google.cloud.exceptions import NotFound
 
-        from products.batch_exports.backend.temporal.bigquery_batch_export import (
+        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
             BigQueryClient,
         )
 
@@ -471,7 +471,7 @@ class BigQueryTableTestStep(DestinationTestStep):
         from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
 
-        from products.batch_exports.backend.temporal.bigquery_batch_export import (
+        from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
             BigQueryClient,
         )
 
@@ -565,7 +565,7 @@ def try_load_private_key(
     private_key: str | None = None, private_key_passphrase: str | None = None
 ) -> tuple[bytes | None, DestinationTestStepResult | None]:
     """Attempt to load a private key, return a failed result if an error occurs."""
-    from products.batch_exports.backend.temporal.snowflake_batch_export import (
+    from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
         InvalidPrivateKeyError,
         load_private_key,
     )

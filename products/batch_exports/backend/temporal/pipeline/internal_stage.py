@@ -7,25 +7,18 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import aioboto3
-from aiobotocore.response import StreamingBody
 from django.conf import settings
-from temporalio import activity, exceptions, workflow
-from temporalio.common import RetryPolicy
-
-import posthog.temporal.common.asyncpa as asyncpa
+from temporalio import activity
 
 if typing.TYPE_CHECKING:
-    from types_aiobotocore_s3.client import S3Client
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BackfillDetails,
     BatchExportField,
     BatchExportModel,
     BatchExportSchema,
 )
-from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
     ClickHouseClientTimeoutError,
@@ -34,24 +27,13 @@ from posthog.temporal.common.clickhouse import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_contextvars, get_logger
-from products.batch_exports.backend.temporal.batch_exports import (
-    BatchExportActivity,
-    FinishBatchExportRunInputs,
-    default_fields,
-    finish_batch_export_run,
-)
-from products.batch_exports.backend.temporal.metrics import (
-    get_export_finished_metric,
-    get_export_started_metric,
-)
+from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchModel,
-    RecordBatchQueue,
     compose_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
     resolve_batch_exports_model,
-    slice_record_batch,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
@@ -67,131 +49,6 @@ from products.batch_exports.backend.temporal.sql import (
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
 LOGGER = get_logger()
-
-
-async def execute_batch_export_insert_activity_using_s3_stage(
-    activity: BatchExportActivity,
-    inputs,
-    non_retryable_error_types: list[str],
-    finish_inputs: FinishBatchExportRunInputs,
-    interval: str,
-    heartbeat_timeout_seconds: int | None = 180,
-    maximum_attempts: int = 0,
-    initial_retry_interval_seconds: int = 30,
-    maximum_retry_interval_seconds: int = 120,
-) -> None:
-    """
-    This is the entrypoint for a new version of the batch export insert activity.
-
-    All batch exports boil down to inserting some data somewhere, and they all follow the same error
-    handling patterns, logging and updating run status. For this reason, we have this function
-    to abstract executing the main insert activity of each batch export.
-
-    It works in a similar way to the old version of the batch export insert activity, but instead of
-    reading data from ClickHouse and exporting it to the destination in batches, we break this down into 2 steps:
-        1. Exporting the batch export data directly into our own internal S3 staging area using ClickHouse
-        2. Reading the data from the internal S3 staging area and exporting it to the destination using the
-            producer/consumer pattern
-
-    Args:
-        activity: The 'insert_into_*' activity function to execute.
-        inputs: The inputs to the activity.
-        non_retryable_error_types: A list of errors to not retry on when executing the activity.
-        finish_inputs: Inputs to the 'finish_batch_export_run' to run at the end.
-        interval: The interval of the batch export used to set the start to close timeout.
-        maximum_attempts: Maximum number of retries for the 'insert_into_*' activity function.
-            Assuming the error that triggered the retry is not in non_retryable_error_types.
-        initial_retry_interval_seconds: When retrying, seconds until the first retry.
-        maximum_retry_interval_seconds: Maximum interval in seconds between retries.
-    """
-    get_export_started_metric().add(1)
-
-    if TEST:
-        maximum_attempts = 1
-
-    if isinstance(settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS, int):
-        heartbeat_timeout_seconds = settings.BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS
-
-    if interval == "hour":
-        # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
-        start_to_close_timeout = dt.timedelta(hours=2)
-    elif interval == "day":
-        start_to_close_timeout = dt.timedelta(days=1)
-    elif interval.startswith("every"):
-        _, value, unit = interval.split(" ")
-        kwargs = {unit: int(value)}
-        # TODO: Consider removing this 20 minute minimum once we are more confident about hitting 5 minute or lower SLAs.
-        start_to_close_timeout = max(dt.timedelta(minutes=20), dt.timedelta(**kwargs))
-    else:
-        raise ValueError(f"Unsupported interval: '{interval}'")
-
-    retry_policy = RetryPolicy(
-        initial_interval=dt.timedelta(seconds=initial_retry_interval_seconds),
-        maximum_interval=dt.timedelta(seconds=maximum_retry_interval_seconds),
-        maximum_attempts=maximum_attempts,
-        non_retryable_error_types=non_retryable_error_types,
-    )
-
-    try:
-        await workflow.execute_activity(
-            insert_into_s3_stage_activity,
-            BatchExportInsertIntoS3StageInputs(
-                team_id=inputs.team_id,
-                batch_export_id=inputs.batch_export_id,
-                data_interval_start=inputs.data_interval_start,
-                data_interval_end=inputs.data_interval_end,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-                run_id=inputs.run_id,
-                backfill_details=inputs.backfill_details,
-                batch_export_model=inputs.batch_export_model,
-                batch_export_schema=inputs.batch_export_schema,
-                destination_default_fields=inputs.destination_default_fields,
-            ),
-            start_to_close_timeout=start_to_close_timeout,
-            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
-            retry_policy=retry_policy,
-        )
-
-        records_completed = await workflow.execute_activity(
-            activity,
-            inputs,
-            start_to_close_timeout=start_to_close_timeout,
-            heartbeat_timeout=dt.timedelta(seconds=heartbeat_timeout_seconds) if heartbeat_timeout_seconds else None,
-            retry_policy=retry_policy,
-        )
-        finish_inputs.records_completed = records_completed
-
-    except exceptions.ActivityError as e:
-        if isinstance(e.cause, exceptions.CancelledError):
-            finish_inputs.status = BatchExportRun.Status.CANCELLED
-        elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type not in non_retryable_error_types:
-            finish_inputs.status = BatchExportRun.Status.FAILED_RETRYABLE
-        else:
-            finish_inputs.status = BatchExportRun.Status.FAILED
-
-        finish_inputs.latest_error = str(e.cause)
-        raise
-
-    except Exception:
-        finish_inputs.status = BatchExportRun.Status.FAILED
-        finish_inputs.latest_error = "An unexpected error has ocurred"
-        raise
-
-    finally:
-        get_export_finished_metric(status=finish_inputs.status.lower()).add(1)
-
-        await workflow.execute_activity(
-            finish_batch_export_run,
-            finish_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
 
 
 def _get_s3_endpoint_url() -> str:
@@ -232,7 +89,7 @@ async def _delete_all_from_bucket_with_prefix(bucket_name: str, key_prefix: str)
 
 
 @dataclass
-class BatchExportInsertIntoS3StageInputs:
+class BatchExportInsertIntoInternalStageInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
     team_id: int
@@ -267,8 +124,8 @@ class BatchExportInsertIntoS3StageInputs:
 
 
 @activity.defn
-async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInputs):
-    """Write record batches to S3 staging area.
+async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInternalStageInputs):
+    """Write record batches to our own internal S3 staging area.
 
     TODO - update sessions model query
     """
@@ -315,7 +172,7 @@ async def insert_into_s3_stage_activity(inputs: BatchExportInsertIntoS3StageInpu
             )
             query_or_model = query
 
-        await _write_batch_export_record_batches_to_s3(
+        await _write_batch_export_record_batches_to_internal_stage(
             query_or_model=query_or_model,
             full_range=full_range,
             query_parameters=query_parameters,
@@ -447,7 +304,7 @@ async def _get_query(
     return query, parameters
 
 
-def _get_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
+def get_s3_staging_folder(batch_export_id: str, data_interval_start: str | None, data_interval_end: str) -> str:
     """Get the URL for the S3 staging folder for a given batch export."""
     subfolder = "batch-exports"
     return f"{subfolder}/{batch_export_id}/{data_interval_start}-{data_interval_end}"
@@ -469,11 +326,11 @@ def _get_clickhouse_s3_staging_folder_url(
     else:
         base_url = f"https://{bucket}.s3.amazonaws.com/"
 
-    folder = _get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
+    folder = get_s3_staging_folder(batch_export_id, data_interval_start, data_interval_end)
     return f"{base_url}{folder}"
 
 
-async def _write_batch_export_record_batches_to_s3(
+async def _write_batch_export_record_batches_to_internal_stage(
     query_or_model: str | RecordBatchModel,
     full_range: tuple[dt.datetime | None, dt.datetime],
     query_parameters: dict[str, typing.Any],
@@ -482,7 +339,7 @@ async def _write_batch_export_record_batches_to_s3(
     data_interval_start: str | None,
     data_interval_end: str,
 ):
-    """Write record batches to S3 staging area."""
+    """Write record batches to our own internal S3 staging area."""
     logger = LOGGER.bind()
 
     clickhouse_url = None
@@ -517,7 +374,7 @@ async def _write_batch_export_record_batches_to_s3(
             else:
                 query = query_or_model
 
-            s3_staging_folder = _get_s3_staging_folder(
+            s3_staging_folder = get_s3_staging_folder(
                 batch_export_id=batch_export_id,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
@@ -527,7 +384,10 @@ async def _write_batch_export_record_batches_to_s3(
                     bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=s3_staging_folder
                 )
             except Exception as e:
-                logger.exception("Unexpected error occurred while deleting existing objects from S3", exc_info=e)
+                logger.exception(
+                    "Unexpected error occurred while deleting existing objects from internal S3 staging bucket",
+                    exc_info=e,
+                )
                 raise
 
             query_id = uuid.uuid4()
@@ -549,99 +409,8 @@ async def _write_batch_export_record_batches_to_s3(
                     status = await client.acheck_query(str(query_id), raise_on_error=True)
 
             except Exception as e:
-                logger.exception("Unexpected error occurred while writing record batches to S3", exc_info=e)
-                raise
-
-
-class ProducerFromInternalS3Stage:
-    """
-    This is an alernative implementation of the `spmc.Producer` class that reads data from the internal S3 staging area.
-    """
-
-    def __init__(self):
-        self.logger = LOGGER.bind()
-        self._task: asyncio.Task | None = None
-
-    @property
-    def task(self) -> asyncio.Task:
-        if self._task is None:
-            raise ValueError("Producer task is not initialized, have you called `ProducerFromInternalS3Stage.start()`?")
-        return self._task
-
-    async def start(
-        self,
-        queue: RecordBatchQueue,
-        batch_export_id: str,
-        data_interval_start: str | None,
-        data_interval_end,
-        max_record_batch_size_bytes: int = 0,
-        min_records_per_batch: int = 100,
-    ) -> asyncio.Task:
-        self._task = asyncio.create_task(
-            self.produce_batch_export_record_batches_from_range(
-                queue=queue,
-                batch_export_id=batch_export_id,
-                data_interval_start=data_interval_start,
-                data_interval_end=data_interval_end,
-                max_record_batch_size_bytes=max_record_batch_size_bytes,
-                min_records_per_batch=min_records_per_batch,
-            ),
-            name="record_batch_producer",
-        )
-        return self._task
-
-    async def produce_batch_export_record_batches_from_range(
-        self,
-        queue: RecordBatchQueue,
-        batch_export_id: str,
-        data_interval_start: str | None,
-        data_interval_end: str,
-        max_record_batch_size_bytes: int = 0,
-        min_records_per_batch: int = 100,
-    ):
-        folder = _get_s3_staging_folder(
-            batch_export_id=batch_export_id,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-        )
-
-        async with get_s3_client() as s3_client:
-            response = await s3_client.list_objects_v2(
-                Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Prefix=folder
-            )
-            if not (contents := response.get("Contents", [])):
-                await self.logger.ainfo("No files found in S3 -> assuming no data to export")
-                return
-            keys = [obj["Key"] for obj in contents if "Key" in obj]
-            await self.logger.ainfo(f"Producer found {len(keys)} files in S3 stage")
-
-            # Read in batches
-            try:
-                await self._stream_record_batches_from_s3(
-                    s3_client, keys, queue, max_record_batch_size_bytes, min_records_per_batch
+                logger.exception(
+                    "Unexpected error occurred while writing record batches to internal S3 staging bucket",
+                    exc_info=e,
                 )
-            except Exception as e:
-                await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
                 raise
-
-    async def _stream_record_batches_from_s3(
-        self,
-        s3_client: "S3Client",
-        keys: list[str],
-        queue: RecordBatchQueue,
-        max_record_batch_size_bytes: int = 0,
-        min_records_per_batch: int = 100,
-    ):
-        async def stream_from_s3_file(key):
-            s3_ob = await s3_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
-            assert "Body" in s3_ob, "Body not found in S3 object"
-            stream: StreamingBody = s3_ob["Body"]
-            # read in 128KB chunks of data from S3
-            reader = asyncpa.AsyncRecordBatchReader(stream.iter_chunks(chunk_size=128 * 1024))
-            async for batch in reader:
-                for record_batch_slice in slice_record_batch(batch, max_record_batch_size_bytes, min_records_per_batch):
-                    await queue.put(record_batch_slice)
-
-        async with asyncio.TaskGroup() as tg:
-            for key in keys:
-                tg.create_task(stream_from_s3_file(key))
