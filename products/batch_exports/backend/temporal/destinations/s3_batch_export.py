@@ -58,11 +58,11 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
     Consumer as ConsumerFromStage,
     run_consumer_from_stage,
 )
+from products.batch_exports.backend.temporal.pipeline.entrypoint import (
+    execute_batch_export_using_internal_stage,
+)
 from products.batch_exports.backend.temporal.pipeline.producer import (
     Producer as ProducerFromInternalStage,
-)
-from products.batch_exports.backend.temporal.run_batch_export import (
-    execute_batch_export_using_internal_stage,
 )
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
