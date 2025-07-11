@@ -57,6 +57,9 @@ WEB_ANALYTICS_DIMENSIONS = [
     "city_name",
     "region_code",
     "region_name",
+    "has_gclid",
+    "has_gad_source_paid_search",
+    "has_fbclid",
 ]
 
 
@@ -69,6 +72,8 @@ def get_dimension_columns(dimensions):
     for d in dimensions:
         if d in ["viewport_width", "viewport_height"]:
             column_definitions.append(f"{d} Int64")
+        elif d in ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]:
+            column_definitions.append(f"{d} Bool")
         else:
             column_definitions.append(f"{d} String")
     return ",\n".join(column_definitions)
@@ -230,6 +235,9 @@ def WEB_STATS_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(session_person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state
@@ -278,6 +286,9 @@ def WEB_STATS_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')) AS has_gclid,
+                equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), '1') AS has_gad_source_paid_search,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')) AS has_fbclid,
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
@@ -324,8 +335,11 @@ def WEB_STATS_INSERT_SQL(
             country_code,
             city_name,
             region_code,
-            region_name
-        {settings_clause}
+            region_name,
+            has_gclid,
+            has_gad_source_paid_search,
+            has_fbclid
+        SETTINGS {settings}
     )
     GROUP BY
         period_bucket,
@@ -348,8 +362,11 @@ def WEB_STATS_INSERT_SQL(
         country_code,
         city_name,
         region_code,
-        region_name
-    {settings_clause}
+        region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
+    SETTINGS {settings}
     """
 
     if select_only:
@@ -398,6 +415,9 @@ def WEB_BOUNCES_INSERT_SQL(
         city_name,
         region_code,
         region_name,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid,
         uniqState(assumeNotNull(person_id)) AS persons_uniq_state,
         uniqState(assumeNotNull(session_id)) AS sessions_uniq_state,
         sumState(pageview_count) AS pageviews_count_state,
@@ -449,6 +469,9 @@ def WEB_BOUNCES_INSERT_SQL(
                 argMinMerge(raw_sessions.initial_geoip_subdivision_city_name) AS city_name,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_code) AS region_code,
                 argMinMerge(raw_sessions.initial_geoip_subdivision_1_name) AS region_name,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_gclid), 'null'), '')) AS has_gclid,
+                equals(nullIf(nullIf(argMinMerge(raw_sessions.initial_gad_source), 'null'), ''), '1') AS has_gad_source_paid_search,
+                isNotNull(nullIf(nullIf(argMinMerge(raw_sessions.initial_fbclid), 'null'), '')) AS has_fbclid,
                 toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                 dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))) AS session_duration,
                 if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
