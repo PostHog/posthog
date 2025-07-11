@@ -596,7 +596,7 @@ describe('BatchWritingPersonStore', () => {
                 )
 
                 await expect(personStoreForBatch.flush()).rejects.toThrow('Database error')
-                expect(db.updatePerson).toHaveBeenCalledTimes(7) // 6 for update (1 initial + 5 retries), 1 for fallback
+                expect(db.updatePerson).toHaveBeenCalledTimes(6) // 6 for update (1 fallback + 5 retries)
                 expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
         })
@@ -777,7 +777,7 @@ describe('BatchWritingPersonStore', () => {
         // Verify the second call to updatePersonAssertVersion had the merged properties
         expect(db.updatePersonAssertVersion).toHaveBeenLastCalledWith(
             expect.objectContaining({
-                version: 3, // Should use the latest version from the database
+                version: 2, // Should use the latest version from the database (updatedByOtherPod has version 2)
                 properties: {
                     existing_prop1: 'updated_by_other_pod', // Preserved from other pod's update
                     existing_prop2: 'updated_by_this_pod', // Updated by this pod
