@@ -4,6 +4,8 @@ import { findActionByType } from '~/cdp/services/hogflows/hogflow-utils'
 import { HogFlow, HogFlowAction, HogFlowEdge } from '~/schema/hogflow'
 import { logger } from '~/utils/logger'
 
+import { HOG_FILTERS_EXAMPLES } from '../examples'
+
 /**
  * Helps us build like this
     actions: {
@@ -117,5 +119,30 @@ export class FixtureHogFlowBuilder {
         this.hogFlow.edges = workflow.edges
 
         return this
+    }
+
+    withSimpleWorkflow(): this {
+        return this.withWorkflow({
+            actions: {
+                trigger: {
+                    type: 'trigger',
+                    config: {
+                        type: 'event',
+                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                    },
+                },
+                exit: {
+                    type: 'exit',
+                    config: {},
+                },
+            },
+            edges: [
+                {
+                    from: 'trigger',
+                    to: 'exit',
+                    type: 'continue',
+                },
+            ],
+        })
     }
 }

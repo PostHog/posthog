@@ -7,8 +7,14 @@ import { UUIDT } from '~/utils/utils'
 import { Hub, InternalPerson, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
-import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../types'
+import {
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
+    CyclotronJobInvocationResult,
+    HogFlowInvocationContext,
+} from '../types'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
 jest.setTimeout(1000)
@@ -70,6 +76,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .withName('Test Hog Flow team 2')
                     .withTeamId(team.id)
                     .withStatus('active')
+                    .withSimpleWorkflow()
                     .build()
             )
         )
@@ -81,6 +88,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .withName('Test Hog Flow team 2')
                     .withTeamId(team2.id)
                     .withStatus('active')
+                    .withSimpleWorkflow()
                     .build()
             )
         )
@@ -93,6 +101,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
     describe('loadHogFlows', () => {
         let invocations: CyclotronJobInvocation[]
+
         beforeEach(async () => {
             await createPerson(team.id, 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1', 'distinct_A_1', {
                 name: 'Person A 1',
@@ -141,18 +150,22 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         })
 
         it('should load hog flows and their persons and globals', async () => {
-            const results = await processor['loadHogFlows'](invocations)
+            const results = (await processor.processInvocations(
+                invocations
+            )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
 
-            const toMinimalCompare = (invocation: CyclotronJobInvocationHogFlow): Record<string, unknown> => {
+            const toMinimalCompare = (
+                result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+            ): Record<string, unknown> => {
                 return {
-                    hogFlowName: invocation.hogFlow.name,
-                    filterGlobals: invocation.filterGlobals
+                    hogFlowName: result.invocation.hogFlow.name,
+                    filterGlobals: result.invocation.filterGlobals
                         ? {
-                              eventProperties: invocation.filterGlobals.properties,
-                              person: invocation.filterGlobals.person,
+                              eventProperties: result.invocation.filterGlobals.properties,
+                              person: result.invocation.filterGlobals.person,
                           }
                         : null,
-                    personName: invocation.person?.properties?.name,
+                    personName: result.invocation.person?.properties?.name,
                 }
             }
 
@@ -220,9 +233,29 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
         it('should make minimal calls to the person manager', async () => {
             const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersons')
-            await processor['loadHogFlows'](invocations)
+            await processor.processInvocations(invocations)
             expect(personManagerSpy).toHaveBeenCalledTimes(1)
             expect(personManagerSpy.mock.calls[0][0]).toEqual([
+                `${team.id}:distinct_A_1`,
+                `${team.id}:distinct_A_2`,
+                `${team2.id}:distinct_A_1`,
+                `${team2.id}:missing_person`,
+            ])
+        })
+
+        it('should clear the cache each time', async () => {
+            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersons')
+            await processor.processInvocations(invocations)
+            expect(personManagerSpy).toHaveBeenCalledTimes(1)
+            expect(personManagerSpy.mock.calls[0][0]).toEqual([
+                `${team.id}:distinct_A_1`,
+                `${team.id}:distinct_A_2`,
+                `${team2.id}:distinct_A_1`,
+                `${team2.id}:missing_person`,
+            ])
+            await processor.processInvocations(invocations)
+            expect(personManagerSpy).toHaveBeenCalledTimes(2)
+            expect(personManagerSpy.mock.calls[1][0]).toEqual([
                 `${team.id}:distinct_A_1`,
                 `${team.id}:distinct_A_2`,
                 `${team2.id}:distinct_A_1`,
