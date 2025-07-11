@@ -63,8 +63,7 @@
   FROM (
   SELECT toString(campaign_id) AS campaign, toString(`'Facebook'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('currency', 'USD', toFloat(coalesce(spend, 0)))) AS cost 
   FROM facebook_table 
-  WHERE and(greaterOrEquals(toDateTime(date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date), toDateTime('2024-12-31 23:59:59'))) 
-  UNION ALL 
+  WHERE and(greaterOrEquals(toDateTime(date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date), toDateTime('2024-12-31 23:59:59'))) UNION ALL 
   SELECT toString(campaign_name) AS campaign, toString(`'TikTok'`) AS source, toFloat(coalesce(impressions, 0)) AS impressions, toFloat(coalesce(clicks, 0)) AS clicks, toFloat(convertCurrency('currency', 'USD', toFloat(coalesce(spend, 0)))) AS cost 
   FROM tiktok_table 
   WHERE and(greaterOrEquals(toDateTime(date), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(date), toDateTime('2024-12-31 23:59:59')))) AS all_marketing_data
