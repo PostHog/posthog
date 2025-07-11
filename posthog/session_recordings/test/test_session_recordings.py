@@ -1896,8 +1896,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertTrue(recording.deleted)
         self.assertEqual(recording.distinct_id, "user1")
 
-    patch("posthog.session_recordings.session_recording_api.logger")
-
+    @patch("posthog.session_recordings.session_recording_api.logger")
     def test_bulk_delete_logging(self, mock_logger):
         """Test that bulk delete logs the operation"""
         Person.objects.create(
