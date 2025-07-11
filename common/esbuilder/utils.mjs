@@ -130,7 +130,7 @@ export const commonConfig = {
     minify: !isDev,
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
-    assetNames: '~/assets/[name]-[hash]',
+    assetNames: 'assets/[name]-[hash]',
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',

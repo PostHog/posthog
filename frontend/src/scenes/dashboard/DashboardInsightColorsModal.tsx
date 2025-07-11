@@ -110,7 +110,6 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 Assign custom colors to breakdown values that will be used consistently across all insights on this
                 dashboard. <i>Note: This feature currently only works for trend and step-based funnel insights.</i>
             </p>
-            <Animation type={AnimationType.SportsHog} size="large" className="-ml-4" />
             {insightTilesLoading ? (
                 <div className="flex flex-col items-center">
                     {/* Slightly offset to the left for visual balance. */}
