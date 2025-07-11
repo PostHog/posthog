@@ -28,7 +28,6 @@ const config: StorybookConfig = {
                 ...config.resolve,
                 extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
                 alias: { ...config.resolve!.alias, ...mainConfig.resolve.alias },
-                fallback: { ...config.resolve!.fallback, ...mainConfig.resolve.fallback },
             },
             module: {
                 ...config.module,
