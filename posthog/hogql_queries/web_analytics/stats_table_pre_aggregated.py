@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Literal, cast
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import create_channel_type_expr, ChannelTypeExprs
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
@@ -39,6 +40,49 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             return False
 
         return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
+
+    def _get_channel_type_expr(self) -> ast.Expr:
+        """Create a channel type expression using the available fields in pre-aggregated tables."""
+
+        def _null_expr():
+            return ast.Constant(value=None)
+
+        def _wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
+            return ast.Call(
+                name="nullIf",
+                args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
+            )
+
+        def _wrap_with_lower(expr: ast.Expr) -> ast.Expr:
+            return ast.Call(name="lower", args=[expr])
+
+        channel_type_exprs = ChannelTypeExprs(
+            campaign=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_campaign"]))),
+            medium=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_medium"]))),
+            source=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_source"]))),
+            referring_domain=ast.Field(chain=["referring_domain"]),
+            url=_null_expr(),  # URL not available in pre-aggregated tables
+            hostname=ast.Field(chain=["host"]),
+            pathname=ast.Field(chain=["entry_pathname"]),
+            has_gclid=ast.Field(chain=["has_gclid"]),
+            has_fbclid=ast.Field(chain=["has_fbclid"]),
+            # For gad_source, we need to return '1' when the boolean is true, null otherwise
+            # This matches the original logic that checks gad_source = '1'
+            gad_source=ast.Call(
+                name="if",
+                args=[
+                    ast.Field(chain=["has_gad_source_paid_search"]),
+                    ast.Constant(value="1"),
+                    _null_expr(),
+                ],
+            ),
+        )
+
+        return create_channel_type_expr(
+            custom_rules=None,  # Custom rules not supported for pre-aggregated tables yet
+            source_exprs=channel_type_exprs,
+            timings=self.runner.timings,
+        )
 
     def _bounce_rate_query(self) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
@@ -226,6 +270,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 return ast.Field(chain=["city_name"])
             case WebStatsBreakdown.EXIT_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                return self._get_channel_type_expr()
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
         """Apply path cleaning to path expressions, similar to the non-pre-aggregated version"""
