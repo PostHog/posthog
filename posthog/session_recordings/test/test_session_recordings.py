@@ -1708,3 +1708,283 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             # Verify the error was called multiple times and we get 503
             assert call_count > 2, f"Expected multiple calls, got {call_count}"
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_bulk_delete_session_recordings(self):
+        """Test successful bulk delete of session recordings"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1", "user2"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+
+        # Create test recordings
+        session_ids = ["bulk_delete_test_1", "bulk_delete_test_2", "bulk_delete_test_3"]
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Bulk delete
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["success"], True)
+        self.assertEqual(response_data["deleted_count"], 3)
+        self.assertEqual(response_data["total_requested"], 3)
+
+        # Verify recordings are marked as deleted
+        for session_id in session_ids:
+            recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
+            self.assertTrue(recording.deleted)
+
+    def test_bulk_delete_empty_session_recording_ids(self):
+        """Test bulk delete with empty session_recording_ids"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": []},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("session_recording_ids must be provided as a non-empty array", response.json()["detail"])
+
+    def test_bulk_delete_missing_session_recording_ids(self):
+        """Test bulk delete without session_recording_ids field"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("session_recording_ids must be provided as a non-empty array", response.json()["detail"])
+
+    def test_bulk_delete_invalid_session_recording_ids_type(self):
+        """Test bulk delete with non-list session_recording_ids"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": "not_a_list"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("session_recording_ids must be provided as a non-empty array", response.json()["detail"])
+
+    def test_bulk_delete_too_many_recordings(self):
+        """Test bulk delete with more than 20 recordings"""
+        session_ids = [f"bulk_delete_test_{i}" for i in range(21)]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Cannot process more than 20 recordings at once", response.json()["detail"])
+
+    def test_bulk_delete_skips_already_deleted_recordings(self):
+        """Test bulk delete skips recordings that are already deleted"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+
+        # Create recordings
+        session_ids = ["bulk_delete_existing_1", "bulk_delete_existing_2"]
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        # Mark one as already deleted
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id="bulk_delete_existing_1",
+            distinct_id="user1",
+            deleted=True,
+        )
+
+        # Bulk delete
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Should only delete the one that wasn't already deleted
+        self.assertEqual(response_data["deleted_count"], 1)
+        self.assertEqual(response_data["total_requested"], 2)
+
+    def test_bulk_delete_nonexistent_recordings(self):
+        """Test bulk delete with nonexistent recordings"""
+        session_ids = ["nonexistent_1", "nonexistent_2"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Should return 0 deleted since recordings don't exist
+        self.assertEqual(response_data["deleted_count"], 0)
+        self.assertEqual(response_data["total_requested"], 2)
+
+    def test_bulk_delete_mixed_existing_and_nonexistent(self):
+        """Test bulk delete with mix of existing and nonexistent recordings"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+
+        # Create one existing recording
+        self.produce_replay_summary("user1", "bulk_delete_mixed_existing", base_time)
+
+        session_ids = ["bulk_delete_mixed_existing", "bulk_delete_mixed_nonexistent"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Should delete only the existing one
+        self.assertEqual(response_data["deleted_count"], 1)
+        self.assertEqual(response_data["total_requested"], 2)
+
+    def test_bulk_delete_creates_postgres_records_for_clickhouse_only_recordings(self):
+        """Test that bulk delete creates PostgreSQL records for ClickHouse-only recordings"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_id = "bulk_delete_ch_only"
+
+        # Create recording only in ClickHouse (via produce_replay_summary)
+        self.produce_replay_summary("user1", session_id, base_time)
+
+        # Verify no PostgreSQL record exists yet
+        self.assertFalse(SessionRecording.objects.filter(team=self.team, session_id=session_id).exists())
+
+        # Bulk delete
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["deleted_count"], 1)
+
+        # Verify PostgreSQL record was created and marked as deleted
+        recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
+        self.assertTrue(recording.deleted)
+        self.assertEqual(recording.distinct_id, "user1")
+
+    patch("posthog.session_recordings.session_recording_api.logger")
+
+    def test_bulk_delete_logging(self, mock_logger):
+        """Test that bulk delete logs the operation"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_ids = ["bulk_delete_log_test_1", "bulk_delete_log_test_2"]
+
+        for session_id in session_ids:
+            self.produce_replay_summary("user1", session_id, base_time)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": session_ids},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify logging was called
+        mock_logger.info.assert_called_once_with(
+            "bulk_recordings_deleted",
+            team_id=self.team.id,
+            deleted_count=2,
+            total_requested=2,
+        )
+
+    def test_bulk_delete_with_existing_postgres_records(self):
+        """Test bulk delete with recordings that already have PostgreSQL records"""
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_id = "bulk_delete_existing_pg"
+
+        # Create recording in both ClickHouse and PostgreSQL
+        self.produce_replay_summary("user1", session_id, base_time)
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            distinct_id="user1",
+            deleted=False,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        self.assertEqual(response_data["deleted_count"], 1)
+
+        # Verify existing PostgreSQL record was updated
+        recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
+        self.assertTrue(recording.deleted)
+
+    def test_bulk_delete_doesnt_leak_teams(self):
+        """Test that bulk delete doesn't affect recordings from other teams"""
+        other_team = Team.objects.create(organization=self.organization)
+        Person.objects.create(
+            team=other_team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        base_time = now() - relativedelta(days=1)
+        session_id = "bulk_delete_other_team"
+
+        # Create recording in another team
+        self.produce_replay_summary("user1", session_id, base_time, team_id=other_team.pk)
+
+        # Try to bulk delete from current team
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Should not delete anything since recording belongs to other team
+        self.assertEqual(response_data["deleted_count"], 0)
+        self.assertEqual(response_data["total_requested"], 1)

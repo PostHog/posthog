@@ -88,6 +88,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 export const MAX_SELECTED_RECORDINGS = 20
+export const DELETE_CONFIRMATION_TEXT = 'delete'
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -369,6 +370,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         handleBulkAddToPlaylist: (short_id: string) => ({ short_id }),
         handleBulkDeleteFromPlaylist: (short_id: string) => ({ short_id }),
         handleSelectUnselectAll: (checked: boolean, type: 'filters' | 'collection') => ({ checked, type }),
+        setIsDeleteSelectedRecordingsDialogOpen: (isDeleteSelectedRecordingsDialogOpen: boolean) => ({
+            isDeleteSelectedRecordingsDialogOpen,
+        }),
+        setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
+        handleDeleteSelectedRecordings: true,
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -598,6 +604,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
             },
         ],
+        isDeleteSelectedRecordingsDialogOpen: [
+            false,
+            {
+                setIsDeleteSelectedRecordingsDialogOpen: (_, { isDeleteSelectedRecordingsDialogOpen }) =>
+                    isDeleteSelectedRecordingsDialogOpen,
+            },
+        ],
+        deleteConfirmationText: [
+            '',
+            {
+                setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -713,6 +732,30 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             } else {
                 actions.setSelectedRecordingsIds([])
             }
+        },
+        handleDeleteSelectedRecordings: async () => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        actions.setDeleteConfirmationText('')
+                        actions.setIsDeleteSelectedRecordingsDialogOpen(false)
+                        await api.recordings.bulkDeleteRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+                        actions.loadAllRecordings()
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } deleted!`,
+                    error: 'Failed to delete recordings!',
+                    pending: `Deleting ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
         },
     })),
     selectors({

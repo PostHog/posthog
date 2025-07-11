@@ -74,6 +74,7 @@ from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from ..models.product_intent.product_intent import ProductIntent
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
 
@@ -661,7 +662,60 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         recording.deleted = True
         recording.save()
 
+        # We should also delete it from playlists
+        SessionRecordingPlaylistItem.objects.filter(playlist__team=self.team, recording=recording).delete()
+
         return Response({"success": True}, status=204)
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="bulk_delete")
+    def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Bulk soft delete recordings by providing a list of recording IDs."""
+
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > 20:
+            raise exceptions.ValidationError("Cannot process more than 20 recordings at once")
+
+        # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
+        query = RecordingsQuery(session_ids=session_recording_ids)
+        recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
+
+        # Create/update all recordings to deleted=True
+        deleted_count = 0
+        for recording in recordings:
+            if recording.deleted:
+                continue
+
+            db_recording, created = SessionRecording.objects.get_or_create(
+                team=self.team,
+                session_id=recording.session_id,
+                defaults={"distinct_id": recording.distinct_id, "deleted": True},
+            )
+            if not created:
+                db_recording.deleted = True
+                db_recording.save()
+
+            deleted_count += 1
+
+        # Delete from playlists
+        SessionRecordingPlaylistItem.objects.filter(
+            playlist__team=self.team, recording__in=session_recording_ids
+        ).delete()
+
+        logger.info(
+            "bulk_recordings_deleted",
+            team_id=self.team.id,
+            deleted_count=deleted_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        return Response(
+            {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
+        )
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
