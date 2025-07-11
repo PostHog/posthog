@@ -16,8 +16,6 @@ export interface GroupsListLogicProps {
 }
 
 const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
@@ -38,63 +36,69 @@ export const groupsListLogic = kea<groupsListLogicType>([
         setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
         setGroupFilters: (filters: GroupPropertyFilter[]) => ({ filters }),
     })),
-    reducers({
-        query: [
-            (_: any, props: GroupsListLogicProps) =>
-                ({
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.GroupsQuery,
-                        select: undefined,
-                        group_type_index: props.groupTypeIndex,
+    reducers(({ props }) => {
+        const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+        const persistConfig = { persist: true, prefix: `${teamId}__group_${props.groupTypeIndex}__` }
+
+        return {
+            query: [
+                (_: any, props: GroupsListLogicProps) =>
+                    ({
+                        kind: NodeKind.DataTableNode,
+                        source: {
+                            kind: NodeKind.GroupsQuery,
+                            select: undefined,
+                            group_type_index: props.groupTypeIndex,
+                        },
+                        full: true,
+                        showEventFilter: false,
+                        showPersistentColumnConfigurator: true,
+                        propertiesViaUrl: true,
+                    } as DataTableNode),
+                { setQuery: (_, { query }) => query },
+            ],
+            groupFilters: [
+                INITIAL_GROUPS_FILTER,
+                persistConfig,
+                {
+                    setGroupFilters: (_, { filters }) => filters,
+                    setQuery: (state, { query }) => {
+                        if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
+                            return query.source.properties
+                        }
+                        return state
                     },
-                    full: true,
-                    showEventFilter: false,
-                    showPersistentColumnConfigurator: true,
-                    propertiesViaUrl: true,
-                } as DataTableNode),
-            { setQuery: (_, { query }) => query },
-        ],
-        groupFilters: [
-            INITIAL_GROUPS_FILTER,
-            persistConfig,
-            {
-                setGroupFilters: (_, { filters }) => filters,
-                setQuery: (state, { query }) => {
-                    if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
-                        return query.source.properties
-                    }
-                    return state
                 },
-            },
-        ],
-        queryWasModified: [
-            false,
-            {
-                setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
-            },
-        ],
+            ],
+            queryWasModified: [
+                false,
+                {
+                    setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
+                },
+            ],
+        }
     }),
     listeners(({ actions }) => ({
         setQuery: () => {
             actions.setQueryWasModified(true)
         },
     })),
-    actionToUrl(({ values }) => ({
+    actionToUrl(({ values, props }) => ({
         setQuery: () => {
-            if (router.values.location.pathname.indexOf('/groups') > -1) {
+            if (router.values.location.pathname.includes(`/groups/${props.groupTypeIndex}`)) {
                 const searchParams: Record<string, any> = {}
 
                 if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.properties?.length) {
-                    searchParams.properties = JSON.stringify(values.query.source.properties)
+                    searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.properties)
                 }
 
                 return [router.values.location.pathname, searchParams, undefined, { replace: true }]
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        '/groups/*': (_, { properties }) => {
+    urlToAction(({ actions, values, props }) => ({
+        [`/groups/${props.groupTypeIndex}`]: (_, searchParams) => {
+            const properties = searchParams[`properties_${props.groupTypeIndex}`]
             if (properties && values.query.source.kind === NodeKind.GroupsQuery) {
                 try {
                     const parsedProperties = JSON.parse(properties)
@@ -107,8 +111,16 @@ export const groupsListLogic = kea<groupsListLogicType>([
                             },
                         })
                     }
-                } catch {
-                    // Invalid JSON in URL, ignore
+                } catch {}
+            } else if (!properties && values.query.source.kind === NodeKind.GroupsQuery) {
+                if (values.query.source.properties?.length) {
+                    actions.setQuery({
+                        ...values.query,
+                        source: {
+                            ...values.query.source,
+                            properties: undefined,
+                        },
+                    })
                 }
             }
         },
