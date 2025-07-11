@@ -37,6 +37,10 @@ export class PersonsManagerService {
         })
     }
 
+    public clear(): void {
+        this.lazyLoader.clear()
+    }
+
     public async get(args: PersonGetArgs): Promise<PersonManagerPerson | null> {
         const key = toKey(args)
         return (await this.lazyLoader.get(key)) ?? null

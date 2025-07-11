@@ -270,10 +270,6 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
-
-    // Add lazy getters for person and filter globals
-    // getFilterGlobals: () => Promise<HogFunctionFilterGlobals>
-    getPerson: () => Promise<CyclotronPerson>
 }
 
 export type HogFlowInvocationContext = {

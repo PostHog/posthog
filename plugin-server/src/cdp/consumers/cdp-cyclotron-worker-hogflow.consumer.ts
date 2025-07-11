@@ -38,8 +38,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     ...item,
                     state: hogFlowInvocationState,
                     hogFlow,
-                    getPerson: () =>
-                        this.personsManager.getPerson(hogFlow.team_id, hogFlowInvocationState.event.distinct_id),
                 })
             })
         )

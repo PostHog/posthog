@@ -61,7 +61,6 @@ export class HogFlowExecutorService {
             hogFlow,
             queue: 'hogflow',
             queuePriority: 1,
-            getPerson: () => this.personsManager.getPerson(hogFlow.team_id, globals.event.distinct_id),
         }
     }
 
