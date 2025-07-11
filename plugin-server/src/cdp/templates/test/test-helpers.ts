@@ -331,7 +331,7 @@ export class DestinationTester {
         globals: HogFunctionInvocationGlobals,
         inputs: Record<string, any>,
         mapping_inputs: Record<string, any>
-    ) {
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (!this.template.mapping_templates) {
             throw new Error('No mapping templates found')
         }

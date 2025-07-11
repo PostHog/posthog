@@ -426,7 +426,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    let res: HogFunctionTemplateType | null = null
+                    if (props.templateId === 'native-dev-center') {
+                        const response = await fetch('http://localhost:4321/local-hog-function')
+                        res = (await response.json()) as HogFunctionTemplateType
+                    } else {
+                        res = await api.hogFunctions.getTemplate(props.templateId)
+                    }
 
                     if (!res) {
                         throw new Error('Template not found')

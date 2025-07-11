@@ -31,7 +31,8 @@
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
-        "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts"
+        "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
+        "serve-native-desetination": "DATABASE_URL=something ts-node src/cdp/templates/serve-native-destination.ts"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
@@ -63,6 +64,7 @@
         "asn1.js": "^5.4.1",
         "aws-sdk": "^2.927.0",
         "chance": "^1.1.13",
+        "cors": "^2.8.5",
         "dayjs": "1.11.11",
         "detect-browser": "^5.3.0",
         "escape-string-regexp": "^4.0.0",
@@ -73,6 +75,7 @@
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
         "husky": "^7.0.4",
+        "inquirer": "^12.7.0",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
         "js-big-decimal": "^2.2.0",
@@ -118,6 +121,7 @@
         "@types/babel__core": "^7.1.19",
         "@types/babel__standalone": "^7.1.4",
         "@types/chance": "^1.1.7",
+        "@types/cors": "^2.8.19",
         "@types/express": "^4.17.21",
         "@types/faker": "^5.5.7",
         "@types/generic-pool": "^3.1.9",
