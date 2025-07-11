@@ -103,7 +103,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         interval >= their time window.
         """
         if is_groups_math(series=self.series):
-            return f'e."$group_{int(self.series.math_group_type_index)}"'
+            return f'e."$group_{int(cast(int, self.series.math_group_type_index))}"'
         return "e.person_id"
 
     def actor_id(self) -> ast.Expr:
