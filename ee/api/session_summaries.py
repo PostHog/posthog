@@ -24,7 +24,7 @@ from posthog.temporal.ai.session_summary.summarize_session_group import execute_
 logger = structlog.get_logger(__name__)
 
 
-class SessionSummariesSerializer(serializers.Serializer):
+class SessionsSummariesSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(),
         min_length=1,
@@ -32,50 +32,46 @@ class SessionSummariesSerializer(serializers.Serializer):
         help_text="List of session IDs to summarize (max 50)",
     )
     focus_area = serializers.CharField(
-        required=False, allow_blank=True, max_length=500, help_text="Optional focus area for the summary"
+        required=False, allow_blank=True, max_length=500, help_text="Optional focus area for the summarization"
     )
 
 
-class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "session_recording"  # Keeping recording, as Replay is the main source of info for summary, for now
     permission_classes = [IsAuthenticated]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
-    serializer_class = SessionSummariesSerializer
+    serializer_class = SessionsSummariesSerializer
 
     @extend_schema(
-        operation_id="create_session_summaries",
-        description="Generate AI summaries for a group of session recordings",
-        request=SessionSummariesSerializer,
+        operation_id="create_sessions_summaries",
+        description="Generate AI summaries per-session and a general summary for a group of session recordings",
+        request=SessionsSummariesSerializer,
     )
     @action(methods=["POST"], detail=False)
-    def create_summaries(self, request: Request, **kwargs) -> Response:
+    def create_sessions_summaries(self, request: Request, **kwargs) -> Response:
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
-
-        tag_queries(product=Product.REPLAY)
+        tag_queries(product=Product.SESSION_SUMMARY)
 
         user = cast(User, request.user)
 
-        # Validate environment requirements (same as single session summarize)
+        # Validate environment requirements
         environment_is_allowed = settings.DEBUG or is_cloud()
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
-            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-
+            raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("session summary is not enabled for this user")
+            raise exceptions.ValidationError("Session summaries are not enabled for this user")
 
         # Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         session_ids = serializer.validated_data["session_ids"]
         focus_area = serializer.validated_data.get("focus_area")
-
         # Validate that all session IDs belong to the team and exist
         self._validate_sessions_exist(session_ids)
 
-        # Prepare extra context
+        # Prepare extra context, if provided
         extra_summary_context = None
         if focus_area:
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
