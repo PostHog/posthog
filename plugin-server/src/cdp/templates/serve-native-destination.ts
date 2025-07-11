@@ -59,8 +59,25 @@ async function main() {
     if (!hogFunction) {
         throw new Error('You must select a destination. Exiting...')
     }
+    const { mapping: mappingName } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'mapping',
+            message: 'Select a mapping:',
+            choices: hogFunction.mapping_templates.map((mapping) => ({
+                name: mapping.name,
+                value: mapping.name,
+            })),
+        },
+    ])
 
-    console.log(`You selected: ${hogFunctionId}`)
+    const mapping = hogFunction.mapping_templates.find((mapping) => mapping.name === mappingName)
+
+    if (!mapping) {
+        throw new Error('You must select a mapping. Exiting...')
+    }
+
+    console.log(`You selected: ${hogFunctionId} / ${mapping.name}`)
 
     const app = express()
 
@@ -74,7 +91,10 @@ async function main() {
     app.use(express.json())
 
     app.get('/local-hog-function', (req, res) => {
-        res.status(200).json(hogFunction)
+        res.status(200).json({
+            ...hogFunction,
+            mapping_templates: hogFunction.mapping_templates.filter((m) => m.name === mapping.name),
+        })
     })
 
     app.post('/local-hog-function/invoke', async (req, res) => {
@@ -82,7 +102,7 @@ async function main() {
         const tester = new DestinationTester(hogFunction)
 
         const result = await tester.invokeMapping(
-            hogFunction.mapping_templates[0].name,
+            mapping.name,
             globals,
             configuration.inputs,
             configuration.mappings.inputs
