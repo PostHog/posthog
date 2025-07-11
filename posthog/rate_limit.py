@@ -409,13 +409,13 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
 
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    # This is more aggressive than other throttles because the wizard makes LLM calls
     scope = "wizard_authentication"
     rate = "20/day"
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"
+    rate = "20/day"  # Since the authentication hash is valid for a short period, this is effectively per-user
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):

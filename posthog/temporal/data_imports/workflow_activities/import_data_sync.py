@@ -758,6 +758,42 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
 
+        elif model.pipeline.source_type == ExternalDataSource.Type.METAADS:
+            from posthog.temporal.data_imports.pipelines.meta_ads.source import (
+                MetaAdsSourceConfig,
+                meta_ads_source,
+            )
+
+            meta_ads_config = MetaAdsSourceConfig.from_dict(
+                {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+            )
+
+            source = meta_ads_source(
+                resource_name=schema.name,
+                config=meta_ads_config,
+                team_id=inputs.team_id,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                incremental_field=schema.sync_type_config.get("incremental_field")
+                if schema.should_use_incremental_field
+                else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
         elif model.pipeline.source_type == ExternalDataSource.Type.TEMPORALIO:
             from posthog.temporal.data_imports.pipelines.temporalio.source import (
                 TemporalIOResource,
@@ -849,8 +885,6 @@ def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
 ):
-    pipeline = PipelineNonDLT(
-        source, logger, job_inputs.run_id, schema.should_use_incremental_field, reset_pipeline, shutdown_monitor
-    )
+    pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
     pipeline.run()
     del pipeline

@@ -146,6 +146,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'platform_addons',
+                'data-attr': `support-form-target-area-platform_addons`,
+                label: 'Platform addons',
+            },
+            {
                 value: 'sdk',
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
@@ -273,6 +278,7 @@ export type SupportTicketTargetArea =
     | 'data_ingestion'
     | 'batch_exports'
     | 'messaging'
+    | 'platform_addons'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
