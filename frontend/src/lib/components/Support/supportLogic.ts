@@ -279,6 +279,7 @@ export type SupportTicketTargetArea =
     | 'batch_exports'
     | 'messaging'
     | 'platform_addons'
+    | 'max-ai'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
