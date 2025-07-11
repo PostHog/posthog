@@ -52,12 +52,13 @@ def delete_symbol_sets_batch(
                 )
             else:
                 # The model's delete() method handles S3 cleanup automatically
-                symbol_set.delete()
                 context.log.info(
-                    f"Deleted symbol set {symbol_set.id} "
+                    f"Deleting symbol set {symbol_set.id} "
                     f"(ref: {symbol_set.ref}, team: {symbol_set.team_id}, "
                     f"last_used: {last_used_str})"
                 )
+                symbol_set.delete()
+                context.log.info("Deleted symbol set")
 
             deleted_count += 1
 
@@ -127,7 +128,7 @@ symbol_set_cleanup_job = dagster.define_asset_job(
 # Create schedule - runs daily at 3 AM
 @dagster.schedule(
     job=symbol_set_cleanup_job,
-    cron_schedule="0 3 * * *",  # 3 AM every day
+    cron_schedule="0 * * * *",  # Run every hour
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING,
 )
@@ -140,15 +141,11 @@ def daily_symbol_set_cleanup_schedule(context):
                 "symbol_sets_to_delete": {
                     "config": SymbolSetSelectionConfig(
                         days_old=30,
-                        delete_unused=False,  # TODO (olly) - switch this to True eventually (any time after July 1st 2025)
+                        delete_unused=True,
                         batch_size=10000,
                     ).model_dump()
                 },
-                "symbol_set_cleanup_results": {
-                    "config": SymbolSetDeletionConfig(
-                        dry_run=True  # TODO (olly) - dry run for now, so I can see it working in production
-                    ).model_dump()
-                },
+                "symbol_set_cleanup_results": {"config": SymbolSetDeletionConfig(dry_run=False).model_dump()},
             }
         },
     )
