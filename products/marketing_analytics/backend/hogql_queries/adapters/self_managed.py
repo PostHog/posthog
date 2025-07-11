@@ -25,7 +25,6 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
     def validate(self) -> ValidationResult:
         """Validate self-managed table schema and required fields"""
         errors: list[str] = []
-        warnings: list[str] = []
 
         try:
             # Validate required schema fields
@@ -40,9 +39,9 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
                 errors.extend([f"Missing required field: {field}" for field in missing_required_fields])
 
             is_valid = len(errors) == 0
-            self._log_validation_errors(errors, warnings)
+            self._log_validation_errors(errors)
 
-            return ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings)
+            return ValidationResult(is_valid=is_valid, errors=errors)
 
         except Exception as e:
             error_msg = f"Validation error: {str(e)}"
