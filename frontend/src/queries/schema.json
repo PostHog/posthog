@@ -12407,6 +12407,9 @@
                     "description": "Client provided name of the query",
                     "type": "string"
                 },
+                "pagination": {
+                    "$ref": "#/definitions/HogQLPaginationConfig"
+                },
                 "query": {
                     "type": "object"
                 },
@@ -12653,6 +12656,21 @@
             "required": ["message"],
             "type": "object"
         },
+        "HogQLPaginationConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "type": "object"
+        },
         "HogQLPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -12694,6 +12712,9 @@
                 "name": {
                     "description": "Client provided name of the query",
                     "type": "string"
+                },
+                "pagination": {
+                    "$ref": "#/definitions/HogQLPaginationConfig"
                 },
                 "query": {
                     "type": "string"

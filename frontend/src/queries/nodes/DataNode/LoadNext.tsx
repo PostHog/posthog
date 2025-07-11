@@ -70,7 +70,14 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 }
 
 export function LoadPreviewText({ localResponse }: { localResponse?: Record<string, any> | null }): JSX.Element {
-    const { response: dataNodeResponse, hasMoreData, responseLoading } = useValues(dataNodeLogic)
+    const {
+        response: dataNodeResponse,
+        hasMoreData,
+        responseLoading,
+        nextQuery,
+        nextDataLoading,
+    } = useValues(dataNodeLogic)
+    const { loadNextData } = useActions(dataNodeLogic)
 
     const response = dataNodeResponse ?? localResponse
 
@@ -86,17 +93,28 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
         response && 'last_refresh' in response ? response['last_refresh'] : null
 
     return (
-        <>
+        <div className="flex flex-row items-center gap-2">
             <span>
                 {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
                 {isSingleEntry ? 'one row' : `${resultCount} rows`}
             </span>
+            {nextQuery && (
+                <LemonButton
+                    className="my-2"
+                    onClick={loadNextData}
+                    loading={nextDataLoading}
+                    size="xsmall"
+                    type="secondary"
+                >
+                    Load more
+                </LemonButton>
+            )}
             {lastRefreshTimeUtc && (
                 <>
-                    <span className="ml-2 mr-2">|</span>
+                    <span>|</span>
                     <TZLabel noStyles time={lastRefreshTimeUtc} />
                 </>
             )}
-        </>
+        </div>
     )
 }

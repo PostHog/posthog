@@ -607,12 +607,14 @@ export function OutputPane(): JSX.Element {
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
             </div>
-            <div className="flex justify-between px-2 border-t">
-                <div>
-                    {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
+            {activeTab === OutputTab.Results && (
+                <div className="flex justify-between px-2 border-t">
+                    <div>
+                        {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
+                    </div>
+                    <ElapsedTime />
                 </div>
-                <ElapsedTime />
-            </div>
+            )}
             <RowDetailsModal
                 isOpen={!!selectedRow}
                 onClose={() => setSelectedRow(null)}

@@ -403,6 +403,13 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     explain?: boolean
     /** Client provided name of the query */
     name?: string
+    pagination?: HogQLPaginationConfig
+}
+
+export interface HogQLPaginationConfig {
+    limit?: integer
+    offset?: integer
+    hasMore?: boolean
 }
 
 export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
