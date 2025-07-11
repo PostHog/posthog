@@ -602,7 +602,7 @@ export function OutputPane(): JSX.Element {
                 />
             </div>
             {activeTab === OutputTab.Results && (
-                <div className="flex justify-between px-2 border-t">
+                <div className="flex justify-between px-2 border-t items-center">
                     <div>
                         {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
                     </div>
