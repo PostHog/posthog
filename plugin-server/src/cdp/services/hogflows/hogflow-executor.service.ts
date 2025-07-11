@@ -25,7 +25,6 @@ import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { HogFlowMetricsService } from './hogflow-metrics.service'
 import { findContinueAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
@@ -33,7 +32,6 @@ export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Map<string, ActionHandler>
-    private readonly metricsService: HogFlowMetricsService
 
     constructor(
         private hub: Hub,
@@ -41,7 +39,6 @@ export class HogFlowExecutorService {
         private hogFunctionExecutor: HogExecutorService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {
-        this.metricsService = new HogFlowMetricsService()
         this.actionHandlers = this.initializeActionHandlers()
     }
 
