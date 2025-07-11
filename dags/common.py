@@ -109,11 +109,11 @@ def dagster_tags(
 
     with suppress(Exception):
         if isinstance(context, dagster.OpExecutionContext):
-            tags.op_name = context.op.name
-        elif isinstance(context, dagster.AssetExecutionContext) or isinstance(
-            context, dagster.AssetCheckExecutionContext
-        ):
-            tags.asset_key = context.asset_key.to_user_string()
+            if context.op:
+                tags.op_name = context.op.name
+        elif isinstance(context, dagster.AssetExecutionContext):
+            if context.asset_key:
+                tags.asset_key = context.asset_key.to_user_string()
 
     return tags
 

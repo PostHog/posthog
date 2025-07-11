@@ -61,8 +61,8 @@ class DagsterTags(BaseModel):
     Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
     """
 
-    job_name: str
-    run_id: str
+    job_name: Optional[str]
+    run_id: Optional[str]
     tags: Optional[dict[str, str]]
     root_run_id: Optional[str]
     parent_run_id: Optional[str]
