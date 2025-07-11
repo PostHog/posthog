@@ -34,7 +34,8 @@ export async function startDownload(
     query: DataTableNode,
     onlySelectedColumns: boolean,
     exportCall: (exportData: TriggerExportProps) => void,
-    format: ExporterFormat = ExporterFormat.CSV
+    format: ExporterFormat = ExporterFormat.CSV,
+    fileNameForExport?: string
 ): Promise<void> {
     const shouldOptimize = shouldOptimizeForExport(query)
 
@@ -75,7 +76,9 @@ export async function startDownload(
 
         exportContext['columns'] = columns
     }
-
+    if (fileNameForExport != null) {
+        exportContext['filename'] = fileNameForExport
+    }
     exportCall({
         export_format: format,
         export_context: exportContext,
@@ -88,7 +91,7 @@ const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query
 
         const csvData = dataTableRows.map((n) => {
             const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...(record ?? {}), person: record?.name }
+            const recordWithPerson = { ...record, person: record?.name }
 
             return filteredColumns.map((n) => recordWithPerson[n])
         })
@@ -137,7 +140,7 @@ const getJsonTableData = (
 
         return dataTableRows.map((n) => {
             const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...(record ?? {}), person: record?.name }
+            const recordWithPerson = { ...record, person: record?.name }
 
             return filteredColumns.reduce((acc, cur) => {
                 acc[cur] = recordWithPerson[cur]
@@ -207,9 +210,10 @@ function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query
 interface DataTableExportProps {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
+    fileNameForExport?: string
 }
 
-export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
+export function DataTableExport({ query, fileNameForExport }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
     const { startExport, createStaticCohort } = useActions(exportsLogic)
 
@@ -232,13 +236,13 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         {
                             label: 'CSV',
                             onClick: () => {
-                                void startDownload(query, true, startExport)
+                                void startDownload(query, true, startExport, ExporterFormat.CSV, fileNameForExport)
                             },
                         },
                         {
                             label: 'XLSX',
                             onClick: () => {
-                                void startDownload(query, true, startExport, ExporterFormat.XLSX)
+                                void startDownload(query, true, startExport, ExporterFormat.XLSX, fileNameForExport)
                             },
                         },
                     ],
@@ -248,11 +252,13 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     items: [
                         {
                             label: 'CSV',
-                            onClick: () => void startDownload(query, false, startExport),
+                            onClick: () =>
+                                void startDownload(query, false, startExport, ExporterFormat.CSV, fileNameForExport),
                         },
                         {
                             label: 'XLSX',
-                            onClick: () => void startDownload(query, false, startExport, ExporterFormat.XLSX),
+                            onClick: () =>
+                                void startDownload(query, false, startExport, ExporterFormat.XLSX, fileNameForExport),
                         },
                     ],
                 },

@@ -1,8 +1,9 @@
 import './LemonTextArea.scss'
 
 import clsx from 'clsx'
-import React, { useRef } from 'react'
+import React, { ReactElement, useRef, useState, useEffect } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
+import { cn } from 'lib/utils/css-classes'
 
 interface LemonTextAreaPropsBase
     extends Pick<
@@ -24,6 +25,8 @@ interface LemonTextAreaPropsBase
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
     'data-attr'?: string
+    /** content displayed below the text area, note if `maxLength` is set that will be to the right of the footer content */
+    footer?: ReactElement
 }
 
 interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
@@ -40,44 +43,77 @@ interface LemonTextAreaWithEnterProps extends LemonTextAreaPropsBase {
 export type LemonTextAreaProps = LemonTextAreaWithEnterProps | LemonTextAreaWithCmdEnterProps
 
 /** A `textarea` component for multi-line text. */
-export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function _LemonTextArea(
-    { className, onChange, onPressEnter, onPressCmdEnter, minRows = 3, onKeyDown, stopPropagation, ...textProps },
+export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(function LemonTextArea(
+    {
+        className,
+        onChange,
+        onPressEnter,
+        onPressCmdEnter,
+        minRows = 3,
+        onKeyDown,
+        stopPropagation,
+        footer,
+        ...textProps
+    },
     ref
 ): JSX.Element {
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
+    const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
+    useEffect(() => {
+        setTextLength(textProps.value?.length || 0)
+    }, [textProps.value])
+
     return (
-        <TextareaAutosize
-            minRows={minRows}
-            ref={textRef}
-            className={clsx('LemonTextArea', className)}
-            onKeyDown={(e) => {
-                if (stopPropagation) {
-                    e.stopPropagation()
-                }
-                if (e.key === 'Enter') {
-                    const target = e.currentTarget
-                    // When shift is pressed, we always just want to add a new line
-                    if (!e.shiftKey) {
-                        if ((e.metaKey || e.ctrlKey) && onPressCmdEnter) {
-                            onPressCmdEnter(target.value)
-                            e.preventDefault()
-                        } else if (onPressEnter) {
-                            onPressEnter(target.value)
-                            e.preventDefault()
+        <div className="flex flex-col gap-y-1">
+            <TextareaAutosize
+                minRows={minRows}
+                ref={textRef}
+                className={clsx('LemonTextArea', className)}
+                onKeyDown={(e) => {
+                    if (stopPropagation) {
+                        e.stopPropagation()
+                    }
+                    if (e.key === 'Enter') {
+                        const target = e.currentTarget
+                        // When shift is pressed, we always just want to add a new line
+                        if (!e.shiftKey) {
+                            if ((e.metaKey || e.ctrlKey) && onPressCmdEnter) {
+                                onPressCmdEnter(target.value)
+                                e.preventDefault()
+                            } else if (onPressEnter) {
+                                onPressEnter(target.value)
+                                e.preventDefault()
+                            }
                         }
                     }
-                }
-                onKeyDown?.(e)
-            }}
-            onChange={(event) => {
-                if (stopPropagation) {
-                    event.stopPropagation()
-                }
-                return onChange?.(event.currentTarget.value ?? '')
-            }}
-            {...textProps}
-        />
+                    onKeyDown?.(e)
+                }}
+                onChange={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
+                    setTextLength((event.currentTarget.value ?? '').length)
+                    return onChange?.(event.currentTarget.value ?? '')
+                }}
+                {...textProps}
+            />
+            {footer || textProps.maxLength ? (
+                <div className="flex flex-row gap-x-2 justify-between">
+                    {footer}
+                    {textProps.maxLength !== undefined ? (
+                        <div
+                            className={cn(
+                                'flex flex-row justify-end flex-grow text-sm',
+                                textLength >= textProps.maxLength && 'text-error'
+                            )}
+                        >
+                            {textLength} / {textProps.maxLength}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+        </div>
     )
 })

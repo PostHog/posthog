@@ -124,6 +124,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         let historical_rerouting_threshold_days = 1_i64;
         let historical_tokens_keys = None;
         let is_mirror_deploy = false; // TODO: remove after migration to 100% capture-rs backend
+        let base64_detect_percent = 0.0_f32;
 
         let app = router(
             timesource,
@@ -140,6 +141,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             historical_rerouting_threshold_days,
             historical_tokens_keys,
             is_mirror_deploy,
+            base64_detect_percent,
         );
 
         let client = TestClient::new(app);

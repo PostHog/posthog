@@ -7,7 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -115,6 +115,7 @@ export function PersonScene(): JSX.Element | null {
         urlId,
         distinctId,
         primaryDistinctId,
+        eventsQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -214,22 +215,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    hiddenColumns: ['person'],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        where: ["notEquals(event, '$exception')"],
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -277,7 +263,7 @@ export function PersonScene(): JSX.Element | null {
                                     kind: NodeKind.DataTableNode,
                                     full: true,
                                     showEventFilter: false,
-                                    hiddenColumns: ['person'],
+                                    hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
                                     source: {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),

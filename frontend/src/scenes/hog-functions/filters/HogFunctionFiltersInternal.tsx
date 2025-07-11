@@ -2,7 +2,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useMemo } from 'react'
 
@@ -72,16 +72,15 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
     const options = useMemo(() => getFilterOptions(contextId), [contextId])
-    const hasAlertRouting = useFeatureFlag('ERROR_TRACKING_ALERT_ROUTING')
 
     const taxonomicGroupTypes = useMemo(() => {
-        if (hasAlertRouting && contextId === 'error-tracking') {
+        if (contextId === 'error-tracking') {
             return [TaxonomicFilterGroupType.ErrorTrackingIssues]
         } else if (contextId === 'insight-alerts') {
             return [TaxonomicFilterGroupType.Events]
         }
         return []
-    }, [contextId, hasAlertRouting])
+    }, [contextId])
 
     return (
         <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">

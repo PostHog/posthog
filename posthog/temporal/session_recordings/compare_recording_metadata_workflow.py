@@ -10,6 +10,7 @@ import temporalio.common
 import temporalio.workflow
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
@@ -127,6 +128,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
     """Compare session recording metadata between storage backends."""
     logger = get_internal_logger()
     start_time = dt.datetime.now()
+    tag_queries(product=Product.REPLAY)
     await logger.ainfo(
         "Starting comparison activity for time range %s to %s%s%s",
         inputs.started_after,

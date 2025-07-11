@@ -11,11 +11,11 @@ from ee.session_recordings.session_summary.input_data import EXTRA_SUMMARY_EVENT
 from ee.session_recordings.session_summary.summarize_session import (
     ExtraSummaryContext,
     prepare_data_for_single_session_summary,
-    generate_prompt,
+    generate_single_session_summary_prompt,
 )
 from ee.session_recordings.session_summary.stream import stream_recording_summary
 from ee.session_recordings.session_summary.utils import serialize_to_sse_event
-from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
+from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session_stream
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
 
@@ -23,20 +23,13 @@ pytestmark = pytest.mark.django_db
 
 
 class TestSummarizeSession:
-    def test_execute_summarize_session_success(
-        self,
-        mock_user: MagicMock,
-        mock_team: MagicMock,
-        mock_raw_metadata: dict[str, Any],
-        mock_raw_events: list[tuple[Any, ...]],
-        mock_raw_events_columns: list[str],
-        mock_valid_llm_yaml_response: str,
+    def test_execute_summarize_session_stream_success(
+        self, mock_user: MagicMock, mock_team: MagicMock, mock_valid_llm_yaml_response: str, mock_session_id: str
     ):
         """
         Basic test to ensure the operations are called in the correct order.
         Most of the mocked functions are tested in other test modules.
         """
-        session_id = "test_session_id"
         # Mock DB/LLM dependencies
         with (
             patch("posthog.temporal.ai.session_summary.summarize_session._start_workflow") as mock_workflow,
@@ -50,42 +43,45 @@ class TestSummarizeSession:
             mock_asyncio_run.side_effect = [mock_handle, (mock_desc, mock_valid_llm_yaml_response)]
             # Get the generator (stream simulation)
             empty_context = ExtraSummaryContext()
-            result_generator = execute_summarize_session(
-                session_id=session_id, user_pk=mock_user.pk, team=mock_team, extra_summary_context=empty_context
+            result_generator = execute_summarize_session_stream(
+                session_id=mock_session_id, user_id=mock_user.id, team=mock_team, extra_summary_context=empty_context
             )
             # Get all results from generator (consume the stream fully)
             results = list(result_generator)
             # Verify all mocks were called correctly
             assert len(results) == 1
-            assert results[0] == mock_valid_llm_yaml_response
+            assert results[0] == serialize_to_sse_event(
+                event_label="session-summary-stream",
+                event_data=mock_valid_llm_yaml_response,
+            )
 
     @pytest.mark.asyncio
-    async def test_prepare_data_no_metadata(self, mock_user: MagicMock, mock_team: MagicMock):
-        session_id = "test_session_id"
+    async def test_prepare_data_no_metadata(self, mock_user: MagicMock, mock_team: MagicMock, mock_session_id: str):
         empty_context = ExtraSummaryContext()
         with (
-            patch("ee.session_recordings.session_summary.summarize_session.get_team", return_value=mock_team),
+            patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team),
             patch.object(
                 SessionReplayEvents,
                 "get_metadata",
                 return_value=None,
             ) as mock_get_db_metadata,
         ):
-            with pytest.raises(ValueError, match=f"No session metadata found for session_id {session_id}"):
+            with pytest.raises(ValueError, match=f"No session metadata found for session_id {mock_session_id}"):
                 await prepare_data_for_single_session_summary(
-                    session_id=session_id,
-                    user_pk=mock_user.pk,
+                    session_id=mock_session_id,
+                    user_id=mock_user.id,
                     team_id=mock_team.id,
                     extra_summary_context=empty_context,
                 )
             mock_get_db_metadata.assert_called_once_with(
-                session_id=session_id,
-                team=mock_team,
+                session_id=mock_session_id,
+                team_id=mock_team.id,
             )
 
-    def test_prepare_data_no_events_returns_error_data(self, mock_team: MagicMock, mock_raw_metadata: dict[str, Any]):
+    def test_prepare_data_no_events_returns_error_data(
+        self, mock_team: MagicMock, mock_raw_metadata: dict[str, Any], mock_session_id: str
+    ):
         """Test that we get proper error data when no events are found (for example, for fresh real-time replays)."""
-        session_id = "test_session_id"
         with (
             patch(
                 "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
@@ -97,17 +93,22 @@ class TestSummarizeSession:
             mock_instance = MagicMock()
             mock_replay_events.return_value = mock_instance
             mock_instance.get_events.side_effect = [(None, None), (None, None)]
-            with pytest.raises(ValueError, match=f"No columns found for session_id {session_id}"):
-                get_session_events(session_id=session_id, session_metadata=mock_raw_metadata, team=mock_team)  # type: ignore[arg-type]
-                mock_instance.get_events.assert_called_once_with(
-                    session_id="test_session_id",
-                    team=mock_team,
-                    metadata=mock_raw_metadata,
-                    events_to_ignore=["$feature_flag_called"],
-                    extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
-                    page=0,
-                    limit=3000,
-                )
+            with pytest.raises(ValueError, match=f"No columns found for session_id {mock_session_id}"):
+                with patch("ee.session_recordings.session_summary.input_data.get_team", return_value=mock_team):
+                    get_session_events(
+                        session_id=mock_session_id,
+                        session_metadata=mock_raw_metadata,  # type: ignore[arg-type]
+                        team_id=mock_team.id,
+                    )
+                    mock_instance.get_events.assert_called_once_with(
+                        session_id=mock_session_id,
+                        team_id=mock_team.id,
+                        metadata=mock_raw_metadata,
+                        events_to_ignore=["$feature_flag_called"],
+                        extra_fields=EXTRA_SUMMARY_EVENT_FIELDS,
+                        page=0,
+                        limit=3000,
+                    )
 
     @pytest.mark.asyncio
     async def test_stream_recording_summary_asgi(
@@ -115,27 +116,27 @@ class TestSummarizeSession:
         mock_user: MagicMock,
         mock_team: MagicMock,
         mock_loaded_llm_json_response: dict[str, Any],
+        mock_session_id: str,
     ):
         """Test the ASGI streaming path."""
-        session_id = "test_session_id"
         ready_summary = serialize_to_sse_event(
             event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
         )
         with (
             patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "ASGI"),
             patch(
-                "ee.session_recordings.session_summary.stream.execute_summarize_session",
+                "ee.session_recordings.session_summary.stream.execute_summarize_session_stream",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
-            async_gen = stream_recording_summary(session_id=session_id, user_pk=mock_user.pk, team=mock_team)
+            async_gen = stream_recording_summary(session_id=mock_session_id, user_id=mock_user.id, team=mock_team)
             assert isinstance(async_gen, SyncIterableToAsync)
             results = [chunk async for chunk in async_gen]
             assert len(results) == 1
             assert results[0] == ready_summary
             mock_execute.assert_called_once_with(
-                session_id=session_id,
-                user_pk=mock_user.pk,
+                session_id=mock_session_id,
+                user_id=mock_user.id,
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,
@@ -146,26 +147,26 @@ class TestSummarizeSession:
         mock_user: MagicMock,
         mock_team: MagicMock,
         mock_loaded_llm_json_response: dict[str, Any],
+        mock_session_id: str,
     ):
         """Test the WSGI (non-ASGI) streaming path."""
-        session_id = "test_session_id"
         ready_summary = serialize_to_sse_event(
             event_label="session-summary-stream", event_data=json.dumps(mock_loaded_llm_json_response)
         )
         with (
             patch("ee.session_recordings.session_summary.stream.SERVER_GATEWAY_INTERFACE", "WSGI"),
             patch(
-                "ee.session_recordings.session_summary.stream.execute_summarize_session",
+                "ee.session_recordings.session_summary.stream.execute_summarize_session_stream",
                 return_value=iter([ready_summary]),
             ) as mock_execute,
         ):
-            result_gen = stream_recording_summary(session_id=session_id, user_pk=mock_user.pk, team=mock_team)
+            result_gen = stream_recording_summary(session_id=mock_session_id, user_id=mock_user.id, team=mock_team)
             results = list(result_gen)  # type: ignore[arg-type]
             assert len(results) == 1
             assert results[0] == ready_summary
             mock_execute.assert_called_once_with(
-                session_id=session_id,
-                user_pk=mock_user.pk,
+                session_id=mock_session_id,
+                user_id=mock_user.id,
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,
@@ -219,7 +220,7 @@ class TestSummarizeSession:
         window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
         extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
         # Generate prompts
-        prompt_result = generate_prompt(
+        prompt_result = generate_single_session_summary_prompt(
             prompt_data=prompt_data,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,

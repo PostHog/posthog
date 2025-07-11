@@ -66,8 +66,6 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
         })
 
         if (dataLogic !== null) {
-            // eslint-disable-next-line no-console
-            console.log('found after retries', retries)
             return dataLogic
         }
 

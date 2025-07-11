@@ -146,6 +146,7 @@ class Organization(UUIDModel):
     is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
+    members_can_use_personal_api_keys = models.BooleanField(default=True)
     default_experiment_stats_method = models.CharField(
         max_length=20,
         choices=DefaultExperimentStatsMethod.choices,

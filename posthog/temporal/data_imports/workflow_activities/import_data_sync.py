@@ -125,21 +125,23 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
-            from posthog.temporal.data_imports.pipelines.stripe import stripe_source_v2
+            from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 
             stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
             account_id = model.pipeline.job_inputs.get("stripe_account_id", None)
             if not stripe_secret_key:
                 raise ValueError(f"Stripe secret key not found for job {model.id}")
 
-            source = stripe_source_v2(
+            source = stripe_source(
                 api_key=stripe_secret_key,
                 account_id=account_id,
                 endpoint=schema.name,
-                is_incremental=schema.is_incremental,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
                 db_incremental_field_earliest_value=processed_incremental_earliest_value
-                if schema.is_incremental
+                if schema.should_use_incremental_field
                 else None,
                 logger=logger,
             )
@@ -159,13 +161,27 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 hubspot_refresh_access_token,
             )
 
-            hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
-            refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
-            if not refresh_token:
-                raise ValueError(f"Hubspot refresh token not found for job {model.id}")
+            if "hubspot_integration_id" in model.pipeline.job_inputs.keys():
+                hubspot_integration_id = model.pipeline.job_inputs.get("hubspot_integration_id")
+                if not Integration.objects.filter(id=hubspot_integration_id, team_id=inputs.team_id).exists():
+                    raise Exception(f"Hubspot integration not found with id = {hubspot_integration_id}")
 
-            if not hubspot_access_code:
-                hubspot_access_code = hubspot_refresh_access_token(refresh_token)
+                integration = Integration.objects.get(id=hubspot_integration_id, team_id=inputs.team_id)
+
+                if not integration.access_token or not integration.refresh_token:
+                    raise ValueError(f"Hubspot refresh or access token not found for job {model.id}")
+
+                hubspot_access_code = integration.access_token
+                refresh_token = integration.refresh_token
+            else:
+                # TODO: convert all old-style hubspot sources to use the `Integration` model
+                hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
+                refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
+                if not refresh_token:
+                    raise ValueError(f"Hubspot refresh token not found for job {model.id}")
+
+                if not hubspot_access_code:
+                    hubspot_access_code = hubspot_refresh_access_token(refresh_token)
 
             source = hubspot(
                 api_key=hubspot_access_code,
@@ -207,7 +223,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         sslmode="prefer",
                         schema=pg_config.schema,
                         table_names=endpoints,
-                        is_incremental=schema.should_use_incremental_field,
+                        should_use_incremental_field=schema.should_use_incremental_field,
                         logger=logger,
                         incremental_field=schema.sync_type_config.get("incremental_field")
                         if schema.should_use_incremental_field
@@ -240,7 +256,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     sslmode="prefer",
                     schema=pg_config.schema,
                     table_names=endpoints,
-                    is_incremental=schema.should_use_incremental_field,
+                    should_use_incremental_field=schema.should_use_incremental_field,
                     logger=logger,
                     incremental_field=schema.sync_type_config.get("incremental_field")
                     if schema.should_use_incremental_field
@@ -284,7 +300,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         using_ssl=mysql_config.using_ssl,
                         schema=mysql_config.schema,
                         table_names=endpoints,
-                        is_incremental=schema.should_use_incremental_field,
+                        should_use_incremental_field=schema.should_use_incremental_field,
                         logger=logger,
                         incremental_field=schema.sync_type_config.get("incremental_field")
                         if schema.should_use_incremental_field
@@ -316,7 +332,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     using_ssl=mysql_config.using_ssl,
                     schema=mysql_config.schema,
                     table_names=endpoints,
-                    is_incremental=schema.should_use_incremental_field,
+                    should_use_incremental_field=schema.should_use_incremental_field,
                     logger=logger,
                     incremental_field=schema.sync_type_config.get("incremental_field")
                     if schema.should_use_incremental_field
@@ -338,6 +354,37 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     reset_pipeline=reset_pipeline,
                     shutdown_monitor=shutdown_monitor,
                 )
+
+        elif model.pipeline.source_type == ExternalDataSource.Type.MONGODB:
+            from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, mongo_source
+
+            mongo_config = MongoSourceConfig.from_dict(model.pipeline.job_inputs)
+
+            source = mongo_source(
+                connection_string=mongo_config.connection_string,
+                collection_names=endpoints,
+                logger=logger,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+                incremental_field=schema.sync_type_config.get("incremental_field")
+                if schema.should_use_incremental_field
+                else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.should_use_incremental_field
+                else None,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
 
         elif model.pipeline.source_type in [
             ExternalDataSource.Type.MSSQL,
@@ -361,7 +408,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         database=mssql_config.database,
                         schema=mssql_config.schema,
                         table_names=endpoints,
-                        is_incremental=schema.should_use_incremental_field,
+                        should_use_incremental_field=schema.should_use_incremental_field,
                         logger=logger,
                         incremental_field=schema.sync_type_config.get("incremental_field")
                         if schema.should_use_incremental_field
@@ -392,7 +439,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 database=mssql_config.database,
                 schema=mssql_config.schema,
                 table_names=endpoints,
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 logger=logger,
                 incremental_field=schema.sync_type_config.get("incremental_field")
                 if schema.should_use_incremental_field
@@ -435,7 +482,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 role=snow_config.role,
                 table_names=endpoints,
                 logger=logger,
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 incremental_field=schema.sync_type_config.get("incremental_field")
                 if schema.should_use_incremental_field
                 else None,
@@ -469,6 +516,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             if not salesforce_integration_id:
                 raise ValueError(f"Salesforce integration not found for job {model.id}")
 
+            if not Integration.objects.filter(id=salesforce_integration_id, team_id=inputs.team_id).exists():
+                raise Exception(f"Salesforce integration not found with id = {salesforce_integration_id}")
+
             integration = Integration.objects.get(id=salesforce_integration_id, team_id=inputs.team_id)
             salesforce_refresh_token = integration.refresh_token
 
@@ -491,7 +541,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 db_incremental_field_last_value=processed_incremental_last_value
                 if schema.should_use_incremental_field
                 else None,
@@ -517,7 +567,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 db_incremental_field_last_value=processed_incremental_last_value
                 if schema.should_use_incremental_field
                 else None,
@@ -542,7 +592,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 db_incremental_field_last_value=processed_incremental_last_value
                 if schema.should_use_incremental_field
                 else None,
@@ -589,6 +639,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 dataset_id=bq_config.dataset_id,
                 table_prefix=destination_table_prefix,
                 project_id=bq_config.project_id,
+                dataset_project_id=bq_config.dataset_project_id,
                 private_key=bq_config.private_key,
                 private_key_id=bq_config.private_key_id,
                 client_email=bq_config.client_email,
@@ -600,12 +651,13 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 source = bigquery_source(
                     dataset_id=bq_config.dataset_id,
                     project_id=bq_config.project_id,
+                    dataset_project_id=bq_config.dataset_project_id,
                     private_key=bq_config.private_key,
                     private_key_id=bq_config.private_key_id,
                     client_email=bq_config.client_email,
                     token_uri=bq_config.token_uri,
                     table_name=schema.name,
-                    is_incremental=schema.should_use_incremental_field,
+                    should_use_incremental_field=schema.should_use_incremental_field,
                     logger=logger,
                     bq_destination_table_id=destination_table,
                     incremental_field=schema.sync_type_config.get("incremental_field")
@@ -650,7 +702,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 endpoint=schema.name,
                 team_id=inputs.team_id,
                 job_id=inputs.run_id,
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 db_incremental_field_last_value=processed_incremental_last_value
                 if schema.should_use_incremental_field
                 else None,
@@ -668,15 +720,24 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         elif model.pipeline.source_type == ExternalDataSource.Type.GOOGLEADS:
             from posthog.temporal.data_imports.pipelines.google_ads import (
                 GoogleAdsServiceAccountSourceConfig,
+                GoogleAdsOAuthSourceConfig,
                 google_ads_source,
             )
 
-            config = GoogleAdsServiceAccountSourceConfig.from_dict(
-                {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
-            )
+            if "google_ads_integration_id" in model.pipeline.job_inputs.keys():
+                config: GoogleAdsServiceAccountSourceConfig | GoogleAdsOAuthSourceConfig = (
+                    GoogleAdsOAuthSourceConfig.from_dict(
+                        {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+                    )
+                )
+            else:
+                config = GoogleAdsServiceAccountSourceConfig.from_dict(
+                    {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+                )
             source = google_ads_source(
                 config,
-                is_incremental=schema.should_use_incremental_field,
+                team_id=inputs.team_id,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 incremental_field=schema.sync_type_config.get("incremental_field")
                 if schema.should_use_incremental_field
                 else None,
@@ -687,6 +748,42 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 if schema.should_use_incremental_field
                 else None,
             )
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+
+        elif model.pipeline.source_type == ExternalDataSource.Type.METAADS:
+            from posthog.temporal.data_imports.pipelines.meta_ads.source import (
+                MetaAdsSourceConfig,
+                meta_ads_source,
+            )
+
+            meta_ads_config = MetaAdsSourceConfig.from_dict(
+                {**model.pipeline.job_inputs, **{"resource_name": schema.name}}
+            )
+
+            source = meta_ads_source(
+                resource_name=schema.name,
+                config=meta_ads_config,
+                team_id=inputs.team_id,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                incremental_field=schema.sync_type_config.get("incremental_field")
+                if schema.should_use_incremental_field
+                else None,
+                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                if schema.should_use_incremental_field
+                else None,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+            )
+
             return _run(
                 job_inputs=job_inputs,
                 source=source,
@@ -708,7 +805,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             source = temporalio_source(
                 temporal_config,
                 TemporalIOResource(schema.name),
-                is_incremental=schema.should_use_incremental_field,
+                should_use_incremental_field=schema.should_use_incremental_field,
                 db_incremental_field_last_value=processed_incremental_last_value
                 if schema.should_use_incremental_field
                 else None,
@@ -733,6 +830,36 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             source = doit_source(
                 doit_config,
                 schema.name,
+                logger=logger,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
+            )
+
+            return _run(
+                job_inputs=job_inputs,
+                source=source,
+                logger=logger,
+                inputs=inputs,
+                schema=schema,
+                reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
+            )
+        elif model.pipeline.source_type == ExternalDataSource.Type.GOOGLESHEETS:
+            from posthog.temporal.data_imports.pipelines.google_sheets.source import (
+                GoogleSheetsServiceAccountSourceConfig,
+                google_sheets_source,
+            )
+
+            google_sheets_config = GoogleSheetsServiceAccountSourceConfig.from_dict(model.pipeline.job_inputs)
+            source = google_sheets_source(
+                google_sheets_config,
+                schema.name,
+                should_use_incremental_field=schema.should_use_incremental_field,
+                db_incremental_field_last_value=processed_incremental_last_value
+                if schema.should_use_incremental_field
+                else None,
             )
 
             return _run(
@@ -758,8 +885,6 @@ def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
 ):
-    pipeline = PipelineNonDLT(
-        source, logger, job_inputs.run_id, schema.should_use_incremental_field, reset_pipeline, shutdown_monitor
-    )
+    pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
     pipeline.run()
     del pipeline

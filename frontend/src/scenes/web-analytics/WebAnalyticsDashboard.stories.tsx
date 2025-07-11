@@ -1,6 +1,5 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -16,11 +15,13 @@ import retentionMock from './tiles/__mocks__/Retention.json'
 import { DeviceTab, SourceTab, webAnalyticsLogic } from './webAnalyticsLogic'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Web Analytics',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.webAnalytics(),
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -69,9 +70,6 @@ export function WebAnalyticsDashboard(): JSX.Element {
     const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
 
     useEffect(() => {
-        // Open the web analytics dashboard page
-        router.actions.push(urls.webAnalytics())
-
         // Set the source tab to referring domain
         setSourceTab(SourceTab.REFERRING_DOMAIN)
 

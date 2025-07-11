@@ -4,20 +4,19 @@ use app_context::AppContext;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::Config;
 use metrics_consts::{
-    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
-    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_DROPPED, UPDATES_FILTERED_BY_CACHE,
-    UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, UPDATE_PRODUCER_OFFSET,
-    V2_ISOLATED_DB_SELECTED, WORKER_BLOCKED,
+    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, DUPLICATES_IN_BATCH, EMPTY_EVENTS,
+    EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISOLATED_PROPDEFS_DB_SELECTED,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
+    UPDATES_SEEN, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use types::{Event, Update};
-use v2_batch_ingestion::process_batch_v2;
+use v2_batch_ingestion::process_batch;
 
 use ahash::AHashSet;
-use update_cache::Cache;
-
+use sqlx::PgPool;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{error, warn};
+use update_cache::Cache;
 
 use crate::{
     measuring_channel::{MeasuringReceiver, MeasuringSender},
@@ -32,9 +31,6 @@ pub mod metrics_consts;
 pub mod types;
 pub mod update_cache;
 pub mod v2_batch_ingestion;
-
-const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 2;
-const UPDATE_RETRY_DELAY_MS: u64 = 50;
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -93,108 +89,31 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // the new mirror deployment should point all Postgres writes
-        // at the new isolated "propdefs" DB instance in all envs.
+        // the new mirror deployment should point database writes
+        // at the new isolated propdefs instance in all envs.
         // THE ORIGINAL property-defs-rs deployment should NEVER DO THIS
-        let mut resolved_pool = &context.pool;
-        if config.enable_mirror {
-            // for safely, the original propdefs deploy will not set the
-            // DATABASE_PROPDEFS_URL and local defaults set it the same
-            // as DATABASE_URL (the std posthog Cloud DB) so only if
-            // this context var != None will it be enabled
-            if let Some(resolved) = &context.propdefs_pool {
-                metrics::counter!(
-                    V2_ISOLATED_DB_SELECTED,
-                    &[(String::from("processor"), String::from("v2"))]
-                )
-                .increment(1);
-                resolved_pool = resolved;
-            }
-        }
-
-        // conditionally enable new v2 batch write path. While the new write
-        // path is being tested and not the default, THIS IS INDEPENDENT of
-        // whether config.enable_mirror is set, or which deploy we're in
-        if config.enable_v2 {
-            // enrich batch group events with resolved group_type_indices
-            // before passing along to process_batch_v2. We can refactor this
-            // to make it less awkward soon.
-            let _unused = context
-                .resolve_group_types_indexes(&mut batch)
-                .await
-                .map_err(|e| {
-                    warn!(
-                        "Failed resolving group type indices for batch, got: {:?}",
-                        e
-                    )
-                });
-
-            process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
+        let resolved_pool: &PgPool = if context.propdefs_pool.is_some() {
+            metrics::counter!(ISOLATED_PROPDEFS_DB_SELECTED).increment(1);
+            context.propdefs_pool.as_ref().unwrap()
         } else {
-            process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
-        }
+            &context.pool
+        };
+
+        // enrich batch group events with resolved group_type_indices
+        // before passing along to process_batch. We can refactor this
+        // to make it less awkward soon.
+        let _unused = context
+            .resolve_group_types_indexes(&mut batch)
+            .await
+            .map_err(|e| {
+                warn!(
+                    "Failed resolving group type indices for batch, got: {:?}",
+                    e
+                )
+            });
+
+        process_batch(&config, cache.clone(), resolved_pool, batch).await;
     }
-}
-
-async fn process_batch_v1(
-    config: &Config,
-    cache: Arc<Cache>,
-    context: Arc<AppContext>,
-    mut batch: Vec<Update>,
-) {
-    // We split our update batch into chunks, one per transaction. We know each update touches
-    // exactly one row, so we can issue the chunks in parallel, and smaller batches issue faster,
-    // which helps us with inter-pod deadlocking and retries.
-    let chunk_size = batch.len() / config.max_concurrent_transactions;
-    let mut chunks = vec![Vec::with_capacity(chunk_size); config.max_concurrent_transactions];
-    for (i, update) in batch.drain(..).enumerate() {
-        chunks[i % config.max_concurrent_transactions].push(update);
-    }
-
-    metrics::gauge!(CHUNK_SIZE).set(chunk_size as f64);
-
-    let mut handles = Vec::new();
-    let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-    for mut chunk in chunks {
-        let m_context = context.clone();
-        let m_cache = cache.clone();
-        let handle = tokio::spawn(async move {
-            let mut tries: u64 = 0;
-            // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
-            // if we still fail, we drop the batch and clear it's content from the cached update set, because
-            // we assume everything in it will be seen again.
-            while let Err(e) = m_context.issue(&mut chunk).await {
-                tries += 1;
-                if tries > BATCH_UPDATE_MAX_ATTEMPTS {
-                    let chunk_len = chunk.len() as u64;
-                    metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
-                    metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
-                        .increment(chunk_len);
-                    error!(
-                        "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
-                        chunk_len, e,
-                    );
-                    // We clear any updates that were in this batch from the cache, so that
-                    // if we see them again we'll try again to issue them.
-                    chunk.iter().for_each(|u| m_cache.remove(u));
-                    return;
-                }
-
-                let jitter = rand::random::<u64>() % 50;
-                let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
-                    .increment(1);
-                warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
-                tokio::time::sleep(Duration::from_millis(delay)).await;
-            }
-        });
-        handles.push(handle);
-    }
-
-    for handle in handles {
-        handle.await.expect("Issue task failed, exiting");
-    }
-    issue_time.fin();
 }
 
 pub async fn update_producer_loop(

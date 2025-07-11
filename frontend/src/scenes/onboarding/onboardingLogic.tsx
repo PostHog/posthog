@@ -12,29 +12,13 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, ProductKey, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, ProductKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
     onCompleteOnboarding?: (key: ProductKey) => void
-}
-
-export enum OnboardingStepKey {
-    INSTALL = 'install',
-    LINK_DATA = 'link_data',
-    PLANS = 'plans',
-    VERIFY = 'verify',
-    PRODUCT_CONFIGURATION = 'configure',
-    REVERSE_PROXY = 'proxy',
-    INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
-    SESSION_REPLAY = 'session_replay',
-    AUTHORIZED_DOMAINS = 'authorized_domains',
-    SOURCE_MAPS = 'source_maps',
-    ALERTS = 'alerts',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]

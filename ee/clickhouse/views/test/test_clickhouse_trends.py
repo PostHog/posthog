@@ -125,6 +125,7 @@ def test_includes_only_intervals_within_range(client: Client):
                     "labels": ["5-Sep – 11-Sep", "12-Sep – 18-Sep", "19-Sep – 25-Sep"],
                     "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -195,6 +196,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -236,6 +238,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -289,6 +292,7 @@ def test_can_specify_number_of_smoothing_intervals(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -361,6 +365,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }
@@ -402,6 +407,7 @@ def test_smoothing_intervals_copes_with_null_values(client: Client):
                     "labels": ["1-Sep-2021", "2-Sep-2021", "3-Sep-2021"],
                     "days": ["2021-09-01", "2021-09-02", "2021-09-03"],
                     "filter": ANY,
+                    "order": 0,
                 }
             ],
         }

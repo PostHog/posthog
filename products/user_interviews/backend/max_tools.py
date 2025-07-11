@@ -20,7 +20,7 @@ class AnalyzeUserInterviewsTool(MaxTool):
 
     def _run_impl(self, analysis_angle: str) -> tuple[str, Any]:
         # Get all interviews for the current team
-        interviews = UserInterview.objects.filter(team_id=self._team_id).order_by("-created_at")
+        interviews = UserInterview.objects.filter(team=self._team).order_by("-created_at")
 
         if not interviews:
             return "No user interviews found to analyze.", None

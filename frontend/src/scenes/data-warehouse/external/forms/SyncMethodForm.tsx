@@ -26,6 +26,28 @@ const getIncrementalSyncSupported = (
     }
 }
 
+const getAppendOnlySyncSupported = (
+    schema: ExternalDataSourceSyncSchema
+): { disabled: true; disabledReason: string } | { disabled: false } => {
+    if (!schema.append_available) {
+        return {
+            disabled: true,
+            disabledReason: "Append only replication isn't supported on this table",
+        }
+    }
+
+    if (schema.incremental_fields.length === 0) {
+        return {
+            disabled: true,
+            disabledReason: 'No incremental fields found on table',
+        }
+    }
+
+    return {
+        disabled: false,
+    }
+}
+
 interface SyncMethodFormProps {
     schema: ExternalDataSourceSyncSchema
     onClose: () => void
@@ -52,15 +74,16 @@ const getSaveDisabledReason = (
 
 export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
+    const appendSyncSupported = getAppendOnlySyncSupported(schema)
 
     const [radioValue, setRadioValue] = useState(
-        schema.sync_type ?? (incrementalSyncSupported ? 'incremental' : undefined)
+        schema.sync_type ?? (!incrementalSyncSupported.disabled ? 'incremental' : undefined)
     )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
     const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
 
     useEffect(() => {
-        setRadioValue(schema.sync_type ?? (incrementalSyncSupported ? 'incremental' : undefined))
+        setRadioValue(schema.sync_type ?? (!incrementalSyncSupported.disabled ? 'incremental' : undefined))
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
     }, [schema.table])
@@ -91,31 +114,32 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                     You should pick a field that increments or updates each time the row is updated,
                                     such as a <code>updated_at</code> timestamp.
                                 </p>
-                                <LemonSelect
-                                    value={incrementalFieldValue}
-                                    onChange={(newValue) => setIncrementalFieldValue(newValue)}
-                                    options={
-                                        schema.incremental_fields.map((n) => ({
-                                            value: n.field,
-                                            label: (
-                                                <>
-                                                    <span className="leading-5">{n.label}</span>
-                                                    <LemonTag className="ml-2" type="success">
-                                                        {n.type}
-                                                    </LemonTag>
-                                                </>
-                                            ),
-                                        })) ?? []
-                                    }
-                                    disabledReason={incrementalSyncSupported.disabled ? '' : undefined}
-                                />
+                                {!incrementalSyncSupported.disabled && (
+                                    <LemonSelect
+                                        value={incrementalFieldValue}
+                                        onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                        options={
+                                            schema.incremental_fields.map((n) => ({
+                                                value: n.field,
+                                                label: (
+                                                    <>
+                                                        <span className="leading-5">{n.label}</span>
+                                                        <LemonTag className="ml-2" type="success">
+                                                            {n.type}
+                                                        </LemonTag>
+                                                    </>
+                                                ),
+                                            })) ?? []
+                                        }
+                                    />
+                                )}
                             </div>
                         ),
                     },
                     {
                         value: 'append',
                         disabledReason:
-                            (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
+                            (appendSyncSupported.disabled && appendSyncSupported.disabledReason) || undefined,
                         label: (
                             <div className="mb-4 font-normal">
                                 <div className="items-center flex leading-[normal] overflow-hidden mb-1">
@@ -133,24 +157,25 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                     You should pick a field that doesn't change each time the row is updated, such as a{' '}
                                     <code>created_at</code> timestamp.
                                 </p>
-                                <LemonSelect
-                                    value={appendFieldValue}
-                                    onChange={(newValue) => setAppendFieldValue(newValue)}
-                                    options={
-                                        schema.incremental_fields.map((n) => ({
-                                            value: n.field,
-                                            label: (
-                                                <>
-                                                    <span className="leading-5">{n.label}</span>
-                                                    <LemonTag className="ml-2" type="success">
-                                                        {n.type}
-                                                    </LemonTag>
-                                                </>
-                                            ),
-                                        })) ?? []
-                                    }
-                                    disabledReason={incrementalSyncSupported.disabled ? '' : undefined}
-                                />
+                                {!appendSyncSupported.disabled && (
+                                    <LemonSelect
+                                        value={appendFieldValue}
+                                        onChange={(newValue) => setAppendFieldValue(newValue)}
+                                        options={
+                                            schema.incremental_fields.map((n) => ({
+                                                value: n.field,
+                                                label: (
+                                                    <>
+                                                        <span className="leading-5">{n.label}</span>
+                                                        <LemonTag className="ml-2" type="success">
+                                                            {n.type}
+                                                        </LemonTag>
+                                                    </>
+                                                ),
+                                            })) ?? []
+                                        }
+                                    />
+                                )}
                             </div>
                         ),
                     },

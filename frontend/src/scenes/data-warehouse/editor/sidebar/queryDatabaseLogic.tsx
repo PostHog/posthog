@@ -51,7 +51,7 @@ const isManagedViewTable = (
     return 'type' in table && table.type === 'managed_view'
 }
 
-const isJoined = (field: DatabaseSchemaField): boolean => {
+export const isJoined = (field: DatabaseSchemaField): boolean => {
     return field.type === 'view' || field.type === 'lazy_table'
 }
 
@@ -75,6 +75,8 @@ const createColumnNode = (tableName: string, field: DatabaseSchemaField, isSearc
     record: {
         type: 'column',
         columnName: field.name,
+        field,
+        table: tableName,
     },
 })
 
@@ -199,16 +201,34 @@ const createTopLevelFolderNode = (
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
-): TreeDataItem => ({
-    id: isSearch ? `search-${type}` : type,
-    name: type === 'sources' ? 'Sources' : 'Views',
-    type: 'node',
-    icon: icon,
-    record: {
-        type,
-    },
-    children,
-})
+): TreeDataItem => {
+    let finalChildren = children
+
+    // Add empty folder child if views folder is empty
+    if (type === 'views' && children.length === 0) {
+        finalChildren = [
+            {
+                id: `${isSearch ? 'search-' : ''}views-folder-empty/`,
+                name: 'Empty folder',
+                type: 'empty-folder',
+                record: {
+                    type: 'empty-folder',
+                },
+            },
+        ]
+    }
+
+    return {
+        id: isSearch ? `search-${type}` : type,
+        name: type === 'sources' ? 'Sources' : 'Views',
+        type: 'node',
+        icon: icon,
+        record: {
+            type,
+        },
+        children: finalChildren,
+    }
+}
 
 export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
@@ -223,6 +243,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         clearSearch: true,
         selectSourceTable: (tableName: string) => ({ tableName }),
+        setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
     }),
     connect(() => ({
         values: [
@@ -283,8 +304,21 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 clearSearch: () => '',
             },
         ],
+        syncMoreNoticeDismissed: [
+            false,
+            { persist: true },
+            {
+                setSyncMoreNoticeDismissed: (_, { dismissed }) => dismissed,
+            },
+        ],
     }),
     selectors(({ actions }) => ({
+        hasNonPosthogSources: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
+                return dataWarehouseTables.length > 0
+            },
+        ],
         relevantPosthogTables: [
             (s) => [s.posthogTables, s.searchTerm],
             (
@@ -520,22 +554,33 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 ]
             },
         ],
+        joinsByFieldName: [
+            (s) => [s.joins],
+            (joins: DataWarehouseViewLink[]): Record<string, DataWarehouseViewLink> => {
+                return joins.reduce((acc, join) => {
+                    if (join.field_name && join.source_table_name) {
+                        acc[`${join.source_table_name}.${join.field_name}`] = join
+                    }
+                    return acc
+                }, {} as Record<string, DataWarehouseViewLink>)
+            },
+        ],
         sidebarOverlayTreeItems: [
             (s) => [
                 s.selectedSchema,
-                s.joins,
                 s.posthogTablesMap,
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
                 s.viewsMapById,
+                s.joinsByFieldName,
             ],
             (
                 selectedSchema,
-                joins,
                 posthogTablesMap,
                 dataWarehouseTablesMap,
                 dataWarehouseSavedQueryMapById,
-                viewsMapById
+                viewsMapById,
+                joinsByFieldName
             ): TreeItem[] => {
                 if (selectedSchema === null) {
                     return []
@@ -556,28 +601,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return []
                 }
 
-                const relevantJoins = joins.filter((join) => join.source_table_name === table!.name)
-                const joinsByFieldName = relevantJoins.reduce((acc, join) => {
-                    if (join.field_name) {
-                        acc[join.field_name] = join
-                    }
-                    return acc
-                }, {} as Record<string, DataWarehouseViewLink>)
-
-                const menuItems = (field: DatabaseSchemaField): LemonMenuItem[] => {
-                    return isJoined(field) && joinsByFieldName[field.name]
+                const menuItems = (field: DatabaseSchemaField, tableName: string): LemonMenuItem[] => {
+                    return isJoined(field) && joinsByFieldName[`${tableName}.${field.name}`]
                         ? [
                               {
                                   label: 'Edit',
                                   onClick: () => {
-                                      actions.toggleEditJoinModal(joinsByFieldName[field.name])
+                                      actions.toggleEditJoinModal(joinsByFieldName[`${tableName}.${field.name}`])
                                   },
                               },
                               {
                                   label: 'Delete join',
                                   status: 'danger',
                                   onClick: () => {
-                                      const join = joinsByFieldName[field.name]
+                                      const join = joinsByFieldName[`${tableName}.${field.name}`]
                                       void deleteWithUndo({
                                           endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
                                           object: {
@@ -597,19 +634,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         : []
                 }
 
-                if ('fields' in table) {
+                if ('fields' in table && table !== null) {
                     return Object.values(table.fields).map((field) => ({
                         name: field.name,
                         type: field.type,
-                        menuItems: menuItems(field),
+                        menuItems: menuItems(field, table?.name ?? ''), // table cant be null, but the typechecker is confused
                     }))
                 }
 
-                if ('columns' in table) {
+                if ('columns' in table && table !== null) {
                     return Object.values(table.columns).map((column) => ({
                         name: column.name,
                         type: column.type,
-                        menuItems: menuItems(column),
+                        menuItems: menuItems(column, table?.name ?? ''), // table cant be null, but the typechecker is confused
                     }))
                 }
                 return []

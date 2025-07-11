@@ -1,9 +1,9 @@
 use crate::api::errors::FlagError;
 use chrono::{DateTime, Utc};
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use md5;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebJsSource {
@@ -46,7 +46,7 @@ struct SiteAppRow {
 /// # Returns
 /// Vector of WebJsUrl for enabled site apps
 pub async fn get_decide_site_apps(
-    db: Arc<dyn DatabaseClient + Send + Sync>,
+    db: PostgresReader,
     team_id: i32,
 ) -> Result<Vec<WebJsUrl>, FlagError> {
     let mut conn = db.get_connection().await?;
@@ -89,11 +89,13 @@ pub async fn get_decide_site_apps(
 
 #[cfg(test)]
 mod tests {
+    use common_database::PostgresWriter;
+
     use super::*;
     use crate::utils::test_utils::{insert_new_team_in_pg, setup_pg_reader_client};
 
     async fn insert_plugin_in_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresWriter,
         organization_id: &str,
         name: &str,
     ) -> Result<i32, sqlx::Error> {
@@ -119,7 +121,7 @@ mod tests {
     }
 
     async fn insert_plugin_source_file_in_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresWriter,
         plugin_id: i32,
         filename: &str,
         status: &str,
@@ -141,7 +143,7 @@ mod tests {
     }
 
     async fn insert_posthog_pluginconfig_in_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
+        client: PostgresWriter,
         plugin_id: i32,
         team_id: i32,
         enabled: bool,

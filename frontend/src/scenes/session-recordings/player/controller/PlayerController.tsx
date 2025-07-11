@@ -1,8 +1,7 @@
-import { IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconComment, IconFullScreen } from 'lib/lemon-ui/icons'
+import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -13,6 +12,10 @@ import { SessionPlayerState } from '~/types'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -61,37 +64,40 @@ function FullScreen(): JSX.Element {
     )
 }
 
-function AnnotateRecording(): JSX.Element {
-    const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
-    const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+function CinemaMode(): JSX.Element {
+    const { isZenMode, sidebarOpen } = useValues(playerSettingsLogic)
+    const { setIsZenMode, setSidebarOpen } = useActions(playerSettingsLogic)
+
+    const handleCinemaMode = (): void => {
+        setIsZenMode(!isZenMode)
+        if (sidebarOpen) {
+            setSidebarOpen(false)
+        }
+    }
 
     return (
-        <LemonButton
-            size="xsmall"
-            onClick={() => setIsCommenting(!isCommenting)}
-            tooltip={
-                isCommenting ? (
+        <>
+            {isZenMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
+            <LemonButton
+                size="xsmall"
+                onClick={handleCinemaMode}
+                tooltip={
                     <>
-                        Stop commenting <KeyboardShortcut c />
+                        <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
                     </>
-                ) : (
-                    <>
-                        Comment on this recording <KeyboardShortcut c />
-                    </>
-                )
-            }
-            data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
-            active={isCommenting}
-            icon={<IconComment className="text-xl" />}
-        >
-            Comment
-        </LemonButton>
+                }
+                status={isZenMode ? 'danger' : 'default'}
+                icon={<IconVideoCamera className="text-2xl" />}
+                data-attr={isZenMode ? 'exit-zen-mode' : 'zen-mode'}
+            />
+        </>
     )
 }
 
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
     const { isZenMode } = useValues(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -111,12 +117,11 @@ export function PlayerController(): JSX.Element {
                 <div className="flex justify-end items-center">
                     {!isZenMode && (
                         <>
-                            <FlaggedFeature flag="annotations-recording-scope" match={true}>
-                                <AnnotateRecording />
-                            </FlaggedFeature>
+                            <CommentOnRecordingButton />
                             {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
                         </>
                     )}
+                    {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaMode />}
                     <FullScreen />
                 </div>
             </div>

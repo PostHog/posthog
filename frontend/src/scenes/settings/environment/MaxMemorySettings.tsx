@@ -26,7 +26,7 @@ export function MaxMemorySettings(): JSX.Element {
                 <LemonField name="text" label="Max’s memory">
                     <LemonTextArea
                         id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
-                        placeholder={`What's should Max know about ${
+                        placeholder={`What should Max know about ${
                             currentProject ? currentProject.name : 'your company or this product'
                         }?`}
                         maxLength={10000}

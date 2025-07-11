@@ -156,7 +156,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 await api.dataWarehouseSavedQueries.run(viewId)
                 lemonToast.success('Materialization started')
                 actions.loadDataWarehouseSavedQueries()
-            } catch (error) {
+            } catch {
                 lemonToast.error(`Failed to run materialization`)
             }
         },
@@ -165,7 +165,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 await api.dataWarehouseSavedQueries.cancel(viewId)
                 lemonToast.success('Materialization cancelled')
                 actions.loadDataWarehouseSavedQueries()
-            } catch (error) {
+            } catch {
                 lemonToast.error(`Failed to cancel materialization`)
             }
         },
@@ -175,7 +175,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 lemonToast.success('Materialization reverted')
                 actions.loadDataWarehouseSavedQueries()
                 actions.loadDatabase()
-            } catch (error) {
+            } catch {
                 lemonToast.error(`Failed to revert materialization`)
             }
         },
@@ -193,6 +193,18 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 return (
                     dataWarehouseSavedQueries?.reduce((acc, cur) => {
                         acc[cur.id] = cur
+                        return acc
+                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                )
+            },
+        ],
+        // id hyphens are removed. Used for hex'd id paths in DAG
+        dataWarehouseSavedQueryMapByIdStringMap: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (dataWarehouseSavedQueries) => {
+                return (
+                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                        acc[cur.id.replace(/-/g, '')] = cur
                         return acc
                     }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
                 )

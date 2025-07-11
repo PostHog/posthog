@@ -6,6 +6,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 use crate::{
     error::{Error, FrameError, JsResolveErr, UnhandledError},
     frames::Frame,
+    langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
@@ -21,11 +22,12 @@ pub struct RawJSFrame {
     pub location: Option<FrameLocation>, // Sometimes we get frames with no location information. We treat these as already resolved, or unminified
     #[serde(rename = "filename")]
     pub source_url: Option<String>, // The url the the script the frame was in was fetched from
-    pub in_app: bool,
     #[serde(rename = "function")]
     pub fn_name: String,
     #[serde(alias = "chunkId", skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
+    #[serde(flatten)]
+    pub meta: CommonFrameMetadata,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
@@ -178,7 +180,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
 
         let in_app = source
             .map(|s| !s.contains("node_modules"))
-            .unwrap_or(raw_frame.in_app);
+            .unwrap_or(raw_frame.meta.in_app);
 
         let mut res = Self {
             raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
@@ -197,6 +199,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             junk_drawer: None,
             context: get_context(&token),
             release: None,
+            synthetic: raw_frame.meta.synthetic,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -231,7 +234,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             line: Some(location.line),
             column: Some(location.column),
             source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
-            in_app: raw_frame.in_app,
+            in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
             resolved: !was_minified,
@@ -242,6 +245,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             junk_drawer: None,
             context: None,
             release: None,
+            synthetic: raw_frame.meta.synthetic,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -263,7 +267,7 @@ impl From<&RawJSFrame> for Frame {
             .map(|s| s == "<anonymous>")
             .unwrap_or_default();
 
-        let in_app = raw_frame.in_app && !is_anon;
+        let in_app = raw_frame.meta.in_app && !is_anon;
 
         let mut res = Self {
             raw_id: String::new(),
@@ -279,6 +283,7 @@ impl From<&RawJSFrame> for Frame {
             junk_drawer: None,
             context: None,
             release: None,
+            synthetic: raw_frame.meta.synthetic,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -294,9 +299,9 @@ mod test {
         let frame = super::RawJSFrame {
             location: None,
             source_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
-            in_app: true,
             fn_name: "main".to_string(),
             chunk_id: None,
+            meta: Default::default(),
         };
 
         assert_eq!(
@@ -307,9 +312,9 @@ mod test {
         let frame = super::RawJSFrame {
             location: None,
             source_url: Some("http://example.com/path/to/file.js".to_string()),
-            in_app: true,
             fn_name: "main".to_string(),
             chunk_id: None,
+            meta: Default::default(),
         };
 
         assert_eq!(

@@ -2,7 +2,6 @@ import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reduc
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -241,18 +240,12 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
 
             try {
                 actions.hideNewDashboardModal()
-                const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Dashboards' })
-                if (folder === null) {
-                    actions.showNewDashboardModal()
-                    actions.setIsLoading(false)
-                    return
-                }
                 const result: DashboardType = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     {
                         template: dashboardJSON,
                         creation_context: creationContext,
-                        ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        _create_in_folder: 'Unfiled/Dashboards',
                     }
                 )
 

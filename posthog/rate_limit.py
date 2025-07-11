@@ -280,6 +280,21 @@ class UserOrEmailRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class SignupIPThrottle(SimpleRateThrottle):
+    """
+    Rate limit signups by IP address to avoid a single IP address from creating too many accounts.
+    """
+
+    scope = "signup_ip"
+    rate = "5/day"
+
+    def get_cache_key(self, request, view):
+        from posthog.utils import get_ip_address
+
+        ip = get_ip_address(request)
+        return self.cache_format % {"scope": self.scope, "ident": ip}
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -394,13 +409,13 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
 
 class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
     # Throttle class that is applied for authenticating the setup wizard
-    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    # This is more aggressive than other throttles because the wizard makes LLM calls
     scope = "wizard_authentication"
     rate = "20/day"
 
 
 class SetupWizardQueryRateThrottle(SimpleRateThrottle):
-    rate = "20/day"
+    rate = "20/day"  # Since the authentication hash is valid for a short period, this is effectively per-user
 
     # Throttle per wizard hash
     def get_cache_key(self, request, view):

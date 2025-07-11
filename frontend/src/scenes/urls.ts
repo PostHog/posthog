@@ -1,23 +1,22 @@
 import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { CampaignTab } from 'products/messaging/frontend/Campaigns/campaignSceneLogic'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
 import {
     ActivityTab,
     AnnotationType,
-    ExternalDataSourceType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
     SDKKey,
+    OnboardingStepKey,
 } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
-import type { OnboardingStepKey } from './onboarding/onboardingLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 /**
  * To add a new URL to the front end:
@@ -146,12 +145,12 @@ export const urls = {
                 // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
-                    (acc, [key, val]) => ({
-                        ...acc,
-                        // just sends the key and not a value
-                        // e.g., &showInspector not &showInspector=true
-                        [key]: val === true ? null : val,
-                    }),
+                    (acc, [key, val]) =>
+                        Object.assign(acc, {
+                            // just sends the key and not a value
+                            // e.g., &showInspector not &showInspector=true
+                            [key]: val === true ? null : val,
+                        }),
                     {}
                 )
         ).url,
@@ -160,8 +159,6 @@ export const urls = {
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     debugHog: (): string => '/debug/hog',
-    feedback: (): string => '/feedback',
-    issues: (): string => '/issues',
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
@@ -170,18 +167,8 @@ export const urls = {
     link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
-    messagingBroadcasts: (): string => '/messaging/broadcasts',
-    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-    messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
-    messagingCampaigns: (): string => '/messaging/campaigns',
-    messagingCampaignNew: (): string => '/messaging/campaigns/new',
-    messagingCampaign: (id: string, tab?: CampaignTab): string => `/messaging/campaigns/${id}${tab ? `/${tab}` : ''}`,
-    messagingLibrary: (): string => '/messaging/library',
-    messagingLibraryTemplate: (id: string): string => `/messaging/library/templates/${id}`,
-    messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
-    messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
-    messagingSenders: (): string => '/messaging/senders',
     startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    oauthAuthorize: (): string => '/oauth/authorize',
     dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
     dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
     dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,

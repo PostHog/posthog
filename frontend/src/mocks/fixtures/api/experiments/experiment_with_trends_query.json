@@ -113,9 +113,6 @@
         }
     ],
     "metrics_secondary": [],
-    "stats_config": {
-        "version": 2
-    },
     "conclusion": null,
     "conclusion_comment": null
 }

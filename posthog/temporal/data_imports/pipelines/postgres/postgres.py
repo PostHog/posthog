@@ -61,7 +61,24 @@ def get_schemas(config: PostgreSQLSourceConfig) -> dict[str, list[tuple[str, str
 
         with connection.cursor() as cursor:
             cursor.execute(
-                "SELECT table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
+                """
+                SELECT * FROM (
+                    SELECT table_name, column_name, data_type FROM information_schema.columns
+                    WHERE table_schema = %(schema)s
+                    UNION ALL
+                    SELECT
+                        c.relname AS table_name,
+                        a.attname AS column_name,
+                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type
+                    FROM pg_class c
+                    JOIN pg_namespace n ON c.relnamespace = n.oid
+                    JOIN pg_attribute a ON a.attrelid = c.oid
+                    WHERE c.relkind = 'm'  -- materialized view
+                    AND n.nspname = %(schema)s
+                    AND a.attnum > 0
+                    AND NOT a.attisdropped
+                ) t
+                ORDER BY table_name ASC""",
                 {"schema": config.schema},
             )
             result = cursor.fetchall()
@@ -115,7 +132,7 @@ class RangeAsStringLoader(Loader):
 def _build_query(
     schema: str,
     table_name: str,
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
@@ -123,9 +140,9 @@ def _build_query(
 ) -> sql.Composed:
     query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
 
-    if not is_incremental:
+    if not should_use_incremental_field:
         if add_limit:
-            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+            query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
             return sql.SQL(query_with_limit).format()
 
         return query
@@ -136,9 +153,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = sql.SQL(
-        "SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value} ORDER BY {incremental_field} ASC"
-    ).format(
+    query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} >= {last_value}").format(
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
         incremental_field=sql.Identifier(incremental_field),
@@ -146,10 +161,11 @@ def _build_query(
     )
 
     if add_limit:
-        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+        query_with_limit = cast(LiteralString, f"{query.as_string()} ORDER BY RANDOM() LIMIT 100")
         return sql.SQL(query_with_limit).format()
-
-    return query
+    else:
+        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[str] | None:
@@ -271,7 +287,9 @@ def _get_rows_to_sync(cursor: psycopg.Cursor, inner_query: sql.Composed, logger:
         return 0
 
 
-def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> PartitionSettings | None:
+def _get_partition_settings(
+    cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> PartitionSettings | None:
     query = sql.SQL("""
         SELECT
             CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
@@ -290,11 +308,13 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
         raise
     except Exception as e:
         capture_exception(e)
+        logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
 
     result = cursor.fetchone()
 
     if result is None or len(result) == 0 or result[0] is None:
+        logger.debug(f"_get_partition_settings: query result is None, returning None")
         return None
 
     partition_size = int(result[0])
@@ -302,8 +322,10 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
     partition_count = math.floor(total_rows / partition_size)
 
     if partition_count == 0:
+        logger.debug(f"_get_partition_settings: partition_count=1, partition_size={partition_size}")
         return PartitionSettings(partition_count=1, partition_size=partition_size)
 
+    logger.debug(f"_get_partition_settings: partition_count={partition_count}, partition_size={partition_size}")
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
@@ -385,18 +407,55 @@ class PostgreSQLColumn(Column):
 
 
 def _get_table(cursor: psycopg.Cursor, schema: str, table_name: str) -> Table[PostgreSQLColumn]:
-    query = sql.SQL("""
-        SELECT
-            column_name,
-            data_type,
-            is_nullable,
-            numeric_precision,
-            numeric_scale
-        FROM
-            information_schema.columns
-        WHERE
-            table_schema = {schema}
-            AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    is_mat_view_query = sql.SQL(
+        "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
+    ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    is_mat_view_res = cursor.execute(is_mat_view_query).fetchone()
+
+    if is_mat_view_res is not None and is_mat_view_res[0] is True:
+        # Table is a materialised view, column info doesn't exist in information_schema.columns
+        query = sql.SQL("""
+            SELECT
+                a.attname AS column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                NOT a.attnotnull AS is_nullable,
+                CASE
+                    WHEN t.typcategory = 'N' THEN
+                        CASE
+                            WHEN a.atttypmod = -1 THEN NULL
+                            ELSE ((a.atttypmod - 4) >> 16) & 65535
+                        END
+                    ELSE NULL
+                END AS numeric_precision,
+                CASE
+                    WHEN t.typcategory = 'N' THEN
+                        CASE
+                            WHEN a.atttypmod = -1 THEN NULL
+                            ELSE (a.atttypmod - 4) & 65535
+                        END
+                    ELSE NULL
+                END AS numeric_scale
+            FROM pg_attribute a
+            JOIN pg_class c ON a.attrelid = c.oid
+            JOIN pg_namespace n ON c.relnamespace = n.oid
+            JOIN pg_type t ON a.atttypid = t.oid
+            WHERE c.relname = {table}
+            AND n.nspname = {schema}
+            AND a.attnum > 0
+            AND NOT a.attisdropped""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+    else:
+        query = sql.SQL("""
+            SELECT
+                column_name,
+                data_type,
+                is_nullable,
+                numeric_precision,
+                numeric_scale
+            FROM
+                information_schema.columns
+            WHERE
+                table_schema = {schema}
+                AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
 
     cursor.execute(query)
 
@@ -436,7 +495,7 @@ def postgres_source(
     sslmode: str,
     schema: str,
     table_names: list[str],
-    is_incremental: bool,
+    should_use_incremental_field: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
     team_id: Optional[int] = None,
@@ -463,7 +522,7 @@ def postgres_source(
             inner_query_with_limit = _build_query(
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -473,7 +532,7 @@ def postgres_source(
             inner_query_without_limit = _build_query(
                 schema,
                 table_name,
-                is_incremental,
+                should_use_incremental_field,
                 incremental_field,
                 incremental_field_type,
                 db_incremental_field_last_value,
@@ -488,7 +547,11 @@ def postgres_source(
                 table = _get_table(cursor, schema, table_name)
                 chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                 rows_to_sync = _get_rows_to_sync(cursor, inner_query_without_limit, logger)
-                partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
+                partition_settings = (
+                    _get_partition_settings(cursor, schema, table_name, logger)
+                    if should_use_incremental_field
+                    else None
+                )
                 has_duplicate_primary_keys = False
 
                 # Fallback on checking for an `id` field on the table
@@ -496,7 +559,7 @@ def postgres_source(
                     primary_keys = ["id"]
                     has_duplicate_primary_keys = _has_duplicate_primary_keys(cursor, schema, table_name, primary_keys)
             except psycopg.errors.QueryCanceled:
-                if is_incremental:
+                if should_use_incremental_field:
                     raise QueryTimeoutException(
                         f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
                     )
@@ -533,7 +596,7 @@ def postgres_source(
                 query = _build_query(
                     schema,
                     table_name,
-                    is_incremental,
+                    should_use_incremental_field,
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,

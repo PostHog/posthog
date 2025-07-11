@@ -230,6 +230,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 types: string[][]
             }
         ) => ({ view }),
+        setUpstreamViewMode: (mode: 'table' | 'graph') => ({ mode }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -405,6 +406,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             {
                 setQueryInput: () => null,
                 fixErrorsFailure: (_, { error }) => error,
+            },
+        ],
+        upstreamViewMode: [
+            'table' as 'table' | 'graph',
+            {
+                setUpstreamViewMode: (_: 'table' | 'graph', { mode }: { mode: 'table' | 'graph' }) => mode,
             },
         ],
     })),
@@ -932,7 +939,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 query: queryToSave,
             })
 
-            const types = logic.values.response?.types ?? []
+            const response = logic.values.response
+            const types = response && 'types' in response ? response.types ?? [] : []
             try {
                 await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
                     name,
@@ -953,7 +961,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         lifecycle: 'create',
                     })
                 }
-            } catch (e) {
+            } catch {
                 lemonToast.error('Failed to save view')
             }
         },

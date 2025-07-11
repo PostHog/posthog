@@ -45,7 +45,6 @@
         "webpack-cli": "^5.1.4"
     },
     "name": "@posthog/storybook",
-    "peerDependencies": {},
     "scripts": {
         "build:products": "pnpm --filter=@posthog/frontend build:products",
         "build": "pnpm build:products && DEBUG=0 storybook build -o dist",
@@ -55,5 +54,8 @@
         "test:visual:debug": "pnpm build:products && PWDEBUG=1 NODE_OPTIONS=--max-old-space-size=16384 test-storybook --browsers chromium webkit --no-index-json",
         "test:visual:update": "pnpm build:products && cd ../.. && rm -rf frontend/__snapshots__/__failures__/ && docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual:update:docker --url http://host.docker.internal:6006",
         "test:visual:update:docker": "pnpm build:products && NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
+    },
+    "devDependencies": {
+        "@storybook/testing-library": "^0.2.2"
     }
 }

@@ -1,6 +1,7 @@
 from typing import cast
 
 import pydantic
+import structlog
 from django.conf import settings
 from django.http import StreamingHttpResponse
 from rest_framework import serializers, status
@@ -13,6 +14,8 @@ from rest_framework.viewsets import GenericViewSet
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.assistant import Assistant
 from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.utils.aio import async_to_sync
+from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -22,23 +25,33 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.schema import HumanMessage
 from posthog.utils import get_instance_region
 
+logger = structlog.get_logger(__name__)
+
 
 class MessageSerializer(serializers.Serializer):
-    content = serializers.CharField(required=True, max_length=40000)  ## roughly 10k tokens
+    content = serializers.CharField(
+        required=True,
+        allow_null=True,  # Null content means we're continuing previous generation
+        max_length=40000,  # Roughly 10k tokens
+    )
     conversation = serializers.UUIDField(required=False)
     contextual_tools = serializers.DictField(required=False, child=serializers.JSONField())
-    trace_id = serializers.UUIDField(required=True)
     ui_context = serializers.JSONField(required=False)
+    trace_id = serializers.UUIDField(required=True)
 
     def validate(self, data):
-        try:
-            message_data = {"content": data["content"]}
-            if "ui_context" in data:
-                message_data["ui_context"] = data["ui_context"]
-            message = HumanMessage.model_validate(message_data)
+        if data["content"] is not None:
+            try:
+                message = HumanMessage.model_validate(
+                    {"content": data["content"], "ui_context": data.get("ui_context")}
+                )
+            except pydantic.ValidationError:
+                raise serializers.ValidationError("Invalid message content.")
             data["message"] = message
-        except pydantic.ValidationError:
-            raise serializers.ValidationError("Invalid message content.")
+        else:
+            # NOTE: If content is empty, it means we're continuing generation with only the contextual_tools potentially different
+            # Because we intentionally don't add a HumanMessage, we are NOT updating ui_context here
+            data["message"] = None
         return data
 
 
@@ -79,7 +92,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["assistant_graph"] = AssistantGraph(self.team).compile_full_graph()
+        context["assistant_graph"] = AssistantGraph(self.team, cast(User, self.request.user)).compile_full_graph()
         return context
 
     def create(self, request: Request, *args, **kwargs):
@@ -103,7 +116,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             trace_id=serializer.validated_data["trace_id"],
             mode=AssistantMode.ASSISTANT,
         )
-        return StreamingHttpResponse(assistant.stream(), content_type="text/event-stream")
+
+        async def async_handler():
+            """Async handler for ASGI servers."""
+            serializer = AssistantSSESerializer()
+            async for event in assistant.astream():
+                yield serializer.dumps(event)
+
+        handler = async_handler() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(async_handler)
+        return StreamingHttpResponse(handler, content_type="text/event-stream")
 
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):

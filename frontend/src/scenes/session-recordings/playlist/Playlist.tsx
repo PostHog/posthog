@@ -3,10 +3,8 @@ import './Playlist.scss'
 import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { range } from 'lib/utils'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -77,7 +75,6 @@ export function Playlist({
     filterContent,
 }: PlaylistProps): JSX.Element {
     const { isFiltersExpanded } = useValues(playlistLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
@@ -222,8 +219,7 @@ export function Playlist({
                         </div>
                     </div>
                 </div>
-                {(featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] !== 'new' ||
-                    (featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' && !isFiltersExpanded)) && (
+                {!isFiltersExpanded && (
                     <div
                         className={clsx(
                             'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
@@ -241,11 +237,9 @@ export function Playlist({
                         )}
                     </div>
                 )}
-                {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST] === 'new' &&
-                    isFiltersExpanded &&
-                    filterContent && (
-                        <div className="bg-surface-primary border rounded-md p-2 w-full">{filterContent}</div>
-                    )}
+                {isFiltersExpanded && filterContent && (
+                    <div className="bg-surface-primary border rounded-md p-2 w-full">{filterContent}</div>
+                )}
             </div>
         </>
     )

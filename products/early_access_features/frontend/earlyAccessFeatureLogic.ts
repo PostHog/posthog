@@ -4,13 +4,13 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { performQuery } from '~/queries/query'
 import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,
@@ -24,6 +24,7 @@ import {
 
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
+
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',
     description: '',
@@ -97,18 +98,20 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     // :KRUDGE: Should try and get this to work with a single query in the future
                     const results = await Promise.all(
                         ['true', 'false'].map((value) =>
-                            performQuery<ActorsQuery>({
-                                kind: NodeKind.ActorsQuery,
-                                properties: [
-                                    {
-                                        key: values.featureEnrollmentKey,
-                                        type: PropertyFilterType.Person,
-                                        operator: PropertyOperator.Exact,
-                                        value: [value],
-                                    },
-                                ],
-                                select: ['count()'],
-                            })
+                            performQuery<ActorsQuery>(
+                                setLatestVersionsOnQuery({
+                                    kind: NodeKind.ActorsQuery,
+                                    properties: [
+                                        {
+                                            key: values.featureEnrollmentKey,
+                                            type: PropertyFilterType.Person,
+                                            operator: PropertyOperator.Exact,
+                                            value: [value],
+                                        },
+                                    ],
+                                    select: ['count()'],
+                                })
+                            )
                         )
                     )
                     breakpoint()
@@ -128,10 +131,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.saveEarlyAccessFeature(payload)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Early Access Features',
-                        callback: (folder) => actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: folder }),
-                    })
+                    actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: 'Unfiled/Early Access Features' })
                 }
             },
         },

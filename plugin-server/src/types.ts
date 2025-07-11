@@ -75,7 +75,6 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
-    cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -118,7 +117,6 @@ export type CdpConfig = {
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
 
-    CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -134,6 +132,13 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+
+    // topic that plugin VM capture events are produced to
+    CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: string
+
+    HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
+    HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
+    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 }
 
 export type IngestionConsumerConfig = {
@@ -147,7 +152,16 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
+/**
+ * The mode of db batch writes to use for person batch writing
+ * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
+ * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
+ */
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
+export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
+
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
+    INSTRUMENT_THREAD_PERFORMANCE: boolean
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -156,10 +170,17 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     PERSON_CACHE_ENABLED_FOR_UPDATES: boolean // whether to cache persons for fetchForUpdate calls
     PERSON_CACHE_ENABLED_FOR_CHECKS: boolean // whether to cache persons for fetchForChecking calls
+    PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode // the mode of db batch writes to use for person batch writing
+    PERSON_BATCH_WRITING_MODE: PersonBatchWritingMode // whether to batch write persons Postgres updates/inserts
+    PERSON_BATCH_WRITING_SHADOW_MODE_PERCENTAGE: number // percentage of person batches to use shadow mode for
+    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: boolean // whether to use optimistic updates for persons table
+    PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to persons table per batch
+    PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
+    PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     GROUP_BATCH_WRITING_ENABLED: boolean // whether to batch write groups Postgres updates/inserts
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
-    GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL: number // starting interval for exponential backoff between retries for optimistic update
+    GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
@@ -229,7 +250,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
-    SITE_URL: string | null
+    SITE_URL: string
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -344,8 +365,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Messaging
     MAILJET_PUBLIC_KEY: string
     MAILJET_SECRET_KEY: string
-
-    DISABLE_GROUP_SELECT_FOR_UPDATE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -407,7 +426,6 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
-    cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     mmdb?: boolean
@@ -671,6 +689,7 @@ export interface Team {
     timezone: string
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
+    drop_events_older_than_seconds: number | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -852,7 +871,7 @@ export interface BasePerson {
     id: string
     team_id: number
     properties: Properties
-    is_user_id: number
+    is_user_id: number | null
     is_identified: boolean
     uuid: string
     properties_last_updated_at: PropertiesLastUpdatedAt

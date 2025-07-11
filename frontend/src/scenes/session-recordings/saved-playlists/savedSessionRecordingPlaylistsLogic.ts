@@ -103,7 +103,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
     })),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, props }) => ({
         savedFilters: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadSavedFilters: async (_, breakpoint) => {
@@ -130,6 +130,11 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         playlists: {
             __default: { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult,
             loadPlaylists: async (_, breakpoint) => {
+                // We do not need to call it on the Home tab anymore
+                if (props.tab && props.tab === ReplayTabs.Home) {
+                    return { results: [], count: 0, filters: null } as SavedSessionRecordingPlaylistsResult
+                }
+
                 if (values.playlists.filters !== null) {
                     await breakpoint(300)
                 }
@@ -213,6 +218,30 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
             }
         },
+        loadPlaylistsSuccess: ({ playlists }) => {
+            try {
+                if (!playlists) {
+                    return
+                }
+                // the feature flag might be off, so we don't show the count column
+                // but we want to know if we _would_ have shown counts
+                // so we'll emit a posthog event
+                const playlistTotal = playlists.results.length
+                const savedFiltersWithCounts = playlists.results.filter(
+                    (playlist) => playlist.recordings_counts?.saved_filters?.count !== null
+                ).length
+                const collectionWithCounts = playlists.results.filter(
+                    (playlist) => playlist.recordings_counts?.collection.count !== null
+                ).length
+                posthog.capture('session_recordings_playlist_counts', {
+                    playlistTotal,
+                    savedFiltersWithCounts,
+                    collectionWithCounts,
+                })
+            } catch (e) {
+                posthog.captureException(e, { posthog_feature: 'playlist_counting' })
+            }
+        },
     })),
 
     selectors(({ actions }) => ({
@@ -288,29 +317,6 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
         ],
     })),
-    listeners(() => ({
-        loadPlaylistsSuccess: ({ playlists }) => {
-            try {
-                // the feature flag might be off, so we don't show the count column
-                // but we want to know if we _would_ have shown counts
-                // so we'll emit a posthog event
-                const playlistTotal = playlists.results.length
-                const savedFiltersWithCounts = playlists.results.filter(
-                    (playlist) => playlist.recordings_counts?.saved_filters?.count !== null
-                ).length
-                const collectionWithCounts = playlists.results.filter(
-                    (playlist) => playlist.recordings_counts?.collection.count !== null
-                ).length
-                posthog.capture('session_recordings_playlist_counts', {
-                    playlistTotal,
-                    savedFiltersWithCounts,
-                    collectionWithCounts,
-                })
-            } catch (e) {
-                posthog.captureException(e, { posthog_feature: 'playlist_counting' })
-            }
-        },
-    })),
     actionToUrl(({ values }) => {
         const changeUrl = ():
             | [
@@ -336,7 +342,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.replay(ReplayTabs.Playlists)]: (_, searchParams) => {
+        [urls.replay(ReplayTabs.Home)]: (_, searchParams) => {
             const currentFilters = values.filters
             const nextFilters = objectClean(searchParams)
             if (!objectsEqual(currentFilters, nextFilters)) {
@@ -344,9 +350,14 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
+        //only call saved filters on the Home tab
+        // TODO: Separate to another logic on step 2 @veryayskiy
+        if (props.tab && props.tab === ReplayTabs.Home) {
+            actions.loadSavedFilters()
+            actions.checkForSavedFilterRedirect()
+        }
+
         actions.loadPlaylists()
-        actions.loadSavedFilters()
-        actions.checkForSavedFilterRedirect()
     }),
 ])

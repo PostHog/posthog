@@ -15,12 +15,19 @@ import { useActions, useValues } from 'kea'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SurveyEventProperties } from 'posthog-js'
 import { useState } from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type, SurveyEventProperties } from '~/types'
 
+import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingLogic } from './billingLogic'
-import { billingProductLogic, randomizeReasons, UNSUBSCRIBE_REASONS } from './billingProductLogic'
+import {
+    billingProductLogic,
+    isPlatformAndSupportAddon,
+    randomizeReasons,
+    UNSUBSCRIBE_REASONS,
+} from './billingProductLogic'
 import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 
 export const UnsubscribeSurveyModal = ({
@@ -188,6 +195,8 @@ export const UnsubscribeSurveyModal = ({
                                 </Link>
                             </p>
                         )}
+
+                        {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
 
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'

@@ -1,5 +1,6 @@
 from posthog.models.batch_imports import BatchImport, ContentType, BatchImportConfigBuilder
 from posthog.test.base import APIBaseTest, BaseTest
+from datetime import datetime, timedelta
 
 
 class TestBatchImportModel(BaseTest):
@@ -88,3 +89,147 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertIsNotNone(found)
         assert found is not None
         self.assertEqual(found.id, batch_import.id)
+
+    def test_cannot_create_multiple_running_imports(self):
+        """Test that creating a new batch import fails when there's already a running one for the same team"""
+        existing_import = BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test", "secret_key": "secret_test"},
+            status=BatchImport.Status.RUNNING,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Cannot create a new batch import", response.json()["error"])
+        self.assertIn(str(existing_import.id), response.json()["detail"])
+
+    def test_can_create_import_when_no_running_imports(self):
+        """Test that creating a new batch import succeeds when there are no running imports"""
+        BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test", "secret_key": "secret_test"},
+            status=BatchImport.Status.COMPLETED,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_can_create_import_when_other_team_has_running_import(self):
+        """Test that creating a new batch import succeeds when another team has a running import"""
+        from posthog.models import Team, Organization
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        BatchImport.objects.create(
+            team=other_team,
+            created_by_id=self.user.id,
+            import_config={"source": {"type": "s3"}},
+            secrets={"access_key": "test", "secret_key": "secret_test"},
+            status=BatchImport.Status.RUNNING,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "s3",
+                "content_type": "captured",
+                "s3_bucket": "test-bucket",
+                "s3_region": "us-east-1",
+                "s3_prefix": "data/",
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_date_range_validation_exceeds_one_year(self):
+        """Test that creating a date range import with more than 1 year fails"""
+
+        start_date = datetime(2023, 1, 1, 0, 0, 0)
+        end_date = start_date + timedelta(days=366)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "mixpanel",
+                "content_type": "mixpanel",
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Date range cannot exceed 1 year", str(response.json()))
+
+    def test_date_range_validation_within_one_year_succeeds(self):
+        """Test that creating a date range import within 1 year succeeds"""
+
+        start_date = datetime(2023, 1, 1, 0, 0, 0)
+        end_date = start_date + timedelta(days=300)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "amplitude",
+                "content_type": "amplitude",
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+    def test_date_range_validation_end_before_start_fails(self):
+        """Test that end date before start date fails validation"""
+
+        start_date = datetime(2023, 6, 1, 0, 0, 0)
+        end_date = datetime(2023, 1, 1, 0, 0, 0)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/managed_migrations",
+            {
+                "source_type": "amplitude",
+                "content_type": "amplitude",
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "access_key": "test-key",
+                "secret_key": "test-secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("End date must be after start date", str(response.json()))

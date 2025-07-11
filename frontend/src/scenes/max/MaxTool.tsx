@@ -1,9 +1,8 @@
-import { IconSparkles } from '@posthog/icons'
+import { IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTools } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import React, { useEffect } from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -12,6 +11,7 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { SidePanelTab } from '~/types'
 
 import { maxGlobalLogic, ToolDefinition } from './maxGlobalLogic'
+import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends ToolDefinition {
     /** The child element(s) that will be wrapped by this component */
@@ -19,34 +19,14 @@ interface MaxToolProps extends ToolDefinition {
     initialMaxPrompt?: string
     onMaxOpen?: () => void
     className?: string
-}
-
-function generateBurstPoints(spikeCount: number, spikiness: number): string {
-    if (spikiness < 0 || spikiness > 1) {
-        throw new Error('Spikiness must be between 0 and 1')
-    }
-    if (spikeCount < 1) {
-        throw new Error('Spikes must be at least 1')
-    }
-
-    let points = ''
-    const outerRadius = 50
-    const innerRadius = 50 * (1 - spikiness)
-
-    for (let i = 0; i < spikeCount * 2; i++) {
-        const radius = i % 2 === 0 ? outerRadius : innerRadius
-        const angle = (Math.PI * i) / spikeCount
-        const x = 50 + radius * Math.cos(angle)
-        const y = 50 + radius * Math.sin(angle)
-        points += `${x},${y} `
-    }
-
-    return points.trim()
+    position?: 'top-right' | 'bottom-right' | 'top-left' | 'bottom-left'
 }
 
 export function MaxTool({
     name,
     displayName,
+    description,
+    icon,
     context,
     introOverride,
     callback,
@@ -54,6 +34,7 @@ export function MaxTool({
     initialMaxPrompt,
     onMaxOpen,
     className,
+    position = 'top-right',
 }: MaxToolProps): JSX.Element {
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { user } = useValues(userLogic)
@@ -64,11 +45,21 @@ export function MaxTool({
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
-        registerTool({ name, displayName, context, introOverride, callback })
+        registerTool({ name, displayName, description, icon, context, introOverride, callback })
         return () => {
             deregisterTool(name)
         }
-    }, [name, displayName, JSON.stringify(context), introOverride, callback, registerTool, deregisterTool])
+    }, [
+        name,
+        displayName,
+        description,
+        icon,
+        JSON.stringify(context),
+        introOverride,
+        callback,
+        registerTool,
+        deregisterTool,
+    ])
 
     let content: JSX.Element
     if (!isMaxAvailable) {
@@ -87,8 +78,8 @@ export function MaxTool({
                             <>
                                 Max can use this tool
                                 <br />
-                                <IconTools className="mr-1.5" />
-                                <i>{displayName}</i>
+                                {icon || <IconWrench />}
+                                <i className="ml-1.5">{displayName}</i>
                             </>
                         )
                     }
@@ -96,7 +87,13 @@ export function MaxTool({
                     delayMs={0}
                 >
                     <button
-                        className="absolute -top-2 -right-2 z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110"
+                        className={clsx(
+                            'absolute z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110',
+                            position === 'top-right' && '-top-2 -right-2',
+                            position === 'bottom-right' && '-bottom-2 -right-2',
+                            position === 'top-left' && '-top-2 -left-2',
+                            position === 'bottom-left' && '-bottom-2 -left-2'
+                        )}
                         type="button"
                         onClick={() => {
                             openSidePanel(SidePanelTab.Max, initialMaxPrompt)

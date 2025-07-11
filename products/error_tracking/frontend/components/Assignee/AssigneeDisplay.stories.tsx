@@ -63,11 +63,14 @@ export const GroupDisplays = ({ sizes }: SizedComponentProps): JSX.Element => {
                     size={size}
                     assignee={{
                         id: '123',
-                        type: 'group',
-                        group: {
+                        type: 'role',
+                        role: {
                             id: '123',
-                            name: 'Group Name',
+                            name: 'Role Name',
+                            feature_flags_access_level: 37,
                             members: [],
+                            created_at: '2021-08-02 12:34:56',
+                            created_by: null,
                         },
                     }}
                 />

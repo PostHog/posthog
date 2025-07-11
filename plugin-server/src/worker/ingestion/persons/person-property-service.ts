@@ -5,7 +5,7 @@ import { logger } from '../../../utils/logger'
 import { promiseRetry } from '../../../utils/retries'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
-import { applyEventPropertyUpdates, applyEventPropertyUpdatesOptimized } from './person-update'
+import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 
 // temporary: for fetchPerson properties JSONB size observation
 const ONE_MEGABYTE_PROPS_BLOB = 1048576
@@ -39,11 +39,7 @@ export class PersonPropertyService {
         if (propertiesHandled) {
             return [person, Promise.resolve()]
         }
-        if (Math.random() < this.context.useOptimizedJSONBUpdates) {
-            return await this.updatePersonPropertiesOptimized(person)
-        } else {
-            return await this.updatePersonProperties(person)
-        }
+        return await this.updatePersonProperties(person)
     }
 
     /**
@@ -78,59 +74,33 @@ export class PersonPropertyService {
         return [person, true]
     }
 
-    private async updatePersonPropertiesOptimized(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
+    async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
         person.properties ||= {}
 
-        const propertyUpdate = applyEventPropertyUpdatesOptimized(this.context.event, person.properties)
+        // Compute property changes
+        const propertyUpdates = computeEventPropertyUpdates(this.context.event, person.properties)
 
         const otherUpdates: Partial<InternalPerson> = {}
         if (this.context.updateIsIdentified && !person.is_identified) {
             otherUpdates.is_identified = true
         }
 
-        const hasPropertyChanges =
-            propertyUpdate.hasChanges &&
-            (Object.keys(propertyUpdate.toSet).length > 0 || propertyUpdate.toUnset.length > 0)
-        const hasOtherChanges = Object.keys(otherUpdates).length > 0
-
-        if (hasPropertyChanges || hasOtherChanges) {
-            const [updatedPerson, kafkaMessages] =
-                await this.context.personStore.updatePersonWithPropertiesDiffForUpdate(
-                    person,
-                    propertyUpdate.toSet,
-                    propertyUpdate.toUnset,
-                    otherUpdates,
-                    this.context.distinctId
-                )
-            const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return [updatedPerson, kafkaAck]
+        // Check if we have any changes to make
+        const hasChanges = propertyUpdates.hasChanges || Object.keys(otherUpdates).length > 0
+        if (!hasChanges) {
+            const [updatedPerson, _] = applyEventPropertyUpdates(propertyUpdates, person)
+            return [updatedPerson, Promise.resolve()]
         }
 
-        return [person, Promise.resolve()]
-    }
-
-    async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
-        person.properties ||= {}
-
-        const update: Partial<InternalPerson> = {}
-        if (applyEventPropertyUpdates(this.context.event, person.properties)) {
-            update.properties = person.properties
-        }
-        if (this.context.updateIsIdentified && !person.is_identified) {
-            update.is_identified = true
-        }
-
-        if (Object.keys(update).length > 0) {
-            const [updatedPerson, kafkaMessages] = await this.context.personStore.updatePersonForUpdate(
-                person,
-                update,
-                this.context.distinctId
-            )
-            const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
-            return [updatedPerson, kafkaAck]
-        }
-
-        return [person, Promise.resolve()]
+        const [updatedPerson, kafkaMessages] = await this.context.personStore.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            propertyUpdates.toSet,
+            propertyUpdates.toUnset,
+            otherUpdates,
+            this.context.distinctId
+        )
+        const kafkaAck = this.context.kafkaProducer.queueMessages(kafkaMessages)
+        return [updatedPerson, kafkaAck]
     }
 
     private async capturePersonPropertiesSizeEstimate(at: string): Promise<void> {
@@ -158,5 +128,9 @@ export class PersonPropertyService {
         }
 
         return
+    }
+
+    getContext(): PersonContext {
+        return this.context
     }
 }

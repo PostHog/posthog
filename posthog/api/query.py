@@ -51,6 +51,8 @@ from posthog.schema import (
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
+    QueryUpgradeRequest,
+    QueryUpgradeResponse,
 )
 from posthog.hogql.constants import LimitContext
 
@@ -101,8 +103,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        if self.team_id in settings.API_QUERIES_PER_TEAM or (
-            settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency()
+        if (
+            self.team_id in settings.API_QUERIES_PER_TEAM
+            or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
+            or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
         if query := self.request.data.get("query"):
@@ -242,6 +246,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
+
+    @extend_schema(
+        request=QueryUpgradeRequest,
+        responses={
+            200: QueryUpgradeResponse,
+        },
+        description="Upgrades a query without executing it. Returns a query with all nodes migrated to the latest version.",
+    )
+    @action(methods=["POST"], detail=False, url_path="upgrade")
+    def upgrade(self, request: Request, *args, **kwargs) -> Response:
+        upgraded_query = upgrade(request.data)
+        return Response({"query": upgraded_query["query"]}, status=200)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):
