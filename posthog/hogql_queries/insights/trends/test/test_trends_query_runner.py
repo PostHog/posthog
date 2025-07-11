@@ -1837,7 +1837,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["data"] == [0, 4, 0]
 
     def test_trends_aggregation_monthly_active_groups_long_interval(self):
-        self._create_test_events()
+        self._create_test_events_for_groups()
 
         response = self._run_trends_query(
             "2019-12-31",
@@ -1854,7 +1854,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             None,
         )
 
-        assert response.results[0]["data"] == [0, 1, 0]
+        assert response.results[0]["data"] == [0, 4, 0]
 
     def test_trends_aggregation_unique(self):
         self._create_test_events()

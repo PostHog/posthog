@@ -6952,10 +6952,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             result[0]["data"],
             [
-                3,
-                3,
-                3,
-                3,
+                2,
+                2,
+                2,
+                2,
                 0,
                 0,
                 0,
