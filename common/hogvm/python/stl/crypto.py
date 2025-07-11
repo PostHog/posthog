@@ -8,7 +8,7 @@ def md5(data: str | None, encoding: Literal["hex", "base64", "base64url", "binar
     if data is None:
         return None
     digest = hashlib.md5(data.encode()).digest()
-    
+
     if encoding == "hex":
         return digest.hex()
     elif encoding == "base64":
@@ -23,7 +23,7 @@ def sha256(data: str | None, encoding: Literal["hex", "base64", "base64url", "bi
     if data is None:
         return None
     digest = hashlib.sha256(data.encode()).digest()
-    
+
     if encoding == "hex":
         return digest.hex()
     elif encoding == "base64":
