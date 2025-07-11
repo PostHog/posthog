@@ -960,9 +960,15 @@ STL: dict[str, STLFunction] = {
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
     "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
-    "sha256": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2),
+    "sha256": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
+    ),
     "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0]), minArgs=1, maxArgs=1),
-    "md5": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2),
+    "md5": STLFunction(
+        fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2
+    ),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], "hex"),
         minArgs=1,
