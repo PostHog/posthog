@@ -43,7 +43,6 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
-    getRecordingStatus,
     getSessionID,
     hasSessionID,
     isLLMTraceEvent,
