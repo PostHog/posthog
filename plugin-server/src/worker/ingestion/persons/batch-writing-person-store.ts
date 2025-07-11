@@ -955,7 +955,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
                     // Handle optimistic update conflicts with special logging
                     if (error instanceof RaceConditionError) {
-                        logger.warn(`Optimistic update conflict for ${operation}, retrying...`, {
+                        logger.debug(`Optimistic update conflict for ${operation}, retrying...`, {
                             attempt,
                             maxRetries,
                             teamId: personUpdate.team_id,
@@ -1007,15 +1007,21 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.setDistinctIdToPersonId(personUpdate.team_id, personUpdate.distinct_id, currentPerson.id)
 
         // Create updated PersonUpdate with the new person ID and version
-        const updatedPersonUpdate = {
-            ...personUpdate,
+        const updatedPersonUpdate: PersonUpdate = {
             id: currentPerson.id,
-            version: currentPerson.version,
-            // Also update other fields that might have changed due to merge
+            team_id: personUpdate.team_id,
             uuid: currentPerson.uuid,
-            created_at: currentPerson.created_at,
-            is_identified: currentPerson.is_identified || personUpdate.is_identified,
+            distinct_id: personUpdate.distinct_id,
             properties: currentPerson.properties,
+            properties_last_updated_at: personUpdate.properties_last_updated_at,
+            properties_last_operation: personUpdate.properties_last_operation,
+            created_at: currentPerson.created_at,
+            version: currentPerson.version,
+            is_identified: currentPerson.is_identified || personUpdate.is_identified,
+            is_user_id: personUpdate.is_user_id,
+            needs_write: personUpdate.needs_write,
+            properties_to_set: personUpdate.properties_to_set,
+            properties_to_unset: personUpdate.properties_to_unset,
         }
 
         return updatedPersonUpdate
