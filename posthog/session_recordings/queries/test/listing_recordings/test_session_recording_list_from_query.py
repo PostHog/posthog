@@ -3928,6 +3928,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
         )
+
         create_event(
             team=self.team,
             distinct_id="user",

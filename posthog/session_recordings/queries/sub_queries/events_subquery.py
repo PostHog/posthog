@@ -82,15 +82,13 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             gathered_exprs += event_where_exprs
 
         for p in self.event_properties:
-            if getattr(p, "operator", None) is None or p.operator not in NEGATIVE_OPERATORS:
-                # we only query positive properties here, since negative properties we need to query over the session
-                gathered_exprs.append(
-                    property_to_expr(
-                        [p],
-                        team=self._team,
-                        scope="replay",
-                    )
+            gathered_exprs.append(
+                property_to_expr(
+                    [p],
+                    team=self._team,
+                    scope="replay",
                 )
+            )
 
         for p in self.group_properties:
             gathered_exprs.append(property_to_expr([p], team=self._team))
