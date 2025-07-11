@@ -36,7 +36,7 @@ class SessionSummariesSerializer(serializers.Serializer):
 
 
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
-    scope_object = "session_recording"
+    scope_object = "session_recording"  # Keeping recording, as Replay is the main source of info for summary, for now
     permission_classes = [IsAuthenticated]
     serializer_class = SessionSummariesSerializer
 
