@@ -384,7 +384,7 @@ def compare_web_overview_metrics(
 
 
 @asset_check(
-    asset="web_analytics_combined_views",
+    asset="web_analytics_bounces_daily",
     name="web_analytics_accuracy_check",
     description="Validates that pre-aggregated web analytics data matches regular queries within tolerance",
     blocking=False,  # Don't block asset materialization if check fails
