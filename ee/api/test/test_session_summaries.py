@@ -55,7 +55,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         mock_replay_events_instance = MagicMock()
         mock_replay_events.return_value = mock_replay_events_instance
-        mock_replay_events_instance.exists.return_value = True
+        mock_replay_events_instance.exists_multiple.return_value = {"session1", "session2"}
 
         mock_result = self.create_mock_result()
         mock_execute.return_value = mock_result
@@ -94,7 +94,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         mock_replay_events_instance = MagicMock()
         mock_replay_events.return_value = mock_replay_events_instance
-        mock_replay_events_instance.exists.return_value = True
+        mock_replay_events_instance.exists_multiple.return_value = {"session1", "session2"}
 
         mock_result = self.create_mock_result()
         mock_execute.return_value = mock_result
@@ -239,7 +239,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         mock_replay_events_instance = MagicMock()
         mock_replay_events.return_value = mock_replay_events_instance
-        mock_replay_events_instance.exists.return_value = False  # Session not found
+        mock_replay_events_instance.exists_multiple.return_value = set()  # No sessions found
 
         response = self.client.post(
             self.url,
@@ -249,7 +249,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         error = response.json()
-        self.assertIn("Session nonexistent_session not found", str(error))
+        self.assertIn("Sessions not found or do not belong to this team: nonexistent_session", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.SessionReplayEvents")
@@ -259,8 +259,8 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         mock_replay_events_instance = MagicMock()
         mock_replay_events.return_value = mock_replay_events_instance
-        # First call (session1) returns True, second call (session2) returns False
-        mock_replay_events_instance.exists.side_effect = [True, False]
+        # Only session1 exists, session2 does not
+        mock_replay_events_instance.exists_multiple.return_value = {"session1"}
 
         response = self.client.post(
             self.url,
@@ -270,7 +270,7 @@ class TestSessionSummariesAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         error = response.json()
-        self.assertIn("Session session2 not found", str(error))
+        self.assertIn("Sessions not found or do not belong to this team: session2", str(error))
 
     @patch("ee.api.session_summaries.posthoganalytics.feature_enabled")
     @patch("ee.api.session_summaries.SessionReplayEvents")
@@ -281,7 +281,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         mock_replay_events_instance = MagicMock()
         mock_replay_events.return_value = mock_replay_events_instance
-        mock_replay_events_instance.exists.return_value = True
+        mock_replay_events_instance.exists_multiple.return_value = {"session1"}
 
         # Mock execution failure
         mock_execute.side_effect = Exception("Workflow execution failed")
@@ -307,8 +307,8 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         mock_replay_events_instance = MagicMock()
         mock_replay_events.return_value = mock_replay_events_instance
-        # Third session doesn't exist
-        mock_replay_events_instance.exists.side_effect = [True, True, False]
+        # Only session1 and session2 exist, session3 does not
+        mock_replay_events_instance.exists_multiple.return_value = {"session1", "session2"}
 
         response = self.client.post(
             self.url,
@@ -340,7 +340,7 @@ class TestSessionSummariesAPI(APIBaseTest):
         mock_feature_enabled.return_value = True
         mock_replay_events_instance = MagicMock()
         mock_replay_events.return_value = mock_replay_events_instance
-        mock_replay_events_instance.exists.return_value = True
+        mock_replay_events_instance.exists_multiple.return_value = {"single_session"}
 
         mock_result = self.create_mock_result()
         mock_execute.return_value = mock_result
@@ -354,4 +354,4 @@ class TestSessionSummariesAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
 
         # Verify session validation was called once
-        mock_replay_events_instance.exists.assert_called_once_with(session_id="single_session", team=self.team)
+        mock_replay_events_instance.exists_multiple.assert_called_once_with(["single_session"], self.team)
