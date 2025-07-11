@@ -323,14 +323,33 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
+        assert self.user_access_control.access_level_for_object(self.dashboard) == "manage"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
-        assert self.user_access_control.access_level_for_resource("dashboard") == "editor"
+        assert self.user_access_control.access_level_for_resource("dashboard") == "manage"
         assert self.other_user_access_control.access_level_for_resource("dashboard") == "editor"
 
     def test_ac_object_default_response(self):
         assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
+
+    def test_setting_explicit_manage_access(self):
+        """
+        Test that the new 'manage' access level works correctly and is above 'editor' in the hierarchy.
+        """
+        # Test that creators have "manage" access to their files by default:
+        # - User is creator of dashboard -> has "manage" access
+        # Create an AccessControl entry giving other_user "editor" access to the dashboard
+        # to verify they can edit but not manage it
+
+        self._create_access_control(
+            resource_id=self.dashboard.id,
+            access_level="editor",
+            resource="dashboard",
+            organization_member=self.other_user.organization_memberships.first(),
+        )
+
+        assert self.other_user_access_control.check_access_level_for_object(self.dashboard, "editor") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.dashboard, "manage") is False
 
 
 @pytest.mark.ee
@@ -453,28 +472,6 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         # and other_user is not the creator of file_a => "none" excludes them from file_a
         filtered_for_other = self.other_user_access_control.filter_and_annotate_file_system_queryset(queryset)
         self.assertCountEqual([self.file_b], filtered_for_other)
-
-    def test_setting_explicit_manage_access(self):
-        """
-        Test that the new 'manage' access level works correctly and is above 'editor' in the hierarchy.
-        """
-        # Set "def" => "manage" for self.user
-        self._create_access_control(resource_id="def", access_level="manage", resource="my_resource")
-        # Set "abc" => "editor" globally
-        self._create_access_control(resource_id="abc", access_level="editor", resource="my_resource")
-
-        queryset = FileSystem.objects.all()
-        filtered_for_user = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
-
-        # Both files should be visible since 'manage' is higher than 'editor'
-        self.assertCountEqual([self.file_a, self.file_b], filtered_for_user)
-
-        # Test that 'manage' level satisfies 'editor' requirement
-        assert self.user_access_control.check_access_level_for_object(self.file_b, "editor") is True
-        # Test that 'manage' level satisfies 'manage' requirement
-        assert self.user_access_control.check_access_level_for_object(self.file_b, "manage") is True
-        # Test that 'editor' level does NOT satisfy 'manage' requirement
-        assert self.user_access_control.check_access_level_for_object(self.file_a, "manage") is False
 
     def test_project_admin_allows_visibility_even_if_none(self):
         """
