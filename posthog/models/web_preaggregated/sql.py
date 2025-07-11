@@ -47,6 +47,46 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
     """
 
 
+def SESSIONS_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
+    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+
+    return f"""
+    CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+    (
+        period_bucket DateTime,
+        team_id UInt64,
+        host String,
+        device_type String,
+        updated_at DateTime64(6, 'UTC') DEFAULT now(),
+        {columns}
+    ) ENGINE = {engine}
+    PARTITION BY toYYYYMM(period_bucket)
+    ORDER BY {order_by}
+    """
+
+
+def SESSIONS_HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=None):
+    engine = ReplacingMergeTree(table_name, replication_scheme=ReplicationScheme.REPLICATED, ver="updated_at")
+    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+
+    ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
+
+    return f"""
+    CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+    (
+        period_bucket DateTime,
+        team_id UInt64,
+        host String,
+        device_type String,
+        updated_at DateTime64(6, 'UTC') DEFAULT now(),
+        {columns}
+    ) ENGINE = {engine}
+    ORDER BY {order_by}
+    {ttl_clause}
+    """
+
+
 def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granularity="daily"):
     return f"""
     CREATE TABLE IF NOT EXISTS {dist_table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
@@ -83,11 +123,33 @@ WEB_ANALYTICS_DIMENSIONS = [
 WEB_STATS_DIMENSIONS = ["pathname", *WEB_ANALYTICS_DIMENSIONS]
 WEB_BOUNCES_DIMENSIONS = WEB_ANALYTICS_DIMENSIONS
 
+WEB_SESSIONS_DIMENSIONS = [
+    "host",
+    "device_type",
+    "initial_referring_domain",
+    "initial_utm_source",
+    "initial_utm_medium",
+    "initial_utm_campaign",
+    "initial_utm_term",
+    "initial_utm_content",
+    "initial_browser",
+    "initial_os",
+    "initial_device_type",
+    "initial_viewport_width",
+    "initial_viewport_height",
+    "initial_geoip_country_code",
+    "initial_geoip_subdivision_1_code",
+    "initial_geoip_subdivision_1_name",
+    "initial_geoip_subdivision_city_name",
+    "entry_pathname",
+    "end_pathname",
+]
+
 
 def get_dimension_columns(dimensions):
     column_definitions = []
     for d in dimensions:
-        if d in ["viewport_width", "viewport_height"]:
+        if d in ["viewport_width", "viewport_height", "initial_viewport_width", "initial_viewport_height"]:
             column_definitions.append(f"{d} Int64")
         else:
             column_definitions.append(f"{d} String")
@@ -95,6 +157,13 @@ def get_dimension_columns(dimensions):
 
 
 def get_order_by_clause(dimensions, bucket_column="period_bucket"):
+    base_columns = ["team_id", bucket_column, "host", "device_type"]
+    all_columns = base_columns + dimensions
+    column_list = ",\n    ".join(all_columns)
+    return f"(\n    {column_list}\n)"
+
+
+def get_sessions_order_by_clause(dimensions, bucket_column="period_bucket"):
     base_columns = ["team_id", bucket_column, "host", "device_type"]
     all_columns = base_columns + dimensions
     column_list = ",\n    ".join(all_columns)
@@ -118,6 +187,15 @@ WEB_BOUNCES_COLUMNS = f"""
     total_session_count_state AggregateFunction(sum, UInt64)
 """
 
+WEB_SESSIONS_COLUMNS = f"""
+    {get_dimension_columns(WEB_SESSIONS_DIMENSIONS)},
+    persons_uniq_state AggregateFunction(uniq, UUID),
+    sessions_uniq_state AggregateFunction(uniq, String),
+    total_session_duration_state AggregateFunction(sum, Int64),
+    total_session_count_state AggregateFunction(sum, UInt64),
+    bounces_count_state AggregateFunction(sum, UInt64)
+"""
+
 
 def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_STATS_DIMENSIONS, bucket_column)
@@ -126,6 +204,8 @@ def WEB_STATS_ORDER_BY_FUNC(bucket_column="period_bucket"):
 def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
 
+def WEB_SESSIONS_ORDER_BY_FUNC(bucket_column="period_bucket"):
+    return get_sessions_order_by_clause(WEB_SESSIONS_DIMENSIONS, bucket_column)
 
 def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="daily"):
     """
@@ -156,7 +236,6 @@ def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="da
     ALTER TABLE {table_name}{on_cluster_clause}
     DROP PARTITION '{partition_id}'
     """
-
 
 def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
     """Create both a local and distributed table with the same schema"""
@@ -208,6 +287,34 @@ def WEB_BOUNCES_HOURLY_SQL(on_cluster=True):
 def DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL():
     return DISTRIBUTED_TABLE_TEMPLATE(
         "web_bounces_hourly_distributed", "web_bounces_hourly", WEB_BOUNCES_COLUMNS, granularity="hourly"
+    )
+
+
+def WEB_SESSIONS_DAILY_SQL(table_name="web_sessions_daily", on_cluster=True):
+    return SESSIONS_TABLE_TEMPLATE(
+        table_name, WEB_SESSIONS_COLUMNS, WEB_SESSIONS_ORDER_BY_FUNC("period_bucket"), on_cluster
+    )
+
+
+def DISTRIBUTED_WEB_SESSIONS_DAILY_SQL():
+    return DISTRIBUTED_TABLE_TEMPLATE(
+        "web_sessions_daily_distributed", "web_sessions_daily", WEB_SESSIONS_COLUMNS, granularity="daily"
+    )
+
+
+def WEB_SESSIONS_HOURLY_SQL(on_cluster=True):
+    return SESSIONS_HOURLY_TABLE_TEMPLATE(
+        "web_sessions_hourly",
+        WEB_SESSIONS_COLUMNS,
+        WEB_SESSIONS_ORDER_BY_FUNC("period_bucket"),
+        on_cluster,
+        ttl="24 HOUR",
+    )
+
+
+def DISTRIBUTED_WEB_SESSIONS_HOURLY_SQL():
+    return DISTRIBUTED_TABLE_TEMPLATE(
+        "web_sessions_hourly_distributed", "web_sessions_hourly", WEB_SESSIONS_COLUMNS, granularity="hourly"
     )
 
 
@@ -557,6 +664,177 @@ def WEB_BOUNCES_INSERT_SQL(
         return f"INSERT INTO {table_name}\n{query}"
 
 
+def WEB_SESSIONS_INSERT_SQL(
+    date_start,
+    date_end,
+    team_ids=None,
+    timezone="UTC",
+    settings="",
+    table_name="web_sessions_daily",
+    granularity="daily",
+    select_only=False,
+):
+    params = get_insert_params(team_ids, granularity)
+    team_filter = params["team_filter"]
+    person_team_filter = params["person_team_filter"]
+    time_bucket_func = params["time_bucket_func"]
+
+    query = f"""
+    SELECT
+        {time_bucket_func}(session_start_timestamp) AS period_bucket,
+        team_id,
+        now() AS updated_at,
+        host,
+        device_type,
+
+        -- Initial session attribution values
+        initial_referring_domain,
+        initial_utm_source,
+        initial_utm_medium,
+        initial_utm_campaign,
+        initial_utm_term,
+        initial_utm_content,
+        initial_browser,
+        initial_os,
+        initial_device_type,
+        initial_viewport_width,
+        initial_viewport_height,
+        initial_geoip_country_code,
+        initial_geoip_subdivision_1_code,
+        initial_geoip_subdivision_1_name,
+        initial_geoip_subdivision_city_name,
+
+        -- Entry/exit paths
+        entry_pathname,
+        end_pathname,
+
+        -- Session metrics
+        uniqState(toString(session_id_v7)) AS sessions_uniq_state,
+        uniqState(person_id) AS persons_uniq_state,
+        sumState(session_duration) AS total_session_duration_state,
+        sumState(toUInt64(1)) AS total_session_count_state,
+        sumState(toUInt64(ifNull(is_bounce, 0))) AS bounces_count_state
+    FROM (
+        -- Session-level aggregation with proper filtering and person resolution
+        SELECT
+            events__session.session_id_v7 AS session_id_v7,
+            any(events__session.team_id) AS team_id,
+            any(events__session.start_timestamp) AS session_start_timestamp,
+            any(events__session.session_duration) AS session_duration,
+            any(events__session.is_bounce) AS is_bounce,
+            argMax(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id), events.timestamp) AS person_id,
+
+            -- Get host and device_type from events
+            any(events.mat_$host) AS host,
+            any(events.mat_$device_type) AS device_type,
+
+            -- Get ALL initial session attribution values
+            any(events__session.initial_referring_domain) AS initial_referring_domain,
+            any(events__session.initial_utm_source) AS initial_utm_source,
+            any(events__session.initial_utm_medium) AS initial_utm_medium,
+            any(events__session.initial_utm_campaign) AS initial_utm_campaign,
+            any(events__session.initial_utm_term) AS initial_utm_term,
+            any(events__session.initial_utm_content) AS initial_utm_content,
+            any(events__session.initial_browser) AS initial_browser,
+            any(events__session.initial_os) AS initial_os,
+            any(events__session.initial_device_type) AS initial_device_type,
+            any(events__session.initial_viewport_width) AS initial_viewport_width,
+            any(events__session.initial_viewport_height) AS initial_viewport_height,
+            any(events__session.initial_geoip_country_code) AS initial_geoip_country_code,
+            any(events__session.initial_geoip_subdivision_1_code) AS initial_geoip_subdivision_1_code,
+            any(events__session.initial_geoip_subdivision_1_name) AS initial_geoip_subdivision_1_name,
+            any(events__session.initial_geoip_subdivision_city_name) AS initial_geoip_subdivision_city_name,
+            any(events__session.entry_pathname) AS entry_pathname,
+            any(events__session.end_pathname) AS end_pathname
+        FROM events
+        LEFT JOIN (
+            -- Sessions subquery with initial values
+            SELECT
+                toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+                min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')) AS start_timestamp,
+                dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))) AS session_duration,
+                if(ifNull(equals(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 0), 0), NULL,
+                   not(or(ifNull(greater(uniqUpToMerge(1)(raw_sessions.page_screen_autocapture_uniq_up_to), 1), 0),
+                         ifNull(greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, '{timezone}')), max(toTimeZone(raw_sessions.max_timestamp, '{timezone}'))), 10), 0)))) AS is_bounce,
+                raw_sessions.session_id_v7 AS session_id_v7,
+                raw_sessions.team_id AS team_id,
+
+                -- ALL initial values from raw_sessions
+                nullIf(argMinMerge(initial_referring_domain), '') AS initial_referring_domain,
+                nullIf(argMinMerge(initial_utm_source), '') AS initial_utm_source,
+                nullIf(argMinMerge(initial_utm_medium), '') AS initial_utm_medium,
+                nullIf(argMinMerge(initial_utm_campaign), '') AS initial_utm_campaign,
+                nullIf(argMinMerge(initial_utm_term), '') AS initial_utm_term,
+                nullIf(argMinMerge(initial_utm_content), '') AS initial_utm_content,
+                nullIf(argMinMerge(initial_browser), '') AS initial_browser,
+                nullIf(argMinMerge(initial_os), '') AS initial_os,
+                nullIf(argMinMerge(initial_device_type), '') AS initial_device_type,
+                argMinMerge(initial_viewport_width) AS initial_viewport_width,
+                argMinMerge(initial_viewport_height) AS initial_viewport_height,
+                nullIf(argMinMerge(initial_geoip_country_code), '') AS initial_geoip_country_code,
+                nullIf(argMinMerge(initial_geoip_subdivision_1_code), '') AS initial_geoip_subdivision_1_code,
+                nullIf(argMinMerge(initial_geoip_subdivision_1_name), '') AS initial_geoip_subdivision_1_name,
+                nullIf(argMinMerge(initial_geoip_subdivision_city_name), '') AS initial_geoip_subdivision_city_name,
+                path(coalesce(argMinMerge(entry_url), '')) AS entry_pathname,
+                path(coalesce(argMaxMerge(end_url), '')) AS end_pathname
+            FROM raw_sessions
+            WHERE {team_filter}
+                AND toTimeZone(min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
+                AND toTimeZone(min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+            GROUP BY raw_sessions.session_id_v7, raw_sessions.team_id
+            SETTINGS {settings}
+        ) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+        LEFT OUTER JOIN (
+            -- Person resolution (same as regular query)
+            SELECT
+                argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
+            FROM person_distinct_id_overrides
+            WHERE {person_team_filter}
+            GROUP BY person_distinct_id_overrides.distinct_id
+            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
+            SETTINGS {settings}
+        ) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, {format_team_ids(team_ids)[0] if team_ids else 'events.team_id'}), isNotNull(events.`$session_id`),
+                 or(equals(events.event, '$pageview'), equals(events.event, '$screen')),
+                 and(greaterOrEquals(toTimeZone(events.timestamp, '{timezone}'), toDateTime('{date_start}', '{timezone}')),
+                     lessOrEquals(toTimeZone(events.timestamp, '{timezone}'), toDateTime('{date_end}', '{timezone}'))))
+        GROUP BY events__session.session_id_v7  -- CRITICAL: One row per session
+        HAVING and(ifNull(greaterOrEquals(session_start_timestamp, toDateTime('{date_start}', '{timezone}')), 0),
+                   ifNull(lessOrEquals(session_start_timestamp, toDateTime('{date_end}', '{timezone}')), 0))
+        SETTINGS {settings}
+    ) AS session_data
+    GROUP BY
+        period_bucket,
+        team_id,
+        host,
+        device_type,
+        initial_referring_domain,
+        initial_utm_source,
+        initial_utm_medium,
+        initial_utm_campaign,
+        initial_utm_term,
+        initial_utm_content,
+        initial_browser,
+        initial_os,
+        initial_device_type,
+        initial_viewport_width,
+        initial_viewport_height,
+        initial_geoip_country_code,
+        initial_geoip_subdivision_1_code,
+        initial_geoip_subdivision_1_name,
+        initial_geoip_subdivision_city_name,
+        entry_pathname,
+        end_pathname
+    {"SETTINGS " + settings if settings and not select_only else ""}
+    """
+
+    if select_only:
+        return query
+    else:
+        return f"INSERT INTO {table_name}\n{query}"
+
+
 def WEB_STATS_EXPORT_SQL(
     date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily", s3_path=None
 ):
@@ -621,6 +899,39 @@ def WEB_BOUNCES_EXPORT_SQL(
     """
 
 
+def WEB_SESSIONS_EXPORT_SQL(
+    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_sessions_daily", s3_path=None
+):
+    team_ids_filter = ""
+    if team_ids:
+        team_ids_str = format_team_ids(team_ids)
+        team_ids_filter = f"AND team_id IN ({team_ids_str})"
+
+    if not s3_path:
+        raise ValueError("s3_path is required")
+
+    s3_function_args = get_s3_function_args(s3_path)
+
+    return f"""
+    INSERT INTO FUNCTION s3({s3_function_args})
+    SELECT
+        period_bucket,
+        team_id,
+        persons_uniq_state,
+        sessions_uniq_state,
+        total_session_duration_state,
+        total_session_count_state,
+        bounces_count_state
+    FROM {table_name}
+    WHERE period_bucket >= toDateTime('{date_start}', '{timezone}')
+        AND period_bucket < toDateTime('{date_end}', '{timezone}')
+        {team_ids_filter}
+    GROUP BY period_bucket, team_id, persons_uniq_state, sessions_uniq_state, total_session_duration_state, total_session_count_state, bounces_count_state
+    ORDER BY team_id, period_bucket
+    SETTINGS {settings}
+    """
+
+
 def create_combined_view_sql(table_prefix, on_cluster=True):
     return f"""
     CREATE VIEW IF NOT EXISTS {table_prefix}_combined {ON_CLUSTER_CLAUSE(on_cluster)} AS
@@ -636,3 +947,7 @@ def WEB_STATS_COMBINED_VIEW_SQL():
 
 def WEB_BOUNCES_COMBINED_VIEW_SQL():
     return create_combined_view_sql("web_bounces")
+
+
+def WEB_SESSIONS_COMBINED_VIEW_SQL():
+    return create_combined_view_sql("web_sessions")

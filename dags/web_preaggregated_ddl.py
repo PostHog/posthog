@@ -11,12 +11,17 @@ from posthog.models.web_preaggregated.sql import (
     DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL,
     DISTRIBUTED_WEB_STATS_DAILY_SQL,
     DISTRIBUTED_WEB_STATS_HOURLY_SQL,
+    DISTRIBUTED_WEB_SESSIONS_DAILY_SQL,
+    DISTRIBUTED_WEB_SESSIONS_HOURLY_SQL,
     WEB_BOUNCES_COMBINED_VIEW_SQL,
     WEB_BOUNCES_DAILY_SQL,
     WEB_BOUNCES_HOURLY_SQL,
     WEB_STATS_COMBINED_VIEW_SQL,
     WEB_STATS_DAILY_SQL,
     WEB_STATS_HOURLY_SQL,
+    WEB_SESSIONS_COMBINED_VIEW_SQL,
+    WEB_SESSIONS_DAILY_SQL,
+    WEB_SESSIONS_HOURLY_SQL,
 )
 from dags.web_preaggregated_utils import web_analytics_retry_policy_def
 
@@ -81,12 +86,15 @@ def web_analytics_preaggregated_hourly_tables(
     def drop_tables(client: Client):
         execute_with_logging(client, "DROP TABLE IF EXISTS web_stats_hourly SYNC", context)
         execute_with_logging(client, "DROP TABLE IF EXISTS web_bounces_hourly SYNC", context)
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_sessions_hourly SYNC", context)
         execute_with_logging(client, "DROP TABLE IF EXISTS web_stats_hourly_staging SYNC", context)
         execute_with_logging(client, "DROP TABLE IF EXISTS web_bounces_hourly_staging SYNC", context)
+        execute_with_logging(client, "DROP TABLE IF EXISTS web_sessions_hourly_staging SYNC", context)
 
     def create_tables(client: Client):
         execute_with_logging(client, WEB_STATS_HOURLY_SQL(), context)
         execute_with_logging(client, WEB_BOUNCES_HOURLY_SQL(), context)
+        execute_with_logging(client, WEB_SESSIONS_HOURLY_SQL(), context)
 
         # Create staging tables with same structure
         execute_with_logging(
@@ -95,9 +103,13 @@ def web_analytics_preaggregated_hourly_tables(
         execute_with_logging(
             client, WEB_BOUNCES_HOURLY_SQL().replace("web_bounces_hourly", "web_bounces_hourly_staging"), context
         )
+        execute_with_logging(
+            client, WEB_SESSIONS_HOURLY_SQL().replace("web_sessions_hourly", "web_sessions_hourly_staging"), context
+        )
 
         execute_with_logging(client, DISTRIBUTED_WEB_STATS_HOURLY_SQL(), context)
         execute_with_logging(client, DISTRIBUTED_WEB_BOUNCES_HOURLY_SQL(), context)
+        execute_with_logging(client, DISTRIBUTED_WEB_SESSIONS_HOURLY_SQL(), context)
 
     cluster.map_all_hosts(drop_tables).result()
     cluster.map_all_hosts(create_tables).result()
@@ -118,10 +130,12 @@ def web_analytics_combined_views(
     def drop_views(client: Client):
         execute_with_logging(client, "DROP VIEW IF EXISTS web_stats_combined SYNC", context)
         execute_with_logging(client, "DROP VIEW IF EXISTS web_bounces_combined SYNC", context)
+        execute_with_logging(client, "DROP VIEW IF EXISTS web_sessions_combined SYNC", context)
 
     def create_views(client: Client):
         execute_with_logging(client, WEB_STATS_COMBINED_VIEW_SQL(), context)
         execute_with_logging(client, WEB_BOUNCES_COMBINED_VIEW_SQL(), context)
+        execute_with_logging(client, WEB_SESSIONS_COMBINED_VIEW_SQL(), context)
 
     cluster.map_all_hosts(drop_views).result()
     cluster.map_all_hosts(create_views).result()
@@ -148,15 +162,18 @@ def web_analytics_preaggregated_tables(
         try:
             execute_with_logging(client, "DROP TABLE IF EXISTS web_stats_daily SYNC", context)
             execute_with_logging(client, "DROP TABLE IF EXISTS web_bounces_daily SYNC", context)
+            execute_with_logging(client, "DROP TABLE IF EXISTS web_sessions_daily SYNC", context)
         except Exception as e:
             raise dagster.Failure(f"Failed to drop tables: {str(e)}") from e
 
     def create_tables(client: Client):
         execute_with_logging(client, WEB_STATS_DAILY_SQL(table_name="web_stats_daily"), context)
         execute_with_logging(client, WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"), context)
+        execute_with_logging(client, WEB_SESSIONS_DAILY_SQL(table_name="web_sessions_daily"), context)
 
         execute_with_logging(client, DISTRIBUTED_WEB_STATS_DAILY_SQL(), context)
         execute_with_logging(client, DISTRIBUTED_WEB_BOUNCES_DAILY_SQL(), context)
+        execute_with_logging(client, DISTRIBUTED_WEB_SESSIONS_DAILY_SQL(), context)
 
     try:
         cluster.map_all_hosts(drop_tables).result()
@@ -218,3 +235,30 @@ def combined_stats_view_exist(context: dagster.AssetCheckExecutionContext) -> As
 )
 def combined_bounces_view_exist(context: dagster.AssetCheckExecutionContext) -> AssetCheckResult:
     return check_table_exist("web_bounces_combined", context)
+
+
+@asset_check(
+    asset=web_analytics_preaggregated_tables,
+    name="daily_sessions_table_exist",
+    description="Check if daily sessions table was created",
+)
+def daily_sessions_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_sessions_daily")
+
+
+@asset_check(
+    asset=web_analytics_preaggregated_hourly_tables,
+    name="hourly_sessions_table_exist",
+    description="Check if hourly sessions table was created",
+)
+def hourly_sessions_table_exist() -> AssetCheckResult:
+    return check_table_exist("web_sessions_hourly")
+
+
+@asset_check(
+    asset=web_analytics_combined_views,
+    name="combined_sessions_view_exist",
+    description="Check if combined sessions view was created",
+)
+def combined_sessions_view_exist() -> AssetCheckResult:
+    return check_table_exist("web_sessions_combined")

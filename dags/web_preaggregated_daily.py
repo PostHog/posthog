@@ -23,6 +23,10 @@ from posthog.models.web_preaggregated.sql import (
     WEB_STATS_EXPORT_SQL,
     WEB_STATS_INSERT_SQL,
     DROP_PARTITION_SQL,
+    WEB_SESSIONS_INSERT_SQL,
+    WEB_SESSIONS_EXPORT_SQL,
+)
+from posthog.hogql.database.schema.web_analytics_s3 import (
     get_s3_function_args,
 )
 from posthog.settings.base_variables import DEBUG
@@ -30,6 +34,8 @@ from posthog.settings.object_storage import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 )
+
+# Import accuracy checks to register them
 
 
 logger = structlog.get_logger(__name__)
@@ -124,6 +130,34 @@ def web_bounces_daily(
         context=context,
         table_name="web_bounces_daily",
         sql_generator=WEB_BOUNCES_INSERT_SQL,
+    )
+
+
+@dagster.asset(
+    name="web_analytics_sessions_daily",
+    group_name="web_analytics",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_preaggregated_tables"],
+    partitions_def=partition_def,
+    backfill_policy=backfill_policy_def,
+    metadata={"table": "web_sessions_daily"},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    retry_policy=web_analytics_retry_policy_def,
+)
+def web_sessions_daily(
+    context: dagster.AssetExecutionContext,
+) -> None:
+    """
+    Daily session-level data for web analytics.
+
+    Aggregates session counts, duration, bounce rate, and unique persons
+    by initial session attribution dimensions (UTM parameters, geography, device info, etc.).
+    Provides accurate session metrics by avoiding fan-out issues.
+    """
+    return pre_aggregate_web_analytics_data(
+        context=context,
+        table_name="web_sessions_daily",
+        sql_generator=WEB_SESSIONS_INSERT_SQL,
     )
 
 
@@ -302,10 +336,29 @@ def web_bounces_daily_export(context: dagster.AssetExecutionContext) -> dagster.
     )
 
 
+@dagster.asset(
+    name="web_analytics_sessions_export",
+    group_name="web_analytics",
+    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
+    deps=["web_analytics_sessions_daily"],
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+)
+def web_sessions_daily_export(context: dagster.AssetExecutionContext) -> dagster.Output[list]:
+    """
+    Exports web_sessions_daily data directly to S3 partitioned by team using ClickHouse's native S3 export.
+    """
+    return export_web_analytics_data_by_team(
+        context=context,
+        table_name="web_sessions_daily",
+        sql_generator=WEB_SESSIONS_EXPORT_SQL,
+        export_prefix="web_sessions_daily_export",
+    )
+
+
 # Daily incremental job with asset-level concurrency control
 web_pre_aggregate_daily_job = dagster.define_asset_job(
     name="web_analytics_daily_job",
-    selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily"],
+    selection=["web_analytics_bounces_daily", "web_analytics_stats_table_daily", "web_analytics_sessions_daily"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         # The instance level config limits the job concurrency on the run queue
@@ -344,6 +397,7 @@ def web_pre_aggregate_daily_schedule(context: dagster.ScheduleEvaluationContext)
             "ops": {
                 "web_analytics_bounces_daily": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
                 "web_analytics_stats_table_daily": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
+                "web_analytics_sessions_daily": {"config": {"team_ids": TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED}},
             }
         },
     )
