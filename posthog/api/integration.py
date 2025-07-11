@@ -266,6 +266,11 @@ class IntegrationViewSet(
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
 
+    @action(methods=["GET"], detail=True, url_path="github_repos")
+    def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        github = GitHubIntegration(self.get_object())
+        return Response({"repositories": github.list_repositories()})
+
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         email = EmailIntegration(self.get_object())
