@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use redis::aio::MultiplexedConnection;
 use redis::{AsyncCommands, RedisError};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -106,13 +107,14 @@ pub trait Client {
 }
 
 pub struct RedisClient {
-    client: redis::Client,
+    connection: MultiplexedConnection,
 }
 
 impl RedisClient {
-    pub fn new(addr: String) -> Result<RedisClient, CustomRedisError> {
+    pub async fn new(addr: String) -> Result<RedisClient, CustomRedisError> {
         let client = redis::Client::open(addr)?;
-        Ok(RedisClient { client })
+        let connection = client.get_multiplexed_async_connection().await?;
+        Ok(RedisClient { connection })
     }
 }
 
@@ -124,7 +126,7 @@ impl Client for RedisClient {
         min: String,
         max: String,
     ) -> Result<Vec<String>, CustomRedisError> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.connection.clone();
         let results = conn.zrangebyscore(k, min, max);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         Ok(fut?)
@@ -136,7 +138,7 @@ impl Client for RedisClient {
         v: String,
         count: Option<i32>,
     ) -> Result<(), CustomRedisError> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.connection.clone();
         let count = count.unwrap_or(1);
         let results = conn.hincr(k, v, count);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
@@ -152,7 +154,7 @@ impl Client for RedisClient {
         k: String,
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.connection.clone();
         let results = conn.get(k);
         let fut: Result<Vec<u8>, RedisError> =
             timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
@@ -191,7 +193,7 @@ impl Client for RedisClient {
             RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
             RedisValueFormat::Utf8 => v.into_bytes(),
         };
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.connection.clone();
         let results = conn.set(k, bytes);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         Ok(fut?)
@@ -218,7 +220,7 @@ impl Client for RedisClient {
             RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
             RedisValueFormat::Utf8 => v.into_bytes(),
         };
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.connection.clone();
         let seconds_usize = seconds as usize;
 
         // Use SET with both NX and EX options
@@ -242,14 +244,14 @@ impl Client for RedisClient {
     }
 
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.connection.clone();
         let results = conn.del(k);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         fut.map_err(|e| CustomRedisError::Other(e.to_string()))
     }
 
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.connection.clone();
         let results = conn.hget(k, field);
         let fut: Result<Option<String>, RedisError> =
             timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;

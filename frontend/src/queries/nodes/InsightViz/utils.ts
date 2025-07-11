@@ -12,7 +12,7 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightQueryWithSeries } from '~/queries/utils'
+import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     DashboardTile,
@@ -114,10 +114,11 @@ export const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode =
     source: filtersToQueryNode(filters),
 })
 
-export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
-})
+export const queryFromKind = (kind: InsightNodeKind, filterTestAccountsDefault: boolean): InsightVizNode =>
+    setLatestVersionsOnQuery({
+        kind: NodeKind.InsightVizNode,
+        source: { ...nodeKindToDefaultQuery[kind], ...(filterTestAccountsDefault ? { filterTestAccounts: true } : {}) },
+    })
 
 export const getDefaultQuery = (
     insightType: InsightType,

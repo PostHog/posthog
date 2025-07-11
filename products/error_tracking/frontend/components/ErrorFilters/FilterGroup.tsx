@@ -8,13 +8,14 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { useEffect, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { errorFiltersLogic } from './errorFiltersLogic'
 
-const taxonomicFilterLogicKey = 'error-tracking'
-const taxonomicGroupTypes = [
+export const taxonomicFilterLogicKey = 'error-tracking'
+export const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.ErrorTrackingIssues,
@@ -68,6 +69,8 @@ const UniversalSearch = (): JSX.Element => {
         excludedProperties: { [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'] },
     }
 
+    const onChange = useDebouncedCallback((value: string) => setSearchQuery(value), 250)
+
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <LemonDropdown
@@ -90,7 +93,7 @@ const UniversalSearch = (): JSX.Element => {
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
-                    onChange={setSearchQuery}
+                    onChange={onChange}
                     size="small"
                     fullWidth
                     docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"

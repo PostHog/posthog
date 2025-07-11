@@ -168,6 +168,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCursor,
         inMenu: true,
     },
+    [NodeKind.SessionBatchEventsQuery]: {
+        name: 'Session Batch Events',
+        description: 'Batch query for events from multiple sessions.',
+        icon: IconCursor,
+        inMenu: false,
+    },
     [NodeKind.PersonsNode]: {
         name: 'Persons',
         description: 'List and explore your persons.',
@@ -270,21 +276,27 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.RevenueAnalyticsCustomerCountQuery]: {
+        name: 'Revenue Analytics Customer Count',
+        description: 'View revenue analytics customer and subscription count.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
     [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
         name: 'Revenue Analytics Growth Rate',
         description: 'View revenue analytics growth rate.',
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsInsightsQuery]: {
-        name: 'Revenue Analytics Insights',
-        description: 'View revenue analytics insights.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsOverviewQuery]: {
         name: 'Revenue Analytics Overview',
         description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsRevenueQuery]: {
+        name: 'Revenue Analytics Revenue',
+        description: 'View revenue analytics gross and MRR revenue.',
         icon: IconPiggyBank,
         inMenu: true,
     },
@@ -453,6 +465,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebAnalyticsExternalSummaryQuery]: {
         name: 'Web Analytics External Summary',
         icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsTableQuery]: {
+        name: 'Marketing Analytics Table',
+        icon: IconHogQL,
         inMenu: false,
     },
 }
@@ -753,7 +770,7 @@ export function SavedInsights(): JSX.Element {
                 onChange={(tab) => setSavedInsightsFilters({ tab })}
                 tabs={[
                     { key: SavedInsightsTabs.All, label: 'All insights' },
-                    { key: SavedInsightsTabs.Yours, label: 'Your insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
                     { key: SavedInsightsTabs.History, label: 'History' },
                     {

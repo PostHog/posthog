@@ -180,6 +180,24 @@ def send_password_reset(user_id: int, token: str) -> None:
         },
     )
     message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_password_changed_email(user_id: int) -> None:
+    user = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"password-changed-{user.uuid}-{timezone.now().timestamp()}",
+        subject="Your password has been changed",
+        template_name="password_changed",
+        template_context={
+            "preheader": "Your password has been changed",
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(user.email)
     message.send()
 
 
@@ -201,8 +219,8 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send(send_async=False)
     posthoganalytics.capture(
-        user.distinct_id,
-        "verification email sent",
+        distinct_id=user.distinct_id,
+        event="verification email sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
@@ -238,7 +256,7 @@ def send_fatal_plugin_error(
     )
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -262,11 +280,11 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     )
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()
 
 
 def send_batch_export_run_failure(
-    batch_export_run_id: UUIDT,
+    batch_export_run_id: str | UUIDT,
 ) -> None:
     logger = structlog.get_logger(__name__)
 
@@ -308,7 +326,7 @@ def send_batch_export_run_failure(
 
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -349,8 +367,8 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
     )
     message_old_address.add_recipient(email=old_address)
     message_new_address.add_recipient(email=new_address)
-    message_old_address.send(send_async=False)
-    message_new_address.send(send_async=False)
+    message_old_address.send()
+    message_new_address.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -393,7 +411,7 @@ def send_two_factor_auth_enabled_email(user_id: int) -> None:
         },
     )
     message.add_recipient(user.email)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -410,7 +428,7 @@ def send_two_factor_auth_disabled_email(user_id: int) -> None:
         },
     )
     message.add_recipient(user.email)
-    message.send(send_async=False)
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -427,7 +445,7 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
         },
     )
     message.add_recipient(user.email)
-    message.send(send_async=False)
+    message.send()
 
 
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:
@@ -461,13 +479,6 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
             for membership in memberships_to_email
             if (membership.user == assignment.user and membership.user != assigner)
         ]
-    elif assignment.user_group:
-        group_users = assignment.user_group.members.all()
-        memberships_to_email = [
-            membership
-            for membership in memberships_to_email
-            if (membership.user in group_users and membership.user != assigner)
-        ]
     elif assignment.role:
         role_users = assignment.role.members.all()
         memberships_to_email = [
@@ -490,4 +501,4 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
     )
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    message.send(send_async=False)
+    message.send()

@@ -247,6 +247,7 @@ class HogFunctionTemplate(UUIDModel):
             if dataclass_template.mapping_templates
             else None,
             "filters": dataclass_template.filters,
+            "icon_url": dataclass_template.icon_url,
         }
         content_for_hash = json.dumps(template_dict, sort_keys=True)
         sha = cls.generate_sha_from_content(content_for_hash)

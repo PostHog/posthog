@@ -38,7 +38,7 @@
                'USD' AS currency,
                if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -87,7 +87,7 @@
                'USD' AS currency,
                if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -126,7 +126,16 @@
 # ---
 # name: TestRevenueExampleEventsQueryRunner.test_no_crash_when_no_data
   '''
-  SELECT 1
+  SELECT 1 AS event,
+         1 AS event_name,
+         1 AS original_amount,
+         1 AS currency_aware_amount,
+         1 AS original_currency,
+         1 AS amount,
+         1 AS currency,
+         1 AS person,
+         1 AS session_id,
+         1 AS timestamp
   WHERE 0
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -181,7 +190,7 @@
                  'EUR' AS currency,
                  if(isNull('GBP'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('GBP', 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -231,7 +240,7 @@
                  'EUR' AS currency,
                  if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -281,7 +290,7 @@
                  'EUR' AS currency,
                  if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -358,7 +367,7 @@
                  'EUR' AS currency,
                  if(isNull('GBP'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('GBP', 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -408,7 +417,7 @@
                  'EUR' AS currency,
                  if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -458,7 +467,7 @@
                  'EUR' AS currency,
                  if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -534,7 +543,7 @@
                'EUR' AS currency,
                if(isNull('GBP'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('GBP', 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_a'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -583,7 +592,7 @@
                'EUR' AS currency,
                if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_b'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_b'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -632,7 +641,7 @@
                'EUR' AS currency,
                if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), 'EUR'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency_c'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'EUR', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
         FROM events
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), isNotNull(amount)))
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase_c'), 1, isNotNull(amount)))
         ORDER BY timestamp DESC) AS view
      INNER JOIN events ON equals(toString(events.uuid), view.id)
      LEFT OUTER JOIN
@@ -697,7 +706,7 @@
             'USD' AS currency,
             if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
      FROM events
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS view
   INNER JOIN events ON equals(toString(events.uuid), view.id)
   LEFT OUTER JOIN
@@ -762,7 +771,7 @@
               'USD' AS currency,
               if(isNull('USD'), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals('USD', 'USD'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
      FROM events
-     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), isNotNull(amount)))
+     WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), 1, isNotNull(amount)))
      ORDER BY timestamp DESC) AS view
   INNER JOIN events ON equals(toString(events.uuid), view.id)
   LEFT OUTER JOIN

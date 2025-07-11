@@ -2,11 +2,11 @@ import { actions, kea, path, reducers, useActions, useValues } from 'kea'
 import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmUpgradeModal'
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
-import { SaveToModal } from 'lib/components/FileSystem/SaveTo/SaveTo'
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
+import { useEffect } from 'react'
 import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
@@ -18,7 +18,6 @@ import { environmentRollbackModalLogic } from 'scenes/settings/environment/envir
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
-import { useEffect } from 'react'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
 
@@ -107,7 +106,6 @@ export function GlobalModals(): JSX.Element {
             <HedgehogBuddyWithLogic />
             <PaymentEntryModal />
             <GlobalCustomUnitModal />
-            <SaveToModal />
             <MoveToModal />
             <ItemSelectModal />
             {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}

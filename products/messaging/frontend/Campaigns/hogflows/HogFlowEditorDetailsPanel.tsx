@@ -1,6 +1,6 @@
 import { IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
-import { getOutgoers, Panel, useReactFlow } from '@xyflow/react'
+import { getOutgoers, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
@@ -31,72 +31,70 @@ export function HogFlowEditorDetailsPanel(): JSX.Element | null {
     const Step = getHogFlowStep(action.type)
 
     return (
-        <Panel position="top-right" className="bottom">
-            <div className="bg-surface-primary border rounded-md shadow-lg flex flex-col z-10 min-w-[300px] max-w-[500px] max-h-full">
-                <div className="flex justify-between items-center px-2 my-2">
-                    <h3 className="flex gap-1 items-center mb-0 font-semibold">
-                        <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
-                    </h3>
-                    <div className="flex gap-1 items-center">
-                        {selectedNode.deletable && (
-                            <LemonButton
-                                size="xsmall"
-                                status="danger"
-                                onClick={() => {
-                                    void deleteElements({ nodes: [selectedNode] })
-                                    setSelectedNodeId(null)
-                                }}
-                                icon={<IconTrash />}
-                                disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
-                            />
-                        )}
+        <div className="flex flex-col flex-1 max-h-full w-120 overflow-y-scroll">
+            <div className="flex justify-between items-center px-2 my-2">
+                <h3 className="flex gap-1 items-center mb-0 font-semibold">
+                    <span className="text-lg">{Step?.icon}</span> Edit {selectedNode.data.name} step
+                </h3>
+                <div className="flex gap-1 items-center">
+                    {selectedNode.deletable && (
                         <LemonButton
                             size="xsmall"
-                            icon={<IconX />}
-                            onClick={() => setSelectedNodeId(null)}
-                            aria-label="close"
+                            status="danger"
+                            onClick={() => {
+                                void deleteElements({ nodes: [selectedNode] })
+                                setSelectedNodeId(null)
+                            }}
+                            icon={<IconTrash />}
+                            disabledReason={canBeDeleted() ? undefined : 'Clean up branching steps first'}
                         />
-                    </div>
+                    )}
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        onClick={() => setSelectedNodeId(null)}
+                        aria-label="close"
+                    />
                 </div>
-                <LemonDivider className="my-0" />
-
-                <ScrollableShadows direction="vertical" innerClassName="flex flex-col gap-2 p-3" styledScrollbars>
-                    {Step?.renderConfiguration(selectedNode)}
-                </ScrollableShadows>
-
-                <LemonDivider className="my-0" />
-                {!['trigger', 'exit'].includes(action.type) && (
-                    <div className="flex flex-col p-2">
-                        <LemonLabel htmlFor="conditions" className="flex gap-2 justify-between items-center">
-                            <span>Conditions</span>
-                            <LemonSwitch
-                                id="conditions"
-                                checked={!!action.filters}
-                                onChange={(checked) =>
-                                    setCampaignAction(action.id, {
-                                        ...action,
-                                        filters: checked ? {} : null,
-                                    })
-                                }
-                            />
-                        </LemonLabel>
-
-                        {action.filters && (
-                            <>
-                                <p className="mb-0">
-                                    Add conditions to the step. If these conditions aren't met, the user will skip this
-                                    step and continue to the next one.
-                                </p>
-                                <HogFlowFilters
-                                    filters={action.filters ?? {}}
-                                    setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
-                                    buttonCopy="Add filter conditions"
-                                />
-                            </>
-                        )}
-                    </div>
-                )}
             </div>
-        </Panel>
+            <LemonDivider className="my-0" />
+
+            <ScrollableShadows direction="vertical" innerClassName="flex flex-col gap-2 p-3" styledScrollbars>
+                {Step?.renderConfiguration(selectedNode)}
+            </ScrollableShadows>
+
+            <LemonDivider className="my-0" />
+            {!['trigger', 'exit'].includes(action.type) && (
+                <div className="flex flex-col p-2">
+                    <LemonLabel htmlFor="conditions" className="flex gap-2 justify-between items-center">
+                        <span>Conditions</span>
+                        <LemonSwitch
+                            id="conditions"
+                            checked={!!action.filters}
+                            onChange={(checked) =>
+                                setCampaignAction(action.id, {
+                                    ...action,
+                                    filters: checked ? {} : null,
+                                })
+                            }
+                        />
+                    </LemonLabel>
+
+                    {action.filters && (
+                        <>
+                            <p className="mb-0">
+                                Add conditions to the step. If these conditions aren't met, the user will skip this step
+                                and continue to the next one.
+                            </p>
+                            <HogFlowFilters
+                                filters={action.filters ?? {}}
+                                setFilters={(filters) => setCampaignAction(action.id, { ...action, filters })}
+                                buttonCopy="Add filter conditions"
+                            />
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
     )
 }

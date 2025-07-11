@@ -19,26 +19,17 @@ use crate::{error::UnhandledError, issue_resolution::Issue, types::OutputErrProp
 #[derive(Debug, Clone)]
 pub struct NewAssignment {
     pub user_id: Option<i32>,
-    pub user_group_id: Option<Uuid>,
     pub role_id: Option<Uuid>,
 }
 
 impl NewAssignment {
     // Returns None if this cannot be used to construct a valid assignment, ensuring all
-    // NewAssignments have at least one of user_id, user_group_id, or role_id set.
-    pub fn try_new(
-        user_id: Option<i32>,
-        user_group_id: Option<Uuid>,
-        role_id: Option<Uuid>,
-    ) -> Option<Self> {
-        if user_id.is_none() && user_group_id.is_none() && role_id.is_none() {
+    // NewAssignments have at least one of user_id or role_id set.
+    pub fn try_new(user_id: Option<i32>, role_id: Option<Uuid>) -> Option<Self> {
+        if user_id.is_none() && role_id.is_none() {
             None
         } else {
-            Some(NewAssignment {
-                user_id,
-                user_group_id,
-                role_id,
-            })
+            Some(NewAssignment { user_id, role_id })
         }
     }
 }
@@ -52,15 +43,14 @@ impl NewAssignment {
         let assignment = sqlx::query_as!(
             Assignment,
             r#"
-                INSERT INTO posthog_errortrackingissueassignment (id, issue_id, user_id, user_group_id, role_id, created_at)
-                VALUES ($1, $2, $3, $4, $5, NOW())
+                INSERT INTO posthog_errortrackingissueassignment (id, issue_id, user_id, role_id, created_at)
+                VALUES ($1, $2, $3, $4, NOW())
                 ON CONFLICT (issue_id) DO UPDATE SET issue_id = $2 -- no-op to get a returned row
-                RETURNING id, issue_id, user_id, user_group_id, role_id, created_at
+                RETURNING id, issue_id, user_id, role_id, created_at
             "#,
             Uuid::now_v7(),
             issue_id,
             self.user_id,
-            self.user_group_id,
             self.role_id,
         ).fetch_one(conn).await?;
 
@@ -73,7 +63,6 @@ pub struct Assignment {
     pub id: Uuid,
     pub issue_id: Uuid,
     pub user_id: Option<i32>,
-    pub user_group_id: Option<Uuid>,
     pub role_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
 }
@@ -109,7 +98,6 @@ pub struct AssignmentRule {
     pub id: Uuid,
     pub team_id: TeamId,
     pub user_id: Option<i32>,
-    pub user_group_id: Option<Uuid>,
     pub role_id: Option<Uuid>,
     pub order_key: i32,
     pub bytecode: Value,
@@ -127,7 +115,7 @@ impl AssignmentRule {
         sqlx::query_as!(
             AssignmentRule,
             r#"
-                SELECT id, team_id, user_id, user_group_id, role_id, order_key, bytecode, created_at, updated_at
+                SELECT id, team_id, user_id, role_id, order_key, bytecode, created_at, updated_at
                 FROM posthog_errortrackingassignmentrule
                 WHERE team_id = $1 AND disabled_data IS NULL
             "#,
@@ -207,11 +195,7 @@ impl AssignmentRule {
             let step_result = vm.step()?;
             match step_result {
                 StepOutcome::Finished(Value::Bool(true)) => {
-                    return Ok(NewAssignment::try_new(
-                        self.user_id,
-                        self.user_group_id,
-                        self.role_id,
-                    ));
+                    return Ok(NewAssignment::try_new(self.user_id, self.role_id));
                 }
                 StepOutcome::Finished(Value::Bool(false)) => {
                     return Ok(None);

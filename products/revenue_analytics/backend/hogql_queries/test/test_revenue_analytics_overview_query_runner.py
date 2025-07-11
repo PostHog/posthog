@@ -178,10 +178,12 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             results,
             [
-                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8864.83175")),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("8900.0246133332")
+                ),
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=3),
                 RevenueAnalyticsOverviewItem(
-                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2954.9439166666")
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("2966.674871111")
                 ),
             ],
         )
@@ -312,3 +314,35 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ],
         )
+
+    def test_convertToProjectTimezone_date_range_sql_snapshot(self):
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+
+        query = RevenueAnalyticsOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            properties=[],
+            modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+        )
+
+        # Test with convertToProjectTimezone=True (should use team timezone for date range)
+        modifiers_with_tz = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True, convertToProjectTimezone=True)
+        runner_with_tz = RevenueAnalyticsOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_with_tz)
+
+        # Test with convertToProjectTimezone=False (should use UTC for date range)
+        modifiers_utc = HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True, convertToProjectTimezone=False)
+        runner_utc = RevenueAnalyticsOverviewQueryRunner(team=self.team, query=query, modifiers=modifiers_utc)
+
+        # Generate SQL to capture in snapshots - the date boundaries should be different
+        runner_with_tz.calculate()
+        runner_utc.calculate()
+
+        # Verify timezone info is used correctly in date range calculation
+        tz_date_range = runner_with_tz.query_date_range
+        utc_date_range = runner_utc.query_date_range
+
+        # Team timezone should be used when convertToProjectTimezone=True
+        assert tz_date_range.date_from().tzinfo.key == "America/Los_Angeles"
+
+        # UTC should be used when convertToProjectTimezone=False
+        assert utc_date_range.date_from().tzinfo.key == "UTC"

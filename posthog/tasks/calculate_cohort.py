@@ -4,6 +4,7 @@ import time
 
 from django.conf import settings
 
+from posthog.clickhouse import query_tagging
 from posthog.models.team.team import Team
 from celery import shared_task, chain, current_task
 from datetime import timedelta
@@ -14,7 +15,7 @@ from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, Query
 from django.utils import timezone
 from prometheus_client import Gauge, Counter
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
@@ -57,7 +58,7 @@ logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
-MAX_STUCK_COHORTS_TO_RESET = 2
+MAX_STUCK_COHORTS_TO_RESET = 3
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -252,12 +253,12 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
             staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
         COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
 
-        tags = {"cohort_id": cohort_id, "feature": Feature.COHORT.value}
+        tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
         if initiating_user_id:
-            tags["user_id"] = initiating_user_id
+            tags.user_id = initiating_user_id
         if current_task and current_task.request and current_task.request.id:
-            tags["celery_task_id"] = current_task.request.id
-        tag_queries(**tags)
+            tags.celery_task_id = current_task.request.id
+        update_tags(tags)
 
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
@@ -312,6 +313,10 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
         team_id = cohort.team_id
     team = Team.objects.get(pk=team_id)
     try:
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+        cohort.refresh_from_db()
+
         insert_cohort_query_actors_into_ch(cohort, team=team)
         insert_cohort_people_into_pg(cohort, team_id=team_id)
         cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)

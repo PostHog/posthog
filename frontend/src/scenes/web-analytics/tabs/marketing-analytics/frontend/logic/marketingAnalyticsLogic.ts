@@ -1,30 +1,24 @@
-import { connect, kea, path, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    ConversionGoalFilter,
     CurrencyCode,
     DatabaseSchemaDataWarehouseTable,
     DataWarehouseNode,
     SourceMap,
+    ConversionGoalFilter,
+    MarketingAnalyticsOrderBy,
+    MarketingAnalyticsColumnsSchemaNames,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '../../utils'
+import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
-import {
-    generateGoalConversionCTEs,
-    generateGoalConversionJoins,
-    generateGoalConversionSelects,
-    generateSelect,
-    generateWithClause,
-    unionQueriesString,
-} from './marketingTable'
 import {
     MarketingDashboardMapper,
     NativeMarketingSource,
@@ -44,6 +38,7 @@ export type ExternalTable = {
     external_type: DataWarehouseSettingsTab
     source_map: SourceMap | null
     schema_name: string
+    dw_source_type: string
 }
 
 export type NativeSource = {
@@ -53,6 +48,26 @@ export type NativeSource = {
 
 export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsLogic']),
+    actions({
+        setMarketingAnalyticsOrderBy: (orderBy: number, direction: 'ASC' | 'DESC') => ({ orderBy, direction }),
+        clearMarketingAnalyticsOrderBy: () => true,
+        setDynamicConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
+    }),
+    reducers({
+        marketingAnalyticsOrderBy: [
+            null as MarketingAnalyticsOrderBy | null,
+            {
+                setMarketingAnalyticsOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                clearMarketingAnalyticsOrderBy: () => null,
+            },
+        ],
+        dynamicConversionGoal: [
+            null as ConversionGoalFilter | null,
+            {
+                setDynamicConversionGoal: (_, { goal }) => goal,
+            },
+        ],
+    }),
     connect(() => ({
         values: [
             teamLogic,
@@ -73,11 +88,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
                 const validSourcesMap = sources_map
 
-                Object.keys(MARKETING_ANALYTICS_SCHEMA)
-                    .filter((column_name: string) => MARKETING_ANALYTICS_SCHEMA[column_name].required)
-                    .forEach((column_name: string) => {
+                Object.values(MarketingAnalyticsColumnsSchemaNames)
+                    .filter(
+                        (column_name: MarketingAnalyticsColumnsSchemaNames) =>
+                            MARKETING_ANALYTICS_SCHEMA[column_name].required
+                    )
+                    .forEach((column_name: MarketingAnalyticsColumnsSchemaNames) => {
                         Object.entries(validSourcesMap).forEach(([tableId, fieldMapping]: [string, any]) => {
-                            if (!fieldMapping[column_name]) {
+                            if (fieldMapping && !fieldMapping[column_name]) {
                                 delete validSourcesMap[tableId]
                             }
                         })
@@ -86,7 +104,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (Object.keys(validSourcesMap).length === 0) {
                     return null
                 }
-
                 return validSourcesMap
             },
         ],
@@ -128,6 +145,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             external_type: tableType,
                             source_map: sourceMap,
                             schema_name: table.schema?.name || table.name,
+                            dw_source_type: tableType,
                         })
                     })
                 }
@@ -200,31 +218,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]
-            },
-        ],
-        createDynamicCampaignQuery: [
-            (s) => [s.validExternalTables, s.conversion_goals, s.baseCurrency, s.validNativeSources],
-            (
-                validExternalTables: ExternalTable[],
-                conversionGoals: ConversionGoalFilter[],
-                baseCurrency: CurrencyCode,
-                validNativeSources: NativeSource[]
-            ): string | null => {
-                const unionQueries = unionQueriesString(validNativeSources, validExternalTables, baseCurrency)
-
-                if (unionQueries.length === 0) {
-                    // no valid sources found
-                    return null
-                }
-
-                const conversionGoalCTEs = generateGoalConversionCTEs(conversionGoals)
-                const withClause = generateWithClause(unionQueries, conversionGoalCTEs)
-                const conversionJoins = generateGoalConversionJoins(conversionGoals)
-                const conversionColumns = generateGoalConversionSelects(conversionGoals)
-
-                const query = generateSelect(withClause, conversionColumns, conversionJoins)
-
-                return query
             },
         ],
     }),

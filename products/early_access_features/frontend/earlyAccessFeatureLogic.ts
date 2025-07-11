@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -132,10 +131,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.saveEarlyAccessFeature(payload)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Early Access Features',
-                        callback: (folder) => actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: folder }),
-                    })
+                    actions.saveEarlyAccessFeature({ ...payload, _create_in_folder: 'Unfiled/Early Access Features' })
                 }
             },
         },

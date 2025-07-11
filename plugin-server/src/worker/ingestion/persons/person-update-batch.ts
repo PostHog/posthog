@@ -8,7 +8,7 @@ export interface PersonUpdate {
     team_id: number
     uuid: string
     distinct_id: string
-    properties: Properties
+    properties: Properties // Original properties from database
     properties_last_updated_at: PropertiesLastUpdatedAt
     properties_last_operation: PropertiesLastOperation
     created_at: DateTime
@@ -16,8 +16,9 @@ export interface PersonUpdate {
     is_identified: boolean
     is_user_id: number | null
     needs_write: boolean
-    // Track only the properties that were changed in this batch
-    property_changeset: Properties
+    // Fine-grained property tracking
+    properties_to_set: Properties // Properties to set/update
+    properties_to_unset: string[] // Property keys to unset
 }
 
 export interface PersonPropertyUpdate {
@@ -33,7 +34,7 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         team_id: person.team_id,
         uuid: person.uuid,
         distinct_id: distinctId,
-        properties: person.properties,
+        properties: person.properties, // Original properties from database
         properties_last_updated_at: person.properties_last_updated_at,
         properties_last_operation: person.properties_last_operation || {},
         created_at: person.created_at,
@@ -41,16 +42,30 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         is_identified: person.is_identified,
         is_user_id: person.is_user_id,
         needs_write: false,
-        property_changeset: {},
+        properties_to_set: {},
+        properties_to_unset: [],
     }
 }
 
 export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
+    // Calculate final properties by applying set and unset operations
+    const finalProperties = { ...personUpdate.properties }
+
+    // Apply properties to set
+    Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
+        finalProperties[key] = value
+    })
+
+    // Apply properties to unset
+    personUpdate.properties_to_unset.forEach((key) => {
+        delete finalProperties[key]
+    })
+
     return {
         id: personUpdate.id, // Use the actual database ID, not the UUID
         uuid: personUpdate.uuid,
         team_id: personUpdate.team_id,
-        properties: personUpdate.properties,
+        properties: finalProperties,
         properties_last_updated_at: personUpdate.properties_last_updated_at,
         properties_last_operation: personUpdate.properties_last_operation,
         created_at: personUpdate.created_at,
@@ -92,27 +107,4 @@ export function calculatePersonPropertyUpdate(
     })
 
     return result
-}
-
-/**
- * Merges properties using changeset-based approach for conflict resolution.
- * Only applies properties that were actually changed in this batch.
- */
-export function mergePersonPropertiesWithChangeset(
-    latestProperties: Properties,
-    personUpdate: PersonUpdate
-): Properties {
-    // Start with the latest properties from the database
-    const mergedProperties = { ...latestProperties }
-
-    // Apply only the properties that were changed in this batch
-    Object.entries(personUpdate.property_changeset).forEach(([key, value]) => {
-        if (value === undefined || value === null) {
-            delete mergedProperties[key]
-        } else {
-            mergedProperties[key] = value
-        }
-    })
-
-    return mergedProperties
 }

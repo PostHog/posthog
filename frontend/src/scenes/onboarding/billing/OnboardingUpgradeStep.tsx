@@ -5,9 +5,8 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
-import type { BillingProductV2Type } from '~/types'
+import type { BillingProductV2Type, OnboardingStepKey } from '~/types'
 
-import { OnboardingStepKey } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import PlanCards from './PlanCards'
 

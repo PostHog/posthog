@@ -1912,36 +1912,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cyclotron-fetch"
-version = "0.1.0"
-dependencies = [
- "axum 0.7.5",
- "chrono",
- "common-alloc",
- "common-dns",
- "common-kafka",
- "common-metrics",
- "cyclotron-core",
- "envconfig",
- "futures",
- "health",
- "http 1.1.0",
- "httpmock",
- "rand 0.8.5",
- "rdkafka",
- "reqwest 0.12.3",
- "serde",
- "serde_json",
- "sqlx",
- "thiserror 1.0.69",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "cyclotron-janitor"
 version = "0.1.0"
 dependencies = [

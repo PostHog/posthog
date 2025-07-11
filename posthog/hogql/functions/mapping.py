@@ -85,6 +85,8 @@ class HogQLFunctionMeta:
     """Additional arguments that are added to the end of the arguments provided by the caller"""
     using_placeholder_arguments: bool = False
     using_positional_arguments: bool = False
+    parametric_first_arg: bool = False
+    """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
 
 
 def compare_types(arg_types: list[ConstantType], sig_arg_types: tuple[ConstantType, ...]):
@@ -337,7 +339,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "arrayDistinct": HogQLFunctionMeta("arrayDistinct", 1, 1),
     "arrayEnumerateDense": HogQLFunctionMeta("arrayEnumerateDense", 1, 1),
     "arrayIntersect": HogQLFunctionMeta("arrayIntersect", 1, None),
-    # "arrayReduce": HogQLFunctionMeta("arrayReduce", 2,None),  # takes a "parametric function" as first arg, is that safe?
+    "arrayReduce": HogQLFunctionMeta("arrayReduce", 2, None, parametric_first_arg=True),
     # "arrayReduceInRanges": HogQLFunctionMeta("arrayReduceInRanges", 3,None),  # takes a "parametric function" as first arg, is that safe?
     "arrayReverse": HogQLFunctionMeta("arrayReverse", 1, 1),
     "arrayFilter": HogQLFunctionMeta("arrayFilter", 2, None),
@@ -400,6 +402,9 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "reinterpretAsFloat64": HogQLFunctionMeta("reinterpretAsFloat64", 1, 1),
     "reinterpretAsUUID": HogQLFunctionMeta("reinterpretAsUUID", 1, 1),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
+    "_toInt8": HogQLFunctionMeta("toInt8", 1, 1),
+    "_toInt16": HogQLFunctionMeta("toInt16", 1, 1),
+    "_toInt32": HogQLFunctionMeta("toInt32", 1, 1),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
@@ -788,7 +793,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "roundAge": HogQLFunctionMeta("roundAge", 1, 1),
     "roundDown": HogQLFunctionMeta("roundDown", 2, 2),
     # maps
-    "map": HogQLFunctionMeta("map", 0, 2),
+    "map": HogQLFunctionMeta("map", 0, None),
     "mapFromArrays": HogQLFunctionMeta("mapFromArrays", 2, 2),
     "mapAdd": HogQLFunctionMeta("mapAdd", 2, None),
     "mapSubtract": HogQLFunctionMeta("mapSubtract", 2, None),
@@ -1892,6 +1897,30 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
 }
 
+# The list of functions allowed in parametric functions, e.g. sum in "arrayReduce('sum', [1, 2, 3])"
+HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS: set[str] = {
+    "count",
+    "countMap",
+    "countMapState",
+    "sum",
+    "sumMap",
+    "sumMapState",
+    "min",
+    "minMap",
+    "minMapState",
+    "max",
+    "maxMap",
+    "maxMapState",
+    "avg",
+    "avgState",
+    "avgMap",
+    "avgMapState",
+    "uniq",
+    "uniqState",
+    "uniqMap",
+    "uniqMapState",
+}
+
 
 UDFS: dict[str, HogQLFunctionMeta] = {
     "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
@@ -1962,3 +1991,8 @@ def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
 
 def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
     return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
+
+
+def is_allowed_parametric_function(name: str) -> bool:
+    # No case-insensitivity for parametric functions
+    return name in HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS

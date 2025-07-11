@@ -46,7 +46,7 @@ function RootFolderButton({
 }): JSX.Element {
     return (
         <ButtonPrimitive
-            className={cn('flex gap-2 px-2 py-1 border border-primary rounded hover:border-tertiary', {
+            className={cn('flex gap-2 px-2 py-1 border border-primary rounded hover:border-secondary', {
                 'border-accent': active,
             })}
             onClick={onClick}

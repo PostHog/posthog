@@ -36,6 +36,7 @@ pub struct State {
     pub event_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
     pub is_mirror_deploy: bool,
+    pub base64_detect_percent: f32,
 }
 
 #[derive(Clone)]
@@ -110,6 +111,7 @@ pub fn router<
     historical_rerouting_threshold_days: i64,
     historical_tokens_keys: Option<String>,
     is_mirror_deploy: bool,
+    base64_detect_percent: f32,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -124,6 +126,7 @@ pub fn router<
             historical_tokens_keys,
         ),
         is_mirror_deploy,
+        base64_detect_percent,
     };
 
     // Very permissive CORS policy, as old SDK versions

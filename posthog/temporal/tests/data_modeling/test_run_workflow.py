@@ -15,6 +15,7 @@ import temporalio.worker
 from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
+import pyarrow as pa
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -37,12 +38,15 @@ from posthog.temporal.data_modeling.run_workflow import (
     start_run_activity,
     create_job_model_activity,
     fail_jobs_activity,
+    cleanup_running_jobs_activity,
+    CleanupRunningJobsActivityInputs,
+    CreateJobModelInputs,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -747,9 +751,12 @@ async def test_run_workflow_with_minio_bucket(
                 create_table_activity,
                 create_job_model_activity,
                 fail_jobs_activity,
+                cleanup_running_jobs_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
+            # Ensure the team exists in the DB context before running workflow
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
             await temporal_client.execute_workflow(
                 RunWorkflow.run,
                 inputs,
@@ -858,9 +865,12 @@ async def test_run_workflow_with_minio_bucket_with_errors(
                 create_table_activity,
                 create_job_model_activity,
                 fail_jobs_activity,
+                cleanup_running_jobs_activity,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
+            # Ensure the team exists in the DB context before running workflow
+            await database_sync_to_async(Team.objects.get)(pk=ateam.pk)
             await temporal_client.execute_workflow(
                 RunWorkflow.run,
                 inputs,
@@ -931,3 +941,209 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     assert "DistinctId" in table_columns, "Column 'DistinctId' should maintain its original capitalization"
     assert "TimeStamp" in table_columns, "Column 'TimeStamp' should maintain its original capitalization"
     assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
+
+
+async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_client):
+    """Test that materialize_model successfully transforms Decimal256 types to float since decimal128 is not precise enough."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="decimal_fix_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    def mock_hogql_table(*args, **kwargs):
+        from decimal import Decimal
+
+        high_precision_decimal_type = pa.decimal256(76, 32)
+        problematic_data = pa.array(
+            [Decimal("12345678901234567890123456789012345678901234.12345678901234567890123456789012")],
+            type=high_precision_decimal_type,
+        )
+
+        table = pa.table({"high_precision_decimal": problematic_data, "regular_column": pa.array([1], type=pa.int64())})
+
+        async def async_generator():
+            yield table
+
+        return async_generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "high_precision_decimal" in table.column_names
+        assert "regular_column" in table.column_names
+
+        high_precision_column = table.column("high_precision_decimal")
+        # Should be Decimal128 with reduced precision, not float64
+        assert pa.types.is_decimal(high_precision_column.type)
+        assert isinstance(high_precision_column.type, pa.Decimal128Type)
+        assert high_precision_column.type.precision == 38
+        assert high_precision_column.type.scale == 37
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, bucket_name, minio_client):
+    """Test that materialize_model successfully downscales Decimal256 to Decimal128 when the value fits."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="decimal_downscale_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    def mock_hogql_table(*args, **kwargs):
+        from decimal import Decimal
+
+        high_precision_decimal_type = pa.decimal256(50, 10)
+        manageable_data = pa.array(
+            [Decimal("1234567890123456789012345678.1234567890")],
+            type=high_precision_decimal_type,
+        )
+
+        table = pa.table({"manageable_decimal": manageable_data, "regular_column": pa.array([1], type=pa.int64())})
+
+        async def async_generator():
+            yield table
+
+        return async_generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        assert key == saved_query.normalized_name
+
+        table = delta_table.to_pyarrow_table()
+        assert table.num_rows == 1
+        assert "manageable_decimal" in table.column_names
+        assert "regular_column" in table.column_names
+
+        manageable_decimal_column = table.column("manageable_decimal")
+        # Should be Decimal128, not float64
+        assert pa.types.is_decimal(manageable_decimal_column.type)
+        assert isinstance(manageable_decimal_column.type, pa.Decimal128Type)
+        assert manageable_decimal_column.type.precision == 38
+        assert manageable_decimal_column.type.scale == 10
+
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_cleanup_running_jobs_activity(activity_environment, ateam):
+    """Test cleanup marks all existing RUNNING jobs as FAILED when starting a new run."""
+    old_job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="old-1", workflow_run_id="run-1"
+    )
+    recent_job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="recent-1", workflow_run_id="run-2"
+    )
+    completed_job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, status=DataModelingJob.Status.COMPLETED, workflow_id="completed-1", workflow_run_id="run-3"
+    )
+
+    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
+
+    await database_sync_to_async(old_job.refresh_from_db)()
+    await database_sync_to_async(recent_job.refresh_from_db)()
+    await database_sync_to_async(completed_job.refresh_from_db)()
+
+    assert old_job.status == DataModelingJob.Status.FAILED
+    assert old_job.error is not None
+    assert "orphaned when a new data modeling run started" in old_job.error
+    assert recent_job.status == DataModelingJob.Status.FAILED
+    assert recent_job.error is not None
+    assert "orphaned when a new data modeling run started" in recent_job.error
+    assert completed_job.status == DataModelingJob.Status.COMPLETED
+
+
+async def test_create_job_model_activity_cleans_up_running_jobs(activity_environment, ateam, temporal_client):
+    """Test that orphaned jobs are cleaned up when running the full workflow."""
+    # Create old orphaned job
+    orphaned_job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam, status=DataModelingJob.Status.RUNNING, workflow_id="orphaned-1", workflow_run_id="run-1"
+    )
+    await database_sync_to_async(DataModelingJob.objects.filter(id=orphaned_job.id).update)(
+        updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
+    )
+
+    # Create saved query for new job
+    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
+    )
+
+    # Test that cleanup activity marks orphaned jobs as FAILED
+    await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
+
+    # Verify orphaned job was cleaned up
+    await database_sync_to_async(orphaned_job.refresh_from_db)()
+    assert orphaned_job.status == DataModelingJob.Status.FAILED
+    assert orphaned_job.error is not None
+    assert "orphaned when a new data modeling run started" in orphaned_job.error
+
+    # Test that create_job_model_activity creates a new job
+    with unittest.mock.patch("temporalio.activity.info") as mock_info:
+        mock_info.return_value.workflow_id = "new-workflow"
+        mock_info.return_value.workflow_run_id = "new-run"
+
+        new_job_id = await activity_environment.run(
+            create_job_model_activity,
+            CreateJobModelInputs(
+                team_id=ateam.pk, select=[Selector(label=saved_query.id.hex, ancestors=0, descendants=0)]
+            ),
+        )
+
+    # Verify new job was created
+    new_job = await database_sync_to_async(DataModelingJob.objects.get)(id=new_job_id)
+    assert new_job.status == DataModelingJob.Status.RUNNING
+    assert new_job.workflow_id == "new-workflow"
+    assert new_job.workflow_run_id == "new-run"

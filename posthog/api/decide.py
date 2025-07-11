@@ -116,7 +116,16 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             response["isAuthenticated"] = False
             response["toolbarParams"] = {}
             response["config"] = {"enable_collect_everything": True}
-            response["surveys"] = surveys_opt_in
+
+            # FIX: Maintain backward compatibility by checking if RemoteConfig actually has survey data
+            # Older SDKs expect surveys=true only when surveys exist, not just when surveys_opt_in=true
+            has_actual_surveys = (
+                surveys_opt_in
+                and "surveys" in response
+                and response["surveys"]
+                and (isinstance(response["surveys"], list) and len(response["surveys"]) > 0)
+            )
+            response["surveys"] = has_actual_surveys
 
             # Remove some stuff that is specific to the new RemoteConfig
             del response["hasFeatureFlags"]

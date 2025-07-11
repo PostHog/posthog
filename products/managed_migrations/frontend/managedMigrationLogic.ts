@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +24,8 @@ export interface ManagedMigrationForm {
     // date range specific fields
     start_date?: string
     end_date?: string
+    // EU region support for amplitude/mixpanel
+    is_eu_region?: boolean
 }
 
 const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
@@ -35,6 +38,7 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     content_type: 'captured',
     start_date: '',
     end_date: '',
+    is_eu_region: false,
 }
 
 export const managedMigrationLogic = kea<managedMigrationLogicType>([
@@ -86,6 +90,18 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                 } else if (source_type === 'mixpanel' || source_type === 'amplitude') {
                     errors.start_date = !start_date ? 'Start date is required' : null
                     errors.end_date = !end_date ? 'End date is required' : null
+
+                    if (start_date && end_date) {
+                        const startDateParsed = dayjs(start_date)
+                        const endDateParsed = dayjs(end_date)
+
+                        if (endDateParsed.isBefore(startDateParsed)) {
+                            errors.end_date = 'End date must be after start date'
+                        } else if (endDateParsed.diff(startDateParsed, 'year', true) > 1) {
+                            errors.end_date =
+                                'Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods.'
+                        }
+                    }
                 }
                 return errors
             },
@@ -109,6 +125,7 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
                         ...payload,
                         start_date: values.start_date,
                         end_date: values.end_date,
+                        is_eu_region: values.is_eu_region,
                     }
                 }
                 try {

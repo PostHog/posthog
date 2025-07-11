@@ -16,6 +16,7 @@ import React, {
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
 import { TextInputPrimitive } from '../TextInputPrimitive/TextInputPrimitive'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 interface ComboboxContextType {
     searchValue: string
@@ -102,6 +103,12 @@ const InnerCombobox = forwardRef<ListBoxHandle, ComboboxProps>(({ children, clas
                 virtualFocus
                 role="listbox"
                 id="combobox-listbox"
+                style={
+                    {
+                        // Match text input base height with p-1 padding
+                        '--combobox-search-height': 'calc(var(--text-input-height-base) + (var(--spacing) * 2))',
+                    } as React.CSSProperties
+                }
             >
                 {children}
             </ListBox>
@@ -131,9 +138,9 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 onChange={(e) => context.setSearchValue(e.target.value)}
                 className={className}
                 placeholder={placeholder}
-                size="sm"
                 autoFocus={autoFocus}
                 role="combobox"
+                size="default"
                 aria-controls="combobox-listbox"
             />
         </div>
@@ -197,7 +204,22 @@ interface ContentProps {
 }
 
 const Content = ({ className, children }: ContentProps): JSX.Element => {
-    return <div className={cn('flex flex-col gap-px px-1 pb-1 overflow-y-auto', className)}>{children}</div>
+    return (
+        <div
+            className={cn(
+                'primitive-menu-content max-h-[calc(var(--radix-popover-content-available-height)-var(--combobox-search-height)-var(--radix-popper-anchor-height))] max-w-none border-transparent',
+                className
+            )}
+        >
+            <ScrollableShadows
+                direction="vertical"
+                styledScrollbars
+                innerClassName="primitive-menu-content-inner flex flex-col gap-px"
+            >
+                {children}
+            </ScrollableShadows>
+        </div>
+    )
 }
 
 /** Compound type augmentation */
