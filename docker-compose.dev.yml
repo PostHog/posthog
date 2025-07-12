@@ -108,6 +108,7 @@ services:
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
             - AWS_SECRET_ACCESS_KEY=object_storage_root_password
+            - CLICKHOUSE_SKIP_USER_SETUP=1
         ports:
             - '8123:8123'
             - '8443:8443'
