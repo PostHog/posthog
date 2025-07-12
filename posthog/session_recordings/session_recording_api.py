@@ -1291,7 +1291,8 @@ def list_recordings_from_query(
             user.distinct_id,
         )
 
-        with timer("load_recordings_from_hogql"):
+        with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
+            posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
             if use_multiple_sub_queries:
                 (ch_session_recordings, more_recordings_available, hogql_timings) = (
                     RewrittenSessionRecordingListFromQuery(
