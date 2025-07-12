@@ -13,49 +13,37 @@ export function htmlGenerationPlugin(): Plugin {
     }
 }
 
-function generateHtml(from: string, to: string, entry: string) {
+function generateHtml(from: string, to: string, entry: string): void {
     try {
         const htmlContent = readFileSync(resolve('.', from), 'utf-8')
-        
+
         // Read the Vite manifest to get the correct asset URLs
         let manifestContent: any = {}
         try {
             const manifestPath = resolve('.', 'dist/.vite/manifest.json')
             manifestContent = JSON.parse(readFileSync(manifestPath, 'utf-8'))
         } catch (e) {
-            console.warn('Could not read Vite manifest, falling back to basic script injection')
+            console.warn('Could not read Vite manifest, falling back to basic script injection', e)
         }
-        
+
         // Get the entry file from manifest
         const entryKey = `src/${entry}.tsx`
         const manifestEntry = manifestContent[entryKey]
-        
+
         let scriptTag = ''
         if (manifestEntry && manifestEntry.file) {
             // Use Vite manifest for proper asset loading
             scriptTag = `<script type="module" crossorigin src="/static/${manifestEntry.file}"></script>`
-            
+
             // Add any CSS files from the manifest
             if (manifestEntry.css && manifestEntry.css.length > 0) {
-                const cssLinks = manifestEntry.css.map((cssFile: string) => 
-                    `<link rel="stylesheet" crossorigin href="/static/${cssFile}">`
-                ).join('\n    ')
+                const cssLinks = manifestEntry.css
+                    .map((cssFile: string) => `<link rel="stylesheet" crossorigin href="/static/${cssFile}">`)
+                    .join('\n    ')
                 scriptTag = cssLinks + '\n    ' + scriptTag
             }
         } else {
-            // Fallback to the old approach if manifest is not available
-            const buildId = new Date().valueOf()
-            scriptTag = `<script type="module">
-window.ESBUILD_LOAD_SCRIPT = async function (file) {
-    try {
-        await import((window.JS_URL || '/static/') + file)
-    } catch (error) {
-        console.error('Error loading chunk: "' + file + '"')
-        console.error(error)
-    }
-}
-window.ESBUILD_LOAD_SCRIPT('${entry}.js?t=${buildId}')
-</script>`
+            console.warn('Could not find entry file in manifest')
         }
 
         const modifiedHtml = htmlContent.replace(
@@ -68,4 +56,4 @@ window.ESBUILD_LOAD_SCRIPT('${entry}.js?t=${buildId}')
     } catch (error) {
         console.warn(`Could not generate ${to}:`, error)
     }
-} 
+}
