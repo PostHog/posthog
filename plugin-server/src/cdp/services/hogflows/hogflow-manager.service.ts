@@ -126,7 +126,7 @@ export class HogFlowManagerService {
         return await this.lazyLoader.getMany(ids)
     }
 
-    private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]) {
+    private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
         this.lazyLoader.markForRefresh(hogFlowIds)
     }
