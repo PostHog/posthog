@@ -334,6 +334,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         required_scopes=["team:read"],
         throttle_classes=[SetupWizardAuthenticationRateThrottle],
+        permission_classes=[permissions.IsAuthenticated, APIScopePermission],
     )
     def authenticate_wizard(self, request, **kwargs):
         hash = request.data.get("hash")
