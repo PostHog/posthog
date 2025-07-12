@@ -364,6 +364,8 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     ),
                 ],
             )
+        else:
+            raise ValueError(f"Invalid query, expected breakdown_by to be the first select")
 
         # We wanna include a join with the subquery to get the coalesced field
         # and also change the `breakdown_by` to include that

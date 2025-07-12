@@ -277,6 +277,28 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                         "name": "Customer Count | stripe.posthog_test",
                     },
                 },
+                {
+                    "label": "New Customer Count | stripe.posthog_test",
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
+                    "data": [0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": ALL_MONTHS_FAKEDATETIMES,
+                        "id": "New Customer Count | stripe.posthog_test",
+                        "name": "New Customer Count | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "Churned Customer Count | stripe.posthog_test",
+                    "days": ALL_MONTHS_DAYS,
+                    "labels": ALL_MONTHS_LABELS,
+                    "data": [0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0],
+                    "action": {
+                        "days": ALL_MONTHS_FAKEDATETIMES,
+                        "id": "Churned Customer Count | stripe.posthog_test",
+                        "name": "Churned Customer Count | stripe.posthog_test",
+                    },
+                },
             ],
         )
 
@@ -334,6 +356,28 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                         "days": action_days,
                         "id": "Customer Count | stripe.posthog_test",
                         "name": "Customer Count | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "New Customer Count | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [1, 1, 1, 1],
+                    "action": {
+                        "days": action_days,
+                        "id": "New Customer Count | stripe.posthog_test",
+                        "name": "New Customer Count | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "Churned Customer Count | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [0, 0, 0, 0],
+                    "action": {
+                        "days": action_days,
+                        "id": "Churned Customer Count | stripe.posthog_test",
+                        "name": "Churned Customer Count | stripe.posthog_test",
                     },
                 },
             ],
@@ -396,13 +440,35 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                         "name": "Customer Count | stripe.posthog_test",
                     },
                 },
+                {
+                    "label": "New Customer Count | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [0],
+                    "action": {
+                        "days": action_days,
+                        "id": "New Customer Count | stripe.posthog_test",
+                        "name": "New Customer Count | stripe.posthog_test",
+                    },
+                },
+                {
+                    "label": "Churned Customer Count | stripe.posthog_test",
+                    "days": days,
+                    "labels": labels,
+                    "data": [0],
+                    "action": {
+                        "days": action_days,
+                        "id": "Churned Customer Count | stripe.posthog_test",
+                        "name": "Churned Customer Count | stripe.posthog_test",
+                    },
+                },
             ],
         )
 
     def test_with_data_and_product_grouping(self):
         results = self._run_revenue_analytics_customer_count_query(group_by=[RevenueAnalyticsGroupBy.PRODUCT]).results
 
-        self.assertEqual(len(results), 24)  # 6 Products * 4 insights = 24
+        self.assertEqual(len(results), 36)  # 6 Products * 6 insights = 36
         self.assertEqual(
             [(result["data"], result["label"]) for result in results],
             [
@@ -410,31 +476,50 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
                 ([0, 0, 1, 0, 0, 0, 0], "New Subscription Count | stripe.posthog_test - Product A"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product A"),
                 ([0, 0, 1, 1, 1, 1, 1], "Customer Count | stripe.posthog_test - Product A"),
+                ([0, 0, 1, 0, 0, 0, 0], "New Customer Count | stripe.posthog_test - Product A"),
+                ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product A"),
                 ([0, 0, 0, 1, 1, 1, 1], "Subscription Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 1, 0, 0, 0], "New Subscription Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 1, 1, 1, 1], "Customer Count | stripe.posthog_test - Product B"),
+                ([0, 0, 0, 1, 0, 0, 0], "New Customer Count | stripe.posthog_test - Product B"),
+                ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product B"),
                 ([0, 0, 0, 0, 1, 1, 1], "Subscription Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 1, 0, 0], "New Subscription Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 1, 1, 1], "Customer Count | stripe.posthog_test - Product C"),
+                ([0, 0, 0, 0, 1, 0, 0], "New Customer Count | stripe.posthog_test - Product C"),
+                ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product C"),
                 ([0, 0, 0, 0, 0, 1, 1], "Subscription Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 1, 0], "New Subscription Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 1, 1], "Customer Count | stripe.posthog_test - Product D"),
+                ([0, 0, 0, 0, 0, 1, 0], "New Customer Count | stripe.posthog_test - Product D"),
+                ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product D"),
                 ([0, 0, 0, 0, 0, 0, 1], "Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 1], "New Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 1], "Customer Count | stripe.posthog_test - Product E"),
+                ([0, 0, 0, 0, 0, 0, 1], "New Customer Count | stripe.posthog_test - Product E"),
+                ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product E"),
                 ([0, 0, 0, 0, 0, 0, 0], "Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "New Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "Churned Subscription Count | stripe.posthog_test - Product F"),
                 ([0, 0, 0, 0, 0, 0, 0], "Customer Count | stripe.posthog_test - Product F"),
+                ([0, 0, 0, 0, 0, 0, 0], "New Customer Count | stripe.posthog_test - Product F"),
+                ([0, 0, 0, 0, 0, 0, 0], "Churned Customer Count | stripe.posthog_test - Product F"),
             ],
         )
 
     def test_with_product_filter(self):
-        expected_data = [[0, 0, 0, 0, 1, 1, 1], [0, 0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1, 1]]
+        expected_data = [
+            [0, 0, 0, 0, 1, 1, 1],  # Subscription Count
+            [0, 0, 0, 0, 1, 0, 0],  # New Subscription Count
+            [0, 0, 0, 0, 0, 0, 0],  # Churned Subscription Count
+            [0, 0, 0, 0, 1, 1, 1],  # Customer Count
+            [0, 0, 0, 0, 1, 0, 0],  # New Customer Count
+            [0, 0, 0, 0, 0, 0, 0],  # Churned Customer Count
+        ]
 
         results = self._run_revenue_analytics_customer_count_query(
             properties=[
@@ -446,7 +531,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             ]
         ).results
 
-        self.assertEqual(len(results), 4)
+        self.assertEqual(len(results), 6)
         self.assertEqual([result["data"] for result in results], expected_data)
 
         # When grouping results should be exactly the same, just the label changes
@@ -461,7 +546,7 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             ],
         ).results
 
-        self.assertEqual(len(results), 4)
+        self.assertEqual(len(results), 6)
         self.assertEqual([result["data"] for result in results], expected_data)
 
         labels = [result["label"] for result in results]
@@ -478,8 +563,15 @@ class TestRevenueAnalyticsCustomerCountQueryRunner(ClickhouseTestMixin, APIBaseT
             ]
         ).results
 
-        self.assertEqual(len(results), 4)
+        self.assertEqual(len(results), 6)
         self.assertEqual(
             [result["data"] for result in results],
-            [[0, 0, 1, 2, 2, 2, 2], [0, 0, 1, 1, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0], [0, 0, 1, 2, 2, 2, 2]],
+            [
+                [0, 0, 1, 2, 2, 2, 2],  # Subscription Count
+                [0, 0, 1, 1, 0, 0, 0],  # New Subscription Count
+                [0, 0, 0, 0, 0, 0, 0],  # Churned Subscription Count
+                [0, 0, 1, 2, 2, 2, 2],  # Customer Count
+                [0, 0, 1, 1, 0, 0, 0],  # New Customer Count
+                [0, 0, 0, 0, 0, 0, 0],  # Churned Customer Count
+            ],
         )
