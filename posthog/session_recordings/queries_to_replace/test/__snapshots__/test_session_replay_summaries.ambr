@@ -1,0 +1,22 @@
+# serializer version: 1
+# name: TestReceiveSummarizedSessionReplays.test_session_replay_summaries_can_be_queried
+  '''
+  
+  select session_id,
+         any(team_id),
+         any(distinct_id),
+         min(min_first_timestamp),
+         max(max_last_timestamp),
+         dateDiff('SECOND', min(min_first_timestamp), max(max_last_timestamp)) as duration,
+         argMinMerge(first_url) as first_url,
+         sum(click_count),
+         sum(keypress_count),
+         sum(mouse_activity_count),
+         round((sum(active_milliseconds)/1000)/duration, 2) as active_time
+  from session_replay_events prewhere team_id = 99999
+  and min_first_timestamp >= '2023-04-24 19:18:24.597000'
+  and max_last_timestamp <= '2023-04-28 19:18:24.597000'
+  and session_id in ('test_session_replay_summaries_can_be_queried-session-id')
+  group by session_id
+  '''
+# ---
