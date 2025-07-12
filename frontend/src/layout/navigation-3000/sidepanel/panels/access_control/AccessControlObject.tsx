@@ -8,6 +8,7 @@ import {
     LemonSelect,
     LemonSelectProps,
     LemonTable,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -31,6 +32,8 @@ import {
 } from '~/types'
 
 import { accessControlLogic, AccessControlLogicProps } from './accessControlLogic'
+import { IconWarning } from '@posthog/icons'
+import clsx from 'clsx'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource } = useValues(accessControlLogic(props))
@@ -46,10 +49,14 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     <div className="deprecated-space-y-6">
                         {canEditAccessControls === false ? (
                             <LemonBanner type="warning">
-                                <b>Permission required</b>
-                                <br />
-                                You don't have permission to edit access controls for {suffix}. You must be the{' '}
-                                <i>creator of it</i>, a <i>Project admin</i>, or an <i>Organization admin</i>.
+                                <Tooltip
+                                    title={`You don't have permission to edit access controls for ${suffix}. You must be the creator of it, a Project admin, an Organization admin, or have manager access to the resource.`}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <IconWarning className={clsx('LemonBanner__icon')} />
+                                        <b>Permission required</b>
+                                    </div>
+                                </Tooltip>
                             </LemonBanner>
                         ) : null}
 

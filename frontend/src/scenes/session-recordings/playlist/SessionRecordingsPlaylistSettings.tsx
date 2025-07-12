@@ -149,7 +149,7 @@ export function SessionRecordingsPlaylistTopSettings({
             <div className="flex items-center">
                 <LemonCheckbox
                     disabledReason={
-                        recordings.length >= MAX_SELECTED_RECORDINGS
+                        recordings.length > MAX_SELECTED_RECORDINGS
                             ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
                             : undefined
                     }
