@@ -4044,6 +4044,7 @@ export enum ExperimentMetricMathType {
     Min = 'min',
     Max = 'max',
     Avg = 'avg',
+    FirstTimeForUser = 'first_time_for_user',
 }
 
 export enum ActorGroupType {
