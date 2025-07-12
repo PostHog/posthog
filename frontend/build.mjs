@@ -13,7 +13,7 @@ import { fileURLToPath } from 'url'
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
-copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+copyPublicFolder(path.resolve(__dirname, 'src/assets'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
 writeExporterHtml()
 await import('./build-products.mjs')
