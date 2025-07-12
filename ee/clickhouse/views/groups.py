@@ -317,7 +317,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         ]
     )
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
-    def delete_property(self, request: request.Request, **kw) -> response.Response:
+    def delete_property(self, request: request.Request, **_kw) -> response.Response:
         try:
             group = self.get_object()
             for key in ["$unset"]:
