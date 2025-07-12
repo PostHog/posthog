@@ -41,7 +41,7 @@ SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, 
 
 # can set specific teams to take the posthog-recorder
 SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS = [
-    int(x) for x in get_list(os.getenv("SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS"))
+    int(x) for x in get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS", default=""))
 ]
 # _and_ set a sample rate, a given team will always be sampled in or out
 # defaults to 0 i.e. nobody gets the alternative script
