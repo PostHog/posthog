@@ -8636,6 +8636,59 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DataWarehouseViewLink": {
+            "additionalProperties": false,
+            "properties": {
+                "configuration": {
+                    "$ref": "#/definitions/DataWarehouseViewLinkConfiguration"
+                },
+                "created_at": {
+                    "type": ["string", "null"]
+                },
+                "created_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/UserBasicType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "field_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "joining_table_key": {
+                    "type": "string"
+                },
+                "joining_table_name": {
+                    "type": "string"
+                },
+                "source_table_key": {
+                    "type": "string"
+                },
+                "source_table_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
+        },
+        "DataWarehouseViewLinkConfiguration": {
+            "additionalProperties": false,
+            "properties": {
+                "experiments_optimized": {
+                    "type": "boolean"
+                },
+                "experiments_timestamp_key": {
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
         "DatabaseSchemaBatchExportTable": {
             "additionalProperties": false,
             "properties": {
@@ -8878,6 +8931,12 @@
         "DatabaseSchemaQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "joins": {
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseViewLink"
+                    },
+                    "type": "array"
+                },
                 "tables": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaTable"
@@ -8885,7 +8944,7 @@
                     "type": "object"
                 }
             },
-            "required": ["tables"],
+            "required": ["tables", "joins"],
             "type": "object"
         },
         "DatabaseSchemaSchema": {
@@ -18504,6 +18563,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "joins": {
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseViewLink"
+                            },
+                            "type": "array"
+                        },
                         "tables": {
                             "additionalProperties": {
                                 "$ref": "#/definitions/DatabaseSchemaTable"
@@ -18511,7 +18576,7 @@
                             "type": "object"
                         }
                     },
-                    "required": ["tables"],
+                    "required": ["tables", "joins"],
                     "type": "object"
                 },
                 {

@@ -20,7 +20,12 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
-export function ViewLinkModal(): JSX.Element {
+export type Mode = 'revenue_analytics'
+export interface ViewLinkModalProps {
+    mode?: Mode
+}
+
+export function ViewLinkModal({ mode }: ViewLinkModalProps): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
     const { toggleJoinTableModal } = useActions(viewLinkLogic)
 
@@ -28,21 +33,37 @@ export function ViewLinkModal(): JSX.Element {
         <LemonModal
             title="Join tables"
             description={
-                <span>
-                    Define a join between two tables or views. <b>All</b> fields from the joined table or view will be
-                    accessible in queries at the top level without needing to explicitly join the view.
-                </span>
+                mode === 'revenue_analytics' ? (
+                    <span>
+                        Define a join between the <code>persons</code> table and the <code>customer_revenue_view</code>{' '}
+                        Revenue analytics view. <br />
+                        <br />
+                        <b>All</b> fields from the joined table or view will be accessible in queries at the top level
+                        without needing to explicitly join the view. This will also enable you to see revenue for a
+                        person via the <code>persons.$virt_revenue</code> and{' '}
+                        <code>persons.$virt_revenue_last_30_days</code> virtual fields.
+                    </span>
+                ) : (
+                    <span>
+                        Define a join between two tables or views. <b>All</b> fields from the joined table or view will
+                        be accessible in queries at the top level without needing to explicitly join the view.
+                    </span>
+                )
             }
             isOpen={isJoinTableModalOpen}
             onClose={toggleJoinTableModal}
             width={700}
         >
-            <ViewLinkForm />
+            <ViewLinkForm mode={mode} />
         </LemonModal>
     )
 }
 
-export function ViewLinkForm(): JSX.Element {
+const HOGQL_EDITOR_PLACEHOLDER = 'Enter SQL expression, such as:\n- pdi.distinct_id\n- properties.email'
+const HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS =
+    "Enter SQL expression, such as:\n- extractJSONString(metadata, 'customer_id')\n- extractJSONString(metadata, 'organization_id')\n- concat(email, ',', customer_id)"
+
+export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
     const {
         tableOptions,
         selectedJoiningTableName,
@@ -80,7 +101,9 @@ export function ViewLinkForm(): JSX.Element {
                     <div className="w-60">
                         <span className="l4">Source Table</span>
                         <div className="text-wrap break-all">
-                            {isNewJoin ? (
+                            {mode === 'revenue_analytics' || !isNewJoin ? (
+                                selectedSourceTableName ?? ''
+                            ) : (
                                 <Field name="source_table_name">
                                     <LemonSelect
                                         fullWidth
@@ -89,72 +112,100 @@ export function ViewLinkForm(): JSX.Element {
                                         placeholder="Select a table"
                                     />
                                 </Field>
-                            ) : (
-                                selectedSourceTableName ?? ''
                             )}
                         </div>
                     </div>
                     <div className="w-60">
                         <span className="l4">Joining Table</span>
-                        <Field name="joining_table_name">
-                            <LemonSelect
-                                fullWidth
-                                options={tableOptions}
-                                onSelect={selectJoiningTable}
-                                placeholder="Select a table"
-                            />
-                        </Field>
+                        <div className="text-wrap break-all">
+                            {mode === 'revenue_analytics' ? (
+                                selectedJoiningTableName ?? ''
+                            ) : (
+                                <Field name="joining_table_name">
+                                    <LemonSelect
+                                        fullWidth
+                                        options={tableOptions}
+                                        onSelect={selectJoiningTable}
+                                        placeholder="Select a table"
+                                    />
+                                </Field>
+                            )}
+                        </div>
                     </div>
                 </div>
                 <div className="mt-4 flex flex-row justify-between items-center w-full">
                     <div className="w-60">
                         <span className="l4">Source Table Key</span>
-                        <Field name="source_table_key">
-                            <>
-                                <LemonSelect
-                                    fullWidth
-                                    onSelect={selectSourceKey}
-                                    value={sourceIsUsingHogQLExpression ? '' : selectedSourceKey ?? undefined}
-                                    disabledReason={selectedSourceTableName ? '' : 'Select a table to choose join key'}
-                                    options={[...sourceTableKeys, { value: '', label: <span>SQL Expression</span> }]}
-                                    placeholder="Select a key"
-                                />
-                                {sourceIsUsingHogQLExpression && (
-                                    <HogQLDropdown
-                                        className="mt-2"
-                                        hogQLValue={selectedSourceKey ?? ''}
-                                        onHogQLValueChange={selectSourceKey}
-                                        tableName={selectedSourceTableName ?? ''}
+                        <div className="text-wrap break-all">
+                            <Field name="source_table_key">
+                                <>
+                                    <LemonSelect
+                                        fullWidth
+                                        onSelect={selectSourceKey}
+                                        value={sourceIsUsingHogQLExpression ? '' : selectedSourceKey ?? undefined}
+                                        disabledReason={
+                                            selectedSourceTableName ? '' : 'Select a table to choose join key'
+                                        }
+                                        options={[
+                                            ...sourceTableKeys,
+                                            { value: '', label: <span>SQL Expression</span> },
+                                        ]}
+                                        placeholder="Select a key"
                                     />
-                                )}
-                            </>
-                        </Field>
+                                    {sourceIsUsingHogQLExpression && (
+                                        <HogQLDropdown
+                                            className="mt-2"
+                                            hogQLValue={selectedSourceKey ?? ''}
+                                            onHogQLValueChange={selectSourceKey}
+                                            tableName={selectedSourceTableName ?? ''}
+                                            hogQLEditorPlaceholder={
+                                                mode === 'revenue_analytics'
+                                                    ? HOGQL_EDITOR_PLACEHOLDER_REVENUE_ANALYTICS
+                                                    : HOGQL_EDITOR_PLACEHOLDER
+                                            }
+                                        />
+                                    )}
+                                </>
+                            </Field>
+                        </div>
                     </div>
                     <div className="mt-5">
                         <IconSwapHoriz />
                     </div>
                     <div className="w-60">
                         <span className="l4">Joining Table Key</span>
-                        <Field name="joining_table_key">
-                            <>
-                                <LemonSelect
-                                    fullWidth
-                                    onSelect={selectJoiningKey}
-                                    value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
-                                    disabledReason={selectedJoiningTableName ? '' : 'Select a table to choose join key'}
-                                    options={[...joiningTableKeys, { value: '', label: <span>SQL Expression</span> }]}
-                                    placeholder="Select a key"
-                                />
-                                {joiningIsUsingHogQLExpression && (
-                                    <HogQLDropdown
-                                        className="mt-2"
-                                        hogQLValue={selectedJoiningKey ?? ''}
-                                        onHogQLValueChange={selectJoiningKey}
-                                        tableName={selectedJoiningTableName ?? ''}
-                                    />
-                                )}
-                            </>
-                        </Field>
+                        <div className="text-wrap break-all">
+                            {mode === 'revenue_analytics' ? (
+                                selectedJoiningKey ?? ''
+                            ) : (
+                                <Field name="joining_table_key">
+                                    <>
+                                        <LemonSelect
+                                            fullWidth
+                                            onSelect={selectJoiningKey}
+                                            value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
+                                            disabledReason={
+                                                selectedJoiningTableName ? '' : 'Select a table to choose join key'
+                                            }
+                                            options={[
+                                                ...joiningTableKeys,
+                                                { value: '', label: <span>SQL Expression</span> },
+                                            ]}
+                                            placeholder="Select a key"
+                                        />
+                                        {joiningIsUsingHogQLExpression && (
+                                            <HogQLDropdown
+                                                className="mt-2"
+                                                hogQLValue={selectedJoiningKey ?? ''}
+                                                onHogQLValueChange={selectJoiningKey}
+                                                tableName={selectedJoiningTableName ?? ''}
+                                                hogQLEditorPlaceholder={HOGQL_EDITOR_PLACEHOLDER}
+                                            />
+                                        )}
+                                    </>
+                                </Field>
+                            )}
+                        </div>
                     </div>
                 </div>
                 {'events' === selectedJoiningTableName && (
@@ -188,7 +239,7 @@ export function ViewLinkForm(): JSX.Element {
                         </div>
                     </div>
                 )}
-                {sqlCodeSnippet && (
+                {sqlCodeSnippet && mode !== 'revenue_analytics' && (
                     <div className="w-full mt-2">
                         <LemonDivider className="mt-4 mb-4" />
                         <LemonButton
