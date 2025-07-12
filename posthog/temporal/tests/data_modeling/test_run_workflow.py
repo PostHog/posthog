@@ -16,6 +16,7 @@ from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
 import pyarrow as pa
+from unittest.mock import patch
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -1147,3 +1148,87 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert new_job.status == DataModelingJob.Status.RUNNING
     assert new_job.workflow_id == "new-workflow"
     assert new_job.workflow_run_id == "new-run"
+
+
+@pytest.mark.asyncio
+async def test_create_table_activity_row_count_functionality(minio_client, activity_environment, ateam):
+    """Test that create_table_activity properly sets row count using get_count() method."""
+
+    # Create a saved query
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="test_row_count_query",
+        query={"query": "SELECT 1 as id, 'test' as name UNION ALL SELECT 2 as id, 'test2' as name"},
+    )
+
+    # Create a table manually for testing
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+
+    credential = await DataWarehouseCredential.objects.acreate(
+        team=ateam,
+        access_key="test_key",
+        access_secret="test_secret",
+    )
+
+    table = await DataWarehouseTable.objects.acreate(
+        team=ateam,
+        name="test_table",
+        credential=credential,
+        format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        url_pattern="s3://test-bucket/test-path",
+        row_count=0,
+    )
+
+    # Link the table to the saved query
+    saved_query.table = table
+    await saved_query.asave()
+
+    # Run create_table_activity with mocked create_table_from_saved_query
+    create_table_activity_inputs = CreateTableActivityInputs(
+        models=[str(saved_query.id)],  # Pass UUID, not name
+        team_id=ateam.pk,
+    )
+
+    with patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table:
+        with patch.object(DataWarehouseTable, "get_count", return_value=42) as mock_get_count:
+            async with asyncio.timeout(10):
+                await activity_environment.run(create_table_activity, create_table_activity_inputs)
+
+    # Verify create_table_from_saved_query was called
+    mock_create_table.assert_called_once_with(str(saved_query.id), ateam.pk)
+
+    # Verify get_count was called
+    mock_get_count.assert_called_once()
+
+    # Verify row count was updated
+    await table.arefresh_from_db()
+    assert table.row_count == 42
+
+
+@pytest.mark.asyncio
+async def test_create_table_activity_invalid_uuid_fails(activity_environment, ateam):
+    """Test that create_table_activity fails fast when given non-UUID model identifier."""
+
+    # Try to run with a name instead of UUID (should fail)
+    create_table_activity_inputs = CreateTableActivityInputs(
+        models=["invalid_model_name"],  # Name instead of UUID
+        team_id=ateam.pk,
+    )
+
+    # Mock create_table_from_saved_query to avoid UUID validation there
+    # We want to test our activity's validation logic
+    with patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table:
+        with patch("posthog.temporal.data_modeling.run_workflow.bind_temporal_worker_logger") as mock_logger:
+            mock_logger.return_value.aerror = unittest.mock.AsyncMock()
+
+            # This should complete without crashing, but log errors and skip the invalid model
+            async with asyncio.timeout(10):
+                await activity_environment.run(create_table_activity, create_table_activity_inputs)
+
+    # create_table_from_saved_query should not be called for invalid UUIDs
+    mock_create_table.assert_not_called()
+
+    # Verify the error was logged
+    mock_logger.return_value.aerror.assert_called_once()
+    error_message = mock_logger.return_value.aerror.call_args[0][0]
+    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in error_message

@@ -1012,32 +1012,31 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
     logger = await bind_temporal_worker_logger(inputs.team_id)
 
-    async def _get_saved_query(model: str) -> DataWarehouseSavedQuery:
-        try:
-            return await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(
-                id=uuid.UUID(model), team_id=inputs.team_id
-            )
-        except ValueError:
-            return await database_sync_to_async(DataWarehouseSavedQuery.objects.get)(name=model, team_id=inputs.team_id)
-
     for model in inputs.models:
-        # ensure the table exists
-        await create_table_from_saved_query(model, inputs.team_id)
-        saved_query = await _get_saved_query(model)
-        saved_query_table_id = getattr(saved_query, "table_id", None)
-        if not saved_query_table_id:
-            continue  # should never happen, but stay safe
+        try:
+            model_id = uuid.UUID(model)
+        except ValueError:
+            await logger.aerror(
+                f"Invalid model identifier '{model}': expected UUID format - this indicates a race condition or data integrity issue"
+            )
+            continue  # Skip this model if it's not a valid UUID
 
-        table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query_table_id)
+        await create_table_from_saved_query(model, inputs.team_id)
 
         try:
-            if not table.url_pattern.startswith("s3://"):
-                raise ValueError("Table URL pattern does not start with s3://")
-            delta = deltalake.DeltaTable(
-                table.url_pattern,
-                storage_options=_get_credentials(),
+            saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("table").get)(
+                id=model_id, team_id=inputs.team_id
             )
-            table.row_count = delta.to_pyarrow_table().num_rows
+
+            if not saved_query.table:
+                await logger.aerror(
+                    f"Saved query {saved_query.name} (ID: {saved_query.id}) has no table - this indicates a data integrity issue"
+                )
+                continue
+
+            table = saved_query.table
+
+            table.row_count = table.get_count()
             await database_sync_to_async(table.save)()
         except Exception as err:
             await logger.aexception(f"Failed to update table row count for {model}: {err}")
@@ -1046,12 +1045,16 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 async def update_saved_query_status(
     label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
 ):
+    logger = await bind_temporal_worker_logger(team_id)
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
     try:
         model_id = uuid.UUID(label)
         filter_params["id"] = model_id
     except ValueError:
+        await logger.awarning(
+            f"Label '{label}' is not a valid UUID, falling back to name lookup - this indicates a data integrity issue"
+        )
         filter_params["name"] = label
 
     saved_query = await database_sync_to_async(
