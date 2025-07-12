@@ -29,6 +29,19 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
         sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
+        self.target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": True}
+        )
+        self.target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": False}
+        )
+        self.non_target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": True}
+        )
+        self.non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": False}
+        )
+
     # wrap the util so we don't have to pass team every time
     def _assert_query_matches_session_ids(
         self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
@@ -63,17 +76,6 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
 
     @snapshot_clickhouse_queries
     def test_multiple_event_filters_and_ed(self):
-        target_vip_session = self._a_session_with_properties_on_pageviews({"$pathname": "/my-target-page", "vip": True})
-        _target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": False}
-        )
-        _non_target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": True}
-        )
-        _non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": False}
-        )
-
         self._assert_query_matches_session_ids(
             {
                 "operand": "AND",
@@ -94,22 +96,11 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                     },
                 ],
             },
-            [target_vip_session],
+            [self.target_vip_session],
         )
 
     @snapshot_clickhouse_queries
     def test_multiple_event_filters_or_ed(self):
-        target_vip_session = self._a_session_with_properties_on_pageviews({"$pathname": "/my-target-page", "vip": True})
-        target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": False}
-        )
-        non_target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": True}
-        )
-        _non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": False}
-        )
-
         self._assert_query_matches_session_ids(
             {
                 "operand": "OR",
@@ -130,24 +121,11 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                     },
                 ],
             },
-            [target_vip_session, target_non_vip_session, non_target_vip_session],
+            [self.target_vip_session, self.target_non_vip_session, self.non_target_vip_session],
         )
 
     @snapshot_clickhouse_queries
     def test_positive_and_negative_anded(self):
-        _target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": True}
-        )
-        _target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": False}
-        )
-        non_target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": True}
-        )
-        _non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": False}
-        )
-
         self._assert_query_matches_session_ids(
             {
                 "operand": "AND",
@@ -168,24 +146,11 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                     },
                 ],
             },
-            [non_target_vip_session],
+            [self.non_target_vip_session],
         )
 
     @snapshot_clickhouse_queries
     def test_two_negative_anded(self):
-        _target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": True}
-        )
-        _target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": False}
-        )
-        _non_target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": True}
-        )
-        non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": False}
-        )
-
         self._assert_query_matches_session_ids(
             {
                 "operand": "AND",
@@ -206,27 +171,14 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                     },
                 ],
             },
-            [non_target_non_vip_session],
+            [self.non_target_non_vip_session],
         )
 
     @snapshot_clickhouse_queries
     def test_two_negative_ORed(self):
-        _target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": True}
-        )
-        target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-target-page", "vip": False}
-        )
-        non_target_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": True}
-        )
-        non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-            {"$pathname": "/my-other-page", "vip": False}
-        )
-
         self._assert_query_matches_session_ids(
             {
-                "operand": "AND",
+                "operand": "OR",
                 "events": [
                     {
                         "id": "$pageview",
@@ -244,5 +196,5 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
                     },
                 ],
             },
-            [non_target_non_vip_session, non_target_vip_session, target_non_vip_session],
+            [self.non_target_non_vip_session, self.non_target_vip_session, self.target_non_vip_session],
         )
