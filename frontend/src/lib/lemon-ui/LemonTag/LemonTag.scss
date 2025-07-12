@@ -33,6 +33,16 @@
         border-radius: 9999px;
     }
 
+    &.LemonTag--breakdown.LemonTag--size-small {
+        padding: 0.375rem 0.5rem;
+    }
+
+    &.LemonTag--breakdown.LemonTag--size-small .LemonTag__right-button {
+        height: 1.25rem !important;
+        padding: 0.0625rem !important;
+        margin-left: 0.1875rem;
+    }
+
     &.LemonTag--primary {
         color: var(--accent);
         background: none;
