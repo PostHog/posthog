@@ -1288,7 +1288,7 @@ def list_recordings_from_query(
 
         use_multiple_sub_queries = posthoganalytics.feature_enabled(
             "use-multiple-sub-queries",
-            user.distinct_id,
+            str(user.distinct_id),
         )
 
         with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
