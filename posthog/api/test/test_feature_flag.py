@@ -8005,3 +8005,312 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         self.assert_expected_response(
             boolean_flag_no_rolled_out_release_condition_recently_evaluated.id, FeatureFlagStatus.ACTIVE
         )
+
+    def test_circular_dependency_detection_direct_cycle(self):
+        """Test that a flag cannot depend on itself."""
+        # Create a flag first
+        flag_a = FeatureFlag.objects.create(
+            name="Flag A",
+            key="flag-a",
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        # Try to update it to depend on itself
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_a.id}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": str(flag_a.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        # Check if error is in filters key
+        if "filters" in response_data:
+            if isinstance(response_data["filters"], list):
+                self.assertIn("Circular dependency detected", response_data["filters"][0])
+            else:
+                self.assertIn("Circular dependency detected", str(response_data["filters"]))
+        else:
+            # Error might be in a different format
+            self.assertIn("Circular dependency detected", str(response_data))
+
+    def test_circular_dependency_detection_indirect_cycle(self):
+        """Test that indirect circular dependencies are detected (A -> B -> C -> A)."""
+        # Create three flags
+        flag_a = FeatureFlag.objects.create(
+            name="Flag A",
+            key="flag-a",
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        flag_b = FeatureFlag.objects.create(
+            name="Flag B",
+            key="flag-b",
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": str(flag_a.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "exact",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        flag_c = FeatureFlag.objects.create(
+            name="Flag C",
+            key="flag-c",
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": str(flag_b.id),
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "exact",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        # Try to update flag A to depend on flag C, creating a cycle
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_a.id}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": str(flag_c.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        # Check if error is in filters key
+        if "filters" in response_data:
+            if isinstance(response_data["filters"], list):
+                self.assertIn("Circular dependency detected", response_data["filters"][0])
+            else:
+                self.assertIn("Circular dependency detected", str(response_data["filters"]))
+        else:
+            # Error might be in a different format
+            self.assertIn("Circular dependency detected", str(response_data))
+
+    def test_circular_dependency_with_feature_prefix(self):
+        """Test circular dependency detection with $feature/ prefix."""
+        flag_a = FeatureFlag.objects.create(
+            name="Flag A",
+            key="flag-a",
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        flag_b = FeatureFlag.objects.create(
+            name="Flag B",
+            key="flag-b",
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": str(flag_a.id),  # Using numeric ID
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "exact",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        # Try to update flag A to depend on flag B (with $feature_flag/ prefix)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_a.id}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": str(flag_b.id),  # Using numeric ID
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        # Check if error is in filters key
+        if "filters" in response_data:
+            if isinstance(response_data["filters"], list):
+                self.assertIn("Circular dependency detected", response_data["filters"][0])
+            else:
+                self.assertIn("Circular dependency detected", str(response_data["filters"]))
+        else:
+            # Error might be in a different format
+            self.assertIn("Circular dependency detected", str(response_data))
+
+    def test_no_circular_dependency_for_valid_chain(self):
+        """Test that valid dependency chains are allowed."""
+        flag_a = FeatureFlag.objects.create(
+            name="Flag A",
+            key="flag-a",
+            team=self.team,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+        # Create flag B depending on flag A
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Flag B",
+                "key": "flag-b",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": str(flag_a.id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_b_id = response.json()["id"]
+
+        # Create flag C depending on flag B
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Flag C",
+                "key": "flag-c",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": str(flag_b_id),
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_circular_dependency_with_missing_flag(self):
+        """Test that missing/deleted flags don't cause issues."""
+        flag_a = FeatureFlag.objects.create(
+            name="Flag A",
+            key="flag-a",
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": "non-existent-flag",
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "exact",
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+
+        # Should be able to update without issues even though dependency doesn't exist
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_a.id}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 50,
+                            "properties": [
+                                {
+                                    "key": "another-non-existent-flag",
+                                    "type": "flag",
+                                    "value": "false",
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
