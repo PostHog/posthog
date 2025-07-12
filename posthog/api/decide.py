@@ -579,9 +579,13 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
         return False
 
     remote_config = RemoteConfig.session_recording_config_response(team)
-    return {
-        **remote_config,
-        # TODO: we need to deprecate this so we can remove team recording domains
-        # NOTE: This is cached but stripped out at the api level depending on the caller
-        "domains": team.recording_domains or [],
-    }
+    return (
+        {
+            **remote_config,
+            # TODO: we need to deprecate this so we can remove team recording domains
+            # NOTE: This is cached but stripped out at the api level depending on the caller
+            "domains": team.recording_domains or [],
+        }
+        if isinstance(remote_config, dict)
+        else remote_config
+    )

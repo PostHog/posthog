@@ -590,7 +590,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "new-recorder",
                 0,
                 ["self"],
-                {"scriptConfig": "new-recorder"},
+                {"scriptConfig": {"script": "new-recorder"}},
             ],
         ]
     )
