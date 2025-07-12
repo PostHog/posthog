@@ -205,9 +205,6 @@ def sync_execute(
                 chargeable=str(tags.chargeable or "0"),
             ).inc()
             with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
-                # if "replaceRegexpAll" in prepared_sql:
-                #     print(prepared_sql)
-                #     breakpoint()
                 result = client.execute(
                     prepared_sql,
                     params=prepared_args,

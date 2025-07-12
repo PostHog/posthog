@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 from unittest.mock import ANY
 from uuid import uuid4
@@ -4068,15 +4068,16 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id=paul_google_session,
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
             distinct_id="user",
-            timestamp=self.an_hour_ago,
+            timestamp=self.an_hour_ago + timedelta(minutes=1),
             properties={
                 "$session_id": paul_google_session,
                 "$window_id": str(uuid7()),
-                "email": "paul@google.com",
+                "something": "paul@google.com",
                 "has": "paul@google.com",
             },
         )
@@ -4085,17 +4086,18 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=paul_paul_session,
-            first_timestamp=self.an_hour_ago,
+            first_timestamp=self.an_hour_ago + timedelta(minutes=2),
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
             distinct_id="user",
-            timestamp=self.an_hour_ago,
+            timestamp=self.an_hour_ago + timedelta(minutes=3),
             properties={
                 "$session_id": paul_paul_session,
                 "$window_id": str(uuid7()),
-                "email": "paul@paul.com",
+                "something": "paul@paul.com",
                 "has": "paul@paul.com",
             },
         )
@@ -4104,18 +4106,19 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         produce_replay_summary(
             distinct_id="user",
             session_id=no_email_session,
-            first_timestamp=self.an_hour_ago,
+            first_timestamp=self.an_hour_ago + timedelta(minutes=4),
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
             distinct_id="user",
-            timestamp=self.an_hour_ago,
+            timestamp=self.an_hour_ago + timedelta(minutes=5),
             properties={
                 "$session_id": no_email_session,
                 "$window_id": str(uuid7()),
-                "has": "no email",
-                # no email
+                "has": "no something",
+                # no something
             },
         )
 
@@ -4123,7 +4126,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "properties": [
                     {
-                        "key": "email",
+                        "key": "something",
                         "value": "paul.com",
                         "operator": "not_icontains",
                         "type": "event",
