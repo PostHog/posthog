@@ -93,9 +93,9 @@ pub struct Config {
     #[envconfig(default = "info")]
     pub log_level: Level,
 
-    // temporary: gates some chatty debug logging
+    // generic env injection to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]
-    pub base64_detect_percent: f32,
+    pub verbose_sample_percent: f32,
 }
 
 #[derive(Envconfig, Clone)]
