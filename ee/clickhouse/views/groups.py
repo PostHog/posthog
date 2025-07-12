@@ -258,7 +258,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             except HTTPError as e:
                 return response.Response(
                     {
-                        "attr": key,
                         "code": "Failed to submit group property update event.",
                         "detail": "capture_http_error",
                         "type": "capture_http_error",
@@ -268,7 +267,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             except Exception:
                 return response.Response(
                     {
-                        "attr": key,
                         "code": "Failed to submit group property update event.",
                         "detail": "capture_error",
                         "type": "capture_error",
