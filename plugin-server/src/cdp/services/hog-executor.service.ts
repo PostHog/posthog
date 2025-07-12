@@ -22,6 +22,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
+import { createAddLogFunction, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -66,7 +67,6 @@ export const getNextRetryTime = (config: PluginsServerConfig, tries: number): Da
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
-export const MAX_LOG_LENGTH = 10000
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 const hogExecutionDuration = new Histogram({
@@ -159,21 +159,6 @@ const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobals
     }
 
     return value
-}
-
-export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[]): string => {
-    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
-
-    // Find and replace any sensitive values
-    sensitiveValues?.forEach((sensitiveValue) => {
-        message = message.replaceAll(sensitiveValue, '***REDACTED***')
-    })
-
-    if (message.length > MAX_LOG_LENGTH) {
-        message = message.slice(0, MAX_LOG_LENGTH) + '... (truncated)'
-    }
-
-    return message
 }
 
 export const buildGlobalsWithInputs = async (
@@ -401,6 +386,7 @@ export class HogExecutorService {
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const addLog = createAddLogFunction(result.logs)
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
@@ -419,11 +405,7 @@ export class HogExecutorService {
                     globals = await buildGlobalsWithInputs(invocation.state.globals, inputs)
                 }
             } catch (e) {
-                result.logs.push({
-                    level: 'error',
-                    timestamp: DateTime.now(),
-                    message: `Error building inputs: ${e}`,
-                })
+                addLog('error', `Error building inputs: ${e}`)
 
                 throw e
             }
@@ -450,11 +432,10 @@ export class HogExecutorService {
                         print: (...args) => {
                             hogLogs++
                             if (hogLogs === MAX_HOG_LOGS) {
-                                result.logs.push({
-                                    level: 'warn',
-                                    timestamp: DateTime.now(),
-                                    message: `Function exceeded maximum log entries. No more logs will be collected. Event: ${eventId}`,
-                                })
+                                addLog(
+                                    'warn',
+                                    `Function exceeded maximum log entries. No more logs will be collected. Event: ${eventId}`
+                                )
                             }
 
                             if (hogLogs >= MAX_HOG_LOGS) {
@@ -492,11 +473,10 @@ export class HogExecutorService {
                                 const executionCount = typeof givenCount === 'number' ? givenCount : 0
 
                                 if (executionCount > 0) {
-                                    result.logs.push({
-                                        level: 'warn',
-                                        timestamp: DateTime.now(),
-                                        message: `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`,
-                                    })
+                                    addLog(
+                                        'warn',
+                                        `postHogCapture was called from an event that already executed this function. To prevent infinite loops, the event was not captured.`
+                                    )
                                     return
                                 }
 
@@ -536,11 +516,7 @@ export class HogExecutorService {
                     result.execResult = convertHogToJS(execRes.result)
                 }
             } catch (e) {
-                result.logs.push({
-                    level: 'error',
-                    timestamp: DateTime.now(),
-                    message: `Error executing function on event ${eventId}: ${e}`,
-                })
+                addLog('error', `Error executing function on event ${eventId}: ${e}`)
                 throw e
             }
 
@@ -590,11 +566,7 @@ export class HogExecutorService {
                             throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
                 } else {
-                    result.logs.push({
-                        level: 'warn',
-                        timestamp: DateTime.now(),
-                        message: `Function was not finished but also had no async function to execute.`,
-                    })
+                    addLog('warn', `Function was not finished but also had no async function to execute.`)
                 }
             } else {
                 const totalDuration = result.invocation.state.timings.reduce(
@@ -621,11 +593,7 @@ export class HogExecutorService {
                         })
                     }
                 }
-                result.logs.push({
-                    level: 'debug',
-                    timestamp: DateTime.now(),
-                    message: messages.join(' '),
-                })
+                addLog('debug', messages.join(' '))
             }
         } catch (err) {
             result.error = err.message
@@ -651,6 +619,7 @@ export class HogExecutorService {
                 finished: false,
             }
         )
+        const addLog = createAddLogFunction(result.logs)
 
         const start = performance.now()
         const method = params.method.toUpperCase()
@@ -701,11 +670,7 @@ export class HogExecutorService {
                 message += ` Retrying in ${backoffMs}ms.`
             }
 
-            result.logs.push({
-                level: 'warn',
-                timestamp: DateTime.now(),
-                message,
-            })
+            addLog('warn', message)
 
             if (canRetry && result.invocation.state.attempts < this.config.CDP_FETCH_RETRIES) {
                 result.invocation.queue = 'hog'
