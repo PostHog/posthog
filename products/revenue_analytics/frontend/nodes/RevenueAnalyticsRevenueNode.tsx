@@ -46,24 +46,22 @@ export function RevenueAnalyticsRevenueNode(props: {
     const { response, responseLoading, queryId } = useValues(logic)
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
-                <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                    <MRRTile
-                        response={response as RevenueAnalyticsRevenueQueryResponse}
-                        responseLoading={responseLoading}
-                        queryId={queryId ?? ''}
-                        context={props.context}
-                    />
-                    <GrossRevenueTile
-                        response={response as RevenueAnalyticsRevenueQueryResponse}
-                        responseLoading={responseLoading}
-                        queryId={queryId ?? ''}
-                        context={props.context}
-                    />
-                </BindLogic>
+        <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
+            <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
+                <MRRTile
+                    response={response as RevenueAnalyticsRevenueQueryResponse}
+                    responseLoading={responseLoading}
+                    queryId={queryId ?? ''}
+                    context={props.context}
+                />
+                <GrossRevenueTile
+                    response={response as RevenueAnalyticsRevenueQueryResponse}
+                    responseLoading={responseLoading}
+                    queryId={queryId ?? ''}
+                    context={props.context}
+                />
             </BindLogic>
-        </div>
+        </BindLogic>
     )
 }
 
