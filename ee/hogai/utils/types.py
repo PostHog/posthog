@@ -150,6 +150,10 @@ class _SharedAssistantState(BaseModel):
     """
     Tracks the number of times the query generation has been retried.
     """
+    search_insights_query: Optional[str] = Field(default=None)
+    """
+    The insight to search for.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -217,6 +221,7 @@ class AssistantNodeName(StrEnum):
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
+    INSIGHTS_SEARCH = "insights_search"
 
 
 class AssistantMode(StrEnum):
