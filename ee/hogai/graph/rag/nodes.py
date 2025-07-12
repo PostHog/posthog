@@ -6,7 +6,7 @@ import posthoganalytics
 from azure.core.exceptions import HttpResponseError as AzureHttpResponseError
 from langchain_core.runnables import RunnableConfig
 
-from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
+from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
@@ -16,7 +16,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.schema import MaxActionContext, CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
-
+from asgiref.sync import sync_to_async
 from ..base import AssistantNode
 
 NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
@@ -28,7 +28,7 @@ class InsightRagContextNode(AssistantNode):
     Injects the RAG context of product analytics insights: actions and events.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         trace_id = self._get_trace_id(config)
         distinct_id = self._get_user_distinct_id(config)
 
@@ -36,15 +36,15 @@ class InsightRagContextNode(AssistantNode):
         assert plan is not None
 
         # Kick off retrieval of the event taxonomy.
-        self._prewarm_queries()
+        await self._prewarm_queries()
 
         actions_in_context = []
         if ui_context := self._get_ui_context(state):
             actions_in_context = ui_context.actions if ui_context.actions else []
 
         try:
-            embeddings_client = get_azure_embeddings_client()
-            vector = embed_search_query(embeddings_client, plan)
+            embeddings_client = get_async_azure_embeddings_client()
+            vector = (await aembed_documents(embeddings_client, [plan]))[0]
         except (AzureHttpResponseError, ValueError) as e:
             posthoganalytics.capture_exception(e, distinct_id=distinct_id, properties={"tag": "max"})
             if len(actions_in_context) == 0:
@@ -52,7 +52,7 @@ class InsightRagContextNode(AssistantNode):
             else:
                 vector = None
         return PartialAssistantState(
-            rag_context=self._retrieve_actions(
+            rag_context=await self._retrieve_actions(
                 vector, actions_in_context=actions_in_context, trace_id=trace_id, distinct_id=distinct_id
             )
         )
@@ -63,7 +63,7 @@ class InsightRagContextNode(AssistantNode):
         next_node = cast(NextRagNode, state.root_tool_insight_type or "end")
         return next_node
 
-    def _retrieve_actions(
+    async def _retrieve_actions(
         self,
         embedding: list[float] | None,
         actions_in_context: list[MaxActionContext],
@@ -74,11 +74,13 @@ class InsightRagContextNode(AssistantNode):
         ids = [str(int(action.id)) for action in actions_in_context] if actions_in_context else []
 
         if embedding:
-            runner = VectorSearchQueryRunner(
+            vector_search_query_runner = await sync_to_async(VectorSearchQueryRunner)(
                 team=self._team,
                 query=VectorSearchQuery(embedding=embedding, embeddingVersion=LATEST_ACTIONS_EMBEDDING_VERSION),
             )
-            response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            response = await sync_to_async(vector_search_query_runner.run)(
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
             if isinstance(response, CachedVectorSearchQueryResponse) and response.results:
                 ids = list({row.id for row in response.results} | set(ids))
                 distances = [row.distance for row in response.results]
@@ -92,7 +94,7 @@ class InsightRagContextNode(AssistantNode):
         )
 
         root = ET.Element("defined_actions")
-        for action in actions:
+        async for action in actions:
             action_tag = ET.SubElement(root, "action")
             id_tag = ET.SubElement(action_tag, "id")
             id_tag.text = str(action.id)
@@ -105,14 +107,13 @@ class InsightRagContextNode(AssistantNode):
 
         return ET.tostring(root, encoding="unicode")
 
-    def _prewarm_queries(self):
+    async def _prewarm_queries(self):
         """
         Since this node is already blocking, we can pre-warm the taxonomy queries to avoid further delays.
         This will slightly reduce latency.
         """
-        TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-        )
+        query_runner = await sync_to_async(TeamTaxonomyQueryRunner)(TeamTaxonomyQuery(), self._team)
+        await sync_to_async(query_runner.run)(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
 
     def _report_metrics(self, distances: list[float], trace_id: Any | None, distinct_id: Any | None):
         if not trace_id or not distinct_id or not distances:

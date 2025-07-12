@@ -4,9 +4,10 @@ from posthog.schema import AssistantRetentionQuery
 
 
 class RetentionTaxonomyAgentToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
+    async def _get_tools(self) -> list[ToolkitTool]:
+        default_tools = await self._default_tools()
         return [
-            *self._default_tools,
+            *default_tools,
             {
                 "name": "final_answer",
                 "signature": "(final_response: str)",

@@ -11,21 +11,25 @@ from posthog.schema import AssistantTrendsQuery
 
 
 class TrendsPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TrendsTaxonomyAgentToolkit(self._team)
+        # Pre-load async tools to avoid sync fallback
+        await toolkit.tools()
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", REACT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
+        return await super()._arun_with_prompt_and_toolkit(state, prompt, toolkit, config)
 
 
 class TrendsPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = TrendsTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config)
+        # Pre-load async tools to avoid sync fallback
+        await toolkit.tools()
+        return await super()._arun_with_toolkit(state, toolkit, config=config)
 
 
 TrendsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantTrendsQuery]
@@ -36,14 +40,14 @@ class TrendsGeneratorNode(SchemaGeneratorNode[AssistantTrendsQuery]):
     OUTPUT_MODEL = TrendsSchemaGeneratorOutput
     OUTPUT_SCHEMA = TRENDS_SCHEMA
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", TRENDS_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt(state, prompt, config=config)
+        return await super()._arun_with_prompt(state, prompt, config=config)
 
 
 class TrendsGeneratorToolsNode(SchemaGeneratorToolsNode):

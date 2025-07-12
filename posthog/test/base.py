@@ -26,7 +26,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APITestCase as DRFTestCase
-
+from asgiref.sync import sync_to_async
 from posthog import rate_limit, redis
 from posthog.clickhouse.adhoc_events_deletion import (
     ADHOC_EVENTS_DELETION_TABLE_SQL,
@@ -1018,6 +1018,9 @@ def _create_person(*args, **kwargs):
 
     persons_cache_tests.append(kwargs)
     return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+
+
+_acreate_person = sync_to_async(_create_person)
 
 
 class ClickhouseTestMixin(QueryMatchingTest):

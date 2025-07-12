@@ -15,24 +15,29 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.schema import AssistantHogQLQuery
+from asgiref.sync import sync_to_async
 
 
 class SQLPlannerNode(TaxonomyAgentPlannerNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = SQLTaxonomyAgentToolkit(self._team)
+        # Pre-load async tools to avoid sync fallback
+        await toolkit.tools()
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", SQL_REACT_SYSTEM_PROMPT),
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config)
+        return await super()._arun_with_prompt_and_toolkit(state, prompt, toolkit, config)
 
 
 class SQLPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = SQLTaxonomyAgentToolkit(self._team)
-        return super()._run_with_toolkit(state, toolkit, config=config)
+        # Pre-load async tools to avoid sync fallback
+        await toolkit.tools()
+        return await super()._arun_with_toolkit(state, toolkit, config=config)
 
 
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
@@ -45,11 +50,11 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
 
     hogql_context: HogQLContext
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        database = create_hogql_database(team=self._team)
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        database = await sync_to_async(create_hogql_database)(team=self._team)
         self.hogql_context = HogQLContext(team_id=self._team.pk, enable_select_queries=True, database=database)
+        serialized_database = await sync_to_async(serialize_database)(self.hogql_context)
 
-        serialized_database = serialize_database(self.hogql_context)
         schema_description = "\n\n".join(
             (
                 f"Table `{table_name}` with fields:\n"
@@ -73,10 +78,10 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
             ],
             template_format="mustache",
         )
-        return super()._run_with_prompt(state, prompt, config=config)
+        return await super()._arun_with_prompt(state, prompt, config=config)
 
-    def _parse_output(self, output):  # type: ignore
-        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
+    def _parse_output(self, output) -> SQLSchemaGeneratorOutput:  # type: ignore
+        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)
         # We also ensure the generated SQL is valid
         assert result.query is not None
         try:

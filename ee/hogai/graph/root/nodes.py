@@ -283,7 +283,7 @@ class RootNode(RootNodeUIContextMixin):
     Determines the maximum number of tokens allowed in the conversation window.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         from ee.hogai.tool import get_contextual_tool_class
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
@@ -311,9 +311,9 @@ class RootNode(RootNodeUIContextMixin):
 
         ui_context = self._format_ui_context(self._get_ui_context(state))
 
-        message = chain.invoke(
+        message = await chain.ainvoke(
             {
-                "core_memory": self.core_memory_text,
+                "core_memory": await self._aget_core_memory_text(),
                 "project_datetime": self.project_now,
                 "project_timezone": self.project_timezone,
                 "project_name": self._team.name,
