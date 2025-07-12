@@ -23,6 +23,7 @@ from django.core.cache import cache
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 
+from posthog.sampling import sample_on_property
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -96,16 +97,13 @@ def _should_have_custom_rrweb_script(team_id: int) -> bool:
     if settings.SESSION_REPLAY_RRWEB_SCRIPT is None:
         return False
 
-    max_allowed = settings.SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS
-
-    if max_allowed == "*":
+    force_enable_list = settings.SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS
+    if force_enable_list and team_id in force_enable_list:
         return True
 
-    try:
-        max_team_id = int(max_allowed)
-        return team_id < max_team_id
-    except (ValueError, TypeError):
-        return False
+    sample_rate: float = settings.SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE or 1.0
+    # a given team id will always be true or false here
+    return sample_on_property(str(team_id), sample_rate)
 
 
 class RemoteConfig(UUIDModel):

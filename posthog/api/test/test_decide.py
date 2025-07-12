@@ -552,37 +552,45 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "defaults to none",
                 None,
                 None,
+                None,
+                [],
                 {"scriptConfig": None},
             ],
             [
-                "must have allowlist",
+                "no sample or force enable list",
                 "new-recorder",
                 None,
+                None,
+                [],
                 {"scriptConfig": None},
             ],
             [
-                "ignores empty allowlist",
+                "sample rate of 0",
                 "new-recorder",
-                "",
+                0,
+                [],
                 {"scriptConfig": None},
             ],
             [
-                "wild card works",
+                "sample rate of 1",
                 "new-recorder",
-                "*",
+                1.0,
+                [],
                 {"scriptConfig": {"script": "new-recorder"}},
             ],
             [
-                "allow list can exclude",
+                "sample rate of 0 and force enable a different team",
                 "new-recorder",
-                "-1",
+                0,
+                [9999],
                 {"scriptConfig": None},
             ],
             [
-                "allow list can include",
+                "sample rate of 0 and force enable current team",
                 "new-recorder",
-                "99999",
-                {"scriptConfig": {"script": "new-recorder"}},
+                0,
+                ["self"],
+                {"scriptConfig": "new-recorder"},
             ],
         ]
     )
@@ -590,7 +598,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self,
         _name: str,
         rrweb_script_name: str | None,
-        max_team_setting: str | None,
+        sample_rate: float | None,
+        force_enable_teams: list[int],
         expected: dict,
     ) -> None:
         self._update_team(
@@ -601,7 +610,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         with self.settings(
             SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS=max_team_setting,
+            SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE=sample_rate,
+            SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS=[self.team.pk if "self" else x for x in force_enable_teams],
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
