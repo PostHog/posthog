@@ -11,6 +11,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -51,6 +52,7 @@ import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -539,6 +541,8 @@ export function InsightErrorState({
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { loadData } = useActions(insightDataLogic(insightProps))
 
     if (!preflight?.cloud) {
         excludeDetail = true // We don't provide support for self-hosted instances
@@ -585,7 +589,32 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                <QueryDebuggerButton query={query} />
+                {query && (
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() =>
+                            loadData(query.kind && shouldQueryBeAsync(query as Node) ? 'force_async' : 'force_blocking')
+                        }
+                        sideAction={{
+                            dropdown: {
+                                overlay: (
+                                    <LemonMenuOverlay
+                                        items={[
+                                            {
+                                                label: 'Open in query debugger',
+                                                to: urls.debugQuery(query),
+                                            },
+                                        ]}
+                                    />
+                                ),
+                                placement: 'bottom-end',
+                            },
+                        }}
+                    >
+                        Try again
+                    </LemonButton>
+                )}
                 {fixWithAIComponent ?? null}
             </div>
             <QueryIdDisplay queryId={queryId} />
