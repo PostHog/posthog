@@ -2587,7 +2587,10 @@ class TestCapture(BaseTest):
         assert response.json()["code"] == "invalid_payload"
         assert "Failed to submit CSP report" in response.json()["detail"]
 
-    def test_integration_csp_report_with_report_to_format_returns_204(self):
+    @patch("posthog.api.capture.new_capture_internal")
+    def test_integration_csp_report_with_report_to_format_returns_204(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204, content=b"")
+
         report_to_format = [
             {
                 "type": "csp-violation",
@@ -2613,6 +2616,7 @@ class TestCapture(BaseTest):
         )
         assert status.HTTP_204_NO_CONTENT == response.status_code
         assert response.content == b""
+        mock_capture.assert_called_once()
 
     @patch("posthog.api.capture.new_capture_internal")
     def test_capture_csp_report_to_violation(self, mock_capture):
