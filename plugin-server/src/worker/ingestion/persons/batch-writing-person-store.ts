@@ -56,13 +56,20 @@ type MethodName =
 
 type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
 
-interface PersonUpdateResult {
-    success: boolean
+// Success case
+interface PersonUpdateSuccess {
+    success: true
     messages: TopicMessage[]
+}
+
+interface PersonUpdateFailure {
+    success: false
     // If there's a updated person update, it will be returned here.
     // This is useful for the optimistic update case, where we need to update the cache with the latest version.
     personUpdate?: PersonUpdate
 }
+
+type PersonUpdateResult = PersonUpdateSuccess | PersonUpdateFailure
 
 class MaxRetriesError extends Error {
     constructor(message: string, public latestPersonUpdate: PersonUpdate) {
@@ -181,7 +188,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = result.messages
+                                    if (result.success) {
+                                        kafkaMessages = result.messages
+                                    }
                                     break
                                 }
                                 case 'ASSERT_VERSION': {
@@ -192,7 +201,9 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                                         this.options.maxOptimisticUpdateRetries,
                                         this.options.optimisticUpdateRetryInterval
                                     )
-                                    kafkaMessages = result.messages
+                                    if (result.success) {
+                                        kafkaMessages = result.messages
+                                    }
                                     break
                                 }
                             }
@@ -888,12 +899,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         observeLatencyByVersion(personUpdate, start, 'updatePersonAssertVersion')
 
         if (actualVersion !== undefined) {
-            // Success - optimistic update worked, create updated PersonUpdate with new version
-            const updatedPersonUpdate: PersonUpdate = {
-                ...personUpdate,
-                version: actualVersion,
-            }
-            return { success: true, messages: kafkaMessages, personUpdate: updatedPersonUpdate }
+            return { success: true, messages: kafkaMessages }
         }
 
         // Optimistic update failed due to version mismatch
@@ -927,11 +933,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 is_identified: latestPerson.is_identified || personUpdate.is_identified,
             }
 
-            return { success: false, messages: [], personUpdate: updatedPersonUpdate }
+            return { success: false, personUpdate: updatedPersonUpdate }
         }
 
         // If we couldn't fetch the latest person, return failure without a person update
-        return { success: false, messages: [] }
+        return { success: false }
     }
 
     private incrementCount(method: MethodName, distinctId: string): void {
