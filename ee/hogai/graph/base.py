@@ -7,6 +7,7 @@ from uuid import UUID
 from django.utils import timezone
 from langchain_core.runnables import RunnableConfig
 
+from ee.hogai.graph.mixins import AssistantNodeMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation, CoreMemory
@@ -18,7 +19,7 @@ from posthog.sync import database_sync_to_async
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 
-class AssistantNode(ABC):
+class AssistantNode(AssistantNodeMixin, ABC):
     _team: Team
     _user: User
 
@@ -56,12 +57,6 @@ class AssistantNode(ABC):
         try:
             return Conversation.objects.get(team=self._team, id=conversation_id)
         except Conversation.DoesNotExist:
-            return None
-
-    async def _aget_core_memory(self) -> CoreMemory | None:
-        try:
-            return await CoreMemory.objects.aget(team=self._team)
-        except CoreMemory.DoesNotExist:
             return None
 
     @property
