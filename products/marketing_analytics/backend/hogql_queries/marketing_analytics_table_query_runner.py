@@ -290,9 +290,7 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         """Create conversion goal processors for reuse across different methods"""
         processors = []
         for index, conversion_goal in enumerate(conversion_goals):
-            processor = ConversionGoalProcessor(
-                goal=conversion_goal, index=index, team=self.team, query_date_range=self.query_date_range
-            )
+            processor = ConversionGoalProcessor(goal=conversion_goal, index=index, team=self.team)
             processors.append(processor)
         return processors
 
@@ -331,10 +329,8 @@ class MarketingAnalyticsTableQueryRunner(QueryRunner):
         )
 
         if self.query.dynamicConversionGoal:
-            conversion_goals = (
-                convert_team_conversion_goals_to_objects([self.query.dynamicConversionGoal], self.team.pk)
-                + conversion_goals
-            )
+            conversion_goals = [self.query.dynamicConversionGoal, *conversion_goals]
+
         return conversion_goals
 
     def _get_where_conditions(

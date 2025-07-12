@@ -86,7 +86,8 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
 
                 // Override the schema with the schema from the data warehouse
                 if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
-                    const schema = data_warehouse[0] as unknown as Record<ConversionGoalSchema, string>
+                    const dwNode = data_warehouse[0] as any
+                    const schema = dwNode as unknown as Record<ConversionGoalSchema, string>
                     const overrideSchema: Record<ConversionGoalSchema, string> = {
                         utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
                         utm_source_name: schema[UTM_SOURCE_NAME_SCHEMA_FIELD],
@@ -94,6 +95,19 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                         distinct_id_field: schema[DISTINCT_ID_FIELD_SCHEMA_FIELD],
                     }
                     newFilter.schema_map = overrideSchema
+
+                    const dwFilter = newFilter as any
+                    delete dwFilter.event // Remove the event field that causes validation to fail
+
+                    // Set all required ConversionGoalFilter3 fields
+                    dwFilter.id = dwNode.table_name || dwNode.id || ''
+                    dwFilter.id_field = dwNode.id_field || schema[DISTINCT_ID_FIELD_SCHEMA_FIELD] || 'id'
+                    dwFilter.distinct_id_field =
+                        dwNode.distinct_id_field || schema[DISTINCT_ID_FIELD_SCHEMA_FIELD] || 'distinct_id'
+                    dwFilter.table_name = dwNode.table_name || ''
+                    dwFilter.timestamp_field =
+                        dwNode.timestamp_field || schema[TIMESTAMP_FIELD_SCHEMA_FIELD] || 'timestamp'
+                    dwFilter.dw_source_type = dwNode.dw_source_type || undefined
                 }
                 onChange(newFilter)
             }}
