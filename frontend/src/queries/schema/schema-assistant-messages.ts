@@ -123,6 +123,7 @@ export type AssistantContextualTool =
     | 'create_hog_function_inputs'
     | 'navigate'
     | 'search_error_tracking_issues'
+    | 'create_survey'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
