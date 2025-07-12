@@ -20,7 +20,7 @@ import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond } from 'lib/utils'
-import { useEffect, useRef } from 'react'
+import { FunctionComponent, isValidElement, useEffect, useRef } from 'react'
 import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
@@ -29,7 +29,6 @@ import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { FilterableInspectorListItemTypes } from '~/types'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
@@ -38,46 +37,51 @@ import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
+
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
-    [FilterableInspectorListItemTypes.EVENTS]: {
+    events: {
         Icon: undefined,
         tooltip: 'Recording event',
     },
-    [FilterableInspectorListItemTypes.CONSOLE]: {
+    console: {
         Icon: IconTerminal,
         tooltip: 'Console log',
     },
-    [FilterableInspectorListItemTypes.NETWORK]: {
+    network: {
         Icon: IconDashboard,
         tooltip: 'Network event',
     },
-    ['offline-status']: {
+    'offline-status': {
         Icon: IconCloud,
         tooltip: 'browser went offline or returned online',
     },
-    ['browser-visibility']: {
+    'browser-visibility': {
         Icon: IconEye,
         tooltip: 'browser tab/window became visible or hidden',
     },
-    ['$session_config']: {
+    $session_config: {
         Icon: IconGear,
         tooltip: 'Session recording config',
     },
-    ['doctor']: {
+    doctor: {
         Icon: undefined,
         tooltip: 'Doctor event',
     },
-    ['comment']: {
+    comment: {
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
     },
-    ['inspector-summary']: {
+    annotation: {
+        Icon: IconChat,
+        tooltip: 'An annotation was added to this timestamp',
+    },
+    'inspector-summary': {
         Icon: undefined,
         tooltip: undefined,
     },
-    ['inactivity']: {
+    inactivity: {
         Icon: undefined,
         tooltip: undefined,
     },
@@ -101,7 +105,7 @@ export function eventToIcon(event: string | undefined | null) {
         return IconLogomark
     }
 
-    // technically we should have the select all icon for "All events" completeness,
+    // technically, we should have the select all icon for "All events" completeness,
     // but we never actually display it, and it messes up the type signatures for the icons
     if (event === null) {
         return BaseIcon
@@ -114,6 +118,26 @@ export function eventToIcon(event: string | undefined | null) {
     return BaseIcon
 }
 
+function IconWithOptionalBadge({
+    TypeIcon,
+    showBadge = false,
+}: {
+    TypeIcon: FunctionComponent | undefined
+    showBadge?: boolean
+}): JSX.Element {
+    if (!TypeIcon) {
+        return <BaseIcon className="min-w-4" />
+    }
+
+    // If TypeIcon is already a JSX element (like the LemonBadge case), return as-is
+    const iconElement = isValidElement(TypeIcon) ? TypeIcon : <TypeIcon />
+    return showBadge ? (
+        <div className="text-white bg-brand-blue rounded-full flex items-center p-0.5">{iconElement}</div>
+    ) : (
+        <div className="flex items-center p-0.5">{iconElement}</div>
+    )
+}
+
 function RowItemTitle({
     item,
     finalTimestamp,
@@ -123,11 +147,11 @@ function RowItemTitle({
 }): JSX.Element {
     return (
         <div className="flex items-center text-text-3000" data-attr="row-item-title">
-            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
+            {item.type === 'network' ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
+            ) : item.type === 'console' ? (
                 <ItemConsoleLog item={item} />
-            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
+            ) : item.type === 'events' ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
                 <div className="flex w-full items-start p-2 text-xs font-light font-mono">
@@ -137,7 +161,7 @@ function RowItemTitle({
                 <div className="flex w-full items-start px-2 py-1 font-light font-mono text-xs">
                     Window became {item.status}
                 </div>
-            ) : item.type === FilterableInspectorListItemTypes.DOCTOR ? (
+            ) : item.type === 'doctor' ? (
                 <ItemDoctor item={item} />
             ) : item.type === 'comment' ? (
                 <ItemComment item={item} />
@@ -161,14 +185,14 @@ function RowItemDetail({
 }): JSX.Element | null {
     return (
         <div onClick={onClick}>
-            {item.type === FilterableInspectorListItemTypes.NETWORK ? (
+            {item.type === 'network' ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
-            ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (
+            ) : item.type === 'console' ? (
                 <ItemConsoleLogDetail item={item} />
-            ) : item.type === FilterableInspectorListItemTypes.EVENTS ? (
+            ) : item.type === 'events' ? (
                 <ItemEventDetail item={item} />
             ) : item.type === 'offline-status' ? null : item.type === 'browser-visibility' ? null : item.type ===
-              FilterableInspectorListItemTypes.DOCTOR ? (
+              'doctor' ? (
                 <ItemDoctorDetail item={item} />
             ) : item.type === 'comment' ? (
                 <ItemCommentDetail item={item} />
@@ -233,7 +257,7 @@ export function PlayerInspectorListItem({
     const isHovering = useIsHovering(hoverRef)
 
     let TypeIcon = typeToIconAndDescription[item.type].Icon
-    if (TypeIcon === undefined && item.type === FilterableInspectorListItemTypes.EVENTS) {
+    if (TypeIcon === undefined && item.type === 'events') {
         // KLUDGE this is a hack to lean on this function, yuck
         TypeIcon = eventToIcon(item.data.event)
     }
@@ -292,7 +316,7 @@ export function PlayerInspectorListItem({
                         <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
                     )}
 
-                    {TypeIcon ? <TypeIcon /> : <BaseIcon className="min-w-4" />}
+                    <IconWithOptionalBadge TypeIcon={TypeIcon} showBadge={item.type === 'comment'} />
 
                     <div
                         className={clsx(

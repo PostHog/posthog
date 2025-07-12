@@ -102,9 +102,7 @@ export const definitionLogic = kea<definitionLogicType>([
     selectors({
         hasTaxonomyFeatures: [
             (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) =>
-                hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
-                hasAvailableFeature(AvailableFeature.TAGGING),
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
         ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],

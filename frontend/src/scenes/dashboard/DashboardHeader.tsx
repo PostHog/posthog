@@ -395,7 +395,6 @@ export function DashboardHeader(): JSX.Element | null {
                         )}
                     </>
                 }
-                delimited
             />
             <DashboardTemplateEditor />
         </>

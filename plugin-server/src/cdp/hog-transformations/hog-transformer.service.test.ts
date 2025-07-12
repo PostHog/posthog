@@ -14,8 +14,8 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'
-import { HogWatcherState } from '../services/hog-watcher.service'
-import { HogFunctionTemplate } from '../templates/types'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogFunctionTemplate } from '../types'
 import { HogTransformerService } from './hog-transformer.service'
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {

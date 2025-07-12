@@ -3,6 +3,7 @@ import json
 import os
 from typing import Any
 
+from urllib.parse import urlencode
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from rest_framework import mixins, serializers, viewsets
@@ -11,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -23,6 +25,7 @@ from posthog.models.integration import (
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
     EmailIntegration,
+    GitHubIntegration,
 )
 
 
@@ -73,6 +76,16 @@ class IntegrationSerializer(serializers.ModelSerializer):
             )
             return instance
 
+        elif validated_data["kind"] == "github":
+            config = validated_data.get("config", {})
+            installation_id = config.get("installation_id")
+
+            if not installation_id:
+                raise ValidationError("An installation_id must be provided")
+
+            instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
+            return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -112,6 +125,13 @@ class IntegrationViewSet(
                 return response
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
+        elif kind == "github":
+            query_params = urlencode({"state": token})
+            installation_url = f"https://github.com/apps/{'posthog-error-tracking'}/installations/new?{query_params}"
+            response = redirect(installation_url)
+            response.set_cookie("ph_github_state", token, max_age=60 * 5)
+
+            return response
 
         raise ValidationError("Kind not supported")
 
@@ -120,6 +140,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
+        force_refresh: bool = request.query_params.get("force_refresh", "false").lower() == "true"
         authed_user: str = instance.config.get("authed_user", {}).get("id") if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
@@ -145,19 +166,29 @@ class IntegrationViewSet(
             else:
                 return Response({"channels": []})
 
-        channels = [
-            {
-                "id": channel["id"],
-                "name": channel["name"],
-                "is_private": channel["is_private"],
-                "is_member": channel.get("is_member", True),
-                "is_ext_shared": channel["is_ext_shared"],
-                "is_private_without_access": channel.get("is_private_without_access", False),
-            }
-            for channel in slack.list_channels(should_include_private_channels, authed_user)
-        ]
+        key = f"slack/{instance.integration_id}/{should_include_private_channels}/channels"
+        data = cache.get(key)
 
-        return Response({"channels": channels})
+        if data is not None and not force_refresh:
+            return Response(data)
+
+        response = {
+            "channels": [
+                {
+                    "id": channel["id"],
+                    "name": channel["name"],
+                    "is_private": channel["is_private"],
+                    "is_member": channel.get("is_member", True),
+                    "is_ext_shared": channel["is_ext_shared"],
+                    "is_private_without_access": channel.get("is_private_without_access", False),
+                }
+                for channel in slack.list_channels(should_include_private_channels, authed_user)
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
+
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
 
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -234,6 +265,11 @@ class IntegrationViewSet(
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         linear = LinearIntegration(self.get_object())
         return Response({"teams": linear.list_teams()})
+
+    @action(methods=["GET"], detail=True, url_path="github_repos")
+    def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        github = GitHubIntegration(self.get_object())
+        return Response({"repositories": github.list_repositories()})
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):

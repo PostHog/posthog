@@ -15,46 +15,43 @@ logger = structlog.get_logger(__name__)
 
 
 def get_regional_ph_client():
-    from posthoganalytics import Posthog
-
     if not is_cloud():
         return
 
     # send EU data to EU, US data to US
+    region = get_instance_region()
+
+    if not region:
+        return
+
+    return get_client(region)
+
+
+@contextmanager
+def ph_scoped_capture():
+    ph_client = get_client()
+
+    def capture_ph_event(*args: Any, **kwargs: Any) -> None:
+        if is_cloud() and ph_client:
+            ph_client.capture(*args, **kwargs)
+
+    yield capture_ph_event
+
+    ph_client.shutdown()
+
+
+def get_client(region: str = "US"):
+    from posthoganalytics import Posthog
+
     api_key = None
     host = None
-    region = get_instance_region()
     if region == "EU":
         api_key = PH_EU_API_KEY
         host = PH_EU_HOST
     elif region == "US":
         api_key = PH_US_API_KEY
         host = PH_US_HOST
-
-    if not api_key:
+    else:
         return
 
-    ph_client = Posthog(api_key, host=host)
-
-    return ph_client
-
-
-@contextmanager
-def ph_us_client():
-    from posthoganalytics import Posthog
-
-    ph_client = Posthog(PH_US_API_KEY, host=PH_US_HOST)
-
-    def capture_ph_event(*args: Any, **kwargs: Any) -> None:
-        if is_cloud():
-            properties = kwargs.get("properties", {})
-            properties["region"] = get_instance_region()
-            kwargs["properties"] = properties
-
-            ph_client.capture(*args, **kwargs)
-        else:
-            logger.info("Captured event in US region", args, kwargs)
-
-    yield capture_ph_event
-
-    ph_client.shutdown()
+    return Posthog(api_key, host=host, super_properties={"region": region})

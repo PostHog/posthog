@@ -3,7 +3,6 @@ from uuid import UUID
 
 from freezegun.api import freeze_time
 from orjson import orjson
-
 from flaky import flaky
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
@@ -21,6 +20,7 @@ from posthog.test.base import (
     _create_event,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 
 class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
@@ -171,7 +171,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("ee.clickhouse.views.groups.new_capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_add_success(self, mock_capture):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -227,22 +227,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
 
         mock_capture.assert_called_once_with(
-            distinct_id=str(self.team.uuid),
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=mock.ANY,
-            sent_at=None,
-            event={
+            self.team.api_token,
+            str(self.team.uuid),
+            {
                 "event": "$groupidentify",
+                "timestamp": mock.ANY,
                 "properties": {
                     "$group_type": group_type_mapping.group_type,
                     "$group_key": group.group_key,
                     "$group_set": {"industry": "technology"},
                 },
-                "distinct_id": str(self.team.uuid),
-                "timestamp": mock.ANY,
             },
+            False,
         )
 
         response = self.client.get(
@@ -261,7 +257,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("ee.clickhouse.views.groups.new_capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_update_success(self, mock_capture):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -314,22 +310,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(orjson.loads(response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
 
         mock_capture.assert_called_once_with(
-            distinct_id=str(self.team.uuid),
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=mock.ANY,
-            sent_at=None,
-            event={
+            self.team.api_token,
+            str(self.team.uuid),
+            {
                 "event": "$groupidentify",
+                "timestamp": mock.ANY,
                 "properties": {
                     "$group_type": group_type_mapping.group_type,
                     "$group_key": group.group_key,
                     "$group_set": {"industry": "technology"},
                 },
-                "distinct_id": str(self.team.uuid),
-                "timestamp": mock.ANY,
             },
+            False,
         )
 
         response = self.client.get(
@@ -390,7 +382,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    @mock.patch("ee.clickhouse.views.groups.new_capture_internal")
     @flaky(max_runs=3, min_passes=1)
     def test_group_property_crud_delete_success(self, mock_capture):
         group_type_mapping = GroupTypeMapping.objects.create(
@@ -440,22 +432,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [('{"name": "Mr. Krabs"}',)])
 
         mock_capture.assert_called_once_with(
-            distinct_id=str(self.team.uuid),
-            ip=None,
-            site_url=None,
-            token=self.team.api_token,
-            now=mock.ANY,
-            sent_at=None,
-            event={
+            self.team.api_token,
+            str(self.team.uuid),
+            {
                 "event": "$delete_group_property",
+                "timestamp": mock.ANY,
                 "properties": {
                     "$group_type": group_type_mapping.group_type,
                     "$group_key": group.group_key,
                     "$group_unset": ["industry"],
                 },
-                "distinct_id": str(self.team.uuid),
-                "timestamp": mock.ANY,
             },
+            False,
         )
 
         response = self.client.get(
@@ -516,7 +504,13 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 404)
 
     @freeze_time("2021-05-02")
-    def test_get_group_activities_success(self):
+    @patch("ee.clickhouse.views.groups.new_capture_internal")
+    def test_get_group_activities_success(self, mock_capture):
+        # Mock the response to return a 200 OK
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_capture.return_value = mock_response
+
         group_type_mapping = GroupTypeMapping.objects.create(
             team=self.team,
             project_id=self.team.project_id,
@@ -552,7 +546,13 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
 
     @freeze_time("2021-05-02")
-    def test_get_group_activities_invalid_group(self):
+    @patch("ee.clickhouse.views.groups.new_capture_internal")
+    def test_get_group_activities_invalid_group(self, mock_capture):
+        # Mock the response to return a 200 OK
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_capture.return_value = mock_response
+
         group_type_mapping = GroupTypeMapping.objects.create(
             team=self.team,
             project_id=self.team.project_id,

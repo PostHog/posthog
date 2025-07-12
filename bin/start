@@ -17,7 +17,11 @@ export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
 export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
 export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
 export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
-if [[ "$*" == *"--enable-tracing"* ]]; then
+
+# Check for minimal mode - disable OpenTelemetry for minimal mode
+if [[ "$*" == *"--minimal"* ]]; then
+    export OTEL_SDK_DISABLED="true"
+elif [[ "$*" == *"--enable-tracing"* ]]; then
     export OTEL_SDK_DISABLED="false"
     export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
     export OTEL_TRACES_SAMPLER_ARG="1"
@@ -43,4 +47,9 @@ if ! command -v mprocs &>/dev/null; then
     fi
 fi
 
-exec mprocs --config bin/mprocs.yaml
+# Use minimal config if --minimal flag is passed
+if [[ "$*" == *"--minimal"* ]]; then
+    exec mprocs --config bin/mprocs-minimal.yaml
+else
+    exec mprocs --config bin/mprocs.yaml
+fi

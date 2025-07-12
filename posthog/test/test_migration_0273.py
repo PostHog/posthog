@@ -13,6 +13,10 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import Plugin, PluginConfig, PluginStorage
 from posthog.models.team.team import Team
 
+import pytest
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
+
 
 @freeze_time("2021-08-25T13:00:00Z")
 class MarkInactiveExportsAsFinished(TestCase):

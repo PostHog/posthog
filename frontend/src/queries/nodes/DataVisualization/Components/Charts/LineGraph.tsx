@@ -4,6 +4,12 @@ import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
 import { lemonToast } from '@posthog/lemon-ui'
+import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
+import dataLabelsPlugin from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
+import chartTrendline from 'chartjs-plugin-trendline'
+import clsx from 'clsx'
+import { useValues } from 'kea'
 import {
     ChartData,
     ChartType,
@@ -13,13 +19,7 @@ import {
     ScaleOptionsByType,
     TickOptions,
     TooltipModel,
-} from 'chart.js'
-import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
-import dataLabelsPlugin from 'chartjs-plugin-datalabels'
-import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
-import chartTrendline from 'chartjs-plugin-trendline'
-import clsx from 'clsx'
-import { useValues } from 'kea'
+} from 'lib/Chart'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -379,18 +379,22 @@ export const LineGraph = (): JSX.Element => {
                                 }
                             })
 
-                            if (tooltipData.length > 1) {
-                                const rawData = (
-                                    ySeriesData as (AxisSeries<number> | AxisBreakdownSeries<number>)[]
-                                ).reduce((acc: number, cur: AxisSeries<number> | AxisBreakdownSeries<number>) => {
-                                    acc += cur.data[referenceDataPoint.dataIndex]
-                                    return acc
-                                }, 0)
+                            const tooltipTotalData = (
+                                ySeriesData as (AxisSeries<number> | AxisBreakdownSeries<number>)[]
+                            ).filter((n) => n.settings?.formatting?.style !== 'percent')
 
+                            if (tooltipTotalData.length > 1 && chartSettings.showTotalRow !== false) {
+                                const totalRawData = tooltipTotalData.reduce(
+                                    (acc: number, cur: AxisSeries<number> | AxisBreakdownSeries<number>) => {
+                                        acc += cur.data[referenceDataPoint.dataIndex]
+                                        return acc
+                                    },
+                                    0
+                                )
                                 tooltipData.push({
                                     series: '',
-                                    data: rawData.toString(),
-                                    rawData: rawData,
+                                    data: totalRawData.toLocaleString(),
+                                    rawData: totalRawData,
                                     dataIndex: referenceDataPoint.dataIndex,
                                     isTotalRow: true,
                                 })

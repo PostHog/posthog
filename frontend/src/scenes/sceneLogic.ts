@@ -5,8 +5,16 @@ import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { getRelativeNextPath } from 'lib/utils'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import posthog from 'posthog-js'
-import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
+import {
+    emptySceneParams,
+    forwardedRedirectQueryParams,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
 import {
     LoadedScene,
     Params,
@@ -18,12 +26,10 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, PipelineTab, ProductKey } from '~/types'
+import { AccessControlLevel, PipelineTab, ProductKey, OnboardingStepKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
-import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -54,6 +60,7 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.debugHog(),
     urls.debugQuery(),
     urls.activity(),
+    urls.oauthAuthorize(),
 ]
 
 export const sceneLogic = kea<sceneLogicType>([
@@ -65,16 +72,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic],
-        actions: [
-            router,
-            ['locationChanged'],
-            commandBarLogic,
-            ['setCommandBar'],
-            inviteLogic,
-            ['hideInviteModal'],
-            sourceWizardLogic,
-            ['selectConnector', 'handleRedirect', 'setStep'],
-        ],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     actions({
@@ -322,24 +320,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
 
-                                if (
-                                    scene === Scene.PipelineNodeNew &&
-                                    params.searchParams.kind == 'hubspot' &&
-                                    params.searchParams.code
-                                ) {
-                                    actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                                    actions.handleRedirect(params.searchParams.kind, {
-                                        code: params.searchParams.code,
-                                    })
-                                    actions.setStep(2)
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.LINK_DATA)
-                                    )
-                                } else {
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                }
+                                router.actions.replace(urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL))
                                 return
                             }
                         }
@@ -482,8 +463,11 @@ export const sceneLogic = kea<sceneLogicType>([
         for (const path of Object.keys(redirects)) {
             mapping[path] = (params, searchParams, hashParams) => {
                 const redirect = redirects[path]
-                router.actions.replace(
+                const redirectUrl =
                     typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+
+                router.actions.replace(
+                    withForwardedSearchParams(redirectUrl, searchParams, forwardedRedirectQueryParams)
                 )
             }
         }

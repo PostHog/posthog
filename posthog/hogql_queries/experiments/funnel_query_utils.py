@@ -19,49 +19,59 @@ def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNo
     return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
 
 
-def funnel_steps_to_window_funnel_expr(funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
+def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, events_alias: str) -> ast.Expr:
     """
-    Returns the expression for the window funnel. The expression returns 1 if the user completed the whole funnel, 0 if they didn't.
+    Returns an expression using the aggregate_funnel_array UDF to evaluate the funnel.
+    Evaluates to 1 if the user completed the funnel, 0 if they didn't.
+
+    When events_alias is provided, assumes that step conditions have been pre-calculated
+    as step_0, step_1, etc. fields in the aliased table.
     """
 
-    funnel_steps_str = ", ".join([f"funnel_step = 'step_{i}'" for i, _ in enumerate(funnel_metric.series)])
-
-    num_steps = len(funnel_metric.series)
     if funnel_metric.conversion_window is not None and funnel_metric.conversion_window_unit is not None:
         conversion_window_seconds = conversion_window_to_seconds(
             funnel_metric.conversion_window, funnel_metric.conversion_window_unit
         )
     else:
         # Default to include all events selected, so we just set a large value here (3 years)
-        # Events outside the experiment duration will be filtered out by the query runner
         conversion_window_seconds = 3 * 365 * 24 * 60 * 60
 
-    return parse_expr(
-        f"windowFunnel({conversion_window_seconds})(toDateTime(timestamp), {funnel_steps_str}) = {num_steps}",
-        placeholders={
-            "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-            "num_steps": ast.Constant(value=num_steps),
-        },
+    num_steps = len(funnel_metric.series)
+
+    # Create field references with proper alias support
+    timestamp_field = f"{events_alias}.timestamp"
+    uuid_field = f"{events_alias}.uuid"
+
+    # When using an alias, assume step conditions are pre-calculated
+    step_conditions = [f"{i + 1} * {events_alias}.step_{i}" for i in range(num_steps)]
+
+    step_conditions_str = ", ".join(step_conditions)
+
+    # Determine funnel order type - default to "ordered" for backward compatibility
+    funnel_order_type = funnel_metric.funnel_order_type or "ordered"
+
+    expression = f"""
+    if(
+        length(
+            arrayFilter(result -> result.1 >= {num_steps - 1},
+                aggregate_funnel_array(
+                    {num_steps},
+                    {conversion_window_seconds},
+                    'first_touch',
+                    '{funnel_order_type}',
+                    array(array('')),
+                    arraySort(t -> t.1, groupArray(tuple(
+                        toFloat({timestamp_field}),
+                        {uuid_field},
+                        array(''),
+                        arrayFilter(x -> x != 0, [{step_conditions_str}])
+                    )))
+                )
+            )
+        ) > 0,
+        1,
+        0
     )
-
-
-def get_funnel_step_level_expr(team: Team, funnel_metric: ExperimentFunnelMetric) -> ast.Expr:
-    """
-    Returns the expression to get the funnel step level.
-
-    We reuse the filters that are being used to select events/actions in the funnel metric query,
-    and pass them into multiIf to get the funnel step level.
     """
 
-    # Contains tuples of (filter: ast.Expr, step_name: ast.Constant)
-    filters_and_steps = [
-        (event_or_action_to_filter(team, funnel_step), ast.Constant(value=f"step_{i}"))
-        for i, funnel_step in enumerate(funnel_metric.series)
-    ]
-    # Flatten the list of tuples into a list of expressions to pass to multiIf
-    multi_if_args = [item for filter_value_pair in filters_and_steps for item in filter_value_pair]
-
-    # Last argument to multiIf is the default value
-    multi_if_args.append(ast.Constant(value="step_unknown"))
-
-    return ast.Call(name="multiIf", args=multi_if_args)
+    return parse_expr(expression)

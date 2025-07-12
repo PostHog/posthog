@@ -1,8 +1,9 @@
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
-import { ActionMatcher } from 'worker/ingestion/action-matcher'
-import { GroupTypeManager } from 'worker/ingestion/group-type-manager'
+
+import type { ActionMatcher } from '~/worker/ingestion/action-matcher'
+import type { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 
 import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -156,7 +157,7 @@ async function addGroupPropertiesToPostIngestionEvent(
             const queryString = `SELECT group_properties FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
 
             const selectResult: QueryResult = await postgres.query(
-                PostgresUse.COMMON_READ,
+                PostgresUse.PERSONS_READ,
                 queryString,
                 [event.teamId, columnIndex, groupKey],
                 'fetchGroup'

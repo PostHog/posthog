@@ -23,7 +23,7 @@ export const debugSceneLogic = kea<debugSceneLogicType>([
             return [
                 urls.debugQuery(),
                 {},
-                { ...{ q: query }, ...(values.query2 ? { q2: values.query2 } : {}) },
+                { q: query, ...(values.query2 ? { q2: values.query2 } : {}) },
                 { replace: true },
             ]
         },

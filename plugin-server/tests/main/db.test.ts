@@ -387,7 +387,7 @@ describe('DB', () => {
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
+            const [updatedPerson, kafkaMessages] = await db.updatePerson(personProvided, update)
             await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             // verify we have the correct update in Postgres db
@@ -457,7 +457,7 @@ describe('DB', () => {
                 await delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
-                const [_personUpdated, updatePersonKafkaMessages] = await db.updatePersonDeprecated(personBefore, {
+                const [_personUpdated, updatePersonKafkaMessages] = await db.updatePerson(personBefore, {
                     properties: { foo: 'bar' },
                 })
                 await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)

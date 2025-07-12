@@ -31,6 +31,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         <LemonModal onClose={closeModal} isOpen={isOpen} width={600} simple title="" inline={inline}>
             <PayGateMini
                 feature={AvailableFeature.SUBSCRIPTIONS}
+                handleSubmit={closeModal}
                 background={false}
                 className="py-8"
                 docsLink="https://posthog.com/docs/user-guides/subscriptions"

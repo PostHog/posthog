@@ -1,3 +1,4 @@
+import { IconInfo, IconWarning } from '@posthog/icons'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -5,6 +6,7 @@ import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { AlertType } from 'lib/components/Alerts/types'
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -12,9 +14,15 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import {
+    TEMPLATE_LINK_HEADING,
+    TEMPLATE_LINK_PII_WARNING,
+    TEMPLATE_LINK_TOOLTIP,
+} from 'lib/components/Sharing/templateLinkMessages'
+import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -23,7 +31,10 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
+import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
@@ -31,6 +42,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -54,7 +66,7 @@ import {
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
-    const { insightMode, itemId, alertId } = useValues(insightSceneLogic)
+    const { insightMode, itemId, alertId, filtersOverride, variablesOverride } = useValues(insightSceneLogic)
 
     const { setInsightMode } = useActions(insightSceneLogic)
 
@@ -93,8 +105,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
+    const dashboardOverridesExist =
+        (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+        (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
+
+    const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
+
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
+
+    const siteUrl = preflight?.site_url || window.location.origin
 
     return (
         <>
@@ -130,16 +150,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         />
                     )}
 
-                    {!!alertId && (
+                    {!!alertId && insight.id && (
                         <EditAlertModal
                             onClose={() => push(urls.insightAlerts(insight.short_id as InsightShortId))}
                             isOpen={!!alertId}
                             alertId={alertId === null || alertId === 'new' ? undefined : alertId}
                             insightShortId={insight.short_id as InsightShortId}
-                            insightId={insight.id!}
-                            onEditSuccess={() => {
+                            insightId={insight.id}
+                            onEditSuccess={(alertId: AlertType['id'] | undefined) => {
                                 loadAlerts()
-                                push(urls.insightAlerts(insight.short_id as InsightShortId))
+                                if (alertId) {
+                                    push(urls.insightAlert(insight.short_id as InsightShortId, alertId))
+                                } else {
+                                    push(urls.insightAlerts(insight.short_id as InsightShortId))
+                                }
                             }}
                             insightLogicProps={insightLogicProps}
                         />
@@ -191,9 +215,18 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     type="primary"
+                                    icon={dashboardOverridesExist ? <IconWarning /> : undefined}
+                                    tooltip={
+                                        dashboardOverridesExist
+                                            ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
+                                            : undefined
+                                    }
+                                    tooltipPlacement="bottom"
                                     onClick={() => {
                                         if (isDataVisualizationNode(query) && insight.short_id) {
                                             router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
+                                        } else if (insight.short_id) {
+                                            push(urls.insightEdit(insight.short_id))
                                         } else {
                                             setInsightMode(ItemMode.Edit, null)
                                         }
@@ -205,19 +238,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             )
                         ) : (
                             <InsightSaveButton
-                                saveAs={() =>
-                                    openSaveToModal({
-                                        callback: (folder) => saveAs(undefined, undefined, folder),
-                                        defaultFolder: 'Unfiled/Insights',
-                                    })
-                                }
+                                saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
                                 saveInsight={(redirectToViewMode) =>
                                     insight.short_id
                                         ? saveInsight(redirectToViewMode)
-                                        : openSaveToModal({
-                                              callback: (folder) => saveInsight(redirectToViewMode, folder),
-                                              defaultFolder: 'Unfiled/Insights',
-                                          })
+                                        : saveInsight(redirectToViewMode, 'Unfiled/Insights')
                                 }
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
@@ -232,9 +257,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                onClick={() =>
-                                                    duplicateInsight(insight as QueryBasedInsightModel, true)
-                                                }
+                                                onClick={() => {
+                                                    void (async () => {
+                                                        // We do not want to duplicate the dashboard filters that might be included in this insight
+                                                        // Ideally we would store those separately and be able to remove them on duplicate or edit, but current we merge them
+                                                        // irreversibly in apply_dashboard_filters and return that to the front-end
+                                                        if (insight.short_id) {
+                                                            const cleanInsight = await insightsApi.getByShortId(
+                                                                insight.short_id
+                                                            )
+                                                            if (cleanInsight) {
+                                                                duplicateInsight(cleanInsight, true)
+                                                                return
+                                                            }
+                                                        }
+                                                        // Fallback to original behavior if load failed
+                                                        duplicateInsight(insight as QueryBasedInsightModel, true)
+                                                    })()
+                                                }}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
                                             >
@@ -296,6 +336,45 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                                             <LemonDivider />
                                         </>
+                                    )}
+
+                                    {!insight.short_id && (
+                                        <LemonButton
+                                            onClick={() => {
+                                                const templateLink = getInsightDefinitionUrl({ query }, siteUrl)
+                                                LemonDialog.open({
+                                                    title: (
+                                                        <span className="flex items-center gap-2">
+                                                            <TitleWithIcon
+                                                                icon={
+                                                                    <Tooltip title={TEMPLATE_LINK_TOOLTIP}>
+                                                                        <IconInfo />
+                                                                    </Tooltip>
+                                                                }
+                                                            >
+                                                                <b>{TEMPLATE_LINK_HEADING}</b>
+                                                            </TitleWithIcon>
+                                                        </span>
+                                                    ),
+                                                    content: (
+                                                        <TemplateLinkSection
+                                                            templateLink={templateLink}
+                                                            heading={undefined}
+                                                            tooltip={undefined}
+                                                            piiWarning={TEMPLATE_LINK_PII_WARNING}
+                                                        />
+                                                    ),
+                                                    width: 600,
+                                                    primaryButton: {
+                                                        children: 'Close',
+                                                        type: 'secondary',
+                                                    },
+                                                })
+                                            }}
+                                            fullWidth
+                                        >
+                                            Share as template
+                                        </LemonButton>
                                     )}
 
                                     <LemonSwitch

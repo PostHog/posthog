@@ -5,6 +5,7 @@ import json
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
+from posthog.schema_migrations.upgrade import upgrade
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
@@ -22,7 +23,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 
-from posthog.api.utils import action, is_insight_query
+from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
 from posthog.clickhouse.client.execute_async import (
     cancel_query,
     get_query_status,
@@ -50,6 +51,8 @@ from posthog.schema import (
     QueryRequest,
     QueryResponseAlternative,
     QueryStatusResponse,
+    QueryUpgradeRequest,
+    QueryUpgradeResponse,
 )
 from posthog.hogql.constants import LimitContext
 
@@ -100,8 +103,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
-        if self.team_id in settings.API_QUERIES_PER_TEAM or (
-            settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency()
+        if (
+            self.team_id in settings.API_QUERIES_PER_TEAM
+            or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
+            or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
         if query := self.request.data.get("query"):
@@ -128,12 +133,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        data = self.get_model(request.data, QueryRequest)
+        upgraded_query = upgrade(request.data)
+        data = self.get_model(upgraded_query, QueryRequest)
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
+            query_dict = query.model_dump()
 
             result = process_query_model(
                 self.team,
@@ -145,7 +152,12 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 limit_context=(
                     # QUERY_ASYNC provides extended max execution time for insight queries
                     LimitContext.QUERY_ASYNC
-                    if is_insight_query(query) and get_query_tag_value("access_method") != "personal_api_key"
+                    if (
+                        is_insight_query(query_dict)
+                        or is_insight_actors_query(query_dict)
+                        or is_insight_actors_options_query(query_dict)
+                    )
+                    and get_query_tag_value("access_method") != "personal_api_key"
                     else None
                 ),
             )
@@ -234,6 +246,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except PromptUnclear as e:
             raise ValidationError({"prompt": [str(e)]}, code="unclear")
         return Response({"sql": result})
+
+    @extend_schema(
+        request=QueryUpgradeRequest,
+        responses={
+            200: QueryUpgradeResponse,
+        },
+        description="Upgrades a query without executing it. Returns a query with all nodes migrated to the latest version.",
+    )
+    @action(methods=["POST"], detail=False, url_path="upgrade")
+    def upgrade(self, request: Request, *args, **kwargs) -> Response:
+        upgraded_query = upgrade(request.data)
+        return Response({"query": upgraded_query["query"]}, status=200)
 
     def handle_column_ch_error(self, error):
         if getattr(error, "message", None):

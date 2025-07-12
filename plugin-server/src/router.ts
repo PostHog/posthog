@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express'
 import { DateTime } from 'luxon'
 import * as prometheus from 'prom-client'
 
-import { PluginServerService } from '~/src/types'
+import { PluginServerService } from '~/types'
 
 import { logger } from './utils/logger'
 import { delay } from './utils/utils'
@@ -71,7 +71,7 @@ const buildGetHealth =
         if (statusCode === 200) {
             logger.info('💚', 'Server liveness check succeeded')
         } else {
-            logger.info('💔', 'Server liveness check failed', checkResultsMapping)
+            logger.error('💔', 'Server liveness check failed', { checkResults: checkResultsMapping })
         }
 
         return res.status(statusCode).json({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping })

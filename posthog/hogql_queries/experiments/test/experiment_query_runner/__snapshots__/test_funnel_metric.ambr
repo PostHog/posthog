@@ -8,7 +8,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -28,7 +28,10 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, '$pageview'), 'step_0', equals(events.event, 'purchase'), 'step_1', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -76,7 +79,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -96,7 +99,152 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, '$pageview'), 'step_0', equals(events.event, 'purchase'), 'step_1', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+     GROUP BY exposures.variant,
+              exposures.entity_id) AS metric_events
+  GROUP BY metric_events.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=180,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison
+  '''
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        GROUP BY entity_id) AS exposures
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               exposure_data.variant AS variant,
+               events.event AS event,
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+     GROUP BY exposures.variant,
+              exposures.entity_id) AS metric_events
+  GROUP BY metric_events.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=180,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison.1
+  '''
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'unordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        GROUP BY entity_id) AS exposures
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               exposure_data.variant AS variant,
+               events.event AS event,
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -144,7 +292,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -164,7 +312,10 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, '$pageview'), 'step_0', equals(events.event, 'purchase'), 'step_1', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -212,7 +363,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -232,7 +383,10 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, '$pageview'), 'step_0', equals(events.event, 'purchase'), 'step_1', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -280,7 +434,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(86400)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0)), 2), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 86400, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -300,7 +454,10 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, '$pageview'), 'step_0', equals(events.event, 'purchase'), 'step_1', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -348,7 +505,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0), ifNull(equals(metric_events.funnel_step, 'step_1'), 0), ifNull(equals(metric_events.funnel_step, 'step_2'), 0), ifNull(equals(metric_events.funnel_step, 'step_3'), 0), ifNull(equals(metric_events.funnel_step, 'step_4'), 0), ifNull(equals(metric_events.funnel_step, 'step_5'), 0)), 6), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 5), 0), aggregate_funnel_array_v7(6, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -368,7 +525,14 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, '$pageview'), 'step_0', equals(events.event, 'add to cart'), 'step_1', equals(events.event, 'checkout started'), 'step_2', equals(events.event, 'checkout completed'), 'step_3', equals(events.event, 'survey submitted'), 'step_4', equals(events.event, 'referral'), 'step_5', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'add to cart'), 1, 0) AS step_1,
+               if(equals(events.event, 'checkout started'), 1, 0) AS step_2,
+               if(equals(events.event, 'checkout completed'), 1, 0) AS step_3,
+               if(equals(events.event, 'survey submitted'), 1, 0) AS step_4,
+               if(equals(events.event, 'referral'), 1, 0) AS step_5
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -407,7 +571,7 @@
                      allow_experimental_join_condition=1
   '''
 # ---
-# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps
   '''
   SELECT metric_events.variant AS variant,
          count(metric_events.entity_id) AS num_users,
@@ -416,7 +580,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 2), 0), aggregate_funnel_array_v7(3, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -436,7 +600,223 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), or(equals(events.event, '$pageview'), equals(events.event, 'purchase'), equals(events.event, 'purchase')))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+     GROUP BY exposures.variant,
+              exposures.entity_id) AS metric_events
+  GROUP BY metric_events.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=180,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter
+  '''
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        GROUP BY entity_id) AS exposures
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               exposure_data.variant AS variant,
+               events.event AS event,
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_1'), 0)), 1, 0) AS step_0,
+               if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_2'), 0)), 1, 0) AS step_1
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), or(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_1'), 0)), and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_2'), 0))))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+     GROUP BY exposures.variant,
+              exposures.entity_id) AS metric_events
+  GROUP BY metric_events.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=180,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps
+  '''
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 1), 0), aggregate_funnel_array_v7(2, 94608000, 'first_touch', 'unordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)]))))))), 0), 0), 1, 0) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        GROUP BY entity_id) AS exposures
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               exposure_data.variant AS variant,
+               events.event AS event,
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_1
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        INNER JOIN
+          (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+           GROUP BY entity_id) AS exposure_data ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposure_data.entity_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure_data.first_exposure_time), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), or(equals(events.event, '$pageview'), equals(events.event, 'purchase')))) AS metric_events ON equals(toString(exposures.entity_id), toString(metric_events.entity_id))
+     GROUP BY exposures.variant,
+              exposures.entity_id) AS metric_events
+  GROUP BY metric_events.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=180,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestExperimentFunnelMetric.test_query_runner_funnel_metric
+  '''
+  SELECT metric_events.variant AS variant,
+         count(metric_events.entity_id) AS num_users,
+         sum(metric_events.value) AS total_sum,
+         sum(power(metric_events.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
+     FROM
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
+        GROUP BY entity_id) AS exposures
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               exposure_data.variant AS variant,
+               events.event AS event,
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -484,7 +864,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.`$group_0` AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -497,7 +877,9 @@
                events.`$group_0` AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         INNER JOIN
           (SELECT events.`$group_0` AS entity_id,
@@ -540,7 +922,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -560,7 +942,9 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -617,7 +1001,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -637,7 +1021,9 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -694,7 +1080,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -714,7 +1100,9 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -771,7 +1159,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -801,7 +1189,9 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -878,7 +1268,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -908,7 +1298,9 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -985,7 +1377,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1015,7 +1407,9 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
           (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1092,7 +1486,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1105,7 +1499,9 @@
                events.person_id AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
@@ -1148,7 +1544,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1161,7 +1557,9 @@
                events.person_id AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
@@ -1204,7 +1602,7 @@
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
-            ifNull(equals(windowFunnel(94608000)(toDateTime(metric_events.timestamp, 'UTC'), ifNull(equals(metric_events.funnel_step, 'step_0'), 0)), 1), 0) AS value
+            if(ifNull(greater(length(arrayFilter(result -> ifNull(greaterOrEquals(result.1, 0), 0), aggregate_funnel_array_v7(1, 94608000, 'first_touch', 'ordered', array(array('')), arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)]))))))), 0), 0), 1, 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
                if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1217,7 +1615,9 @@
                events.person_id AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               multiIf(equals(events.event, 'purchase'), 'step_0', 'step_unknown') AS funnel_step
+               events.uuid AS uuid,
+               events.properties AS properties,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,

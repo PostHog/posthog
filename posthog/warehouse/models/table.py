@@ -35,7 +35,7 @@ from posthog.warehouse.models.util import (
     clean_type,
     remove_named_tuples,
 )
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables
@@ -186,7 +186,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
+                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
                 result = sync_execute(
                     f"""DESCRIBE TABLE (
@@ -263,7 +263,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             capture_exception(chdb_error)
 
             try:
-                tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
+                tag_queries(team_id=self.team.pk, table_id=self.id, warehouse_query=True)
 
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",

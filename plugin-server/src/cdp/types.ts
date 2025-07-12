@@ -1,6 +1,9 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
+import { CyclotronInputType } from '~/schema/cyclotron'
+
+import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
@@ -112,32 +115,40 @@ export type HogFunctionFilterGlobals = {
     properties: Record<string, any>
     distinct_id: string
 
-    person?: {
+    person: {
         id: string
         properties: Record<string, any>
-    }
-    pdi?: {
+    } | null
+    pdi: {
         distinct_id: string
         person_id: string
         person: {
             id: string
             properties: Record<string, any>
         }
-    }
+    } | null
 
-    group_0?: {
+    // Used by groupId filters on event_metadata
+    $group_0: string | null
+    $group_1: string | null
+    $group_2: string | null
+    $group_3: string | null
+    $group_4: string | null
+
+    // Used by group property filters
+    group_0: {
         properties: Record<string, any>
     }
-    group_1?: {
+    group_1: {
         properties: Record<string, any>
     }
-    group_2?: {
+    group_2: {
         properties: Record<string, any>
     }
-    group_3?: {
+    group_3: {
         properties: Record<string, any>
     }
-    group_4?: {
+    group_4: {
         properties: Record<string, any>
     }
 }
@@ -165,7 +176,8 @@ export type LogEntrySerialized = Omit<LogEntry, 'timestamp'> & {
 
 export type MinimalAppMetric = {
     team_id: number
-    app_source_id: string
+    app_source_id: string // The main item (like the hog function or hog flow ID)
+    instance_id?: string // The specific instance of the item (can be the invocation ID or a sub item like an action ID)
     metric_kind: 'failure' | 'success' | 'other'
     metric_name:
         | 'succeeded'
@@ -176,41 +188,17 @@ export type MinimalAppMetric = {
         | 'masked'
         | 'filtering_failed'
         | 'inputs_failed'
+        | 'missing_addon'
         | 'fetch'
+        | 'event_triggered_destination'
+        | 'destination_invoked'
+
     count: number
 }
 
 export type AppMetricType = MinimalAppMetric & {
     timestamp: ClickHouseTimestamp
     app_source: MetricLogSource
-    instance_id?: string
-}
-
-export type HogFunctionQueueParametersFetchRequest = {
-    url: string
-    method: string
-    body?: string
-    return_queue: CyclotronJobQueueKind
-    max_tries?: number
-    headers?: Record<string, string>
-}
-
-export type CyclotronFetchFailureKind =
-    | 'timeout'
-    | 'timeoutgettingbody'
-    | 'missingparameters'
-    | 'invalidparameters'
-    | 'requesterror'
-    | 'failurestatus'
-    | 'invalidbody'
-    | 'responsetoolarge'
-
-export type CyclotronFetchFailureInfo = {
-    kind: CyclotronFetchFailureKind
-    message: string
-    headers?: Record<string, string>
-    status?: number
-    timestamp: DateTime
 }
 
 export interface HogFunctionTiming {
@@ -218,26 +206,18 @@ export interface HogFunctionTiming {
     duration_ms: number
 }
 
-export type HogFunctionQueueParametersFetchResponse = {
-    /** An error message to indicate something went wrong and the invocation should be stopped */
-    error?: any
-    /** On success, the fetch worker returns only the successful response */
-    response?: {
-        status: number
-        headers: Record<string, string>
-    } | null
-    /** On failure, the fetch worker returns a list of info about the attempts made*/
-    trace?: CyclotronFetchFailureInfo[]
-    body?: string | null // Both results AND failures can have a body
-    timings?: HogFunctionTiming[]
-    logs?: MinimalLogEntry[]
+export type HogFunctionQueueParametersFetchRequest = {
+    type: 'fetch'
+    url: string
+    method: string
+    body?: string
+    max_tries?: number
+    headers?: Record<string, string>
 }
 
-export type CyclotronInvocationQueueParameters =
-    | HogFunctionQueueParametersFetchRequest
-    | HogFunctionQueueParametersFetchResponse
+export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'fetch', 'plugin', 'segment', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -274,97 +254,51 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     execResult?: unknown
 }
 
+export type CyclotronJobInvocationHogFunctionContext = {
+    globals: HogFunctionInvocationGlobalsWithInputs
+    vmState?: VMState
+    timings: HogFunctionTiming[]
+    attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+}
+
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
-    state: {
-        globals: HogFunctionInvocationGlobalsWithInputs
-        vmState?: VMState
-        timings: HogFunctionTiming[]
-    }
+    state: CyclotronJobInvocationHogFunctionContext
     hogFunction: HogFunctionType
 }
 
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
+
+    // Add lazy getters for person and filter globals
+    // getFilterGlobals: () => Promise<HogFunctionFilterGlobals>
+    // getPerson: () => Promise<Person>
 }
 
 export type HogFlowInvocationContext = {
+    event: HogFunctionInvocationGlobals['event']
+    actionStepCount: number
+    // variables: Record<string, any> // NOTE: not used yet but
     personId?: string
-    event?: any // TODO: Type better
-    variables: Record<string, any>
-    currentActionId?: string
-}
-
-export type HogFlow = {
-    // Primary key is id + version
-    id: string
-    name: string
-    description: string
-    team_id: number
-    version: number
-    status: 'active' | 'draft' | 'archived'
-
-    trigger:
-        | {
-              type: 'event'
-              filters: HogFunctionFilters
-          }
-        | {
-              type: 'schedule'
-              cron: string
-          }
-        | {
-              type: 'webhook'
-              hog_function_id: string
-          }
-
-    trigger_masking: {
-        ttl: number
-        hash: string
-        // bytecode: HogBytecode
-        threshold: number
-    }
-
-    conversion: {
-        window: number
-        // cohort_id: number
-        filters: any // HogFunctionFilters
-    }
-    exit_condition:
-        | 'exit_on_conversion'
-        | 'exit_on_trigger_not_matched'
-        | 'exit_on_trigger_not_matched_or_conversion'
-        | 'exit_only_at_end'
-
-    // workflow graph
-    edges: {
-        from: string
-        to: string
-        type: 'continue' | 'branch'
-        index: number
-    }[]
-
-    actions: {
+    currentAction?: {
         id: string
-        name: string
-        description: string
-        type: 'exit_action' | 'conditional_branch' | 'delay' | 'wait_for_condition' | 'message' | 'hog_function'
-        config: any // HogFunctionInputSchemaType[] // Try to type this strongly to the "type"
-
-        // Maybe v1?
-        on_error: 'continue' | 'abort' | 'complete' | 'branch'
-
-        created: number
-        updated: Date
-        position: number
-    }[]
-
-    abort_action?: string
+        startedAtTimestamp: number
+        hogFunctionState?: CyclotronJobInvocationHogFunctionContext
+    }
 }
 
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
+    type:
+        | 'string'
+        | 'number'
+        | 'boolean'
+        | 'dictionary'
+        | 'choice'
+        | 'json'
+        | 'integration'
+        | 'integration_field'
+        | 'email'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
@@ -381,16 +315,11 @@ export type HogFunctionInputSchemaType = {
     templating?: boolean
 }
 
-export type HogFunctionTypeType =
-    | 'destination'
-    | 'transformation'
-    | 'internal_destination'
-    | 'source_webhook'
-    | 'broadcast'
+export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_destination' | 'source_webhook'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     filters?: HogFunctionFilters | null
 }
 
@@ -404,23 +333,54 @@ export type HogFunctionType = {
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType | null>
-    encrypted_inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, CyclotronInputType | null>
+    encrypted_inputs?: Record<string, CyclotronInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    is_addon_required: boolean
     template_id?: string
     execution_order?: number
     created_at: string
     updated_at: string
 }
 
-export type HogFunctionInputType = {
-    value: any
-    secret?: boolean
-    bytecode?: HogBytecode | object
-    order?: number
+export type HogFunctionMappingTemplate = HogFunctionMappingType & {
+    name: string
+    include_by_default?: boolean
+}
+
+export type HogFunctionTemplate = {
+    status: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
+    free: boolean
+    type: HogFunctionTypeType
+    id: string
+    name: string
+    description: string
+    hog: string
+    inputs_schema: HogFunctionInputSchemaType[]
+    category: string[]
+    filters?: HogFunctionFilters
+    mappings?: HogFunctionMappingType[]
+    mapping_templates?: HogFunctionMappingTemplate[]
+    masking?: HogFunctionMasking
+    icon_url?: string
+}
+
+export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
+    bytecode: HogBytecode
+}
+
+// Slightly different model from the DB
+export type DBHogFunctionTemplate = {
+    id: string
+    template_id: string
+    sha: string
+    name: string
+    inputs_schema: HogFunctionInputSchemaType[]
+    bytecode: HogBytecode
+    type: HogFunctionTypeType
 }
 
 export type IntegrationType = {

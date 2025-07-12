@@ -120,6 +120,7 @@
     .PlayerSeekbarTick {
         --tick-color: var(--text-secondary);
         --tick-width: 3px;
+        --emoji-width: 16px;
 
         position: absolute;
         top: 0;
@@ -149,34 +150,13 @@
             opacity: 0.5;
         }
 
-        .PlayerSeekbarTick__info {
+        .PlayerSeekbarTick__emoji {
             position: absolute;
-            bottom: 100%;
-            max-width: 20rem;
-            padding: 0.25rem 0.5rem;
-            margin-bottom: 0.25rem;
-            font-size: 0.8rem;
-            color: #fff;
-            white-space: nowrap;
-            visibility: hidden;
-            background-color: var(--tick-color);
-            border-radius: var(--radius);
-            opacity: 0;
-            transition: opacity 150ms ease-in-out;
-            transform: translateX(-50%);
-        }
-
-        &:hover {
-            --tick-width: 5px;
-
-            .PlayerSeekbarTick__info {
-                visibility: visible;
-                opacity: 1;
-            }
-
-            .PlayerSeekbarTick__line {
-                opacity: 1;
-            }
+            bottom: 5px;
+            width: var(--emoji-width);
+            height: 100%;
+            margin-left: calc(var(--emoji-width) / 2 * -1);
+            opacity: 0.75;
         }
     }
 }

@@ -12,6 +12,7 @@ import { DEFAULT_PAGE_SIZE } from '../DataVisualization/Components/Table'
 interface LoadNextProps {
     query: DataNode
 }
+
 export function LoadNext({ query }: LoadNextProps): JSX.Element {
     const { canLoadNextData, nextDataLoading, numberOfRows, hasMoreData, dataLimit } = useValues(dataNodeLogic)
     const { loadNextData } = useActions(dataNodeLogic)
@@ -77,7 +78,7 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
         return <div />
     }
 
-    const resultCount = response?.results?.length ?? 0
+    const resultCount = response && 'results' in response ? response?.results?.length ?? 0 : 0
     const isSingleEntry = resultCount === 1
     const showFirstPrefix = hasMoreData && resultCount > 1
 
@@ -87,8 +88,8 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
     return (
         <>
             <span>
-                Showing {showFirstPrefix ? 'the first ' : ' '}
-                {isSingleEntry ? 'one' : resultCount} {isSingleEntry ? 'entry' : 'entries'}
+                {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
+                {isSingleEntry ? 'one row' : `${resultCount} rows`}
             </span>
             {lastRefreshTimeUtc && (
                 <>

@@ -1,6 +1,6 @@
 import './sparkline-loading.scss'
 
-import { IconFilter, IconPlusSquare } from '@posthog/icons'
+import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
@@ -19,6 +19,7 @@ import { AttributeBreakdowns } from './AttributeBreakdowns'
 import { AttributesFilter } from './filters/AttributesFilter'
 import { DateRangeFilter } from './filters/DateRangeFilter'
 import { SearchTermFilter } from './filters/SearchTermFilter'
+import { ServiceFilter } from './filters/ServiceFilter'
 import { SeverityLevelsFilter } from './filters/SeverityLevelsFilter'
 import { logsLogic } from './logsLogic'
 
@@ -125,13 +126,13 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
     const attributes = log.attributes
     const rows = Object.entries(attributes).map(([key, value]) => ({ key, value }))
 
-    const addFilter = (key: string, value: string): void => {
+    const addFilter = (key: string, value: string, operator = PropertyOperator.Exact): void => {
         const newGroup = { ...filterGroup.values[0] } as UniversalFiltersGroup
 
         newGroup.values.push({
             key,
             value: [value],
-            operator: PropertyOperator.Exact,
+            operator: operator,
             type: PropertyFilterType.Log,
         })
 
@@ -147,13 +148,20 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                     key: 'actions',
                     width: 0,
                     render: (_, record) => (
-                        <div className="flex gap-x-1">
+                        <div className="flex gap-x-0">
                             <LemonButton
                                 tooltip="Add as filter"
                                 size="xsmall"
                                 onClick={() => addFilter(record.key, record.value)}
                             >
                                 <IconPlusSquare />
+                            </LemonButton>
+                            <LemonButton
+                                tooltip="Exclude as filter"
+                                size="xsmall"
+                                onClick={() => addFilter(record.key, record.value, PropertyOperator.IsNot)}
+                            >
+                                <IconMinusSquare />
                             </LemonButton>
                             <LemonButton
                                 tooltip="Show breakdown"
@@ -182,7 +190,7 @@ const ExpandedLog = ({ log }: { log: LogMessage }): JSX.Element => {
                 noIndent: true,
                 showRowExpansionToggle: false,
                 isRowExpanded: (record) => expandedAttributeBreaksdowns.includes(record.key),
-                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} />,
+                expandedRowRender: (record) => <AttributeBreakdowns attribute={record.key} addFilter={addFilter} />,
             }}
         />
     )
@@ -210,6 +218,7 @@ const Filters = (): JSX.Element => {
             <div className="flex justify-between gap-y-2 flex-wrap-reverse">
                 <div className="flex gap-x-1 gap-y-2 flex-wrap">
                     <SeverityLevelsFilter />
+                    <ServiceFilter />
                     <AttributesFilter />
                 </div>
                 <div className="flex gap-x-1">

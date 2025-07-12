@@ -121,7 +121,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                         toolbarPosthogJS.capture(
                                                             'toolbar_manual_selector_modal_opened',
                                                             {
-                                                                selector: step?.selector,
+                                                                selector: step?.selector ?? null,
                                                             }
                                                         )
                                                         editSelectorWithIndex(index)

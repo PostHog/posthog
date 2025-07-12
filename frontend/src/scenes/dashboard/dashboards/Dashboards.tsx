@@ -20,6 +20,7 @@ import { DashboardTemplateChooser } from '../DashboardTemplateChooser'
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
+    settingSectionId: 'environment-product-analytics',
 }
 
 export function Dashboards(): JSX.Element {
@@ -30,9 +31,11 @@ export function Dashboards(): JSX.Element {
 
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
-            key: DashboardsTab.Dashboards,
-            label: 'Dashboards',
+            key: DashboardsTab.All,
+            label: 'All dashboards',
         },
+        { key: DashboardsTab.Yours, label: 'My dashboards' },
+        { key: DashboardsTab.Pinned, label: 'Pinned' },
         {
             key: DashboardsTab.Templates,
             label: 'Templates',

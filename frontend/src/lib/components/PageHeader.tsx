@@ -12,7 +12,6 @@ interface PageHeaderProps {
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
-    delimited?: boolean
     notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
     className?: string
 }

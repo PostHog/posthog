@@ -22,7 +22,13 @@ from posthog.temporal.data_imports.pipelines.stripe.constants import (
     PRICE_RESOURCE_NAME as STRIPE_PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
+    INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
+    PAYOUT_RESOURCE_NAME as STRIPE_PAYOUT_RESOURCE_NAME,
+    DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
 )
+
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
@@ -71,6 +77,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -137,6 +148,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -163,6 +179,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -190,6 +211,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
                 "prefix": "test_",
@@ -217,6 +243,11 @@ class TestExternalDataSource(APIBaseTest):
                         {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                         {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
                 "prefix": "test_",
@@ -756,6 +787,7 @@ class TestExternalDataSource(APIBaseTest):
                     "rows": 42,
                     "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
                 }
@@ -802,6 +834,7 @@ class TestExternalDataSource(APIBaseTest):
                     "rows": 42,
                     "incremental_fields": [{"label": "id", "type": "integer", "field": "id", "field_type": "integer"}],
                     "incremental_available": True,
+                    "append_available": True,
                     "incremental_field": "id",
                     "sync_type": None,
                 }
@@ -1147,6 +1180,7 @@ class TestExternalDataSource(APIBaseTest):
                         },
                         "dataset_id": "dummy_dataset_id",
                         "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+                        "dataset_project": {"enabled": False, "dataset_project_id": ""},
                         "schemas": [
                             {
                                 "name": "my_table",
@@ -1191,6 +1225,7 @@ class TestExternalDataSource(APIBaseTest):
                     "project_id": "dummy_project_id",
                     "client_email": "dummy_client_email",
                     "temporary-dataset": {"enabled": True, "temporary_dataset_id": "dummy_temporary_dataset_id"},
+                    "dataset_project": {"enabled": False, "dataset_project_id": ""},
                     "key_file": {
                         "type": "service_account",
                         "project_id": "dummy_project_id",
@@ -1223,3 +1258,54 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.token_uri == "dummy_token_uri"
         assert bq_config.using_temporary_dataset is True
         assert bq_config.temporary_dataset_id == "dummy_temporary_dataset_id"
+
+        # # Update the source by adding dataset project id
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
+            data={
+                "job_inputs": {
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "dataset_id": "dummy_dataset_id",
+                    "project_id": "dummy_project_id",
+                    "client_email": "dummy_client_email",
+                    "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+                    "dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"},
+                    "key_file": {
+                        "type": "service_account",
+                        "project_id": "dummy_project_id",
+                        "private_key_id": "dummy_private_key_id",
+                        "private_key": "dummy_private_key",
+                        "client_email": "dummy_client_email",
+                        "client_id": "dummy_client_id",
+                        "auth_uri": "dummy_auth_uri",
+                        "token_uri": "dummy_token_uri",
+                        "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                        "client_x509_cert_url": "dummy_client_x509_cert_url",
+                        "universe_domain": "dummy_universe_domain",
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+
+        source_model.refresh_from_db()
+
+        # validate against the actual class we use in the Temporal activity
+        bq_config = BigQuerySourceConfig.from_dict(source_model.job_inputs)
+
+        assert bq_config.project_id == "dummy_project_id"
+        assert bq_config.dataset_id == "dummy_dataset_id"
+        assert bq_config.private_key == "dummy_private_key"
+        assert bq_config.private_key_id == "dummy_private_key_id"
+        assert bq_config.client_email == "dummy_client_email"
+        assert bq_config.token_uri == "dummy_token_uri"
+        assert bq_config.using_temporary_dataset is False
+        assert bq_config.using_custom_dataset_project is True
+        assert bq_config.dataset_project_id == "other_project_id"
+
+    def test_get_wizard_sources(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard")
+        payload = response.json()
+        assert response.status_code == 200
+        assert payload is not None

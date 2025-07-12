@@ -1,5 +1,4 @@
-import { IconEllipsis, IconGear } from '@posthog/icons'
-import { IconOpenSidebar } from '@posthog/icons'
+import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -11,12 +10,11 @@ import {
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { asyncSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -25,8 +23,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NotebookNodeType, ReplayTab, ReplayTabs } from '~/types'
-import { ProductKey } from '~/types'
+import { NotebookNodeType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
@@ -45,12 +42,7 @@ function Header(): JSX.Element {
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const newPlaylistHandler = useAsyncHandler(async () => {
-        const folder = await asyncSaveToModal({ defaultFolder: 'Unfiled/Replay playlists' })
-        if (typeof folder === 'string') {
-            await createPlaylist({ _create_in_folder: folder, type: 'collection' }, true)
-        } else {
-            await createPlaylist({ type: 'collection' }, true)
-        }
+        await createPlaylist({ _create_in_folder: 'Unfiled/Replay playlists', type: 'collection' }, true)
         reportRecordingPlaylistCreated('new')
     })
 
@@ -226,20 +218,24 @@ const ReplayPageTabs: ReplayTab[] = [
         label: 'Recordings',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/tutorials',
         key: ReplayTabs.Home,
+        'data-attr': 'session-recordings-home-tab',
     },
     {
-        label: 'Playlists → Collections',
+        label: 'Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
         tooltip: 'View & create collections',
+        'data-attr': 'session-recordings-collections-tab',
     },
     {
         label: 'Figure out what to watch',
         key: ReplayTabs.Templates,
+        'data-attr': 'session-recordings-templates-tab',
     },
     {
         label: 'Settings',
         key: ReplayTabs.Settings,
+        'data-attr': 'session-recordings-settings-tab',
     },
 ]
 
@@ -249,8 +245,9 @@ function PageTabs(): JSX.Element {
     return (
         <LemonTabs
             activeKey={tab}
+            className="flex"
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            tabs={ReplayPageTabs.map((replayTab) => {
+            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
                     label: (
                         <>
@@ -263,6 +260,7 @@ function PageTabs(): JSX.Element {
                     key: replayTab.key,
                     tooltip: replayTab.tooltip,
                     tooltipDocLink: replayTab.tooltipDocLink,
+                    'data-attr': replayTab['data-attr'],
                 }
             })}
         />
@@ -281,4 +279,5 @@ export function SessionsRecordings(): JSX.Element {
 export const scene: SceneExport = {
     component: SessionsRecordings,
     logic: sessionReplaySceneLogic,
+    settingSectionId: 'environment-replay',
 }

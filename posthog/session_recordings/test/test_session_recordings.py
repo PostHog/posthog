@@ -39,7 +39,7 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 from clickhouse_driver.errors import ServerException
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -201,8 +201,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         console_filter = cast(LogEntryPropertyFilter, maybe_the_filter)
         assert console_filter.value == ["warn", "error"]
         assert mock_capture.call_args_list[0] == call(
-            self.user.distinct_id,
-            "recording list filters changed",
+            event="recording list filters changed",
+            distinct_id=self.user.distinct_id,
             properties={
                 "$current_url": ANY,
                 "$session_id": ANY,
@@ -420,7 +420,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response_data["results"][0]["id"] == "test_update_viewed_state"
 
         assert len(mock_capture.call_args_list) == 1
-        assert mock_capture.call_args_list[0][0][1] == "recording viewed"
+        assert mock_capture.call_args_list[0][1]["event"] == "recording viewed"
 
     @patch("posthoganalytics.capture")
     def test_update_session_recording_analyzed(self, mock_capture: MagicMock):
@@ -444,7 +444,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # Verify that the appropriate event was reported
         assert len(mock_capture.call_args_list) == 1
-        assert mock_capture.call_args_list[0][0][1] == "recording analyzed"
+        assert mock_capture.call_args_list[0][1]["event"] == "recording analyzed"
 
     def test_update_session_recording_invalid_data(self):
         session_id = "test_update_invalid_data"
@@ -783,7 +783,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
+    def test_get_snapshots_blobby_v1_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
 
@@ -1018,7 +1018,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id = str(uuid.uuid4())
         """
         includes regression test to allow utf16 surrogate pairs in realtime snapshots response
-        see: https://posthog.sentry.io/issues/4981128697/
         """
 
         expected_response = b'{"some": "\\ud801\\udc37 probably from console logs"}\n{"some": "more data"}'
@@ -1322,9 +1321,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         assert mock_capture.call_args_list[0] == call(
-            personal_api_key_object.secure_value,
-            "snapshots_api_called_with_personal_api_key",
-            {
+            event="snapshots_api_called_with_personal_api_key",
+            distinct_id=personal_api_key_object.secure_value,
+            properties={
                 "key_label": "X",
                 "key_scopes": ["session_recording:read"],
                 "key_scoped_teams": [self.team.pk],
@@ -1617,3 +1616,95 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Block index out of range" in response.json()["detail"]
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch(
+        "posthog.session_recordings.session_recording_api.list_blocks",
+        side_effect=Exception(
+            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
+        ),
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_get_snapshots_blobby_v2_from_lts(
+        self,
+        _mock_feature_enabled: MagicMock,
+        mock_list_objects: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_v2_list_blocks: MagicMock,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        timestamp = round(now().timestamp() * 1000)
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            deleted=False,
+            storage_version="2023-08-01",
+            full_recording_v2_path="an lts stored object path",
+        )
+
+        def list_objects_func(path: str) -> list[str]:
+            # this mock simulates a recording whose blob storage has been deleted by TTL
+            # but which has been stored in LTS blob storage
+            if path == "an lts stored object path":
+                return [
+                    f"an lts stored object path/{timestamp - 10000}-{timestamp - 5000}",
+                    f"an lts stored object path/{timestamp - 5000}-{timestamp}",
+                ]
+            else:
+                return []
+
+        mock_list_objects.side_effect = list_objects_func
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+        )
+        assert response.status_code == 200
+        response_data = response.json()
+
+        assert response_data == {
+            "sources": [
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:50Z",
+                    "end_timestamp": "2022-12-31T23:59:55Z",
+                    "blob_key": "1672531190000-1672531195000",
+                },
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:55Z",
+                    "end_timestamp": "2023-01-01T00:00:00Z",
+                    "blob_key": "1672531195000-1672531200000",
+                },
+            ]
+        }
+        assert mock_list_objects.call_args_list == [
+            call("an lts stored object path"),
+        ]
+
+    def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
+        """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
+        call_count = 0
+
+        def mock_list_blocks(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise CHQueryErrorCannotScheduleTask("Cannot schedule task", code=439)
+
+        # Patch list_blocks where it's imported and used in session_recording_v2_service
+        with patch("posthog.session_recordings.session_recording_api.list_blocks", side_effect=mock_list_blocks):
+            session_id = str(uuid.uuid4())
+            self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+            )
+
+            # Verify the error was called multiple times and we get 503
+            assert call_count > 2, f"Expected multiple calls, got {call_count}"
+            assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE

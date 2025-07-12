@@ -2,10 +2,12 @@ import dataclasses
 import json
 import re
 from random import random
+from concurrent.futures import ThreadPoolExecutor, Future
 
-import sentry_sdk
 import structlog
 import time
+from requests import HTTPError, Response, Session
+from requests.adapters import HTTPAdapter, Retry
 from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
 from dateutil import parser
@@ -18,10 +20,10 @@ from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
-from sentry_sdk import configure_scope, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
+import posthoganalytics
 
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
@@ -31,6 +33,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
@@ -41,6 +44,13 @@ from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+from posthog.settings.ingestion import (
+    CAPTURE_INTERNAL_URL,
+    CAPTURE_REPLAY_INTERNAL_URL,
+    CAPTURE_INTERNAL_MAX_WORKERS,
+    NEW_ANALYTICS_CAPTURE_ENDPOINT,
+    REPLAY_CAPTURE_ENDPOINT,
+)
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
@@ -62,7 +72,6 @@ LOG_RATE_LIMITER = Limiter(
     capacity=1,
     storage=MemoryStorage(),
 )
-
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -230,7 +239,7 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             # historical data topic.
             if historical:
                 return KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL
-            return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+            return KAFKA_EVENTS_PLUGIN_INGESTION
 
 
 def log_event(
@@ -457,12 +466,73 @@ def get_csp_event(request):
         )
 
     csp_report, error_response = process_csp_report(request)
-
     if error_response:
         return error_response
 
-    # Explicit mark for get_event pipeline to handle CSP reports on this flow
-    return get_event(request, csp_report=csp_report)
+    first_distinct_id = None  # temp: only used for feature flag check
+    if csp_report and isinstance(csp_report, list):
+        # For list of reports, use the first one's distinct_id for feature flag check
+        first_distinct_id = csp_report[0].get("distinct_id", None)
+    elif csp_report and isinstance(csp_report, dict):
+        # For single report, use the distinct_id for the same
+        first_distinct_id = csp_report.get("distinct_id", None)
+    else:
+        # mimic what get_event does if no data is returned from process_csp_report
+        return cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                f"Failed to submit CSP report",
+                code="invalid_payload",
+                type="invalid_payload",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+
+    if first_distinct_id and posthoganalytics.feature_enabled("ingestion-new-capture-internal-csp", first_distinct_id):
+        try:
+            token = get_token(csp_report, request)
+
+            if isinstance(csp_report, list):
+                futures = new_capture_batch_internal(csp_report, token, False)
+                for future in futures:
+                    result = future.result()
+                    result.raise_for_status()
+            else:
+                resp = new_capture_internal(token, first_distinct_id, csp_report, False)
+                resp.raise_for_status()
+
+            return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+
+        except HTTPError as hte:
+            capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
+            logger.exception("csp_report_capture_http_error", exc_info=hte)
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "csp_report_capture",
+                    f"Failed to submit CSP report",
+                    code="capture_http_error",
+                    type="capture_http_error",
+                    status_code=hte.response.status_code,
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"capture-pathway": "csp_report", "ph-team-token": token})
+            logger.exception("csp_report_capture_error", exc_info=e)
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "csp_report_capture",
+                    f"Failed to submit CSP report",
+                    code="capture_error",
+                    type="capture_error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+    else:
+        # Explicit mark for get_event pipeline to handle CSP reports on this flow
+        return get_event(request, csp_report=csp_report)
 
 
 @csrf_exempt
@@ -493,121 +563,117 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
 
     retry_count = _get_retry_count(request)
 
-    with start_span(op="request.authenticate"):
-        token = get_token(data, request)
+    token = get_token(data, request)
 
-        if not token:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "API key not provided. You can find your project API key in PostHog project settings.",
-                    type="authentication_error",
-                    code="missing_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
+    if not token:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "API key not provided. You can find your project API key in PostHog project settings.",
+                type="authentication_error",
+                code="missing_api_key",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
-        try:
-            invalid_token_reason = _check_token_shape(token)
-        except Exception as e:
-            invalid_token_reason = "exception"
-            logger.warning(
-                "capture_token_shape_exception",
-                token=token,
-                reason="exception",
-                exception=e,
-            )
+    try:
+        invalid_token_reason = _check_token_shape(token)
+    except Exception as e:
+        invalid_token_reason = "exception"
+        logger.warning(
+            "capture_token_shape_exception",
+            token=token,
+            reason="exception",
+            exception=e,
+        )
 
-        if invalid_token_reason:
-            TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
-            logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    f"Provided API key is not valid: {invalid_token_reason}",
-                    type="authentication_error",
-                    code=invalid_token_reason,
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
+    if invalid_token_reason:
+        TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
+        logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
+        return cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                f"Provided API key is not valid: {invalid_token_reason}",
+                type="authentication_error",
+                code=invalid_token_reason,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            ),
+        )
 
     structlog.contextvars.bind_contextvars(token=token)
 
     replay_events: list[Any] = []
 
     historical = token in settings.TOKENS_HISTORICAL_DATA
-    with start_span(op="request.process"):
-        if isinstance(data, dict):
-            if data.get("batch"):  # posthog-python and posthog-ruby
-                if not historical:
-                    # If they're not forced into historical by token, they can still opt into it
-                    # for batches via `historical_migration=true`
-                    historical = bool(data.get("historical_migration", False))
-                data = data["batch"]
-                assert data is not None
+    if isinstance(data, dict):
+        if data.get("batch"):  # posthog-python and posthog-ruby
+            if not historical:
+                # If they're not forced into historical by token, they can still opt into it
+                # for batches via `historical_migration=true`
+                historical = bool(data.get("historical_migration", False))
+            data = data["batch"]
+            assert data is not None
 
-                KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
-            elif "engage" in request.path_info:  # JS identify call
-                data["event"] = "$identify"  # make sure it has an event name
+            KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
+        elif "engage" in request.path_info:  # JS identify call
+            data["event"] = "$identify"  # make sure it has an event name
 
-        if isinstance(data, list):
-            events = data
-        else:
-            events = [data]
+    if isinstance(data, list):
+        events = data
+    else:
+        events = [data]
 
-        if not all(data):  # Check that all items are truthy (not null, not empty dict)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture", f"Invalid payload: some events are null", code="invalid_payload"
-                ),
-            )
+    if not all(data):  # Check that all items are truthy (not null, not empty dict)
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: some events are null", code="invalid_payload"),
+        )
 
-        try:
-            events = drop_performance_events(events)
-        except Exception as e:
-            capture_exception(e)
+    try:
+        events = drop_performance_events(events)
+    except Exception as e:
+        capture_exception(e)
 
-        # we're not going to change the response for events
-        recordings_were_quota_limited = False
-        try:
-            events_over_quota_result = drop_events_over_quota(token, events)
-            events = events_over_quota_result.events
-            recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
-        except Exception as e:
-            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
-            capture_exception(e)
+    # we're not going to change the response for events
+    recordings_were_quota_limited = False
+    try:
+        events_over_quota_result = drop_events_over_quota(token, events)
+        events = events_over_quota_result.events
+        recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
+    except Exception as e:
+        # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+        capture_exception(e)
 
-        try:
-            # split the replay events off as they are passed to kafka separately
-            replay_events, other_events = split_replay_events(events)
-            events = other_events
+    try:
+        # split the replay events off as they are passed to kafka separately
+        replay_events, other_events = split_replay_events(events)
+        events = other_events
 
-        except ValueError as e:
-            return cors_response(
-                request,
-                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
-            )
+    except ValueError as e:
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
+        )
 
-        # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
-        site_url = request.build_absolute_uri("/")[:-1]
-        ip = get_ip_address(request)
+    # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
+    site_url = request.build_absolute_uri("/")[:-1]
+    ip = get_ip_address(request)
 
-        try:
-            processed_events = list(preprocess_events(events))
+    try:
+        processed_events = list(preprocess_events(events))
 
-        except ValueError as e:
-            return cors_response(
-                request,
-                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
-            )
+    except ValueError as e:
+        return cors_response(
+            request,
+            generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
+        )
 
     futures: list[FutureRecordMetadata] = []
 
-    with start_span(op="kafka.produce") as span:
-        span.set_tag("event.count", len(processed_events))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
             if f"{token}:{distinct_id}" in get_tokens_to_drop():
                 logger.warning("Dropping event", token=token, distinct_id=distinct_id)
@@ -624,13 +690,15 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                         sent_at,
                         event_uuid,
                         token,
-                        historical=historical,
+                        historical,
                     )
                 )
+
             except Exception as exc:
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
                 logger.exception("kafka_produce_failure", exc_info=exc)
+
                 return cors_response(
                     request,
                     generate_exception_response(
@@ -642,8 +710,8 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                     ),
                 )
 
-    with start_span(op="kafka.wait"):
-        span.set_tag("future.count", len(futures))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("future.count", len(futures))
         start_time = time.monotonic()
         for future in futures:
             try:
@@ -700,13 +768,14 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                             event_uuid,
                             token,
                         )
-                        capture_kwargs = {
-                            "extra_headers": [
-                                ("lib_version", lib_version),
-                            ],
+                        extra_headers: list[tuple[str, str]] = [
+                            ("lib_version", lib_version),
+                        ]
+                        capture_kwargs: dict[str, Any] = {
+                            "extra_headers": extra_headers,
                         }
-                        this_future = capture_internal(*capture_args, **capture_kwargs)
-                        replay_futures.append((this_future, capture_args, capture_kwargs))
+                        resp = capture_internal(*capture_args, **capture_kwargs)
+                        replay_futures.append((resp, capture_args, capture_kwargs))
 
                     start_time = time.monotonic()
                     for future, args, kwargs in replay_futures:
@@ -723,10 +792,7 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
                                     warning_future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS)
 
     except ValueError as e:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(e)
+        capture_exception(e, {"capture-pathway": "replay", "ph-team-token": token})
         # this means we're getting an event we can't process, we shouldn't swallow this
         # in production this is mostly seen as events with a missing distinct_id
         return cors_response(
@@ -742,11 +808,14 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
         KAFKA_TIMEOUT_ERROR_COUNTER.labels(retry_count=retry_count, status_code=status_code).inc()
 
         if status_code == status.HTTP_400_BAD_REQUEST:
-            with sentry_sdk.push_scope() as scope:
-                scope.set_tag("capture-pathway", "replay")
-                scope.set_tag("ph-team-token", token)
-                scope.set_tag("retry_count", retry_count)
-                capture_exception(kte)
+            capture_exception(
+                kte,
+                {
+                    "capture-pathway": "replay",
+                    "ph-team-token": token,
+                    "retry_count": retry_count,
+                },
+            )
 
         return cors_response(
             request,
@@ -759,10 +828,10 @@ def get_event(request, csp_report: dict[str, Any] | None = None):
             ),
         )
     except Exception as exc:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(exc, {"data": data})
+        capture_exception(
+            exc,
+            {"data": data, "capture-pathway": "replay", "ph-team-token": token},
+        )
         logger.exception("kafka_session_recording_produce_failure", exc_info=exc)
         return cors_response(
             request,
@@ -862,9 +931,7 @@ def replace_with_warning(
             },
         }
     except Exception as ex:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            capture_exception(ex)
+        capture_exception(ex, {"capture-pathway": "replay"})
         return None
 
 
@@ -888,10 +955,7 @@ def sample_replay_data_to_object_storage(
             object_key = f"token-{token}-session_id-{event.get('properties', {}).get('$session_id', 'unknown')}.json"
             object_storage.write(object_key, json.dumps(event), bucket=settings.REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET)
     except Exception as ex:
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("capture-pathway", "replay")
-            scope.set_tag("ph-team-token", token)
-            capture_exception(ex)
+        capture_exception(ex, {"capture-pathway": "replay", "ph-team-token": token})
 
 
 def preprocess_events(events: list[dict[str, Any]]) -> Iterator[tuple[dict[str, Any], UUIDT, str]]:
@@ -923,11 +987,148 @@ def parse_event(event):
 
     enforce_numeric_offset(event["properties"])
 
-    with configure_scope() as scope:
-        scope.set_tag("library", event["properties"].get("$lib", "unknown"))
-        scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("library", event["properties"].get("$lib", "unknown"))
+        posthoganalytics.tag("library.version", event["properties"].get("$lib_version", "unknown"))
 
     return event
+
+
+class CaptureInternalError(Exception):
+    pass
+
+
+# TODO: replace raw_event input with structured inputs after transition off old capture_internal
+def new_capture_internal(
+    token: Optional[str], distinct_id: Optional[str], raw_event: dict[str, Any], process_person_profile: bool = False
+) -> Response:
+    """
+    new_capture_internal submits a single-event capture request payload to
+    PostHog (capture-rs backend) rather than pushing directly to Kafka and
+    bypassing downstream checks
+    """
+    logger.debug(
+        "new_capture_internal", token=token, distinct_id=distinct_id, event_name=raw_event.get("event", "MISSING")
+    )
+
+    event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event, process_person_profile)
+    # determine if this is a recordings or events type, route to correct capture endpoint
+    resolved_capture_url = f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}"
+    if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
+        resolved_capture_url = f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}"
+
+    with Session() as s:
+        s.mount(
+            resolved_capture_url,
+            HTTPAdapter(
+                max_retries=Retry(
+                    total=3, backoff_factor=0.1, status_forcelist=[500, 502, 503, 504], allowed_methods={"POST"}
+                )
+            ),
+        )
+
+        return s.post(
+            resolved_capture_url,
+            json=event_payload,
+            timeout=2,
+        )
+
+
+# TODO: rename as capture_batch_internal after the trasition from old capture_internal is complete
+def new_capture_batch_internal(
+    events: list[dict[str, Any]],
+    token: Optional[str] = None,
+    process_person_profile: bool = False,
+) -> list[Future]:
+    """
+    new_capture_batch_internal submits multiple capture request payloads to
+    PostHog (capture-rs backend) concurrently using ThreadPoolExecutor.
+
+    Args:
+        events: List of event dictionaries to capture
+        token: Optional API token to use for all events (overrides individual event tokens)
+        process_person_profile: if FALSE (default) specifically disable person processing on each event
+
+    Returns:
+        List of Future objects that the caller can await to get Response objects or thrown Exceptions
+    """
+    logger.debug(
+        "new_capture_batch_internal",
+        event_count=len(events),
+        token=token,
+        process_person_profile=process_person_profile,
+    )
+
+    futures: list[Future] = []
+
+    with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
+        # Note:
+        # 1. token should be supplied by caller, and be consistent per batch submitted.
+        #    new_capture_internal will attempt to extract from each event if missing
+        # 2. distinct_id should be present on each event since these can differ within a batch
+        for event in events:
+            future = executor.submit(
+                new_capture_internal,
+                token=token,
+                distinct_id=None,
+                raw_event=event,
+                process_person_profile=process_person_profile,
+            )
+            futures.append(future)
+
+    return futures
+
+
+# prep payload for new_capture_internal to POST to capture-rs
+def prepare_capture_internal_payload(
+    token: Optional[str],
+    distinct_id: Optional[str],
+    raw_event: dict[str, Any],
+    process_person_profile: bool = False,
+) -> dict[str, Any]:
+    # mark event as internal for observability
+    properties = raw_event.get("properties", {})
+    properties["capture_internal"] = True
+
+    # for back compat, if the caller specifies TRUE to process_person_profile
+    # we don't change the event contents at all; either the caller set the
+    # event prop to force the issue, or we rely on the caller's default PostHog
+    # person processing settings to decide during ingest processing.
+    # If the caller set process_person_profile to FALSE, we *do* explictly
+    # set it as an event property, to ensure internal capture events don't
+    # engage in expensive person processing without explicitly opting in
+    if not process_person_profile:
+        properties["$process_person_profile"] = process_person_profile
+
+    # ensure args passed into capture_internal that
+    # override event attributes are well formed
+    if token is None:
+        token = raw_event.get("api_key", raw_event.get("token", None))
+    if token is None:
+        raise CaptureInternalError("capture_internal: API token is required")
+
+    if distinct_id is None:
+        distinct_id = raw_event.get("distinct_id", None)
+    if distinct_id is None:
+        distinct_id = properties.get("distinct_id", None)
+    if distinct_id is None:
+        raise CaptureInternalError("capture_internal: distinct ID is required")
+
+    event_name = raw_event.get("event", None)
+    if event_name is None:
+        raise CaptureInternalError("capture_internal: event name is required")
+
+    event_timestamp = raw_event.get("timestamp", None)
+    if event_timestamp is None:
+        event_timestamp = datetime.now(UTC).isoformat()
+
+    return {
+        "api_key": token,
+        "timestamp": event_timestamp,
+        "distinct_id": distinct_id,
+        "event": event_name,
+        "properties": properties,
+    }
 
 
 def capture_internal(

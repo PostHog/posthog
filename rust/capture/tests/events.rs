@@ -43,6 +43,65 @@ async fn it_captures_one_event() -> Result<()> {
 }
 
 #[tokio::test]
+async fn it_drops_performance_events() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let dropped_id = random_string("id", 16);
+
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    let retained_one = json!({
+        "token": token,
+        "event": "some_event",
+        "distinct_id": distinct_id
+    });
+    // we should be filtering these out prior to publishing to ingest topic
+    let should_drop = json!({
+        "token": token,
+        "event": "$performance_event",
+        "distinct_id": dropped_id
+    });
+    let retained_two = json!({
+        "token": token,
+        "event": "some_other_event",
+        "distinct_id": distinct_id
+    });
+
+    let res = server.capture_events(retained_one.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    // silently ignored if the filtering of unsupported event types results in an empty payload
+    let res = server.capture_events(should_drop.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+    let res = server.capture_events(retained_two.to_string()).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let got = main_topic.next_event()?;
+    assert_json_include!(
+        actual: got,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id
+        })
+    );
+
+    // the next event in the topic should be retained_two
+    // since we filtered out should_drop (w/dropped_id)
+    let got = main_topic.next_event()?;
+    assert_json_include!(
+        actual: got,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn it_drops_events_if_dropper_enabled() -> Result<()> {
     setup_tracing();
     let token = random_string("token", 16);

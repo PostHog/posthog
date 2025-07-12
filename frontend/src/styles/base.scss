@@ -347,6 +347,18 @@
     --product-early-access-features-light: rgb(39 171 151);
     --product-early-access-features-dark: rgb(53 213 189);
 
+    // Insight colors
+    --insight-funnel-light: rgb(47 128 250);
+    --insight-trends-light: rgb(247 165 1);
+    --insight-user-paths-light: rgb(30 179 152);
+    --insight-user-paths-dark: rgb(41 219 187);
+    --insight-retention-light: rgb(243 84 84);
+    --insight-stickiness-light: rgb(247 165 1);
+    --insight-lifecycle-light: rgb(48 171 198);
+    --insight-calendar-heatmap-light: rgb(12 39 146);
+    --insight-calendar-heatmap-dark: rgb(61 91 215);
+    --insight-sql-light: rgb(245 78 0);
+
     // Generic brand color assignments
     // Change these to change the brand colors
     // //////////////////////////////////////////////////////////
@@ -635,9 +647,9 @@
 
     // Elements
     --side-panel-bar-width: 3rem;
-    --project-navbar-width: 250px;
+    --project-navbar-width: 215px;
     --project-navbar-width-collapsed: 45px;
-    --project-panel-width: 320px;
+    --project-panel-width: 245px;
     --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
     --resizer-thickness: 8px;
 
@@ -1599,7 +1611,6 @@
         gap: 1px;
         min-width: 8rem;
         max-width: 200px;
-        max-height: calc(90vh - 100px);
         overflow: hidden;
         color: var(--text-primary);
         background-color: var(--bg-surface-primary);
@@ -1609,7 +1620,9 @@
     }
 
     .primitive-menu-content-inner {
-        max-height: calc(90vh - 100px);
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
         padding: var(--spacing);
     }
 

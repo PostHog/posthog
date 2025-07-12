@@ -7,11 +7,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.property import get_property_type
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Filter, Cohort, Team, Property
@@ -45,6 +46,8 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     EventPropertyFilter,
     HogQLPropertyFilter,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
 )
 from posthog.queries.cohort_query import CohortQuery
 from posthog.types import AnyPropertyFilter
@@ -53,9 +56,9 @@ from posthog.types import AnyPropertyFilter
 class TestWrapperCohortQuery(CohortQuery):
     def __init__(self, filter: Filter, team: Team):
         cohort_query = CohortQuery(filter=filter, team=team)
-        hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
-        self.clickhouse_query = hogql_cohort_query.query_str("clickhouse")
-        self.hogql_result = execute_hogql_query(hogql_cohort_query.get_query(), team)
+        executor = HogQLCohortQuery(cohort_query=cohort_query).get_query_executor()
+        self.hogql_result = executor.execute()
+        self.clickhouse_query = executor.clickhouse_sql
         super().__init__(filter=filter, team=team)
 
 
@@ -86,10 +89,12 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 
 
 class HogQLCohortQuery:
-    def __init__(self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None):
+    def __init__(
+        self, cohort_query: Optional[CohortQuery] = None, cohort: Optional[Cohort] = None, team: Optional[Team] = None
+    ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
-            self.team = cohort.team
+            self.team = team or cohort.team
             filter = FOSSCohortQuery.unwrap_cohort(
                 Filter(
                     data={"properties": cohort.properties},
@@ -102,9 +107,18 @@ class HogQLCohortQuery:
         elif cohort_query is not None:
             self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
             self.property_groups = cohort_query._filter.property_groups
-            self.team = cohort_query._team
+            self.team = team or cohort_query._team
         else:
             raise
+
+    def get_query_executor(self) -> HogQLQueryExecutor:
+        return HogQLQueryExecutor(
+            query_type="HogQLCohortQuery",
+            query=self.get_query(),
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            team=self.team,
+            limit_context=LimitContext.COHORT_CALCULATION,
+        )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
         return self._get_conditions()

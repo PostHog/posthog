@@ -10668,6 +10668,12 @@
               table_type: <recursion ...>
               virtual_table: {
                 fields: {
+                  $virt_initial_channel_type: {
+                    hidden: False
+                  },
+                  $virt_initial_referring_domain_type: {
+                    hidden: False
+                  },
                   created_at: {
                     hidden: False
                   },

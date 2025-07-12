@@ -244,7 +244,7 @@ export function PropertiesTable({
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
                     [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
                     [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
-                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
+                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.LogAttributes,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties

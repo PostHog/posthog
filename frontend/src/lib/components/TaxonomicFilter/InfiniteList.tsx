@@ -109,6 +109,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.CustomEvents ||
         listGroupType === TaxonomicFilterGroupType.Metadata ||
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
+        listGroupType === TaxonomicFilterGroupType.MaxAIContext ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
             <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
@@ -147,29 +148,30 @@ const selectedItemHasPopover = (
 ): boolean => {
     return (
         // NB: also update "renderItemContents" above
+        TaxonomicFilterGroupType.EventMetadata,
         !!item &&
-        !!group?.getValue?.(item) &&
-        !!listGroupType &&
-        ([
-            TaxonomicFilterGroupType.Actions,
-            TaxonomicFilterGroupType.Elements,
-            TaxonomicFilterGroupType.Events,
-            TaxonomicFilterGroupType.DataWarehouse,
-            TaxonomicFilterGroupType.DataWarehouseProperties,
-            TaxonomicFilterGroupType.DataWarehousePersonProperties,
-            TaxonomicFilterGroupType.CustomEvents,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.EventMetadata,
-            TaxonomicFilterGroupType.RevenueAnalyticsProperties,
-            TaxonomicFilterGroupType.NumericalEventProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.Cohorts,
-            TaxonomicFilterGroupType.CohortsWithAllUsers,
-            TaxonomicFilterGroupType.Metadata,
-            TaxonomicFilterGroupType.SessionProperties,
-        ].includes(listGroupType) ||
-            listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+            !!group?.getValue?.(item) &&
+            !!listGroupType &&
+            ([
+                TaxonomicFilterGroupType.Actions,
+                TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.DataWarehouse,
+                TaxonomicFilterGroupType.DataWarehouseProperties,
+                TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                TaxonomicFilterGroupType.CustomEvents,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.EventMetadata,
+                TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                TaxonomicFilterGroupType.NumericalEventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.Cohorts,
+                TaxonomicFilterGroupType.CohortsWithAllUsers,
+                TaxonomicFilterGroupType.Metadata,
+                TaxonomicFilterGroupType.SessionProperties,
+            ].includes(listGroupType) ||
+                listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
     )
 }
 

@@ -15,7 +15,7 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
     const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm, setInstanceId } = useActions(logic)
 
     return (
-        <div className="ph-no-capture deprecated-space-y-2 flex-1">
+        <div className="flex-1 ph-no-capture deprecated-space-y-2">
             <LemonInput
                 type="search"
                 placeholder="Search for messages containing…"
@@ -30,7 +30,7 @@ export function PipelineNodeLogs({ id, stage }: PipelineNodeLogicProps): JSX.Ele
                     </>
                 }
             />
-            <div className="flex items-center gap-4">
+            <div className="flex gap-4 items-center">
                 <span className="mr-1">Show logs of level:</span>
                 {ALL_LOG_LEVELS.map((level) => {
                     return (

@@ -1,44 +1,51 @@
 use std::collections::HashMap;
 
-use hogvm::{sync_execute, ExecutionContext, HogLiteral, NativeFunction, Program};
+use hogvm::{native_func, sync_execute, ExecutionContext, HogLiteral, NativeFunction, Program};
 use serde_json::{json, Value};
 
-const fn stl_test_extensions() -> &'static [(&'static str, NativeFunction)] {
-    &[
-        ("print", |_, args| {
-            println!("{:?}", args);
-            Ok(HogLiteral::Null.into())
-        }),
-        ("assert_eq", |vm, args| {
-            // Used in test programs
-            let lhs = args.first().unwrap();
-            let rhs = args.get(1).unwrap();
-            if lhs
-                .equals(rhs, &vm.heap)
-                .expect("Could compare")
-                .try_into()
-                .expect("Could convert")
-            {
+fn stl_test_extensions() -> HashMap<String, NativeFunction> {
+    [
+        (
+            "print",
+            native_func(|_, args| {
+                println!("{:?}", args);
                 Ok(HogLiteral::Null.into())
-            } else {
-                panic!("{:?} did not equal {:?}", lhs, rhs)
-            }
-        }),
-        ("assert", |vm, args| {
-            // Used in test programs
-            let condition = args.first().unwrap().deref(&vm.heap).unwrap();
-            if *condition.try_as().expect("Could convert") {
-                Ok(HogLiteral::Null.into())
-            } else {
-                panic!("Assertion failed")
-            }
-        }),
+            }),
+        ),
+        (
+            "assert_eq",
+            native_func(|vm, args| {
+                // Used in test programs
+                let lhs = args.first().unwrap();
+                let rhs = args.get(1).unwrap();
+                if lhs
+                    .equals(rhs, &vm.heap)
+                    .expect("Could compare")
+                    .try_into()
+                    .expect("Could convert")
+                {
+                    Ok(HogLiteral::Null.into())
+                } else {
+                    panic!("{:?} did not equal {:?}", lhs, rhs)
+                }
+            }),
+        ),
+        (
+            "assert",
+            native_func(|vm, args| {
+                // Used in test programs
+                let condition = args.first().unwrap().deref(&vm.heap).unwrap();
+                if *condition.try_as().expect("Could convert") {
+                    Ok(HogLiteral::Null.into())
+                } else {
+                    panic!("Assertion failed")
+                }
+            }),
+        ),
     ]
-}
-
-// This could maybe be moved to the stl module, it seems useful
-fn to_extension(ext: &'static [(&'static str, NativeFunction)]) -> HashMap<String, NativeFunction> {
-    ext.iter().map(|(a, b)| (a.to_string(), *b)).collect()
+    .into_iter()
+    .map(|(name, func)| (name.to_string(), func))
+    .collect()
 }
 
 fn load_test_programs() -> Vec<(String, String)> {
@@ -90,7 +97,7 @@ pub fn test_vm() {
         let parsed: Vec<Value> = serde_json::from_str(&code).unwrap();
         let program = Program::new(parsed).unwrap();
         let ctx = ExecutionContext::with_defaults(program)
-            .with_ext_fns(to_extension(stl_test_extensions()))
+            .with_ext_fns(stl_test_extensions())
             .with_globals(test_globals());
         let res = sync_execute(&ctx, false);
         println!("{:?}", res);

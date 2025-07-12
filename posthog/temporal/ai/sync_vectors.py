@@ -17,6 +17,7 @@ from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
 from ee.hogai.utils.embeddings import aembed_documents, get_async_azure_embeddings_client
+from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
@@ -157,7 +158,7 @@ async def batch_embed_actions(
             raise maybe_vector
 
         if isinstance(maybe_vector, BaseException):
-            posthoganalytics.capture_exception(maybe_vector, additional_properties={"tag": "max_ai"})
+            posthoganalytics.capture_exception(maybe_vector, properties={"tag": "max_ai"})
             logger.exception("Error embedding actions", error=maybe_vector)
             continue
         for action, embedding in zip(action_batch, maybe_vector):
@@ -252,6 +253,7 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
     Returns:
         Outputs for the activity: whether there are more actions to sync.
     """
+    tag_queries(product=Product.MAX_AI)
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
 
     query = (
@@ -383,7 +385,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                 )
             )
 
-            # Maximum allowed parallel request count to LLMs is 128 (32 * 4).
+            # Maximum allowed parallel request count to LLMs is 128 (32 * 4)
             if len(tasks) == inputs.max_parallel_requests:
                 await self._process_summaries_batch(tasks, inputs.delay_between_batches, throttle_enabled=True)
                 tasks = []
@@ -419,7 +421,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
         end = temporalio.workflow.time()
         execution_time = end - start
 
-        # Throttle the rate of requests to LLMs.
+        # Throttle the rate of requests to LLMs
         if throttle_enabled and delay_between_batches > execution_time:
             delay = delay_between_batches - execution_time
             logger.info("Throttling requests to LLMs", delay=delay)

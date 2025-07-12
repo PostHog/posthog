@@ -117,7 +117,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
         [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
-        [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
+        [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     }
 
@@ -326,7 +326,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
     [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
     [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
-    [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
+    [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
 }
 
@@ -413,7 +413,7 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.ErrorTrackingIssue
     }
 
-    if (filterType == TaxonomicFilterGroupType.Logs) {
+    if (filterType == TaxonomicFilterGroupType.LogAttributes) {
         return PropertyFilterType.Log
     }
 

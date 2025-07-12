@@ -1,4 +1,4 @@
-import { IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import { IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
@@ -9,8 +9,13 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
+import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CommentOnRecordingButton } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -59,8 +64,40 @@ function FullScreen(): JSX.Element {
     )
 }
 
+function CinemaMode(): JSX.Element {
+    const { isZenMode, sidebarOpen } = useValues(playerSettingsLogic)
+    const { setIsZenMode, setSidebarOpen } = useActions(playerSettingsLogic)
+
+    const handleCinemaMode = (): void => {
+        setIsZenMode(!isZenMode)
+        if (sidebarOpen) {
+            setSidebarOpen(false)
+        }
+    }
+
+    return (
+        <>
+            {isZenMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
+            <LemonButton
+                size="xsmall"
+                onClick={handleCinemaMode}
+                tooltip={
+                    <>
+                        <span>{!isZenMode ? 'Enter' : 'Exit'}</span> cinema mode
+                    </>
+                }
+                status={isZenMode ? 'danger' : 'default'}
+                icon={<IconVideoCamera className="text-2xl" />}
+                data-attr={isZenMode ? 'exit-zen-mode' : 'zen-mode'}
+            />
+        </>
+    )
+}
+
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
+    const { isZenMode } = useValues(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -70,17 +107,21 @@ export function PlayerController(): JSX.Element {
     return (
         <div className="bg-surface-primary flex flex-col select-none">
             <Seekbar />
-            <div className="w-full px-2 py-1 relative flex items-center justify-center" ref={ref}>
-                <div className="absolute left-2">
-                    <Timestamp size={size} />
-                </div>
+            <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
+                <Timestamp size={size} />
                 <div className="flex gap-0.5 items-center justify-center">
                     <SeekSkip direction="backward" />
                     <PlayPauseButton />
                     <SeekSkip direction="forward" />
                 </div>
-                <div className="absolute right-2 flex justify-end items-center">
-                    {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                <div className="flex justify-end items-center">
+                    {!isZenMode && (
+                        <>
+                            <CommentOnRecordingButton />
+                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                        </>
+                    )}
+                    {featureFlags[FEATURE_FLAGS.REPLAY_ZEN_MODE] && <CinemaMode />}
                     <FullScreen />
                 </div>
             </div>

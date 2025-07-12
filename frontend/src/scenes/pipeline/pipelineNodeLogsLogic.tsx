@@ -52,9 +52,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     } else if (values.node.backend === PipelineBackend.HogFunction) {
                         const res = await api.hogFunctions.logs(values.node.id, logParams)
                         results = res.results
-                    } else if (values.node.backend === PipelineBackend.ManagedSource) {
-                        // handled in data warehouse specific component
-                        return []
                     } else {
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                     }
@@ -80,9 +77,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     } else if (values.node.backend === PipelineBackend.HogFunction) {
                         const res = await api.hogFunctions.logs(values.node.id, logParams)
                         results = res.results
-                    } else if (values.node.backend === PipelineBackend.ManagedSource) {
-                        // handled in data warehouse specific component
-                        return []
                     } else {
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                     }
@@ -124,9 +118,6 @@ export const pipelineNodeLogsLogic = kea<pipelineNodeLogsLogicType>([
                     } else if (values.node.backend === PipelineBackend.HogFunction) {
                         const res = await api.hogFunctions.logs(values.node.id, logParams)
                         results = res.results
-                    } else if (values.node.backend === PipelineBackend.ManagedSource) {
-                        // handled in data warehouse specific component
-                        return []
                     } else {
                         results = await api.pluginConfigs.logs(Number(values.node.id), logParams)
                     }

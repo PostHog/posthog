@@ -9,7 +9,6 @@ from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.hog_functions.hog_function import (
-    TYPES_WITH_COMPILED_FILTERS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
 )
@@ -82,7 +81,17 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
 
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
+        choices=[
+            "string",
+            "number",
+            "boolean",
+            "dictionary",
+            "choice",
+            "json",
+            "integration",
+            "integration_field",
+            "email",
+        ]
     )
     key = serializers.CharField()
     label = serializers.CharField(required=False, allow_blank=True)  # type: ignore
@@ -113,6 +122,7 @@ class AnyInputField(serializers.Field):
 
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
+    templating = serializers.ChoiceField(choices=["hog", "liquid"], required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
@@ -137,6 +147,9 @@ class InputsItemSerializer(serializers.Serializer):
         if item_type == "string":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": f"Value must be a string."})
+        elif item_type == "number":
+            if not isinstance(value, int | float):
+                raise serializers.ValidationError({"input": f"Value must be a number."})
         elif item_type == "boolean":
             if not isinstance(value, bool):
                 raise serializers.ValidationError({"input": f"Value must be a boolean."})
@@ -158,24 +171,29 @@ class InputsItemSerializer(serializers.Serializer):
 
         try:
             if value and schema.get("templating", True):
-                # If we have a value and hog templating is enabled, we need to transpile the value
-                if item_type in ["string", "dictionary", "json", "email"]:
-                    if item_type == "email" and isinstance(value, dict):
-                        # We want to exclude the "design" property
-                        value = {key: value[key] for key in value if key != "design"}
+                if attrs.get("templating") == "liquid":
+                    # NOTE: We don't do validaton at this level. The frontend will validate for us
+                    # and we don't care about it being invalid at this stage.
+                    pass
+                else:
+                    # If we have a value and hog templating is enabled, we need to transpile the value
+                    if item_type in ["string", "dictionary", "json", "email"]:
+                        if item_type == "email" and isinstance(value, dict):
+                            # We want to exclude the "design" property
+                            value = {key: value[key] for key in value if key != "design"}
 
-                    if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
-                        compiler = JavaScriptCompiler()
-                        code = transpile_template_code(value, compiler)
-                        attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-                        if "bytecode" in attrs:
-                            del attrs["bytecode"]
-                    else:
-                        input_collector: set[str] = set()
-                        attrs["bytecode"] = generate_template_bytecode(value, input_collector)
-                        attrs["input_deps"] = list(input_collector)
-                        if "transpiled" in attrs:
-                            del attrs["transpiled"]
+                        if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
+                            compiler = JavaScriptCompiler()
+                            code = transpile_template_code(value, compiler)
+                            attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+                            if "bytecode" in attrs:
+                                del attrs["bytecode"]
+                        else:
+                            input_collector: set[str] = set()
+                            attrs["bytecode"] = generate_template_bytecode(value, input_collector)
+                            attrs["input_deps"] = list(input_collector)
+                            if "transpiled" in attrs:
+                                del attrs["transpiled"]
         except Exception as e:
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
@@ -268,24 +286,25 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
-        function_type = self.context["function_type"]
+        function_type = self.context.get("function_type")
         team = self.context["get_team"]()
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
         # If we have a bytecode, we need to validate the transpiled
-        if function_type in TYPES_WITH_COMPILED_FILTERS:
-            data = compile_filters_bytecode(data, team)
-            # Check if bytecode compilation resulted in an error
-            if data.get("bytecode_error"):
-                raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
-        elif function_type in TYPES_WITH_TRANSPILED_FILTERS:
+        if function_type in TYPES_WITH_TRANSPILED_FILTERS:
             compiler = JavaScriptCompiler()
             code = compiler.visit(compile_filters_expr(data, team))
             data["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
             if "bytecode" in data:
                 del data["bytecode"]
+        else:
+            data = compile_filters_bytecode(data, team)
+            # Check if bytecode compilation resulted in an error
+            if data.get("bytecode_error"):
+                raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
+
         return data
 
 

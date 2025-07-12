@@ -1,17 +1,17 @@
 use std::{future::ready, sync::Arc};
 
+use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use axum::{
     http::Method,
     routing::{get, post},
     Router,
 };
 use common_cookieless::CookielessManager;
-use common_database::Client as DatabaseClient;
+use common_database::{Client as DatabaseClient, PostgresReader, PostgresWriter};
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
-use limiters::redis::RedisLimiter;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{
     cors::{AllowHeaders, AllowOrigin, CorsLayer},
@@ -27,41 +27,48 @@ use crate::{
 
 #[derive(Clone)]
 pub struct State {
-    pub redis: Arc<dyn RedisClient + Send + Sync>,
-    pub reader: Arc<dyn DatabaseClient + Send + Sync>,
-    pub writer: Arc<dyn DatabaseClient + Send + Sync>,
+    pub redis_reader: Arc<dyn RedisClient + Send + Sync>,
+    pub redis_writer: Arc<dyn RedisClient + Send + Sync>,
+    pub reader: PostgresReader,
+    pub writer: PostgresWriter,
     pub cohort_cache_manager: Arc<CohortCacheManager>,
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdCollection,
-    pub billing_limiter: RedisLimiter,
+    pub feature_flags_billing_limiter: FeatureFlagsLimiter,
+    pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub config: Config,
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn router<R, D>(
-    redis: Arc<R>,
+pub fn router<RR, RW, D>(
+    redis_reader: Arc<RR>,
+    redis_writer: Arc<RW>,
     reader: Arc<D>,
     writer: Arc<D>,
     cohort_cache: Arc<CohortCacheManager>,
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
-    billing_limiter: RedisLimiter,
+    feature_flags_billing_limiter: FeatureFlagsLimiter,
+    session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
     config: Config,
 ) -> Router
 where
-    R: RedisClient + Send + Sync + 'static,
+    RR: RedisClient + Send + Sync + 'static,
+    RW: RedisClient + Send + Sync + 'static,
     D: DatabaseClient + Send + Sync + 'static,
 {
     let state = State {
-        redis,
+        redis_reader,
+        redis_writer,
         reader,
         writer,
         cohort_cache_manager: cohort_cache,
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
-        billing_limiter,
+        feature_flags_billing_limiter,
+        session_replay_billing_limiter,
         cookieless_manager,
         config: config.clone(),
     };

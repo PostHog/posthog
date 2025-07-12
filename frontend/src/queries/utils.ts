@@ -30,6 +30,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MarketingAnalyticsTableQuery,
     MathType,
     Node,
     NodeKind,
@@ -39,9 +40,10 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -58,6 +60,8 @@ import {
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+
+import { LATEST_VERSIONS } from './latest-versions'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -148,22 +152,28 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isRevenueAnalyticsOverviewQuery(
+export function isRevenueAnalyticsCustomerCountQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsOverviewQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
-}
-
-export function isRevenueAnalyticsInsightsQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsInsightsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
+): node is RevenueAnalyticsCustomerCountQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsCustomerCountQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrowthRateQuery {
     return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export function isRevenueAnalyticsOverviewQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsOverviewQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsTopCustomersQuery(
@@ -186,6 +196,12 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isMarketingAnalyticsTableQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsTableQuery {
+    return node?.kind === NodeKind.MarketingAnalyticsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -509,7 +525,7 @@ export function trimQuotes(identifier: string): string {
 }
 
 /** Make sure the property key is wrapped in quotes if it contains any special characters. */
-export function escapePropertyAsHogQlIdentifier(identifier: string): string {
+export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
         // Same regex as in the backend escape_hogql_identifier
         return identifier // This identifier is simple
@@ -525,13 +541,13 @@ export function taxonomicEventFilterToHogQL(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.EventProperties) {
-        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `person.properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
@@ -544,7 +560,7 @@ export function taxonomicPersonFilterToHogQL(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
@@ -557,7 +573,7 @@ export function taxonomicGroupFilterToHogQL(
     value: TaxonomicFilterValue
 ): string | null {
     if (groupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
-        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+        return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
@@ -565,7 +581,7 @@ export function taxonomicGroupFilterToHogQL(
     return null
 }
 
-export function isHogQlAggregation(hogQl: string): boolean {
+export function isHogQLAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||
         hogQl.includes('any(') ||
@@ -576,32 +592,53 @@ export function isHogQlAggregation(hogQl: string): boolean {
     )
 }
 
+declare const __hogqlBrand: unique symbol
+export type HogQLQueryString = string & { readonly [__hogqlBrand]: void }
+
 export interface HogQLIdentifier {
     __hogql_identifier: true
     identifier: string
 }
 
-function hogQlIdentifier(identifier: string): HogQLIdentifier {
+function hogQLIdentifier(identifier: string): HogQLIdentifier {
     return {
         __hogql_identifier: true,
         identifier,
     }
 }
 
-function isHogQlIdentifier(value: any): value is HogQLIdentifier {
+function isHogQLIdentifier(value: any): value is HogQLIdentifier {
     return !!value?.__hogql_identifier
 }
 
-function formatHogQlValue(value: any): string {
+export interface HogQLRaw {
+    __hogql_raw: true
+    raw: string
+}
+
+function hogQLRaw(raw: string): HogQLRaw {
+    return {
+        __hogql_raw: true,
+        raw,
+    }
+}
+
+function isHogQLRaw(value: any): value is HogQLRaw {
+    return !!value?.__hogql_raw
+}
+
+function formatHogQLValue(value: any): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { teamLogic } = require('scenes/teamLogic')
 
     if (Array.isArray(value)) {
-        return `[${value.map(formatHogQlValue).join(', ')}]`
+        return `[${value.map(formatHogQLValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {
         return value.tz(teamLogic.values.timezone).format("'YYYY-MM-DD HH:mm:ss'")
-    } else if (isHogQlIdentifier(value)) {
-        return escapePropertyAsHogQlIdentifier(value.identifier)
+    } else if (isHogQLIdentifier(value)) {
+        return escapePropertyAsHogQLIdentifier(value.identifier)
+    } else if (isHogQLRaw(value)) {
+        return value.raw
     } else if (typeof value === 'string') {
         return `'${value}'`
     } else if (typeof value === 'number') {
@@ -619,10 +656,14 @@ function formatHogQlValue(value: any): string {
  * Template tag for HogQL formatting. Handles formatting of values for you.
  * @example hogql`SELECT * FROM events WHERE properties.text = ${text} AND timestamp > ${dayjs()}`
  */
-export function hogql(strings: TemplateStringsArray, ...values: any[]): string {
-    return strings.reduce((acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQlValue(values[i]) : ''), '')
+export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQueryString {
+    return strings.reduce(
+        (acc, str, i) => acc + str + (i < strings.length - 1 ? formatHogQLValue(values[i]) : ''),
+        ''
+    ) as unknown as HogQLQueryString
 }
-hogql.identifier = hogQlIdentifier
+hogql.identifier = hogQLIdentifier
+hogql.raw = hogQLRaw
 
 /**
  * Wether we have a valid `breakdownFilter` or not.
@@ -671,4 +712,69 @@ export function getMathTypeWarning(
     }
 
     return warning
+}
+
+/**
+ * **Needs to be used on all hardcoded queries.**
+ *
+ * Recursively adds the latest version for the respective kind to each node. This
+ * is necessary so that schema migrations don't run on hardcoded queries that
+ * are already the latest version. */
+export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion?: boolean }): T {
+    const recursion = options?.recursion ?? true
+
+    if (node === null || typeof node !== 'object') {
+        return node
+    }
+
+    if (recursion === true && Array.isArray(node)) {
+        return (node as unknown as any[]).map((value) => setLatestVersionsOnQuery(value)) as unknown as T
+    }
+
+    const cloned: Record<string, any> = { ...(node as any) }
+
+    if (
+        'kind' in cloned &&
+        Object.values(NodeKind).includes(cloned.kind) &&
+        LATEST_VERSIONS[cloned.kind as NodeKind] > 1
+    ) {
+        const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
+        cloned.version = latest || 1
+    }
+
+    if (recursion === true) {
+        for (const [key, value] of Object.entries(cloned)) {
+            if (value !== null && typeof value === 'object') {
+                cloned[key] = setLatestVersionsOnQuery(value)
+            }
+        }
+    }
+
+    return cloned as T
+}
+
+/** Checks wether a given query node satisfies all latest versions of the query schema. */
+export function checkLatestVersionsOnQuery(node: any): boolean {
+    if (node === null || typeof node !== 'object') {
+        return true
+    }
+
+    if (Array.isArray(node)) {
+        return node.every((value) => checkLatestVersionsOnQuery(value))
+    }
+
+    if ('kind' in node && Object.values(NodeKind).includes(node.kind)) {
+        const latest = LATEST_VERSIONS[node.kind as NodeKind]
+        if (node.version !== latest) {
+            return false
+        }
+    }
+
+    for (const value of Object.values(node)) {
+        if (!checkLatestVersionsOnQuery(value)) {
+            return false
+        }
+    }
+
+    return true
 }

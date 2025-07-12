@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Literal, Union
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
@@ -6,12 +6,17 @@ from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
+    CalendarHeatmapMathType,
+    CountPerActorMathType,
     EventsNode,
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     FunnelConversionWindowTimeUnit,
+    FunnelMathType,
+    PropertyMathType,
 )
 
 
@@ -23,13 +28,34 @@ def get_data_warehouse_metric_source(
     return None
 
 
+def is_continuous(
+    math_type: BaseMathType
+    | FunnelMathType
+    | PropertyMathType
+    | CountPerActorMathType
+    | ExperimentMetricMathType
+    | CalendarHeatmapMathType
+    | Literal["unique_group"]
+    | Literal["hogql"]
+    | None,
+) -> bool:
+    if math_type in [
+        ExperimentMetricMathType.SUM,
+        ExperimentMetricMathType.AVG,
+        ExperimentMetricMathType.MIN,
+        ExperimentMetricMathType.MAX,
+    ]:
+        return True
+    return False
+
+
 def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
     """
     Returns the expression for the value of the metric. For count metrics, we just emit 1.
     For sum or other math types, we return the metric property (revenue f.ex).
     """
 
-    if metric.source.math == ExperimentMetricMathType.SUM:
+    if is_continuous(metric.source.math):
         # If the metric is a property math type, we need to extract the value from the event property
         metric_property = metric.source.math_property
         if metric_property:
@@ -62,11 +88,15 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
             # If an action doesn't exist, we want to return no events
             event_filter = ast.Constant(value=False)
     else:
-        event_filter = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=entity_node.event),
-        )
+        # If event is None, we want to match all events (no event name filter)
+        if entity_node.event is None:
+            event_filter = ast.Constant(value=True)
+        else:
+            event_filter = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=entity_node.event),
+            )
 
     if entity_node.properties:
         event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])

@@ -5,6 +5,7 @@ import {
     IconLifecycle,
     IconPeople,
     IconRetention,
+    IconRetentionHeatmap,
     IconRewindPlay,
     IconSquareRoot,
     IconStickiness,
@@ -270,7 +271,7 @@ order by count() desc
     {
         title: 'Calendar Heatmap',
         search: 'calendar heatmap insight',
-        icon: <IconHogQL />,
+        icon: <IconRetentionHeatmap />,
         command: (chain, pos) =>
             chain.insertContentAt(
                 pos,
@@ -340,7 +341,7 @@ order by count() desc
                 if (files.length) {
                     return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
-            } catch (e) {
+            } catch {
                 lemonToast.error('Something went wrong when trying to select a file.')
             }
 

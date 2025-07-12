@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -48,91 +47,86 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
     )
     const { push } = useActions(router)
 
-    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
-
     if (!dashboard) {
         return null
     }
 
-    // Only render the new access control if they are not using the old dashboard permissions (v1) and have the feature flag enabled
-    if (newAccessControl && dashboard.access_control_version === 'v2') {
+    if (dashboard.access_control_version === 'v1') {
         return (
-            <AccessControlPopoutCTA
-                resourceType={AccessControlResourceType.Dashboard}
-                callback={() => {
-                    push(urls.dashboard(dashboard.id))
-                }}
-            />
-        )
-    }
-
-    return (
-        <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
-            {newAccessControl && (
+            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
                 <LemonBanner type="warning" className="mb-4">
                     We've upgraded our access control system but this dashboard is using a legacy version that can't be
                     automatically upgraded. Please reach out to support if you're interested in migrating to the new
                     system.
                 </LemonBanner>
-            )}
-            {(!canEditDashboard || !canRestrictDashboard) && (
-                <LemonBanner type="info" className="mb-4">
-                    {canEditDashboard
-                        ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
-                        : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
-                </LemonBanner>
-            )}
-            <LemonSelect
-                value={dashboard.effective_restriction_level}
-                onChange={(newValue) =>
-                    triggerDashboardUpdate({
-                        restriction_level: newValue,
-                    })
-                }
-                options={DASHBOARD_RESTRICTION_OPTIONS}
-                loading={dashboardLoading}
-                fullWidth
-                disabled={!canRestrictDashboard}
-            />
-            {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
-                <div className="mt-4">
-                    <h5>Collaborators</h5>
-                    {canEditDashboard && (
-                        <div className="flex gap-2">
-                            <div className="flex-1">
-                                <LemonInputSelect
-                                    placeholder="Search for team members to add…"
-                                    value={explicitCollaboratorsToBeAdded}
+                {(!canEditDashboard || !canRestrictDashboard) && (
+                    <LemonBanner type="info" className="mb-4">
+                        {canEditDashboard
+                            ? "You aren't allowed to change the restriction level – only the dashboard owner and project admins can."
+                            : "You aren't allowed to change sharing settings – only dashboard collaborators with edit settings can."}
+                    </LemonBanner>
+                )}
+                <LemonSelect
+                    value={dashboard.effective_restriction_level}
+                    onChange={(newValue) =>
+                        triggerDashboardUpdate({
+                            restriction_level: newValue,
+                        })
+                    }
+                    options={DASHBOARD_RESTRICTION_OPTIONS}
+                    loading={dashboardLoading}
+                    fullWidth
+                    disabled={!canRestrictDashboard}
+                />
+                {dashboard.restriction_level > DashboardRestrictionLevel.EveryoneInProjectCanEdit && (
+                    <div className="mt-4">
+                        <h5>Collaborators</h5>
+                        {canEditDashboard && (
+                            <div className="flex gap-2">
+                                <div className="flex-1">
+                                    <LemonInputSelect
+                                        placeholder="Search for team members to add…"
+                                        value={explicitCollaboratorsToBeAdded}
+                                        loading={explicitCollaboratorsLoading}
+                                        onChange={(newValues: string[]) => setExplicitCollaboratorsToBeAdded(newValues)}
+                                        mode="multiple"
+                                        data-attr="subscribed-emails"
+                                        options={usersLemonSelectOptions(addableMembers, 'uuid')}
+                                    />
+                                </div>
+                                <LemonButton
+                                    type="primary"
                                     loading={explicitCollaboratorsLoading}
-                                    onChange={(newValues: string[]) => setExplicitCollaboratorsToBeAdded(newValues)}
-                                    mode="multiple"
-                                    data-attr="subscribed-emails"
-                                    options={usersLemonSelectOptions(addableMembers, 'uuid')}
-                                />
+                                    disabled={explicitCollaboratorsToBeAdded.length === 0}
+                                    onClick={() => addExplicitCollaborators()}
+                                >
+                                    Add
+                                </LemonButton>
                             </div>
-                            <LemonButton
-                                type="primary"
-                                loading={explicitCollaboratorsLoading}
-                                disabled={explicitCollaboratorsToBeAdded.length === 0}
-                                onClick={() => addExplicitCollaborators()}
-                            >
-                                Add
-                            </LemonButton>
+                        )}
+                        <h5 className="mt-4">Project members with access</h5>
+                        <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
+                            {allCollaborators.map((collaborator) => (
+                                <CollaboratorRow
+                                    key={collaborator.user.uuid}
+                                    collaborator={collaborator}
+                                    deleteCollaborator={canEditDashboard ? deleteExplicitCollaborator : undefined}
+                                />
+                            ))}
                         </div>
-                    )}
-                    <h5 className="mt-4">Project members with access</h5>
-                    <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
-                        {allCollaborators.map((collaborator) => (
-                            <CollaboratorRow
-                                key={collaborator.user.uuid}
-                                collaborator={collaborator}
-                                deleteCollaborator={canEditDashboard ? deleteExplicitCollaborator : undefined}
-                            />
-                        ))}
                     </div>
-                </div>
-            )}
-        </PayGateMini>
+                )}
+            </PayGateMini>
+        )
+    }
+
+    return (
+        <AccessControlPopoutCTA
+            resourceType={AccessControlResourceType.Dashboard}
+            callback={() => {
+                push(urls.dashboard(dashboard.id))
+            }}
+        />
     )
 }
 

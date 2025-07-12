@@ -125,7 +125,7 @@ describe('insightLogic', () => {
                     }
                     if (req.url.searchParams.get('date_from') === '-180d') {
                         // delay for 2 seconds before response without pausing
-                        return new Promise((resolve) =>
+                        return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
                                 resolve([200, { result: ['very slow result from api'] }])
                             }, 2000)
@@ -223,7 +223,7 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/:id/viewed': [201],
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },

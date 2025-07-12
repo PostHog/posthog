@@ -7,6 +7,7 @@ import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
 import {
     MultipleSurveyQuestion,
@@ -24,7 +25,6 @@ import {
     SURVEY_RATING_SCALE,
     SurveyQuestionLabel,
 } from './constants'
-import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
@@ -189,18 +189,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 value: SurveyQuestionType.Rating,
                                 'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
                             },
-                            ...[
-                                {
-                                    label: 'Single choice select',
-                                    value: SurveyQuestionType.SingleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
-                                },
-                                {
-                                    label: 'Multiple choice select',
-                                    value: SurveyQuestionType.MultipleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
-                                },
-                            ],
+                            {
+                                label: 'Single choice select',
+                                value: SurveyQuestionType.SingleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
+                            },
+                            {
+                                label: 'Multiple choice select',
+                                value: SurveyQuestionType.MultipleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                            },
                         ]}
                     />
                 </LemonField>

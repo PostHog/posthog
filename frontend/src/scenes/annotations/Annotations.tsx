@@ -10,7 +10,6 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
-import { annotationsLogic, scopeOptions } from 'scenes/annotations/annotationsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -25,10 +24,14 @@ import {
     annotationScopeToLevel,
     annotationScopeToName,
 } from './annotationModalLogic'
+import { annotationScopesMenuOptions, annotationsLogic } from './annotationsLogic'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 export function Annotations(): JSX.Element {
     const { currentTeam, timezone } = useValues(teamLogic)
+
     const { currentOrganization } = useValues(organizationLogic)
+
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     const { filteredAnnotations, shouldShowEmptyState, annotationsLoading, scope } = useValues(annotationsLogic)
@@ -43,10 +46,25 @@ export function Annotations(): JSX.Element {
             key: 'annotation',
             width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
+                let renderedContent = <>{annotation.content ?? ''}</>
+                if ((annotation.content || '').trim().length > 30) {
+                    renderedContent = (
+                        <Tooltip
+                            title={
+                                <TextContent
+                                    text={annotation.content ?? ''}
+                                    data-attr="annotation-scene-comment-title-rendered-content"
+                                />
+                            }
+                        >
+                            {(annotation.content ?? '').slice(0, 27) + '...'}
+                        </Tooltip>
+                    )
+                }
                 return (
                     <div className="font-semibold">
                         <Link subtle to={urls.annotation(annotation.id)}>
-                            {annotation.content}
+                            {renderedContent}
                         </Link>
                     </div>
                 )
@@ -135,7 +153,7 @@ export function Annotations(): JSX.Element {
                 </div>
                 <div className="flex flex-row items-center gap-2">
                     <div>Scope: </div>
-                    <LemonSelect options={scopeOptions()} value={scope} onSelect={setScope} />
+                    <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
                 </div>
             </div>
             <div data-attr="annotations-content">

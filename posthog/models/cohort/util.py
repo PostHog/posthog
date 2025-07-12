@@ -10,8 +10,8 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.queries.util import PersonPropertiesMode
-from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.client.connection import Workload, ClickHouseUser
+from posthog.clickhouse.query_tagging import tag_queries, tags_context, Feature
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
@@ -37,7 +37,6 @@ from posthog.models.person.sql import (
 )
 from posthog.models.property import Property, PropertyGroup
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 # temporary marker to denote when cohortpeople table started being populated
 TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
@@ -271,6 +270,7 @@ def format_cohort_subquery(
 
 
 def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORT)
     persons = [
         {
             "id": str(uuid.uuid4()),
@@ -285,6 +285,7 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> Optional[int]:
+    tag_queries(cohort_id=cohort_id, team_id=team_id, name="get_static_cohort_size", feature=Feature.COHORT)
     count_result = sync_execute(
         GET_STATIC_COHORT_SIZE_SQL,
         {
@@ -304,33 +305,17 @@ def recalculate_cohortpeople(
 ) -> Optional[int]:
     """
     Recalculate cohort people for all environments of the project.
-    NOTE: Currently this only returns the count for the team where the cohort was created. Instead it should return for all teams.
+    NOTE: Currently, this only returns the count for the team where the cohort was created. Instead, it should return for all teams.
     """
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
     count_by_team_id: dict[int, int] = {}
+    tag_queries(cohort_id=cohort.id)
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
-        before_count = get_cohort_size(cohort, team_id=team.id)
-
-        if before_count is not None:
-            logger.warn(
-                "Recalculating cohortpeople starting",
-                team_id=team.id,
-                cohort_id=cohort.pk,
-                size_before=before_count,
-            )
-
+        tag_queries(team_id=team.id)
         _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, initiating_user_id=initiating_user_id)
         count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
-
-        if count is not None and before_count is not None:
-            logger.warn(
-                "Recalculating cohortpeople done",
-                team_id=team.id,
-                cohort_id=cohort.pk,
-                size_before=before_count,
-                size=count,
-            )
-
         count_by_team_id[team.id] = count or 0
 
     return count_by_team_id[cohort.team_id]
@@ -338,7 +323,8 @@ def recalculate_cohortpeople(
 
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, *, initiating_user_id: Optional[int]
-):
+) -> int:
+    tag_queries(name="recalculate_cohortpeople_for_team_hogql")
     cohort_params: dict[str, Any]
     # No need to do anything here, as we're only testing hogql
     if cohort.is_static:
@@ -349,18 +335,10 @@ def _recalculate_cohortpeople_for_team_hogql(
         cohort_params = {}
     else:
         from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-        from posthog.hogql.query import HogQLQueryExecutor
 
-        hogql_cohort_query = HogQLCohortQuery(cohort=cohort)
-        query = hogql_cohort_query.get_query()
-
-        cohort_query, hogql_context = HogQLQueryExecutor(
-            query_type="HogQLCohortQuery",
-            query=query,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
-            team=team,
-            limit_context=LimitContext.COHORT_CALCULATION,
-        ).generate_clickhouse_sql()
+        cohort_query, hogql_context = (
+            HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+        )
         cohort_params = hogql_context.values
 
         # Hacky: Clickhouse doesn't like there being a top level "SETTINGS" clause in a SelectSet statement when that SelectSet
@@ -369,13 +347,10 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    tag_queries(kind="cohort_calculation", team_id=team.id, query_type="CohortsQueryHogQL")
-    if initiating_user_id:
-        tag_queries(user_id=initiating_user_id)
-
+    tag_queries(kind="cohort_calculation", query_type="CohortsQueryHogQL", feature=Feature.COHORT)
     hogql_global_settings = HogQLGlobalSettings()
 
-    sync_execute(
+    return sync_execute(
         recalculate_cohortpeople_sql,
         {
             **cohort_params,
@@ -394,10 +369,12 @@ def _recalculate_cohortpeople_for_team_hogql(
             "max_bytes_ratio_before_external_sort": 0.5,
         },
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
     )
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
+    tag_queries(name="get_cohort_size", feature=Feature.COHORT)
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {
@@ -406,6 +383,7 @@ def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, t
             "team_id": team_id,
         },
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
     )
 
     if count_result and len(count_result) and len(count_result[0]):
@@ -483,18 +461,21 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+    tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+    tag_queries(name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
 
 def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
-    static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+    with tags_context(team_id=team_id):
+        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
+        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
 
 
@@ -570,7 +551,7 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
                 # add child
                 dependency_graph[cohort.id].append(int(prop.value))
 
-                neighbor_cohort = seen_cohorts_cache[int(prop.value)]
+                neighbor_cohort = seen_cohorts_cache.get(int(prop.value))
                 if not neighbor_cohort:
                     continue
 
@@ -579,7 +560,7 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
                     traverse(neighbor_cohort)
 
     for cohort_id in cohort_ids:
-        cohort = seen_cohorts_cache[int(cohort_id)]
+        cohort = seen_cohorts_cache.get(int(cohort_id))
         if not cohort:
             continue
         traverse(cohort)
@@ -590,7 +571,8 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
         for neighbor in neighbors:
             if neighbor not in seen:
                 dfs(neighbor, seen, sorted_arr)
-        sorted_arr.append(int(node))
+        if seen_cohorts_cache.get(node):
+            sorted_arr.append(int(node))
         seen.add(node)
 
     sorted_cohort_ids: list[int] = []

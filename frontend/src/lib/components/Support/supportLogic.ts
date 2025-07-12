@@ -4,13 +4,22 @@ import { urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { AvailableFeature, OrganizationBasicType, Region, SidePanelTab, TeamPublicType, UserType } from '~/types'
+import {
+    AvailableFeature,
+    BillingPlan,
+    OrganizationBasicType,
+    Region,
+    SidePanelTab,
+    TeamPublicType,
+    UserType,
+} from '~/types'
 
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
@@ -135,6 +144,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'onboarding',
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'Onboarding',
+            },
+            {
+                value: 'platform_addons',
+                'data-attr': `support-form-target-area-platform_addons`,
+                label: 'Platform addons',
             },
             {
                 value: 'sdk',
@@ -264,6 +278,7 @@ export type SupportTicketTargetArea =
     | 'data_ingestion'
     | 'batch_exports'
     | 'messaging'
+    | 'platform_addons'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -304,6 +319,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     source: 'data_warehouse',
     sources: 'data_warehouse',
     messaging: 'messaging',
+    billing: 'billing',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -357,6 +373,10 @@ export const supportLogic = kea<supportLogicType>([
             ['sidePanelAvailable'],
             userLogic,
             ['hasAvailableFeature'],
+            billingLogic,
+            ['billing'],
+            organizationLogic,
+            ['isCurrentOrganizationNew'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -418,8 +438,8 @@ export const supportLogic = kea<supportLogicType>([
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
                 actions.submitZendeskTicket(formValues)
-                actions.closeSupportForm()
-                actions.resetSendSupportRequest()
+                // Form closing and resetting is now handled in submitZendeskTicket listener
+                // based on success/failure of the submission
             },
         },
     })),
@@ -448,7 +468,15 @@ export const supportLogic = kea<supportLogicType>([
                 actions.setSidePanelOptions(panelOptions)
             }
         },
-        openSupportForm: async ({ name, email, isEmailFormOpen, kind, target_area, severity_level, message }) => {
+        openSupportForm: async ({
+            name,
+            email,
+            isEmailFormOpen,
+            kind,
+            target_area,
+            severity_level,
+            message,
+        }: Partial<SupportFormFields>) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -478,7 +506,7 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }) => {
+        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }: SupportFormFields) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -491,10 +519,53 @@ export const supportLogic = kea<supportLogicType>([
                 ')'
             const cloudRegion = preflightLogic.values.preflight?.region
 
+            const billing = billingLogic.values.billing
+            const billingPlan = billingLogic.values.billingPlan
+
+            let planLevelTag = 'plan_free'
+
+            const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
+            const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
+
+            const isNewOrganization = values.isCurrentOrganizationNew
+
+            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
+
+            if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
+                planLevelTag = 'plan_enterprise'
+            } else if (isNewOrganization) {
+                planLevelTag = 'plan_onboarding'
+            } else if (hasScaleTrial) {
+                planLevelTag = 'plan_scale'
+            } else if (hasBoostTrial) {
+                planLevelTag = 'plan_boost'
+            } else if (billingPlan) {
+                switch (billingPlan) {
+                    case BillingPlan.Scale:
+                        planLevelTag = 'plan_scale'
+                        break
+                    case BillingPlan.Boost:
+                        planLevelTag = 'plan_boost'
+                        break
+                    case BillingPlan.Teams:
+                        planLevelTag = 'plan_teams_legacy'
+                        break
+                    case BillingPlan.Paid:
+                        planLevelTag = 'plan_pay-as-you-go'
+                        break
+                    case BillingPlan.Free:
+                        planLevelTag = 'plan_free'
+                        break
+                }
+            }
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
+                    tags: [planLevelTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -552,12 +623,48 @@ export const supportLogic = kea<supportLogicType>([
 
             try {
                 const zendeskRequestBody = JSON.stringify(payload, undefined, 4)
+
+                // First attempt with standard fetch (unchanged from original)
                 const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
                     method: 'POST',
                     body: zendeskRequestBody,
                     headers: { 'Content-Type': 'application/json' },
                 })
+
+                // If the fetch request fails, try the Beacon API as a fallback
                 if (!response.ok) {
+                    console.warn('Fetch attempt to submit support ticket failed, trying Beacon API as fallback')
+
+                    // Detect Firefox
+                    const isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1
+
+                    // Try Beacon API
+                    const beaconSuccess = navigator.sendBeacon(
+                        'https://posthoghelp.zendesk.com/api/v2/requests.json',
+                        zendeskRequestBody
+                    )
+
+                    if (beaconSuccess) {
+                        // Track success
+                        const properties = {
+                            zendesk_ticket_uuid,
+                            kind,
+                            target_area,
+                            message,
+                            submission_method: 'beacon',
+                            browser: isFirefox ? 'firefox' : 'other',
+                        }
+                        posthog.capture('support_ticket', properties)
+                        lemonToast.success(
+                            "Got the message! If we have follow-up information for you, we'll reply via email."
+                        )
+                        // Only close and reset the form on success
+                        actions.closeSupportForm()
+                        actions.resetSendSupportRequest()
+                        return
+                    }
+
+                    // If both fetch and beacon fail, show the original error message
                     const error = new Error(`There was an error creating the support ticket with zendesk.`)
                     const extra: Record<string, any> = { zendeskBody: zendeskRequestBody }
                     Object.entries(payload).forEach(([key, value]) => {
@@ -575,7 +682,11 @@ export const supportLogic = kea<supportLogicType>([
                         ...extra,
                         ...contexts,
                     })
-                    lemonToast.error(`There was an error sending the message.`)
+                    lemonToast.error(
+                        `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                        { hideButton: true }
+                    )
+                    // Don't close the form or reset the data so user can try again
                     return
                 }
 
@@ -593,13 +704,25 @@ export const supportLogic = kea<supportLogicType>([
                 }
                 posthog.capture('support_ticket', properties)
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+                // Only close and reset the form on success
+                actions.closeSupportForm()
+                actions.resetSendSupportRequest()
             } catch (e) {
                 posthog.captureException(e)
-                lemonToast.error(`There was an error sending the message.`)
+
+                // More helpful error message
+                // Use the same error message regardless of browser
+                lemonToast.error(
+                    `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`,
+                    { hideButton: true }
+                )
+                // Don't close the form or reset the data so user can try again
             }
         },
 
         closeSupportForm: () => {
+            // Reset the form when closing so Cancel button clears the data
+            actions.resetSendSupportRequest()
             props.onClose?.()
         },
 

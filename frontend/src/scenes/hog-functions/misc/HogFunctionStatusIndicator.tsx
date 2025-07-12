@@ -42,10 +42,13 @@ const displayMap: Record<HogWatcherState, DisplayOptions> = {
 }
 
 const DEFAULT_DISPLAY: DisplayOptions = {
-    tagType: 'default',
-    display: 'Unknown',
+    tagType: 'success',
+    display: 'Active',
     description: (
-        <>The function status is unknown. The status will be derived once enough invocations have been performed.</>
+        <>
+            The function is enabled but the function status is unknown. The status will be derived once enough
+            invocations have been performed.
+        </>
     ),
 }
 
@@ -63,16 +66,11 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
         return null
     }
 
-    const { tagType, display, description } =
-        hogFunction.type === 'site_app' || hogFunction.type === 'site_destination'
-            ? hogFunction.enabled
-                ? displayMap[HogWatcherState.healthy]
-                : DISABLED_MANUALLY_DISPLAY
-            : hogFunction.status?.state
-            ? displayMap[hogFunction.status.state]
-            : hogFunction.enabled
-            ? DEFAULT_DISPLAY
-            : DISABLED_MANUALLY_DISPLAY
+    const { tagType, display, description } = !hogFunction.enabled
+        ? DISABLED_MANUALLY_DISPLAY
+        : hogFunction.status?.state
+        ? displayMap[hogFunction.status.state]
+        : DEFAULT_DISPLAY
 
     return (
         <LemonDropdown

@@ -33,7 +33,8 @@
   SELECT team_id,
          count(1) as count
   FROM events
-  WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+  WHERE timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
     AND ($group_0 != ''
          OR $group_1 != ''
          OR $group_2 != ''
@@ -51,13 +52,15 @@
     (SELECT any(team_id) as team_id,
             session_id
      FROM session_replay_events
-     WHERE min_first_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
+       AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
      HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web')
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
-       WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
+       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
+         AND min_first_timestamp < '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
   '''
@@ -72,13 +75,15 @@
             session_id,
             sum(size) as total_size
      FROM session_replay_events
-     WHERE min_first_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
+       AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
      HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web')
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
-       WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
+       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
+         AND min_first_timestamp < '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
   '''
@@ -92,13 +97,15 @@
     (SELECT any(team_id) as team_id,
             session_id
      FROM session_replay_events
-     WHERE min_first_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
+       AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
      HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile')
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
-       WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
+       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
+         AND min_first_timestamp < '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
   '''
@@ -113,13 +120,15 @@
             session_id,
             sum(size) as total_size
      FROM session_replay_events
-     WHERE min_first_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
+       AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
      HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'mobile')
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
-       WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
+       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
+         AND min_first_timestamp < '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
   '''
@@ -133,7 +142,8 @@
     (SELECT any(team_id) as team_id,
             session_id
      FROM session_replay_events
-     WHERE min_first_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
+       AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
      HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
              AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios',
@@ -143,7 +153,8 @@
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
-       WHERE min_first_timestamp BETWEEN '2022-01-09 00:00:00' AND '2022-01-10 00:00:00'
+       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
+         AND min_first_timestamp < '2022-01-10 00:00:00'
        GROUP BY session_id)
   GROUP BY team_id
   '''
@@ -156,7 +167,8 @@
   FROM events
   WHERE team_id = 99999
     AND event='decide usage'
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
   GROUP BY team
   '''
@@ -169,7 +181,8 @@
   FROM events
   WHERE team_id = 99999
     AND event='local evaluation usage'
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
     AND has(['correct'], replaceRegexpAll(JSONExtractRaw(properties, 'token'), '^"|"$', ''))
   GROUP BY team
   '''
@@ -185,7 +198,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
   '''
@@ -201,7 +215,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
   '''
@@ -231,7 +246,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
   '''
@@ -247,7 +263,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
@@ -263,7 +280,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
@@ -279,7 +297,8 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
@@ -296,7 +315,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
   '''
@@ -313,7 +333,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
   '''
@@ -330,7 +351,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
   '''
@@ -347,7 +369,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
@@ -364,7 +387,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
@@ -381,7 +405,8 @@
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_type IN (['EventsQuery'])
-    AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
@@ -395,7 +420,8 @@
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE type = 'QueryFinish'
     AND is_initial_query
-    AND event_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND event_time >= '2022-01-10 00:00:00'
+    AND event_time < '2022-01-10 23:59:59'
     AND team_id > 0
     AND JSONExtractBool(log_comment, 'chargeable')
   GROUP BY team_id
@@ -408,11 +434,13 @@
          COUNT() as count
   FROM events
   WHERE event = 'survey sent'
-    AND timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
     AND uuid IN
       (SELECT argMax(uuid, timestamp)
        FROM events
-       WHERE timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+       WHERE timestamp >= '2022-01-10 00:00:00'
+         AND timestamp < '2022-01-10 23:59:59'
          AND event = 'survey sent'
        GROUP BY team_id,
                 JSONExtractString(properties, '$survey_id'),
@@ -430,7 +458,8 @@
          COUNT() as count
   FROM events
   WHERE event = '$exception'
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
   '''
 # ---
@@ -443,7 +472,8 @@
   WHERE app_source='hog_function'
     AND metric_name IN ('succeeded',
                         'failed')
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id,
            metric_name
   '''
@@ -456,7 +486,8 @@
   FROM app_metrics2
   WHERE app_source='hog_function'
     AND metric_name IN ('fetch')
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id,
            metric_name
   '''
@@ -468,7 +499,8 @@
          COUNT() as count
   FROM events
   WHERE event LIKE '$ai_%'
-    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
   '''
 # ---

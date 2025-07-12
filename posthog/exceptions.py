@@ -65,11 +65,11 @@ class ExceptionContext(TypedDict):
 
 def exception_reporting(exception: Exception, context: ExceptionContext) -> Optional[str]:
     """
-    Determines which exceptions to report and sends them to Sentry.
+    Determines which exceptions to report and sends them to error tracking.
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
-        tags = get_query_tags()
+        tags = get_query_tags().model_dump(exclude_none=True)
         logger.exception(exception, path=context["request"].path, **tags)
         return capture_exception(exception)
     return None

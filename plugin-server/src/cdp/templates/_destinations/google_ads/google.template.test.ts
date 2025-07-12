@@ -1,41 +1,9 @@
-import { merge } from 'lodash'
 import { DateTime, Settings } from 'luxon'
 
-import { DeepPartialHogFunctionInvocationGlobals, TemplateTester } from '../../test/test-helpers'
+import { createAdDestinationPayload, TemplateTester } from '../../test/test-helpers'
 import { template } from './google.template'
 
 jest.setTimeout(60 * 1000)
-
-/**
- * Creates a standard payload for invokeMapping.
- * Allows overriding specific event and person properties.
- */
-
-const createPayload = (globals?: DeepPartialHogFunctionInvocationGlobals): DeepPartialHogFunctionInvocationGlobals => {
-    let defaultPayload = {
-        event: {
-            properties: {},
-            event: 'Signed Up',
-            uuid: 'event-id',
-            timestamp: '2025-01-01T00:00:00Z',
-            distinct_id: 'distinct-id',
-            elements_chain: '',
-            url: 'https://us.posthog.com/projects/1/events/1234',
-        },
-        person: {
-            id: 'person-id',
-            properties: {
-                email: 'example@posthog.com',
-                gclid: 'google-id',
-            },
-            url: 'https://us.posthog.com/projects/1/persons/1234',
-        },
-    }
-
-    defaultPayload = merge(defaultPayload, globals ?? {})
-
-    return defaultPayload
-}
 
 describe('google template', () => {
     const tester = new TemplateTester(template)
@@ -43,7 +11,8 @@ describe('google template', () => {
     beforeEach(async () => {
         Settings.defaultZone = 'UTC'
         await tester.beforeEach()
-        jest.useFakeTimers().setSystemTime(DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate())
+        const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
 
     afterEach(() => {
@@ -61,7 +30,7 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            createPayload({
+            createAdDestinationPayload({
                 event: {
                     properties: {
                         $current_url: 'https://posthog.com/merch?product=tactical-black-t-shirt',
@@ -88,25 +57,23 @@ describe('google template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
-        expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","conversion_value":"100","currency_code":"USD","order_id":"1234567890"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
+              "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -123,30 +90,28 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
-        expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
+              "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
-            response: { status: 200, headers: {} },
-            body: '{"status": "OK"}',
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { status: 'OK' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -164,30 +129,28 @@ describe('google template', () => {
                 conversionActionId: '123456789',
                 currencyCode: '{event.properties.currency}',
             },
-            createPayload()
+            createAdDestinationPayload()
         )
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
-        expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
               "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
-                "developer-token": undefined,
                 "login-customer-id": "5675675678",
               },
               "method": "POST",
-              "return_queue": "hog",
+              "type": "fetch",
               "url": "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
             }
         `)
 
-        const fetchResponse = tester.invokeFetchResponse(response.invocation, {
-            response: { status: 400, headers: {} },
-            body: '{"status": "Something went wrong", "message": "Invalid event properties"}',
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 400,
+            body: { status: 'Something went wrong', message: 'Invalid event properties' },
         })
 
         expect(fetchResponse.finished).toBe(true)
@@ -206,7 +169,7 @@ describe('google template', () => {
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
             },
-            createPayload({
+            createAdDestinationPayload({
                 person: {
                     properties: {
                         gclid: null,
@@ -215,23 +178,9 @@ describe('google template', () => {
             })
         )
 
-        expect(response.logs).toMatchInlineSnapshot(`
+        expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(`
             [
-              {
-                "level": "debug",
-                "message": "Executing function",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "info",
-                "message": "Empty \`gclid\`. Skipping...",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
-              {
-                "level": "debug",
-                "message": "Function completed in 0ms. Sync: 0ms. Mem: 34 bytes. Ops: 10. Event: 'https://us.posthog.com/projects/1/events/1234'",
-                "timestamp": "2025-01-01T00:00:00.000Z",
-              },
+              "Empty \`gclid\`. Skipping...",
             ]
         `)
         expect(response.finished).toEqual(true)

@@ -1,4 +1,4 @@
-import { lemonToast, Link } from '@posthog/lemon-ui'
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
@@ -6,894 +6,39 @@ import api from 'lib/api'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
+    Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
-    ExternalDataSourceType,
     manualLinkSources,
     ManualLinkSourceType,
     PipelineStage,
     PipelineTab,
     ProductKey,
-    SourceConfig,
-    SourceFieldConfig,
 } from '~/types'
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
-
-const StripeCaption = (): JSX.Element => (
-    <>
-        Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
-        <br />
-        You can find your account ID{' '}
-        <Link to="https://dashboard.stripe.com/settings/account" target="_blank">
-            in your Stripe dashboard
-        </Link>
-        , and create a secret key{' '}
-        <Link to="https://dashboard.stripe.com/apikeys/create" target="_blank">
-            here
-        </Link>
-        .
-        <br />
-        <br />
-        Currently, <strong>read permissions are required</strong> for the following resources:
-        <ul className="list-disc list-inside">
-            <li>
-                Under the <b>Core</b> resource type, select <i>read</i> for <b>Balance transaction sources</b>,{' '}
-                <b>Charges</b>, <b>Customer</b>, and <b>Product</b>
-            </li>
-            <li>
-                Under the <b>Billing</b> resource type, select <i>read</i> for <b>Invoice</b>, <b>Price</b>, and{' '}
-                <b>Subscription</b>
-            </li>
-            <li>
-                Under the <b>Connected</b> resource type, select <i>read</i> for the <b>entire resource</b>
-            </li>
-        </ul>
-    </>
-)
-
-export const getHubspotRedirectUri = (): string =>
-    `${window.location.origin}${urls.pipelineNodeNew(PipelineStage.Source, { kind: 'hubspot' })}`
-
-export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
-    Stripe: {
-        name: 'Stripe',
-        caption: <StripeCaption />,
-        fields: [
-            {
-                name: 'stripe_account_id',
-                label: 'Account id',
-                type: 'text',
-                required: false,
-                placeholder: 'stripe_account_id',
-            },
-            {
-                name: 'stripe_secret_key',
-                label: 'API key',
-                type: 'password',
-                required: true,
-                placeholder: 'rk_live_...',
-            },
-        ],
-    },
-    Hubspot: {
-        name: 'Hubspot',
-        fields: [],
-        caption: 'Successfully authenticated with Hubspot. Please continue here to complete the source setup',
-        oauthPayload: ['code'],
-    },
-    Postgres: {
-        name: 'Postgres',
-        caption: (
-            <>
-                Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data
-                warehouse.
-            </>
-        ),
-        fields: [
-            {
-                name: 'connection_string',
-                label: 'Connection string (optional)',
-                type: 'text',
-                required: false,
-                placeholder: 'postgresql://user:password@localhost:5432/database',
-            },
-            {
-                name: 'host',
-                label: 'Host',
-                type: 'text',
-                required: true,
-                placeholder: 'localhost',
-            },
-            {
-                name: 'port',
-                label: 'Port',
-                type: 'number',
-                required: true,
-                placeholder: '5432',
-            },
-            {
-                name: 'database',
-                label: 'Database',
-                type: 'text',
-                required: true,
-                placeholder: 'postgres',
-            },
-            {
-                name: 'user',
-                label: 'User',
-                type: 'text',
-                required: true,
-                placeholder: 'postgres',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'schema',
-                label: 'Schema',
-                type: 'text',
-                required: true,
-                placeholder: 'public',
-            },
-            {
-                name: 'ssh-tunnel',
-                label: 'Use SSH tunnel?',
-                type: 'switch-group',
-                default: false,
-                fields: [
-                    {
-                        name: 'host',
-                        label: 'Tunnel host',
-                        type: 'text',
-                        required: true,
-                        placeholder: 'localhost',
-                    },
-                    {
-                        name: 'port',
-                        label: 'Tunnel port',
-                        type: 'number',
-                        required: true,
-                        placeholder: '22',
-                    },
-                    {
-                        type: 'select',
-                        name: 'auth_type',
-                        label: 'Authentication type',
-                        required: true,
-                        defaultValue: 'password',
-                        options: [
-                            {
-                                label: 'Password',
-                                value: 'password',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: true,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'password',
-                                        label: 'Tunnel password',
-                                        type: 'password',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                            {
-                                label: 'Key pair',
-                                value: 'keypair',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: false,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'private_key',
-                                        label: 'Tunnel private key',
-                                        type: 'textarea',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                    {
-                                        name: 'passphrase',
-                                        label: 'Tunnel passphrase',
-                                        type: 'password',
-                                        required: false,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-    },
-    MySQL: {
-        name: 'MySQL',
-        caption: (
-            <>
-                Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data
-                warehouse.
-            </>
-        ),
-        fields: [
-            {
-                name: 'host',
-                label: 'Host',
-                type: 'text',
-                required: true,
-                placeholder: 'localhost',
-            },
-            {
-                name: 'port',
-                label: 'Port',
-                type: 'number',
-                required: true,
-                placeholder: '3306',
-            },
-            {
-                name: 'database',
-                label: 'Database',
-                type: 'text',
-                required: true,
-                placeholder: 'mysql',
-            },
-            {
-                name: 'user',
-                label: 'User',
-                type: 'text',
-                required: true,
-                placeholder: 'mysql',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'schema',
-                label: 'Schema',
-                type: 'text',
-                required: true,
-                placeholder: 'public',
-            },
-            {
-                type: 'select',
-                name: 'using_ssl',
-                label: 'Use SSL?',
-                defaultValue: '1',
-                required: true,
-                options: [
-                    {
-                        value: '1',
-                        label: 'Yes',
-                    },
-                    {
-                        value: '0',
-                        label: 'No',
-                    },
-                ],
-            },
-            {
-                name: 'ssh-tunnel',
-                label: 'Use SSH tunnel?',
-                type: 'switch-group',
-                default: false,
-                fields: [
-                    {
-                        name: 'host',
-                        label: 'Tunnel host',
-                        type: 'text',
-                        required: true,
-                        placeholder: 'localhost',
-                    },
-                    {
-                        name: 'port',
-                        label: 'Tunnel port',
-                        type: 'number',
-                        required: true,
-                        placeholder: '22',
-                    },
-                    {
-                        type: 'select',
-                        name: 'auth_type',
-                        label: 'Authentication type',
-                        required: true,
-                        defaultValue: 'password',
-                        options: [
-                            {
-                                label: 'Password',
-                                value: 'password',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: true,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'password',
-                                        label: 'Tunnel password',
-                                        type: 'password',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                            {
-                                label: 'Key pair',
-                                value: 'keypair',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: false,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'private_key',
-                                        label: 'Tunnel private key',
-                                        type: 'textarea',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                    {
-                                        name: 'passphrase',
-                                        label: 'Tunnel passphrase',
-                                        type: 'password',
-                                        required: false,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-    },
-    MSSQL: {
-        name: 'MSSQL',
-        label: 'Microsoft SQL Server',
-        caption: (
-            <>
-                Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into
-                the PostHog Data warehouse.
-            </>
-        ),
-        fields: [
-            {
-                name: 'host',
-                label: 'Host',
-                type: 'text',
-                required: true,
-                placeholder: 'localhost',
-            },
-            {
-                name: 'port',
-                label: 'Port',
-                type: 'number',
-                required: true,
-                placeholder: '1433',
-            },
-            {
-                name: 'database',
-                label: 'Database',
-                type: 'text',
-                required: true,
-                placeholder: 'msdb',
-            },
-            {
-                name: 'user',
-                label: 'User',
-                type: 'text',
-                required: true,
-                placeholder: 'sa',
-            },
-            {
-                name: 'password',
-                label: 'Password',
-                type: 'password',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'schema',
-                label: 'Schema',
-                type: 'text',
-                required: true,
-                placeholder: 'dbo',
-            },
-            {
-                name: 'ssh-tunnel',
-                label: 'Use SSH tunnel?',
-                type: 'switch-group',
-                default: false,
-                fields: [
-                    {
-                        name: 'host',
-                        label: 'Tunnel host',
-                        type: 'text',
-                        required: true,
-                        placeholder: 'localhost',
-                    },
-                    {
-                        name: 'port',
-                        label: 'Tunnel port',
-                        type: 'number',
-                        required: true,
-                        placeholder: '22',
-                    },
-                    {
-                        type: 'select',
-                        name: 'auth_type',
-                        label: 'Authentication type',
-                        required: true,
-                        defaultValue: 'password',
-                        options: [
-                            {
-                                label: 'Password',
-                                value: 'password',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: true,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'password',
-                                        label: 'Tunnel password',
-                                        type: 'password',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                            {
-                                label: 'Key pair',
-                                value: 'keypair',
-                                fields: [
-                                    {
-                                        name: 'username',
-                                        label: 'Tunnel username',
-                                        type: 'text',
-                                        required: false,
-                                        placeholder: 'User1',
-                                    },
-                                    {
-                                        name: 'private_key',
-                                        label: 'Tunnel private key',
-                                        type: 'textarea',
-                                        required: true,
-                                        placeholder: '',
-                                    },
-                                    {
-                                        name: 'passphrase',
-                                        label: 'Tunnel passphrase',
-                                        type: 'password',
-                                        required: false,
-                                        placeholder: '',
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-    },
-    Snowflake: {
-        name: 'Snowflake',
-        caption: (
-            <>
-                Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data
-                warehouse.
-            </>
-        ),
-        fields: [
-            {
-                name: 'account_id',
-                label: 'Account id',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'database',
-                label: 'Database',
-                type: 'text',
-                required: true,
-                placeholder: 'snowflake_sample_data',
-            },
-            {
-                name: 'warehouse',
-                label: 'Warehouse',
-                type: 'text',
-                required: true,
-                placeholder: 'COMPUTE_WAREHOUSE',
-            },
-            {
-                type: 'select',
-                name: 'auth_type',
-                label: 'Authentication type',
-                required: true,
-                defaultValue: 'password',
-                options: [
-                    {
-                        label: 'Password',
-                        value: 'password',
-                        fields: [
-                            {
-                                name: 'username',
-                                label: 'Username',
-                                type: 'text',
-                                required: true,
-                                placeholder: 'User1',
-                            },
-                            {
-                                name: 'password',
-                                label: 'Password',
-                                type: 'password',
-                                required: true,
-                                placeholder: '',
-                            },
-                        ],
-                    },
-                    {
-                        label: 'Key pair',
-                        value: 'keypair',
-                        fields: [
-                            {
-                                name: 'username',
-                                label: 'Username',
-                                type: 'text',
-                                required: true,
-                                placeholder: 'User1',
-                            },
-                            {
-                                name: 'private_key',
-                                label: 'Private key',
-                                type: 'textarea',
-                                required: true,
-                                placeholder: '',
-                            },
-                            {
-                                name: 'passphrase',
-                                label: 'Passphrase',
-                                type: 'password',
-                                required: false,
-                                placeholder: '',
-                            },
-                        ],
-                    },
-                ],
-            },
-            {
-                name: 'role',
-                label: 'Role (optional)',
-                type: 'text',
-                required: false,
-                placeholder: 'ACCOUNTADMIN',
-            },
-            {
-                name: 'schema',
-                label: 'Schema',
-                type: 'text',
-                required: true,
-                placeholder: 'public',
-            },
-        ],
-    },
-    Zendesk: {
-        name: 'Zendesk',
-        caption: (
-            <>
-                Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data
-                warehouse.
-            </>
-        ),
-        fields: [
-            {
-                name: 'subdomain',
-                label: 'Zendesk subdomain',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'api_key',
-                label: 'API key',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'email_address',
-                label: 'Zendesk email address',
-                type: 'email',
-                required: true,
-                placeholder: '',
-            },
-        ],
-    },
-    Salesforce: {
-        name: 'Salesforce',
-        fields: [
-            {
-                name: 'salesforce_integration_id',
-                label: 'Salesforce account',
-                type: 'oauth',
-                required: true,
-            },
-        ],
-        caption: 'Select an existing Salesforce account to link to PostHog or create a new connection',
-    },
-    Vitally: {
-        name: 'Vitally',
-        fields: [
-            {
-                name: 'secret_token',
-                label: 'Secret token',
-                type: 'text',
-                required: true,
-                placeholder: 'sk_live_...',
-            },
-            {
-                type: 'select',
-                name: 'region',
-                label: 'Vitally region',
-                required: true,
-                defaultValue: 'EU',
-                options: [
-                    {
-                        label: 'EU',
-                        value: 'EU',
-                    },
-                    {
-                        label: 'US',
-                        value: 'US',
-                        fields: [
-                            {
-                                name: 'subdomain',
-                                label: 'Vitally subdomain',
-                                type: 'text',
-                                required: true,
-                                placeholder: '',
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-        caption: '',
-    },
-    BigQuery: {
-        name: 'BigQuery',
-        fields: [
-            {
-                type: 'file-upload',
-                name: 'key_file',
-                label: 'Google Cloud JSON key file',
-                fileFormat: '.json',
-                required: true,
-            },
-            {
-                type: 'text',
-                name: 'dataset_id',
-                label: 'Dataset ID',
-                required: true,
-                placeholder: '',
-            },
-            {
-                type: 'switch-group',
-                name: 'temporary-dataset',
-                label: 'Use a different dataset for the temporary tables?',
-                caption:
-                    "We have to create and delete temporary tables when querying your data, this is a requirement of querying large BigQuery tables. We can use a different dataset if you'd like to limit the permissions available to the service account provided.",
-                default: false,
-                fields: [
-                    {
-                        type: 'text',
-                        name: 'temporary_dataset_id',
-                        label: 'Dataset ID for temporary tables',
-                        required: true,
-                        placeholder: '',
-                    },
-                ],
-            },
-        ],
-        caption: '',
-    },
-    Chargebee: {
-        name: 'Chargebee',
-        fields: [
-            {
-                name: 'api_key',
-                label: 'API key',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                type: 'text',
-                name: 'site_name',
-                label: 'Site name (subdomain)',
-                required: true,
-                placeholder: '',
-            },
-        ],
-        caption: '',
-    },
-    TemporalIO: {
-        name: 'TemporalIO',
-        label: 'Temporal.io',
-        fields: [
-            {
-                name: 'host',
-                label: 'Host',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'port',
-                label: 'Port',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'namespace',
-                label: 'Namespace',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'encryption_key',
-                label: 'Encryption key',
-                type: 'text',
-                required: false,
-                placeholder: '',
-            },
-            {
-                name: 'server_client_root_ca',
-                label: 'Server client root CA',
-                type: 'textarea',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'client_certificate',
-                label: 'Client certificate',
-                type: 'textarea',
-                required: true,
-                placeholder: '',
-            },
-            {
-                name: 'client_private_key',
-                label: 'Client private key',
-                type: 'textarea',
-                required: true,
-                placeholder: '',
-            },
-        ],
-        caption: '',
-    },
-    GoogleAds: {
-        name: 'GoogleAds',
-        label: 'Google Ads',
-        caption: '',
-        fields: [
-            {
-                name: 'customer_id',
-                label: 'Customer ID',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-        ],
-    },
-    DoIt: {
-        name: 'DoIt',
-        label: 'DoIt',
-        caption: '',
-        fields: [
-            {
-                name: 'api_key',
-                label: 'API key',
-                type: 'text',
-                required: true,
-                placeholder: '',
-            },
-        ],
-    },
-    MetaAds: {
-        name: 'MetaAds',
-        label: 'Meta Ads',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    GoogleSheets: {
-        name: 'GoogleSheets',
-        label: 'Google Sheets',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Mongodb: {
-        name: 'Mongodb',
-        label: 'MongoDB',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Klaviyo: {
-        name: 'Klaviyo',
-        label: 'Klaviyo',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Mailchimp: {
-        name: 'Mailchimp',
-        label: 'Mailchimp',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Braze: {
-        name: 'Braze',
-        label: 'Braze',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Mailjet: {
-        name: 'Mailjet',
-        label: 'Mailjet',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-    Redshift: {
-        name: 'Redshift',
-        label: 'Redshift',
-        caption: '',
-        fields: [],
-        unreleasedSource: true,
-    },
-}
+import {
+    externalDataSources,
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldConfig,
+} from '~/queries/schema/schema-general'
 
 export const buildKeaFormDefaultFromSourceDetails = (
     sourceDetails: Record<string, SourceConfig>
 ): Record<string, any> => {
+    if (!sourceDetails) {
+        return {}
+    }
+
     const fieldDefaults = (field: SourceFieldConfig, obj: Record<string, any>): void => {
         if (field.type === 'switch-group') {
             obj[field.name] = {}
@@ -939,6 +84,7 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
 
 export interface SourceWizardLogicProps {
     onComplete?: () => void
+    availableSources: Record<string, SourceConfig>
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -947,7 +93,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (kind: string, searchParams?: any) => ({ kind, searchParams }),
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
         onBack: true,
         onNext: true,
@@ -1066,8 +212,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return {
                         prefix: source.prefix ?? state.prefix,
                         payload: {
-                            ...(state.payload ?? {}),
-                            ...(source.payload ?? {}),
+                            ...state.payload,
+                            ...source.payload,
                         },
                     }
                 },
@@ -1115,6 +261,36 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
+        availableSources: [
+            () => [(_, props) => props.availableSources],
+            (availableSources): Record<string, SourceConfig> => availableSources,
+        ],
+        breadcrumbs: [
+            (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
+            (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
+                return [
+                    {
+                        key: Scene.Pipeline,
+                        name: 'Data pipelines',
+                        path: urls.pipeline(PipelineTab.Overview),
+                    },
+                    {
+                        key: [Scene.Pipeline, 'sources'],
+                        name: `Sources`,
+                        path: urls.pipeline(PipelineTab.Sources),
+                    },
+                    {
+                        key: Scene.DataWarehouseSource,
+                        name:
+                            selectedConnector?.label ??
+                            (manualLinkingProvider
+                                ? manualConnectors.find((c) => c.type === manualLinkingProvider)?.name
+                                : 'New'),
+                    },
+                ]
+            },
+        ],
+
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
         canGoBack: [
             (s) => [s.currentStep],
@@ -1172,9 +348,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, isManualLinkFormVisible) => selectedConnector || isManualLinkFormVisible,
         ],
         connectors: [
-            (s) => [s.dataWarehouseSources],
-            (sources): SourceConfig[] => {
-                return Object.values(SOURCE_DETAILS).map((connector) => ({
+            (s) => [s.dataWarehouseSources, s.availableSources],
+            (sources, availableSources): SourceConfig[] => {
+                return Object.values(availableSources).map((connector) => ({
                     ...connector,
                     disabledReason:
                         sources && sources.results.find((source) => source.source_type === connector.name)
@@ -1189,39 +365,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         manualConnectors: [
             () => [],
-            () =>
+            (): { name: string; type: ManualLinkSourceType }[] =>
                 manualLinkSources.map((source) => ({
                     name: manualLinkSourceMap[source],
                     type: source,
                 })),
-        ],
-        addToHubspotButtonUrl: [
-            (s) => [s.preflight],
-            (preflight) => {
-                return () => {
-                    const clientId = preflight?.data_warehouse_integrations?.hubspot.client_id
-
-                    if (!clientId) {
-                        return null
-                    }
-
-                    const scopes = [
-                        'crm.objects.contacts.read',
-                        'crm.objects.companies.read',
-                        'crm.objects.deals.read',
-                        'tickets',
-                        'crm.objects.quotes.read',
-                        'sales-email-read',
-                    ]
-
-                    const params = new URLSearchParams()
-                    params.set('client_id', clientId)
-                    params.set('redirect_uri', getHubspotRedirectUri())
-                    params.set('scope', scopes.join(' '))
-
-                    return `https://app.hubspot.com/oauth/authorize?${params.toString()}`
-                }
-            },
         ],
         modalTitle: [
             (s) => [s.currentStep],
@@ -1245,10 +393,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         modalCaption: [
-            (s) => [s.selectedConnector, s.currentStep],
-            (selectedConnector, currentStep) => {
+            (s) => [s.selectedConnector, s.currentStep, s.availableSources],
+            (selectedConnector, currentStep, availableSources) => {
                 if (currentStep === 2 && selectedConnector) {
-                    return SOURCE_DETAILS[selectedConnector.name]?.caption
+                    return availableSources[selectedConnector.name]?.caption
                 }
 
                 if (currentStep === 4) {
@@ -1353,32 +501,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setIsLoading(false)
             }
         },
-        handleRedirect: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'hubspot': {
-                    actions.updateSource({
-                        source_type: 'Hubspot',
-                        payload: {
-                            code: searchParams?.code,
-                            redirect_uri: getHubspotRedirectUri(),
-                        },
-                    })
-                    return
-                }
-                case 'salesforce': {
-                    actions.updateSource({
-                        source_type: 'Salesforce',
-                    })
-                    break
-                }
-                case 'stripe': {
-                    actions.updateSource({
-                        source_type: 'Stripe',
-                    })
-                    break
-                }
-                default:
-                    lemonToast.error(`Something went wrong.`)
+        handleRedirect: async ({ source }) => {
+            // By default, we assume the source is a valid external data source
+            if (externalDataSources.includes(source)) {
+                actions.updateSource({
+                    source_type: source,
+                })
+            } else {
+                lemonToast.error(`Something went wrong.`)
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
@@ -1399,11 +529,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                const errorMessage = e.data?.message ?? e.message
+                lemonToast.error(errorMessage)
 
-                if (((e.data?.message as string | undefined) ?? '').indexOf('Invalid credentials') != -1) {
-                    posthog.capture('warehouse credentials invalid', { sourceType: values.selectedConnector.name })
-                }
+                posthog.capture('warehouse credentials invalid', {
+                    sourceType: values.selectedConnector.name,
+                    errorMessage,
+                })
             }
 
             actions.setIsLoading(false)
@@ -1418,30 +550,38 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             })
         },
     })),
-    urlToAction(({ actions }) => ({
-        [urls.pipelineNodeNew(PipelineStage.Source)]: (_, searchParams) => {
-            if (searchParams.kind == 'hubspot' && searchParams.code) {
-                actions.selectConnector(SOURCE_DETAILS['Hubspot'])
-                actions.handleRedirect(searchParams.kind, {
-                    code: searchParams.code,
-                })
-                actions.setStep(2)
+    urlToAction(({ actions, values }) => {
+        const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
+            const kind = searchParams.kind?.toLowerCase()
+            const source = values.connectors.find((s) => s.name.toLowerCase() === kind)
+            const manualSource = values.manualConnectors.find((s) => s.type.toLowerCase() === kind)
+
+            if (manualSource) {
+                actions.toggleManualLinkFormVisible(true)
+                actions.setManualLinkingProvider(manualSource.type)
+                return
             }
-            if (searchParams.kind == 'salesforce') {
-                actions.selectConnector(SOURCE_DETAILS['Salesforce'])
-                actions.handleRedirect(searchParams.kind)
+
+            if (source) {
+                actions.selectConnector(source)
+                actions.handleRedirect(source.name)
                 actions.setStep(2)
+                return
             }
-            if (searchParams.kind == 'stripe') {
-                actions.selectConnector(SOURCE_DETAILS['Stripe'])
-                actions.handleRedirect(searchParams.kind)
-                actions.setStep(2)
-            }
-        },
-    })),
-    forms(({ actions, values }) => ({
+
+            actions.selectConnector(null)
+            actions.setStep(1)
+        }
+
+        return {
+            [urls.dataWarehouseSourceNew()]: handleUrlChange,
+            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
+        }
+    }),
+
+    forms(({ actions, values, props }) => ({
         sourceConnectionDetails: {
-            defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
+            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
             errors: (sourceValues) => {
                 const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
 
@@ -1484,7 +624,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
-                                } catch (e) {
+                                } catch {
                                     return lemonToast.error('File is not valid')
                                 }
                             } else {

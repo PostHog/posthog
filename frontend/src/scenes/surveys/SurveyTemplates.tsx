@@ -17,6 +17,7 @@ import { surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
+    settingSectionId: 'environment-surveys',
 }
 
 export function SurveyTemplates(): JSX.Element {

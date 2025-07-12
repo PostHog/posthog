@@ -11,6 +11,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.schema import (
+    ActionsNode,
     AssistantFunnelsActionsNode,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
@@ -18,10 +19,16 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     Compare,
+    DataWarehouseNode,
     DateRange,
+    EventsNode,
     FunnelStepReference,
     FunnelVizType,
+    FunnelsQuery,
+    HogQLQuery,
     RetentionPeriod,
+    RetentionQuery,
+    TrendsQuery,
 )
 
 
@@ -135,7 +142,7 @@ class TrendsResultsFormatter:
     ```
     """
 
-    def __init__(self, query: AssistantTrendsQuery, results: list[dict[str, Any]]):
+    def __init__(self, query: AssistantTrendsQuery | TrendsQuery, results: list[dict[str, Any]]):
         self._query = query
         self._results = results
 
@@ -253,7 +260,7 @@ class RetentionResultsFormatter:
     ```
     """
 
-    def __init__(self, query: AssistantRetentionQuery, results: list[dict]):
+    def __init__(self, query: AssistantRetentionQuery | RetentionQuery, results: list[dict]):
         self._query = query
         self._results = results
 
@@ -328,7 +335,7 @@ class FunnelResultsFormatter:
 
     def __init__(
         self,
-        query: AssistantFunnelsQuery,
+        query: AssistantFunnelsQuery | FunnelsQuery,
         results: list[dict[str, Any]] | list[list[dict[str, Any]]] | dict[str, Any],
         team: Team,
         utc_now_datetime: datetime,
@@ -472,12 +479,18 @@ class FunnelResultsFormatter:
     def _format_filter_series_label(self) -> str:
         series_labels: list[str] = []
         for node in self._query.series:
-            if isinstance(node, AssistantFunnelsEventsNode) and node.custom_name is not None:
-                series_labels.append(f"{node.event} ({node.custom_name})")
-            elif isinstance(node, AssistantFunnelsActionsNode):
+            if isinstance(node, AssistantFunnelsEventsNode | EventsNode):
+                if node.custom_name is not None:
+                    series_labels.append(f"{node.event} ({node.custom_name})")
+                else:
+                    series_labels.append(f"{node.event}")
+            elif isinstance(node, AssistantFunnelsActionsNode | ActionsNode):
                 series_labels.append(f"{node.name} (action {node.id})")
-            else:
-                series_labels.append(node.event)
+            elif isinstance(node, DataWarehouseNode):
+                if node.custom_name is not None:
+                    series_labels.append(f"{node.name} ({node.custom_name})")
+                else:
+                    series_labels.append(f"{node.name}")
         return " -> ".join(series_labels)
 
     def _format_trends_series(self, results: list[dict[str, Any]]) -> str:
@@ -516,7 +529,7 @@ class SQLResultsFormatter:
     Compresses and formats SQL results into a LLM-friendly string.
     """
 
-    def __init__(self, query: AssistantHogQLQuery, results: list[dict[str, Any]], columns: list[str]):
+    def __init__(self, query: AssistantHogQLQuery | HogQLQuery, results: list[dict[str, Any]], columns: list[str]):
         self._query = query
         self._results = results
         self._columns = columns

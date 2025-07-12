@@ -1,66 +1,48 @@
 import { IconCursor } from '@posthog/icons'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
+import type { MessagingSceneTab } from './frontend/MessagingScene'
 
 export const manifest: ProductManifest = {
     name: 'Messaging',
     scenes: {
-        MessagingCampaigns: {
-            import: () => import('./frontend/Campaigns'),
+        Messaging: {
+            import: () => import('./frontend/MessagingScene'),
             name: 'Messaging',
             projectBased: true,
         },
-        MessagingBroadcasts: {
-            import: () => import('./frontend/Broadcasts'),
-            name: 'Messaging',
-            projectBased: true,
-        },
-        MessagingLibrary: {
-            import: () => import('./frontend/Library/MessageLibrary'),
+        MessagingCampaign: {
+            import: () => import('./frontend/Campaigns/CampaignScene'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/Library/MessageTemplate'),
-            name: 'Messaging',
-            projectBased: true,
-        },
-        MessageSenders: {
-            import: () => import('./frontend/Senders/MessageSenders'),
+            import: () => import('./frontend/TemplateLibrary/MessageTemplate'),
             name: 'Messaging',
             projectBased: true,
         },
     },
     routes: {
         // URL: [Scene, SceneKey]
-        '/messaging/campaigns': ['MessagingCampaigns', 'messagingCampaigns'],
-        '/messaging/campaigns/:id': ['MessagingCampaigns', 'messagingCampaign'],
-        '/messaging/campaigns/new': ['MessagingCampaigns', 'messagingCampaignNew'],
-        '/messaging/broadcasts': ['MessagingBroadcasts', 'messagingBroadcasts'],
-        '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
-        '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
-        '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
+        '/messaging/:tab': ['Messaging', 'messagingCampaigns'],
+        '/messaging/campaigns/:id/:tab': ['MessagingCampaign', 'messagingCampaignTab'],
         '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
         '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
         '/messaging/library/templates/new?messageId=:messageId': [
             'MessagingLibraryTemplate',
             'messagingLibraryTemplateFromMessage',
         ],
-        '/messaging/senders': ['MessageSenders', 'messageSenders'],
     },
     redirects: {
-        '/messaging': '/messaging/broadcasts',
+        '/messaging': '/messaging/campaigns',
+        '/messaging/campaigns/new': '/messaging/campaigns/new/overview',
     },
     urls: {
-        messagingCampaigns: (): string => '/messaging/campaigns',
-        messagingCampaign: (id?: string): string => `/messaging/campaigns/${id}`,
-        messagingCampaignNew: (): string => '/messaging/campaigns/new',
-        messagingBroadcasts: (): string => '/messaging/broadcasts',
-        messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
-        messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-        messagingLibrary: (): string => '/messaging/library',
+        messaging: (tab?: MessagingSceneTab): string => `/messaging/${tab || 'campaigns'}`,
+        messagingCampaign: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'overview'}`,
+        messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
         messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
         messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
@@ -68,51 +50,21 @@ export const manifest: ProductManifest = {
             `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
-        'hog_function/broadcast': {
-            name: 'Broadcast',
-            icon: <IconCursor />,
-            href: (ref: string) => urls.messagingBroadcast(ref),
-            iconColor: ['var(--product-messaging-light)'],
-            filterKey: 'broadcast',
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-        'hog_function/campaign': {
+        messaging: {
             name: 'Campaign',
             icon: <IconCursor />,
-            href: (ref: string) => urls.messagingCampaign(ref),
             iconColor: ['var(--product-messaging-light)'],
-            filterKey: 'campaign',
-            flag: FEATURE_FLAGS.MESSAGING,
+            href: (ref: string) => urls.messagingCampaign(ref),
+            filterKey: 'messaging',
         },
     },
-    treeItemsNew: [
-        {
-            path: `Broadcast`,
-            type: 'hog_function/broadcast',
-            href: urls.messagingBroadcastNew(),
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-        {
-            path: `Campaign`,
-            type: 'hog_function/campaign',
-            href: urls.messagingCampaignNew(),
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-    ],
     treeItemsProducts: [
         {
-            path: 'Broadcasts',
-            category: 'Behaviour',
-            href: urls.messagingBroadcasts(),
-            type: 'hog_function/broadcast',
-            tags: ['alpha'],
-            flag: FEATURE_FLAGS.MESSAGING,
-        },
-        {
-            path: 'Campaigns',
-            category: 'Behaviour',
-            href: urls.messagingCampaigns(),
-            type: 'hog_function/campaign',
+            path: 'Messaging',
+            href: urls.messaging(),
+            type: 'messaging',
+            visualOrder: PRODUCT_VISUAL_ORDER.messaging,
+            category: 'Tools',
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
         },

@@ -11,6 +11,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { passwordResetLogic } from './passwordResetLogic'
 
@@ -107,7 +108,7 @@ function ResetInvalid(): JSX.Element {
         <div className="text-center">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
             <div className="mt-4">
-                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to="/reset">
+                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={urls.passwordReset()}>
                     Request new link
                 </LemonButton>
             </div>

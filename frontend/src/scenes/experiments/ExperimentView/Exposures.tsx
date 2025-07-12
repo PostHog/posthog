@@ -1,8 +1,8 @@
 import { IconCorrelationAnalysis, IconInfo, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { Chart, ChartConfiguration } from 'chart.js/auto'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Chart, ChartConfiguration } from 'lib/Chart'
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -12,6 +12,7 @@ import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
+import { modalsLogic } from '../modalsLogic'
 
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
@@ -24,7 +25,7 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 
 export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteria } = useValues(experimentLogic)
-    const { openExposureCriteriaModal } = useActions(experimentLogic)
+    const { openExposureCriteriaModal } = useActions(modalsLogic)
 
     const chartRef = useRef<Chart | null>(null)
 

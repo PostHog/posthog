@@ -45,11 +45,6 @@ import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/typ
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
-import { dashboardsSidebarLogic } from './sidebars/dashboards'
-import { dataManagementSidebarLogic } from './sidebars/dataManagement'
-import { featureFlagsSidebarLogic } from './sidebars/featureFlags'
-import { insightsSidebarLogic } from './sidebars/insights'
-import { personsAndGroupsSidebarLogic } from './sidebars/personsAndGroups'
 import { BasicListItem, ExtendedListItem, NavbarItem, SidebarNavbarItem } from './types'
 
 /** Multi-segment item keys are joined using this separator for easy comparisons. */
@@ -73,8 +68,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
-            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
-            ['playlists', 'playlistsLoading'],
+            savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home }),
+            ['savedFilters', 'savedFiltersLoading'],
         ],
         actions: [navigationLogic, ['closeAccountPopover'], sceneLogic, ['setScene']],
     })),
@@ -359,12 +354,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
-                s.playlists,
-                s.playlistsLoading,
+                s.savedFilters,
+                s.savedFiltersLoading,
             ],
-            (featureFlags, dashboardsLoading, pinnedDashboards, playlists, playlistsLoading): NavbarItem[][] => {
-                const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
-
+            (featureFlags, dashboardsLoading, pinnedDashboards, savedFilters, savedFiltersLoading): NavbarItem[][] => {
                 return [
                     [
                         {
@@ -378,8 +371,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Dashboards',
                             icon: <IconDashboard />,
                             tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
-                            logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.dashboards(),
+                            to: urls.dashboards(),
                             sideAction:
                                 pinnedDashboards.length > 0
                                     ? {
@@ -419,16 +411,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.DataManagement,
                             label: 'Data management',
                             icon: <IconDatabase />,
-                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                            to: urls.eventDefinitions(),
                             tooltipDocLink: 'https://posthog.com/docs/data',
                         },
                         {
                             identifier: Scene.PersonsManagement,
                             label: 'People and groups',
                             icon: <IconPeople />,
-                            logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.persons(),
+                            to: urls.persons(),
                             tooltipDocLink: 'https://posthog.com/docs/data/persons',
                         },
                         {
@@ -444,9 +434,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.SavedInsights,
                             label: 'Product analytics',
                             icon: <IconGraph />,
-                            logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             tooltipDocLink: 'https://posthog.com/docs/product-analytics/insights',
-                            to: isUsingSidebar ? undefined : urls.savedInsights(),
+                            to: urls.savedInsights(),
                             sideAction:
                                 getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight] ===
                                 AccessControlLevel.Editor
@@ -462,7 +451,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.WebAnalytics,
                             label: 'Web analytics',
                             icon: <IconPieChart />,
-                            to: isUsingSidebar ? undefined : urls.webAnalytics(),
+                            to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
 
@@ -488,18 +477,18 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                     overlay: (
                                         <LemonMenuOverlay
                                             items={
-                                                playlists.count > 0
+                                                savedFilters.count > 0
                                                     ? [
                                                           {
-                                                              title: 'Saved playlists',
-                                                              items: playlists.results.map((playlist) => ({
+                                                              title: 'Saved filters',
+                                                              items: savedFilters.results.map((savedFilter) => ({
                                                                   label:
-                                                                      playlist.name ||
-                                                                      playlist.derived_name ||
+                                                                      savedFilter.name ||
+                                                                      savedFilter.derived_name ||
                                                                       'Unnamed',
-                                                                  to: urls.replayPlaylist(playlist.short_id),
+                                                                  to: urls.replayPlaylist(savedFilter.short_id),
                                                               })),
-                                                              footer: playlistsLoading && (
+                                                              footer: savedFiltersLoading && (
                                                                   <div className="px-2 py-1 text-tertiary">
                                                                       <Spinner /> Loading…
                                                                   </div>
@@ -512,8 +501,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                               to: urls.replay(ReplayTabs.Home),
                                                           },
                                                           {
-                                                              label: 'Playlists',
-                                                              to: urls.replay(ReplayTabs.Playlists),
+                                                              label: 'Saved filters',
+                                                              to: urls.replay(ReplayTabs.Home),
                                                           },
                                                       ]
                                             }
@@ -527,15 +516,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             identifier: Scene.FeatureFlags,
                             label: 'Feature flags',
                             icon: <IconToggle />,
-                            logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                            to: isUsingSidebar ? undefined : urls.featureFlags(),
+                            to: urls.featureFlags(),
                             tooltipDocLink: 'https://posthog.com/docs/feature-flags/creating-feature-flags',
                         },
                         {
                             identifier: Scene.Experiments,
                             label: 'Experiments',
                             icon: <IconTestTube />,
-                            to: isUsingSidebar ? undefined : urls.experiments(),
+                            to: urls.experiments(),
                             tooltipDocLink: 'https://posthog.com/docs/experiments/creating-an-experiment',
                         },
                         {
@@ -607,7 +595,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: Scene.Heatmaps,
                                   label: 'Heatmaps',
                                   icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                  to: urls.heatmaps(),
                                   tag: 'alpha' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/toolbar/heatmaps',
                               }
@@ -617,17 +605,17 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: Scene.Links,
                                   label: 'Links',
                                   icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.links(),
+                                  to: urls.links(),
                                   tag: 'alpha' as const,
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING]
                             ? {
-                                  identifier: Scene.MessagingBroadcasts,
+                                  identifier: Scene.Messaging,
                                   label: 'Messaging',
                                   icon: <IconMegaphone />,
-                                  to: urls.messagingBroadcasts(),
+                                  to: urls.messaging(),
                                   tag: 'alpha' as const,
                               }
                             : null,
@@ -709,15 +697,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             },
         ],
         activeNavbarItemId: [
-            (s) => [s.activeNavbarItemIdRaw, featureFlagLogic.selectors.featureFlags],
-            (activeNavbarItemIdRaw, featureFlags): string | null => {
+            (s) => [s.activeNavbarItemIdRaw],
+            (activeNavbarItemIdRaw): string | null => {
                 if (activeNavbarItemIdRaw === Scene.SQLEditor) {
                     return Scene.SQLEditor
                 }
-                if (!featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]) {
-                    return null
-                }
-                return activeNavbarItemIdRaw
+                return null
             },
         ],
         newItemCategory: [

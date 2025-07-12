@@ -4,7 +4,7 @@ import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { hogqlQuery } from '~/queries/query'
+import { hogql } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -29,12 +30,29 @@ import {
 
 import { asDisplay } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
     syncWithUrl?: boolean
     urlId?: string
     fixedProperties?: PersonPropertyFilter[]
+}
+
+function createInitialEventsPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: personId,
+            where: ["notEquals(event, '$exception')"],
+            after: '-24h',
+        },
+    }
 }
 
 export const personsLogic = kea<personsLogicType>([
@@ -66,6 +84,7 @@ export const personsLogic = kea<personsLogicType>([
         setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
         setDistinctId: (distinctId: string) => ({ distinctId }),
+        setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -108,12 +127,17 @@ export const personsLogic = kea<personsLogicType>([
                     const person = response.results[0]
                     if (person) {
                         actions.reportPersonDetailViewed(person)
+                        if (person.id != null) {
+                            const eventsQuery = createInitialEventsPayload(person.id)
+                            actions.setEventsQuery(eventsQuery)
+                        }
                     }
+
                     return person
                 },
                 loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
                     const response = await hogqlQuery(
-                        'select id, groupArray(101)(pdi2.distinct_id) as distinct_ids, properties, is_identified, created_at from persons LEFT JOIN (SELECT argMax(pdi2.person_id, pdi2.version) AS person_id, pdi2.distinct_id AS distinct_id FROM raw_person_distinct_ids as pdi2 WHERE pdi2.person_id = {id} GROUP BY pdi2.distinct_id HAVING ifNull(equals(argMax(pdi2.is_deleted, pdi2.version), 0), 0)) as pdi2 ON pdi2.person_id=persons.id where id={id} group by id, properties, is_identified, created_at',
+                        hogql`select id, groupArray(101)(pdi2.distinct_id) as distinct_ids, properties, is_identified, created_at from persons LEFT JOIN (SELECT argMax(pdi2.person_id, pdi2.version) AS person_id, pdi2.distinct_id AS distinct_id FROM raw_person_distinct_ids as pdi2 WHERE pdi2.person_id = {id} GROUP BY pdi2.distinct_id HAVING ifNull(equals(argMax(pdi2.is_deleted, pdi2.version), 0), 0)) as pdi2 ON pdi2.person_id=persons.id where id={id} group by id, properties, is_identified, created_at`,
                         { id: uuid },
                         'blocking'
                     )
@@ -128,6 +152,10 @@ export const personsLogic = kea<personsLogicType>([
                             created_at: row[4],
                         }
                         actions.reportPersonDetailViewed(person)
+                        if (person.id != null) {
+                            const eventsQuery = createInitialEventsPayload(person.id)
+                            actions.setEventsQuery(eventsQuery)
+                        }
                         return person
                     }
                     return null
@@ -219,6 +247,14 @@ export const personsLogic = kea<personsLogicType>([
             null as string | null,
             {
                 setDistinctId: (_, { distinctId }) => distinctId,
+            },
+        ],
+        eventsQuery: [
+            null as DataTableNode | null,
+            {
+                setEventsQuery: (_, { eventsQuery }) => {
+                    return eventsQuery
+                },
             },
         ],
     })),

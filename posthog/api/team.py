@@ -11,14 +11,12 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
-from posthog.cloud_utils import get_api_host
-from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig
+from posthog.models import ProductIntent, Team, User, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
 from posthog.models.activity_logging.activity_log import (
     Detail,
     dict_changes_between,
@@ -32,6 +30,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPI
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
+from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
@@ -46,7 +45,6 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
-from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -55,7 +53,6 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
-from django.core.cache import cache
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -160,10 +157,14 @@ TEAM_CONFIG_FIELDS = (
     "surveys_opt_in",
     "heatmaps_opt_in",
     "flags_persistence_default",
+    "feature_flag_confirmation_enabled",
+    "feature_flag_confirmation_message",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
+    "marketing_analytics_config",
     "onboarding_tasks",
+    "base_currency",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -172,10 +173,11 @@ TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
     events = serializers.JSONField(required=False)
     goals = serializers.JSONField(required=False)
+    filter_test_accounts = serializers.BooleanField(required=False)
 
     class Meta:
         model = TeamRevenueAnalyticsConfig
-        fields = ["base_currency", "events", "goals"]
+        fields = ["base_currency", "events", "goals", "filter_test_accounts"]
 
     def to_representation(self, instance):
         repr = super().to_representation(instance)
@@ -194,6 +196,35 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
         return internal_value
 
 
+class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer):
+    sources_map = serializers.JSONField(required=False)
+    conversion_goals = serializers.JSONField(required=False)
+
+    class Meta:
+        model = TeamMarketingAnalyticsConfig
+        fields = ["sources_map", "conversion_goals"]
+
+    def update(self, instance, validated_data):
+        # Handle sources_map with partial updates
+        if "sources_map" in validated_data:
+            new_sources_map = validated_data["sources_map"]
+
+            # For each source in the new data, update it individually
+            for source_id, field_mapping in new_sources_map.items():
+                if field_mapping is None:
+                    # If None is passed, remove the source entirely
+                    instance.remove_source_mapping(source_id)
+                else:
+                    # Update the source mapping (this preserves other sources)
+                    instance.update_source_mapping(source_id, field_mapping)
+
+        if "conversion_goals" in validated_data:
+            instance.conversion_goals = validated_data["conversion_goals"]
+
+        instance.save()
+        return instance
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Optional[Team]
 
@@ -202,8 +233,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
-    access_control_version = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
+    marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
+    base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
         model = Team
@@ -231,7 +263,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "group_types",
             "live_events_token",
             "product_intents",
-            "access_control_version",
         )
 
         read_only_fields = (
@@ -253,7 +284,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "user_access_level",
             "product_intents",
-            "access_control_version",
         )
 
     def to_representation(self, instance):
@@ -269,12 +299,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
-
-    def get_access_control_version(self, team: Team) -> str:
-        # If they have a private project (team/environment) then assume they are using the old access control
-        if bool(team.access_control):
-            return "v1"
-        return "v2"
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
@@ -311,6 +335,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
 
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_marketing_analytics_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamMarketingAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
 
     @staticmethod
@@ -471,13 +505,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         # Should be validated already, but let's be extra sure
         if config_data := validated_data.pop("revenue_analytics_config", None):
-            serializer = TeamRevenueAnalyticsConfigSerializer(
-                instance.revenue_analytics_config, data=config_data, partial=True
-            )
-            if not serializer.is_valid():
-                raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+            self._update_revenue_analytics_config(instance, config_data)
 
-            serializer.save()
+        if config_data := validated_data.pop("marketing_analytics_config", None):
+            self._update_marketing_analytics_config(instance, config_data)
 
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
@@ -557,6 +588,82 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return updated_team
 
+    def _update_revenue_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        # Capture old config before saving
+        old_config = {
+            "events": [event.model_dump() for event in (instance.revenue_analytics_config.events or [])],
+            "goals": [goal.model_dump() for goal in (instance.revenue_analytics_config.goals or [])],
+            "filter_test_accounts": instance.revenue_analytics_config.filter_test_accounts,
+        }
+
+        serializer = TeamRevenueAnalyticsConfigSerializer(
+            instance.revenue_analytics_config, data=validated_data, partial=True
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        # Log activity for revenue analytics config changes
+        new_config = {
+            "events": validated_data.get("events", []),
+            "goals": validated_data.get("goals", []),
+            "filter_test_accounts": validated_data.get("filter_test_accounts", False),
+        }
+
+        self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_marketing_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        # Capture the old config before saving
+        old_config = {
+            "sources_map": (
+                instance.marketing_analytics_config.sources_map.copy()
+                if instance.marketing_analytics_config.sources_map
+                else {}
+            ),
+            # Add other fields as they're added to the model
+            # "conversion_goals": instance.marketing_analytics_config.conversion_goals.copy() if instance.marketing_analytics_config.conversion_goals else [],
+        }
+
+        marketing_serializer = TeamMarketingAnalyticsConfigSerializer(
+            instance.marketing_analytics_config, data=validated_data, partial=True
+        )
+        if not marketing_serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(marketing_serializer.errors))
+
+        marketing_serializer.save()
+
+        # Log activity for marketing analytics config changes
+        new_config = {
+            "sources_map": validated_data.get("sources_map", {}),
+            # Add other fields as they're added to the model
+            # "conversion_goals": validated_data.get("conversion_goals", []),
+        }
+
+        self._capture_diff(instance, "marketing_analytics_config", old_config, new_config)
+        return instance
+
+    def _capture_diff(self, instance: Team, key: str, before: dict, after: dict):
+        changes = dict_changes_between(
+            "Team",
+            {key: before},
+            {key: after},
+            use_field_exclusions=True,
+        )
+
+        if changes:
+            log_activity(
+                organization_id=cast(UUIDT, instance.organization_id),
+                team_id=instance.pk,
+                user=cast(User, self.context["request"].user),
+                was_impersonated=is_impersonated_session(request),
+                scope="Team",
+                item_id=instance.pk,
+                activity="updated",
+                detail=Detail(name=str(instance.name), changes=changes),
+            )
+
 
 class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -587,6 +694,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         return super().get_serializer_class()
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # Used for the AccessControlViewSetMixin
+        mixin_result = super().dangerously_get_required_scopes(request, view)
+        if mixin_result is not None:
+            return mixin_result
+
         # If the request only contains config fields, require read:team scope
         # Otherwise, require write:team scope (handled by APIScopePermission)
         if self.action == "partial_update":
@@ -812,35 +924,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="authenticate_wizard",
-        required_scopes=["team:read"],
-        throttle_classes=[SetupWizardAuthenticationRateThrottle],
-    )
-    def authenticate_wizard(self, request, **kwargs):
-        hash = request.data.get("hash")
-
-        if not hash:
-            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
-
-        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
-        wizard_data = cache.get(cache_key)
-
-        if wizard_data is None:
-            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
-
-        wizard_data = {
-            "project_api_key": request.user.team.api_token,
-            "host": get_api_host(),
-            "user_distinct_id": request.user.distinct_id,
-        }
-
-        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
-
-        return response.Response({"success": True}, status=200)
 
     @action(methods=["GET"], detail=True, required_scopes=["team:read"], url_path="event_ingestion_restrictions")
     def event_ingestion_restrictions(self, request, **kwargs):

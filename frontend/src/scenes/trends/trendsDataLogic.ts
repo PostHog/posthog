@@ -75,7 +75,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'lifecycleFilter',
                 'stickinessFilter',
                 'isTrends',
-                'isDataWarehouseSeries',
+                'hasDataWarehouseSeries',
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',
@@ -190,7 +190,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 /** Unique series in the results, determined by `item.label` and `item.action.order`. */
                 const uniqSeries = Array.from(
                     new Set(
-                        indexedResults.map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
+                        indexedResults
+                            .slice()
+                            .sort((a, b) => (a.action?.order ?? 0) - (b.action?.order ?? 0))
+                            .map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
                     )
                 )
 

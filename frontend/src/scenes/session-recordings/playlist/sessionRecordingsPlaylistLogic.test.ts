@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { playlistLogic } from './playlistLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
@@ -130,6 +131,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 updateSearchParams: true,
             })
             logic.mount()
+            playlistLogic.mount()
+            playlistLogic.actions.setIsFiltersExpanded(false)
         })
 
         describe('core assumptions', () => {
