@@ -84,7 +84,8 @@ export interface RefreshStatus {
     /** Insight is currently loading */
     loading?: boolean
     refreshed?: boolean
-    error?: boolean
+    error?: Error
+    errored?: boolean
     timer?: Date | null
 }
 
@@ -182,7 +183,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setPageVisibility: (visible: boolean) => ({ visible }),
-        setRefreshError: (shortId: InsightShortId) => ({ shortId }),
+        setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
@@ -752,9 +753,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
-                setRefreshError: (state, { shortId }) => ({
+                setRefreshError: (state, { shortId, error }) => ({
                     ...state,
-                    [shortId]: { error: true, timer: state[shortId]?.timer || null },
+                    [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
                 }),
                 updateDashboardItems: () => ({}),
                 abortQuery: () => ({}),
@@ -1340,8 +1341,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
-            } catch {
-                actions.setRefreshError(insight.short_id)
+            } catch (e: any) {
+                actions.setRefreshError(insight.short_id, e)
             }
         },
         updateDashboardItems: async ({ tiles, action, manualDashboardRefresh }, breakpoint) => {
@@ -1399,7 +1400,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime })
                         } else {
-                            actions.setRefreshError(insight.short_id)
+                            actions.setRefreshError(insight.short_id, e)
                         }
                     }
                 })
