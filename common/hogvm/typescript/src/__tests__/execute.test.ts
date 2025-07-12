@@ -87,6 +87,10 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, 'e.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(true)
         expect(execSync(['_h', op.STRING, '^e.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(false)
         expect(execSync(['_h', op.STRING, 'x.*', op.STRING, 'test', op.CALL_GLOBAL, 'match', 2], options)).toBe(false)
+
+        // Test the issue with .+ regex and null values (representing non-existent properties)
+        expect(execSync(['_h', op.STRING, '.+', op.STRING, '', op.CALL_GLOBAL, 'match', 2], options)).toBe(false) // empty string should not match .+
+        expect(execSync(['_h', op.STRING, '.+', op.NULL, op.CALL_GLOBAL, 'match', 2], options)).toBe(false) // null should not match .+ - this should now work correctly
         expect(execSync(['_h', op.INTEGER, 1, op.CALL_GLOBAL, 'toString', 1], options)).toBe('1')
         expect(execSync(['_h', op.FLOAT, 1.5, op.CALL_GLOBAL, 'toString', 1], options)).toBe('1.5')
         expect(execSync(['_h', op.TRUE, op.CALL_GLOBAL, 'toString', 1], options)).toBe('true')
