@@ -2,7 +2,7 @@ import base64
 import json
 import random
 import time
-from typing import Optional
+from typing import Optional, Literal
 from unittest.mock import patch
 
 from inline_snapshot import snapshot
@@ -552,50 +552,43 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "defaults to none",
                 None,
                 None,
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "must have allowlist",
-                "new-recorder",
-                None,
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "ignores empty allowlist",
-                "new-recorder",
                 [],
                 {"scriptConfig": None},
-                False,
             ],
             [
-                "wild card works",
+                "no sample or force enable list",
                 "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                False,
-            ],
-            [
-                "can have wild card and team id",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
-            ],
-            [
-                "allow list can exclude",
-                "new-recorder",
-                ["9999", "9998"],
+                None,
+                [],
                 {"scriptConfig": None},
-                False,
             ],
             [
-                "allow list can include",
+                "sample rate of 0",
                 "new-recorder",
-                ["9999", "9998"],
+                0,
+                [],
+                {"scriptConfig": None},
+            ],
+            [
+                "sample rate of 1",
+                "new-recorder",
+                1.0,
+                [],
                 {"scriptConfig": {"script": "new-recorder"}},
-                True,
+            ],
+            [
+                "sample rate of 0 and force enable a different team",
+                "new-recorder",
+                0,
+                [9999],
+                None,
+            ],
+            [
+                "sample rate of 0 and force enable current team",
+                "new-recorder",
+                0,
+                ["self"],
+                {"scriptConfig": {"script": "new-recorder"}},
             ],
         ]
     )
@@ -603,9 +596,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self,
         _name: str,
         rrweb_script_name: str | None,
-        team_allow_list: list[str] | None,
+        sample_rate: float | None,
+        force_enable_teams: list[int | Literal["self"]],
         expected: dict,
-        include_team_in_allowlist: bool,
     ) -> None:
         self._update_team(
             {
@@ -613,12 +606,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             }
         )
 
-        if team_allow_list and include_team_in_allowlist:
-            team_allow_list.append(f"{self.team.id}")
-
         with self.settings(
             SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=",".join(team_allow_list or []),
+            SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE=sample_rate,
+            SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS=[
+                self.team.pk if x == "self" else x for x in force_enable_teams
+            ],
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200
