@@ -140,6 +140,11 @@ def prepare_ast_for_printing(
                 team=context.team,
                 timings=context.timings,
             )
+    else:
+        with context.timings.measure("reuse_hogql_database"):
+            # Not really a timing, but a debug signal.
+            # Database was pre-created and passed in context (e.g., for performance optimization)
+            pass
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 

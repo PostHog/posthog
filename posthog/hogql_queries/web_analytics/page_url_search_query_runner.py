@@ -81,10 +81,11 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner):
             query=query,
             team=self.team,
             query_type="WebAnalyticsPageURLSearch",
+            modifiers=self.modifiers,
             context=HogQLContext(
                 team_id=self.team.pk,
-                timings=self.timings,
-                modifiers=self.modifiers,
+                database=self.database,
+                enable_select_queries=True,
             ),
             limit_context=self.limit_context,
         )

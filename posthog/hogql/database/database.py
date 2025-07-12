@@ -380,6 +380,7 @@ def create_hogql_database(
     team: Optional["Team"] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
+    skip_dw_tables: bool = False,
 ) -> Database:
     from posthog.hogql.database.s3_table import S3Table
     from posthog.hogql.query import create_default_modifiers_for_team
@@ -485,6 +486,12 @@ def create_hogql_database(
         for mapping in GroupTypeMapping.objects.filter(project_id=team.project_id):
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
+
+    with timings.measure("can_skip_dw_tables"):
+        if skip_dw_tables:
+            # Skip data warehouse tables loading
+            # This is used internally for QueryRunners that know ahead of time that they will not be using the data warehouse tables
+            return database
 
     warehouse_tables: TableStore = {}
     warehouse_tables_dot_notation_mapping: dict[str, str] = {}
