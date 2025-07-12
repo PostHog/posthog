@@ -172,6 +172,11 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context)
 
+        # Apply pageview optimizer for teams with pre-aggregated tables enabled
+        with context.timings.measure("optimize_pageview_queries"):
+            from posthog.hogql.transforms.pageview_optimizer import optimize_pageview_queries
+            node = optimize_pageview_queries(node, dialect, stack, context)
+
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
