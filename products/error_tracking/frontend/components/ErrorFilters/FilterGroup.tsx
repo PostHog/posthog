@@ -14,8 +14,8 @@ import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from
 
 import { errorFiltersLogic } from './errorFiltersLogic'
 
-const taxonomicFilterLogicKey = 'error-tracking'
-const taxonomicGroupTypes = [
+export const taxonomicFilterLogicKey = 'error-tracking'
+export const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.ErrorTrackingIssues,

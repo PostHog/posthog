@@ -801,3 +801,128 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         ).first()
         assert fs_entry is not None
         assert "Special Folder/Session Recordings" in fs_entry.path
+
+    def test_bulk_add_remove_playlist_items(self):
+        playlist1 = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="bulk playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+
+        recording_ids = ["bulk_session_1", "bulk_session_2", "bulk_session_3"]
+
+        # Test bulk add
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk_add",
+            {"session_recording_ids": recording_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["success"] is True
+        assert result["added_count"] == 3
+        assert result["total_requested"] == 3
+
+        # Verify items were created
+        for recording_id in recording_ids:
+            assert SessionRecordingPlaylistItem.objects.filter(
+                playlist=playlist1, recording__session_id=recording_id
+            ).exists()
+
+        # Test bulk delete
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/bulk_delete",
+            {"session_recording_ids": recording_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["success"] is True
+        assert result["deleted_count"] == 3
+        assert result["total_requested"] == 3
+
+        # Verify items were deleted
+        for recording_id in recording_ids:
+            assert not SessionRecordingPlaylistItem.objects.filter(
+                playlist=playlist1, recording__session_id=recording_id
+            ).exists()
+
+    def test_bulk_add_validation_errors(self):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="bulk validation playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+
+        # Test empty array
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": []},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "must be provided as a non-empty array" in response.json()["detail"]
+
+        # Test non-array input
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": "not_an_array"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # Test too many recordings (over 20 limit)
+        too_many_ids = [f"session_{i}" for i in range(21)]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": too_many_ids},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot process more than 20 recordings at once" in response.json()["detail"]
+
+    def test_cannot_bulk_add_to_filters_playlist(self):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="filters only playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.FILTERS,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": ["session_1", "session_2"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot add recordings to a playlist that is type 'filters'" in response.json()["detail"]
+
+    def test_bulk_add_partial_success(self):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="partial success playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+
+        # Add one recording first
+        existing_id = "existing_session"
+        self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{existing_id}"
+        )
+
+        # Try to bulk add including the existing one and new ones
+        recording_ids = [existing_id, "new_session_1", "new_session_2"]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/bulk_add",
+            {"session_recording_ids": recording_ids},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["success"] is True
+        assert result["added_count"] == 2  # Only new ones counted
+        assert result["total_requested"] == 3

@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from django.db.models import F
 from dlt.sources import DltSource
+from pympler import asizeof
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
@@ -63,13 +64,13 @@ class PipelineNonDLT:
     _internal_schema = HogQLSchema()
     _load_id: int
     _chunk_size: int = 5000
+    _chunk_size_bytes: int = 200 * 1024 * 1024  # 200 MiB
 
     def __init__(
         self,
         source: DltSource | SourceResponse,
         logger: FilteringBoundLogger,
         job_id: str,
-        is_incremental: bool,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
     ) -> None:
@@ -91,7 +92,6 @@ class PipelineNonDLT:
             self._resource_name = source.name
 
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
-        self._is_incremental = is_incremental
         self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
@@ -99,6 +99,7 @@ class PipelineNonDLT:
         schema: ExternalDataSchema | None = self._job.schema
         assert schema is not None
         self._schema = schema
+        self._is_incremental = schema.is_incremental
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
@@ -161,20 +162,26 @@ class PipelineNonDLT:
                 if isinstance(item, list):
                     if len(buffer) > 0:
                         buffer.extend(item)
-                        if len(buffer) >= self._chunk_size:
+                        if asizeof.asizeof(buffer) >= self._chunk_size_bytes or len(buffer) >= self._chunk_size:
+                            self._logger.debug(f"Processing pipeline buffer (list). Length of buffer = {len(buffer)}")
+
                             py_table = table_from_py_list(buffer)
                             buffer = []
+                        else:
+                            continue
                     else:
-                        if len(item) >= self._chunk_size:
+                        if asizeof.asizeof(item) >= self._chunk_size_bytes or len(item) >= self._chunk_size:
+                            self._logger.debug(f"Processing pipeline item (list). Length of item = {len(item)}")
                             py_table = table_from_py_list(item)
                         else:
                             buffer.extend(item)
                             continue
                 elif isinstance(item, dict):
                     buffer.append(item)
-                    if len(buffer) < self._chunk_size:
+                    if asizeof.asizeof(buffer) < self._chunk_size_bytes and len(buffer) < self._chunk_size:
                         continue
 
+                    self._logger.debug(f"Processing pipeline buffer (dict). Length of buffer = {len(buffer)}")
                     py_table = table_from_py_list(buffer)
                     buffer = []
                 elif isinstance(item, pa.Table):

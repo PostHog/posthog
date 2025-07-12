@@ -3,7 +3,7 @@ import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { Label } from 'lib/ui/Label/Label'
 import {
@@ -30,7 +30,7 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-export function ProjectDropdownMenu(): JSX.Element | null {
+export function ProjectDropdownMenu({ buttonProps }: { buttonProps?: ButtonPrimitiveProps }): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
@@ -45,6 +45,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                     data-attr="tree-navbar-project-dropdown-button"
                     className="flex-1 min-w-0 max-w-fit"
                     size="sm"
+                    {...buttonProps}
                 >
                     <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
                     <IconChevronRight
@@ -66,7 +67,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             >
                 <Combobox>
                     <Combobox.Search placeholder="Filter projects..." />
-                    <Combobox.Content className="max-h-[calc(90vh-100px)]">
+                    <Combobox.Content>
                         <Label intent="menu" className="px-2">
                             Projects
                         </Label>

@@ -381,8 +381,8 @@ describe('BatchWritingPersonStore', () => {
         )
         await personStoreForBatch.flush()
 
-        // Should try optimistic update multiple times based on config
-        expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(5) // default max retries
+        // Should try optimistic update multiple times based on config (1 initial + 5 retries = 6 total)
+        expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(6) // default max retries
         expect(db.updatePerson).toHaveBeenCalledTimes(1) // fallback
     })
 
@@ -578,8 +578,11 @@ describe('BatchWritingPersonStore', () => {
                 expect(db.postgres.transaction).not.toHaveBeenCalled()
             })
 
-            it('should handle errors in NO_ASSERT mode without fallback', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'NO_ASSERT' })
+            it('should fallback with NO_ASSERT mode', async () => {
+                const personStore = new BatchWritingPersonsStore(db, {
+                    dbWriteMode: 'NO_ASSERT',
+                    maxOptimisticUpdateRetries: 5,
+                })
                 const personStoreForBatch = personStore.forBatch()
 
                 db.updatePerson = jest.fn().mockRejectedValue(new Error('Database error'))
@@ -593,7 +596,7 @@ describe('BatchWritingPersonStore', () => {
                 )
 
                 await expect(personStoreForBatch.flush()).rejects.toThrow('Database error')
-                expect(db.updatePerson).toHaveBeenCalledTimes(2) // 1 for update, 1 for fallback
+                expect(db.updatePerson).toHaveBeenCalledTimes(6) // 6 for update (1 fallback + 5 retries)
                 expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
         })
@@ -638,7 +641,7 @@ describe('BatchWritingPersonStore', () => {
                 )
                 await personStoreForBatch.flush()
 
-                expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(2) // retries
+                expect(db.updatePersonAssertVersion).toHaveBeenCalledTimes(3) // 1 initial + 2 retries
                 expect(db.updatePerson).toHaveBeenCalledTimes(1) // fallback
             })
 
@@ -670,113 +673,6 @@ describe('BatchWritingPersonStore', () => {
                     }
                 )
                 expect(db.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
-            })
-        })
-
-        describe('flush with WITH_TRANSACTION mode', () => {
-            it('should call updatePersonWithTransaction directly without optimistic updates', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'WITH_TRANSACTION' })
-                const personStoreForBatch = personStore.forBatch()
-
-                await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                    person,
-                    { new_value: 'new_value' },
-                    [],
-                    {},
-                    'test'
-                )
-                await personStoreForBatch.flush()
-
-                expect(db.postgres.transaction).toHaveBeenCalledTimes(1)
-                expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
-                expect(db.updatePerson).toHaveBeenCalledWith(
-                    expect.any(Object),
-                    expect.any(Object),
-                    expect.anything(), // tx
-                    'forUpdate'
-                )
-            })
-
-            it('should retry WITH_TRANSACTION on failures', async () => {
-                const personStore = new BatchWritingPersonsStore(db, {
-                    dbWriteMode: 'WITH_TRANSACTION',
-                    maxOptimisticUpdateRetries: 2,
-                })
-                const personStoreForBatch = personStore.forBatch()
-
-                let callCount = 0
-                db.postgres.transaction = jest.fn().mockImplementation(async (_usage, _tag, transactionCallback) => {
-                    callCount++
-                    if (callCount < 2) {
-                        throw new Error('Transaction failed')
-                    }
-                    return await transactionCallback({}) // success on second try
-                })
-
-                await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                    person,
-                    { new_value: 'new_value' },
-                    [],
-                    {},
-                    'test'
-                )
-                await personStoreForBatch.flush()
-
-                expect(db.postgres.transaction).toHaveBeenCalledTimes(2)
-                expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
-            })
-
-            it('should handle MessageSizeTooLarge in WITH_TRANSACTION mode', async () => {
-                const personStore = new BatchWritingPersonsStore(db, { dbWriteMode: 'WITH_TRANSACTION' })
-                const personStoreForBatch = personStore.forBatch()
-
-                db.postgres.transaction = jest
-                    .fn()
-                    .mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
-
-                await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                    person,
-                    { new_value: 'new_value' },
-                    [],
-                    {},
-                    'test'
-                )
-                await personStoreForBatch.flush()
-
-                expect(captureIngestionWarning).toHaveBeenCalledWith(
-                    db.kafkaProducer,
-                    teamId,
-                    'person_upsert_message_size_too_large',
-                    {
-                        personId: person.id,
-                        distinctId: 'test',
-                    }
-                )
-                expect(db.postgres.transaction).toHaveBeenCalled()
-            })
-
-            it('should fallback to updatePersonNoAssert after max retries', async () => {
-                const personStore = new BatchWritingPersonsStore(db, {
-                    dbWriteMode: 'WITH_TRANSACTION',
-                    maxOptimisticUpdateRetries: 2,
-                })
-                const personStoreForBatch = personStore.forBatch()
-
-                // Mock transaction to always fail
-                db.postgres.transaction = jest.fn().mockRejectedValue(new Error('Transaction failed'))
-
-                await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                    person,
-                    { new_value: 'new_value' },
-                    [],
-                    {},
-                    'test'
-                )
-                await personStoreForBatch.flush()
-
-                expect(db.postgres.transaction).toHaveBeenCalledTimes(2)
-                expect(db.updatePersonAssertVersion).not.toHaveBeenCalled()
-                expect(db.updatePerson).toHaveBeenCalledTimes(1)
             })
         })
 
@@ -881,7 +777,7 @@ describe('BatchWritingPersonStore', () => {
         // Verify the second call to updatePersonAssertVersion had the merged properties
         expect(db.updatePersonAssertVersion).toHaveBeenLastCalledWith(
             expect.objectContaining({
-                version: 3, // Should use the latest version from the database
+                version: 2, // Should use the latest version from the database (updatedByOtherPod has version 2)
                 properties: {
                     existing_prop1: 'updated_by_other_pod', // Preserved from other pod's update
                     existing_prop2: 'updated_by_this_pod', // Updated by this pod

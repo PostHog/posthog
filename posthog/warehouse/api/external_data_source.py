@@ -500,6 +500,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             new_source_model = self._handle_chargebee_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.GOOGLEADS:
             new_source_model, google_ads_schemas = self._handle_google_ads_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.METAADS:
+            new_source_model = self._handle_meta_ads_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.TEMPORALIO:
             new_source_model = self._handle_temporalio_source(request, *args, **kwargs)
         elif source_type == ExternalDataSource.Type.DOIT:
@@ -1017,6 +1019,28 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         schemas = get_mongo_schemas(MongoSourceConfig.from_dict(new_source_model.job_inputs))
 
         return new_source_model, list(schemas.keys())
+
+    def _handle_meta_ads_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        payload = request.data["payload"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        account_id = payload.get("account_id", "")
+        meta_ads_integration_id = payload.get("meta_ads_integration_id")
+
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
+            status="Running",
+            source_type=source_type,
+            job_inputs={"account_id": account_id, "meta_ads_integration_id": meta_ads_integration_id},
+            prefix=prefix,
+        )
+
+        return new_source_model
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = (

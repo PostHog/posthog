@@ -24,7 +24,7 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    isDataWarehouseSeries?: boolean
+    hasDataWarehouseSeries?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -34,7 +34,7 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    isDataWarehouseSeries,
+    hasDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -48,7 +48,7 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = isDataWarehouseSeries
+    const disabledReason = hasDataWarehouseSeries
         ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
         : undefined
     return (

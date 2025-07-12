@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 import { PrecheckResponseType } from 'scenes/authentication/loginLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { modalInterruptionTrackingLogic } from './modalInterruptionTrackingLogic'
 import type { timeSensitiveAuthenticationLogicType } from './timeSensitiveAuthenticationLogicType'
 
 export interface ReauthenticationForm {
@@ -21,8 +22,16 @@ const LOOKAHEAD_EXPIRY_SECONDS = 60 * 5
 export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationLogicType>([
     path(['lib', 'components', 'timeSensitiveAuthenticationLogic']),
     connect(() => ({
-        values: [apiStatusLogic, ['timeSensitiveAuthenticationRequired'], userLogic, ['user']],
+        values: [
+            apiStatusLogic,
+            ['timeSensitiveAuthenticationRequired'],
+            userLogic,
+            ['user'],
+            modalInterruptionTrackingLogic,
+            ['interruptedForm'],
+        ],
         actions: [apiStatusLogic, ['setTimeSensitiveAuthenticationRequired'], userLogic, ['loadUser']],
+        logic: [modalInterruptionTrackingLogic],
     })),
     actions({
         setDismissedReauthentication: (value: boolean) => ({ value }),
@@ -109,7 +118,14 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
     subscriptions(({ values, actions }) => ({
         showAuthenticationModal: (shown) => {
             if (shown) {
-                posthog.capture('reauthentication_modal_shown')
+                posthog.capture('reauthentication_modal_shown', {
+                    interrupted_form: values.interruptedForm,
+                })
+
+                const modalTrackingLogic = modalInterruptionTrackingLogic.findMounted()
+                if (modalTrackingLogic) {
+                    modalTrackingLogic.actions.setInterruptedForm(null)
+                }
 
                 if (!values.precheckResponse) {
                     actions.precheck()

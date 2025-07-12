@@ -4,39 +4,13 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { getCookie } from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
-import IconGoogleAds from '~/assets/services/google-ads.png'
-import IconGoogleCloud from '~/assets/services/google-cloud.png'
-import IconGoogleCloudStorage from '~/assets/services/google-cloud-storage.png'
-import IconHubspot from '~/assets/services/hubspot.png'
-import IconIntercom from '~/assets/services/intercom.png'
-import IconLinear from '~/assets/services/linear.png'
-import IconGitHub from '~/assets/services/github.png'
-import IconLinkedIn from '~/assets/services/linkedin.png'
-import IconMailjet from '~/assets/services/mailjet.png'
-import IconSalesforce from '~/assets/services/salesforce.png'
-import IconSlack from '~/assets/services/slack.png'
-import IconSnapchat from '~/assets/services/snapchat.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
 import type { integrationsLogicType } from './integrationsLogicType'
-
-const ICONS: Record<IntegrationKind, any> = {
-    slack: IconSlack,
-    salesforce: IconSalesforce,
-    hubspot: IconHubspot,
-    'google-pubsub': IconGoogleCloud,
-    'google-cloud-storage': IconGoogleCloudStorage,
-    'google-ads': IconGoogleAds,
-    snapchat: IconSnapchat,
-    intercom: IconIntercom,
-    'linkedin-ads': IconLinkedIn,
-    email: IconMailjet,
-    linear: IconLinear,
-    github: IconGitHub,
-}
+import { ICONS } from './utils'
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
@@ -182,16 +156,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
-        linearIntegrations: [
+        getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {
-                return integrations?.filter((x) => x.kind == 'linear') || []
-            },
-        ],
-        githubIntegrations: [
-            (s) => [s.integrations],
-            (integrations) => {
-                return integrations?.filter((x) => x.kind == 'github') || []
+                return (kinds: IntegrationKind[]) => integrations?.filter((i) => kinds.includes(i.kind)) || []
             },
         ],
 

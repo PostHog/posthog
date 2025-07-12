@@ -21,7 +21,7 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             },
         ],
         showAdditionalProperties: [
-            false,
+            true,
             {
                 setShowAdditionalProperties: (_, { showProperties }) => showProperties,
             },

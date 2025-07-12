@@ -1,4 +1,3 @@
-import asyncio
 import json
 import random
 from collections.abc import AsyncIterator, Sequence
@@ -26,27 +25,6 @@ from posthog.sync import database_sync_to_async
 
 class DjangoCheckpointer(BaseCheckpointSaver[str]):
     jsonplus_serde = JsonPlusSerializer()
-    _thread_locks: dict[str, asyncio.Lock]
-    _locks_dict_lock: asyncio.Lock
-
-    def __init__(self, *args):
-        super().__init__(*args)
-        self._thread_locks = {}
-        self._locks_dict_lock = asyncio.Lock()
-
-    async def _get_thread_lock(self, thread_id: str) -> asyncio.Lock:
-        """Get the async lock for a specific thread."""
-        async with self._locks_dict_lock:
-            if thread_id not in self._thread_locks:
-                self._thread_locks[thread_id] = asyncio.Lock()
-            return self._thread_locks[thread_id]
-
-    async def _cleanup_thread_lock(self, thread_id: str):
-        """Clean up thread lock if not currently locked."""
-        async with self._locks_dict_lock:
-            lock = self._thread_locks.get(thread_id)
-            if lock is not None and not lock.locked():
-                self._thread_locks.pop(thread_id, None)
 
     def _load_writes(self, writes: Sequence[ConversationCheckpointWrite]) -> list[PendingWrite]:
         return (
@@ -230,15 +208,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         metadata: CheckpointMetadata,
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
-        thread_id = config["configurable"]["thread_id"]
-        thread_lock = await self._get_thread_lock(thread_id)
-        try:
-            async with thread_lock:
-                return await self._put(config, checkpoint, metadata, new_versions)
-        finally:
-            await self._cleanup_thread_lock(thread_id)
+        return await self._put(config, checkpoint, metadata, new_versions)
 
-    @database_sync_to_async(thread_sensitive=False)
+    @database_sync_to_async(thread_sensitive=True)
     def _put(
         self,
         config: RunnableConfig,
@@ -314,15 +286,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
         task_id: str,
         task_path: str = "",
     ) -> None:
-        thread_id = config["configurable"]["thread_id"]
-        thread_lock = await self._get_thread_lock(thread_id)
-        try:
-            async with thread_lock:
-                return await self._put_writes(config, writes, task_id, task_path)
-        finally:
-            await self._cleanup_thread_lock(thread_id)
+        return await self._put_writes(config, writes, task_id, task_path)
 
-    @database_sync_to_async(thread_sensitive=False)
+    @database_sync_to_async(thread_sensitive=True)
     def _put_writes(
         self,
         config: RunnableConfig,

@@ -91,7 +91,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
-        SITE_URL: null,
+        SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,

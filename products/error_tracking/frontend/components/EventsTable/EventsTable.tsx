@@ -2,9 +2,9 @@ import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { getExceptionAttributes, getSessionId } from 'lib/components/Errors/utils'
+import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 
@@ -22,17 +22,15 @@ export interface EventsTableProps {
 }
 
 function renderViewRecordingButton(event: ErrorEventType): JSX.Element {
-    const sessionId = getSessionId(event.properties)
-    const hasRecording = mightHaveRecording(event.properties || {})
     return (
         <span onClick={cancelEvent}>
             <ViewRecordingButton
-                sessionId={sessionId}
+                sessionId={getSessionId(event.properties)}
+                recordingStatus={getRecordingStatus(event.properties)}
                 timestamp={event.timestamp ?? undefined}
                 inModal={true}
                 size="xsmall"
                 type="secondary"
-                disabledReason={hasRecording ? undefined : 'No recording available'}
             />
         </span>
     )

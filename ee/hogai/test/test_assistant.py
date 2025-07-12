@@ -45,7 +45,7 @@ from posthog.schema import (
     DashboardFilter,
     FailureMessage,
     HumanMessage,
-    MaxContextShape,
+    MaxUIContext,
     MaxDashboardContext,
     MaxInsightContext,
     ReasoningMessage,
@@ -124,7 +124,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         contextual_tools: Optional[dict[str, Any]] = None,
-        ui_context: Optional[MaxContextShape] = None,
+        ui_context: Optional[MaxUIContext] = None,
     ) -> tuple[list[tuple[str, Any]], Assistant]:
         # Create assistant instance with our test graph
         assistant = Assistant(
@@ -980,7 +980,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # Test ui_context with multiple fields
-        ui_context = MaxContextShape(
+        ui_context = MaxUIContext(
             dashboards=[
                 MaxDashboardContext(
                     id="1",
@@ -999,7 +999,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ui_context=ui_context,
         )
 
-        ui_context_2 = MaxContextShape(insights=[MaxInsightContext(id="3", query=TrendsQuery(series=[]))])
+        ui_context_2 = MaxUIContext(insights=[MaxInsightContext(id="3", query=TrendsQuery(series=[]))])
 
         # Second run: Create another assistant with the same conversation (simulating retrieval)
         output2, assistant2 = await self._run_assistant_graph(

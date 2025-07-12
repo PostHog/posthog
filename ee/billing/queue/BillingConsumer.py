@@ -126,7 +126,7 @@ class BillingConsumer(SQSConsumer):
             logger.exception(f"Organization {organization_id} does not exist")
             capture_exception(
                 Exception(f"Organization being consumed does not exist"),
-                {"organization_id": organization_id, "body": body},
+                {"organization_id": organization_id},
             )
             return
 

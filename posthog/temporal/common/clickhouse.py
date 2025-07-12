@@ -141,6 +141,8 @@ def clickhouse_types_to_arrow_schema(types: dict[str, str]) -> pa.Schema:
             return pa.field(name, pa.int64(), nullable)
         if ch_type.startswith("Float"):
             return pa.field(name, pa.float64(), nullable)
+        if ch_type.startswith("Bool"):
+            return pa.field(name, pa.bool_(), nullable)
         if ch_type in ("String", "FixedString"):
             return pa.field(name, pa.string(), nullable)
         if ch_type == "UUID":

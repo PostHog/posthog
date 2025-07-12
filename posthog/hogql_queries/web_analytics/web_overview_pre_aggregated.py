@@ -36,7 +36,7 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
 
                 NULL AS revenue,
                 NULL AS previous_revenue
-        FROM web_bounces_combined FINAL
+        FROM web_bounces_combined
         """,
             placeholders={
                 "unique_persons_current": self._uniq_merge_if("persons_uniq_state", current_period_filter),

@@ -21,15 +21,6 @@ describe('maxLogic', () => {
         logic?.unmount()
     })
 
-    it("doesn't mount sidePanelStateLogic if it's not already mounted", async () => {
-        // Mount maxLogic after setting up the sidePanelStateLogic state
-        logic = maxLogic()
-        logic.mount()
-
-        // Check that sidePanelStateLogic was not mounted
-        expect(sidePanelStateLogic.isMounted()).toBe(false)
-    })
-
     it('sets the question when URL has hash param #panel=max:Foo', async () => {
         // Set up router with #panel=max:Foo
         router.actions.push('', {}, { panel: 'max:Foo' })

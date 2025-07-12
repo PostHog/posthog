@@ -185,26 +185,39 @@ fn start_upload(
 }
 
 fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: Vec<u8>) -> Result<()> {
-    let mut form = Form::new();
+    let mut last_err = None;
+    let mut delay = std::time::Duration::from_millis(500);
+    for attempt in 1..=3 {
+        let mut form = Form::new();
+        for (key, value) in &presigned_url.fields {
+            form = form.text(key.clone(), value.clone());
+        }
+        let part = Part::bytes(data.clone());
+        form = form.part("file", part);
 
-    for (key, value) in presigned_url.fields {
-        form = form.text(key.clone(), value.clone());
+        let res = client
+            .post(&presigned_url.url)
+            .multipart(form)
+            .send();
+
+        match res {
+            Result::Ok(resp) if resp.status().is_success() => {
+                return Ok(());
+            }
+            Result::Ok(resp) => {
+                last_err = Some(anyhow!("Failed to upload chunk: {:?}", resp));
+            }
+            Result::Err(e) => {
+                last_err = Some(anyhow!("Failed to upload chunk: {}", e));
+            }
+        }
+        if attempt < 3 {
+            warn!("Upload attempt {} failed, retrying in {:?}...", attempt, delay);
+            std::thread::sleep(delay);
+            delay *= 2;
+        }
     }
-
-    let part = Part::bytes(data);
-    form = form.part("file", part);
-
-    let res = client
-        .post(&presigned_url.url)
-        .multipart(form)
-        .send()
-        .context(format!("While uploading chunk to {}", presigned_url.url))?;
-
-    if !res.status().is_success() {
-        bail!("Failed to upload chunk: {:?}", res);
-    }
-
-    Ok(())
+    Err(last_err.unwrap_or_else(|| anyhow!("Unknown error during upload")))
 }
 
 fn finish_upload(

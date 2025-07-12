@@ -12,7 +12,9 @@ import { DashboardBasicType } from '~/types'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 
 export enum DashboardsTab {
-    Dashboards = 'dashboards',
+    All = 'all',
+    Yours = 'yours',
+    Pinned = 'pinned',
     Templates = 'templates',
 }
 
@@ -55,7 +57,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
         currentTab: [
-            DashboardsTab.Dashboards as DashboardsTab,
+            DashboardsTab.All as DashboardsTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },
@@ -83,23 +85,23 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
         dashboards: [
-            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse],
-            (dashboards, filters, fuse) => {
+            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters, s.fuse, s.currentTab, s.user],
+            (dashboards, filters, fuse, currentTab, user) => {
                 let haystack = dashboards
                 if (filters.search) {
                     haystack = fuse.search(filters.search).map((result) => result.item)
                 }
-
-                if (filters.pinned) {
+                if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
                 }
                 if (filters.shared) {
                     haystack = haystack.filter((d) => d.is_shared)
                 }
-                if (filters.createdBy !== 'All users') {
+                if (currentTab === DashboardsTab.Yours) {
+                    haystack = haystack.filter((d) => d.created_by?.uuid === user?.uuid)
+                } else if (filters.createdBy !== 'All users') {
                     haystack = haystack.filter((d) => d.created_by?.uuid === filters.createdBy)
                 }
-
                 return haystack
             },
         ],
@@ -116,7 +118,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
     actionToUrl(({ values }) => ({
         setCurrentTab: () => {
-            const tab = values.currentTab === DashboardsTab.Dashboards ? undefined : values.currentTab
+            const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
             if (router.values.searchParams['tab'] === tab) {
                 return
             }
@@ -126,7 +128,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     urlToAction(({ actions }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = searchParams['tab'] || DashboardsTab.Dashboards
+            const tab = searchParams['tab'] || DashboardsTab.All
             actions.setCurrentTab(tab)
         },
     })),

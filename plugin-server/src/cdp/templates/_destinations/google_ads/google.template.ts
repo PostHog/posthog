@@ -1,6 +1,5 @@
 import { HogFunctionInputSchemaType } from '~/cdp/types'
-
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 // Based on https://developers.google.com/google-ads/api/reference/rpc/v18/ClickConversion
 

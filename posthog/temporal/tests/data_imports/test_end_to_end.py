@@ -42,6 +42,7 @@ from posthog.schema import (
 )
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
@@ -301,6 +302,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
     with (
         mock.patch.object(RESTClient, "paginate", mock_paginate),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -2407,3 +2409,30 @@ async def test_billing_limits_too_many_rows_previously(team, postgres_config, po
 
     with pytest.raises(Exception):
         await sync_to_async(execute_hogql_query)(f"SELECT * FROM postgres_billing_limits", team)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_pipeline_mb_chunk_size(team, zendesk_brands):
+    with (
+        mock.patch.object(PipelineNonDLT, "_chunk_size_bytes", 1),
+        mock.patch.object(PipelineNonDLT, "_chunk_size", 5000),  # Explicitly make this big
+        mock.patch.object(PipelineNonDLT, "_process_pa_table") as mock_process_pa_table,
+    ):
+        await _run(
+            team=team,
+            schema_name="brands",
+            table_name="zendesk_brands",
+            source_type="Zendesk",
+            job_inputs={
+                "zendesk_subdomain": "test",
+                "zendesk_api_key": "test_api_key",
+                "zendesk_email_address": "test@posthog.com",
+            },
+            mock_data_response=[*zendesk_brands["brands"], *zendesk_brands["brands"]],  # Return two items
+            ignore_assertions=True,
+        )
+
+    # Returning two items should cause the pipeline to process each item individually
+
+    assert mock_process_pa_table.call_count == 2
