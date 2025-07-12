@@ -578,4 +578,8 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
     if _session_recording_domain_not_allowed(team, request):
         return False
 
-    return RemoteConfig.session_recording_config_response(team)
+    config = RemoteConfig.session_recording_config_response(team)
+    if isinstance(config, dict):
+        config.pop("domains", None)
+
+    return config

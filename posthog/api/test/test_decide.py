@@ -71,7 +71,6 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "sampleRate": None,
         "eventTriggers": [],
         "triggerMatchType": None,
-        "domains": [],
         **overrides,
     }
 
