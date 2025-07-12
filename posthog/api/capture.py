@@ -489,50 +489,46 @@ def get_csp_event(request):
             ),
         )
 
-    if first_distinct_id and posthoganalytics.feature_enabled("ingestion-new-capture-internal-csp", first_distinct_id):
-        try:
-            token = get_token(csp_report, request)
+    try:
+        token = get_token(csp_report, request)
 
-            if isinstance(csp_report, list):
-                futures = new_capture_batch_internal(csp_report, token, False)
-                for future in futures:
-                    result = future.result()
-                    result.raise_for_status()
-            else:
-                resp = new_capture_internal(token, first_distinct_id, csp_report, False)
-                resp.raise_for_status()
+        if isinstance(csp_report, list):
+            futures = new_capture_batch_internal(csp_report, token, False)
+            for future in futures:
+                result = future.result()
+                result.raise_for_status()
+        else:
+            resp = new_capture_internal(token, first_distinct_id, csp_report, False)
+            resp.raise_for_status()
 
-            return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
-        except HTTPError as hte:
-            capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
-            logger.exception("csp_report_capture_http_error", exc_info=hte)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "csp_report_capture",
-                    f"Failed to submit CSP report",
-                    code="capture_http_error",
-                    type="capture_http_error",
-                    status_code=hte.response.status_code,
-                ),
-            )
-        except Exception as e:
-            capture_exception(e, {"capture-pathway": "csp_report", "ph-team-token": token})
-            logger.exception("csp_report_capture_error", exc_info=e)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "csp_report_capture",
-                    f"Failed to submit CSP report",
-                    code="capture_error",
-                    type="capture_error",
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                ),
-            )
-    else:
-        # Explicit mark for get_event pipeline to handle CSP reports on this flow
-        return get_event(request, csp_report=csp_report)
+    except HTTPError as hte:
+        capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
+        logger.exception("csp_report_capture_http_error", exc_info=hte)
+        return cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                f"Failed to submit CSP report",
+                code="capture_http_error",
+                type="capture_http_error",
+                status_code=hte.response.status_code,
+            ),
+        )
+    except Exception as e:
+        capture_exception(e, {"capture-pathway": "csp_report", "ph-team-token": token})
+        logger.exception("csp_report_capture_error", exc_info=e)
+        return cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                f"Failed to submit CSP report",
+                code="capture_error",
+                type="capture_error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
 
 
 @csrf_exempt
