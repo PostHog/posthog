@@ -272,6 +272,25 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError(
                     "Filters are not valid (can only use person, cohort, and flag properties)"
                 )
+
+            # Check for circular dependencies in flag properties
+            flag_properties = [
+                prop
+                for condition in filters["groups"]
+                for prop in condition.get("properties", [])
+                if prop.get("type") == "flag"
+            ]
+
+            if flag_properties:
+                # Get the current flag key
+                current_key = None
+                if self.instance:
+                    current_key = self.instance.key
+                elif "key" in self.initial_data:
+                    current_key = self.initial_data["key"]
+
+                if current_key:
+                    self._check_flag_circular_dependencies(filters, current_key)
         elif self.instance is not None and hasattr(self.instance, "features") and self.instance.features.count() > 0:
             raise serializers.ValidationError(
                 "Cannot change this flag to a group-based when linked to an Early Access Feature."
@@ -377,6 +396,102 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
 
         return filters
+
+    def _check_flag_circular_dependencies(self, filters: dict, current_flag_key: str) -> None:
+        """Check for circular dependencies in flag properties."""
+
+        def extract_flag_dependencies(filters: dict) -> set[str]:
+            """Extract all flag IDs that this flag depends on."""
+            dependencies = set()
+            for group in filters.get("groups", []):
+                for prop in group.get("properties", []):
+                    if prop.get("type") == "flag":
+                        # Property key can be:
+                        # - A numeric flag ID (e.g., "123")
+                        # - A flag key with $feature/ prefix (e.g., "$feature/my-flag")
+                        # - A flag key with $feature_flag/ prefix (e.g., "$feature_flag/my-flag")
+                        flag_key = prop.get("key", "")
+
+                        # Handle prefixed flag keys
+                        if flag_key.startswith("$feature/"):
+                            flag_key = flag_key[9:]  # Remove "$feature/" prefix
+                        elif flag_key.startswith("$feature_flag/"):
+                            flag_key = flag_key[14:]  # Remove "$feature_flag/" prefix
+
+                        if flag_key:
+                            # If it's numeric, it's already a flag ID
+                            # Otherwise, we need to look up the flag by key to get its ID
+                            if flag_key.isdigit():
+                                dependencies.add(flag_key)
+                            else:
+                                try:
+                                    flag = FeatureFlag.objects.get(
+                                        key=flag_key, team_id=self.context["team_id"], deleted=False
+                                    )
+                                    dependencies.add(str(flag.id))
+                                except FeatureFlag.DoesNotExist:
+                                    pass  # Flag doesn't exist, skip it
+            return dependencies
+
+        # Get the current flag's ID
+        current_flag_id = None
+        if self.instance:
+            current_flag_id = str(self.instance.id)
+        else:
+            # For new flags, we don't have an ID yet, so we'll use the key
+            # and convert dependent flags to use keys for comparison
+            current_flag_id = current_flag_key
+
+        # Build dependency graph and check for cycles
+        visited = set()
+
+        def has_cycle(flag_id: str, path: set[str]) -> bool:
+            """Check if there's a cycle starting from flag_id."""
+            if flag_id in path:
+                return True  # Cycle detected
+
+            if flag_id in visited:
+                return False  # Already checked, no cycle found
+
+            visited.add(flag_id)
+            new_path = path | {flag_id}
+
+            # Get the flag's dependencies
+            try:
+                if flag_id.isdigit():
+                    flag = FeatureFlag.objects.get(id=int(flag_id), team_id=self.context["team_id"], deleted=False)
+                else:
+                    # For new flags being created, flag_id might be a key
+                    flag = FeatureFlag.objects.get(key=flag_id, team_id=self.context["team_id"], deleted=False)
+                dependencies = extract_flag_dependencies(flag.filters)
+
+                for dep_id in dependencies:
+                    if has_cycle(dep_id, new_path):
+                        return True
+            except FeatureFlag.DoesNotExist:
+                # Missing dependency is not a cycle
+                pass
+
+            return False
+
+        # Check if this flag's new dependencies would create a cycle
+        new_dependencies = extract_flag_dependencies(filters)
+        for dep_id in new_dependencies:
+            if has_cycle(dep_id, {current_flag_id}):
+                # Get the flag name for a better error message
+                dep_flag_name = dep_id
+                try:
+                    if dep_id.isdigit():
+                        dep_flag = FeatureFlag.objects.get(id=int(dep_id), team_id=self.context["team_id"])
+                        dep_flag_name = dep_flag.key
+                except FeatureFlag.DoesNotExist:
+                    pass
+
+                raise serializers.ValidationError(
+                    f"Circular dependency detected: This flag would depend on '{dep_flag_name}' "
+                    f"which eventually depends back on this flag.",
+                    code="circular_dependency",
+                )
 
     def check_flag_evaluation(self, data):
         # TODO: Once we move to no DB level evaluation, can get rid of this.
