@@ -1,6 +1,5 @@
 from django.conf import settings
 
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
@@ -8,12 +7,11 @@ CLICKHOUSE_CLUSTER = settings.CLICKHOUSE_CLUSTER
 CLICKHOUSE_DATABASE = settings.CLICKHOUSE_DATABASE
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
+def TABLE_TEMPLATE(table_name, columns, order_by):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
-    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+    CREATE TABLE IF NOT EXISTS {table_name}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -26,14 +24,13 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True):
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=None):
+def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
-    on_cluster_clause = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
+    CREATE TABLE IF NOT EXISTS {table_name}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -49,7 +46,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, ttl=No
 
 def DISTRIBUTED_TABLE_TEMPLATE(dist_table_name, base_table_name, columns, granularity="daily"):
     return f"""
-    CREATE TABLE IF NOT EXISTS {dist_table_name} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    CREATE TABLE IF NOT EXISTS {dist_table_name}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -127,7 +124,7 @@ def WEB_BOUNCES_ORDER_BY_FUNC(bucket_column="period_bucket"):
     return get_order_by_clause(WEB_BOUNCES_DIMENSIONS, bucket_column)
 
 
-def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="daily"):
+def DROP_PARTITION_SQL(table_name, date_start, granularity="daily"):
     """
     Generate SQL to drop a partition for a specific date.
     This enables idempotent operations by ensuring clean state before insertion.
@@ -135,10 +132,8 @@ def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="da
     Args:
         table_name: Name of the table
         date_start: Date string in YYYY-MM-DD format (for daily) or YYYY-MM-DD HH format (for hourly)
-        on_cluster: Whether to run on cluster
         granularity: "daily" or "hourly" - determines partition format
     """
-    on_cluster_clause = f" ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
     if granularity == "hourly":
         # For hourly: expect "YYYY-MM-DD HH" format, convert to "YYYYMMDDHH"
@@ -153,22 +148,22 @@ def DROP_PARTITION_SQL(table_name, date_start, on_cluster=False, granularity="da
         partition_id = date_start.replace("-", "")
 
     return f"""
-    ALTER TABLE {table_name}{on_cluster_clause}
+    ALTER TABLE {table_name}
     DROP PARTITION '{partition_id}'
     """
 
 
-def create_table_pair(base_table_name, columns, order_by, on_cluster=True):
+def create_table_pair(base_table_name, columns, order_by):
     """Create both a local and distributed table with the same schema"""
-    base_sql = TABLE_TEMPLATE(base_table_name, columns, order_by, on_cluster)
+    base_sql = TABLE_TEMPLATE(base_table_name, columns, order_by)
     dist_sql = DISTRIBUTED_TABLE_TEMPLATE(
         f"{base_table_name}_distributed", base_table_name, columns, granularity="daily"
     )
     return base_sql, dist_sql
 
 
-def WEB_STATS_DAILY_SQL(table_name="web_stats_daily", on_cluster=True):
-    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster)
+def WEB_STATS_DAILY_SQL(table_name="web_stats_daily"):
+    return TABLE_TEMPLATE(table_name, WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"))
 
 
 def DISTRIBUTED_WEB_STATS_DAILY_SQL():
@@ -177,8 +172,8 @@ def DISTRIBUTED_WEB_STATS_DAILY_SQL():
     )
 
 
-def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily", on_cluster=True):
-    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster)
+def WEB_BOUNCES_DAILY_SQL(table_name="web_bounces_daily"):
+    return TABLE_TEMPLATE(table_name, WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"))
 
 
 def DISTRIBUTED_WEB_BOUNCES_DAILY_SQL():
@@ -187,9 +182,9 @@ def DISTRIBUTED_WEB_BOUNCES_DAILY_SQL():
     )
 
 
-def WEB_STATS_HOURLY_SQL(on_cluster=True):
+def WEB_STATS_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
-        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), on_cluster, ttl="24 HOUR"
+        "web_stats_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
     )
 
 
@@ -199,9 +194,9 @@ def DISTRIBUTED_WEB_STATS_HOURLY_SQL():
     )
 
 
-def WEB_BOUNCES_HOURLY_SQL(on_cluster=True):
+def WEB_BOUNCES_HOURLY_SQL():
     return HOURLY_TABLE_TEMPLATE(
-        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), on_cluster, ttl="24 HOUR"
+        "web_bounces_hourly", WEB_BOUNCES_COLUMNS, WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"), ttl="24 HOUR"
     )
 
 
@@ -621,9 +616,9 @@ def WEB_BOUNCES_EXPORT_SQL(
     """
 
 
-def create_combined_view_sql(table_prefix, on_cluster=True):
+def create_combined_view_sql(table_prefix):
     return f"""
-    CREATE VIEW IF NOT EXISTS {table_prefix}_combined {ON_CLUSTER_CLAUSE(on_cluster)} AS
+    CREATE VIEW IF NOT EXISTS {table_prefix}_combined AS
     SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
     SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')

@@ -61,13 +61,16 @@ class DagsterTags(BaseModel):
     Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
     """
 
-    job_name: str
-    run_id: str
-    tags: Optional[dict[str, str]]
-    root_run_id: Optional[str]
-    parent_run_id: Optional[str]
-    job_snapshot_id: Optional[str]
-    execution_plan_snapshot_id: Optional[str]
+    job_name: Optional[str] = None
+    run_id: Optional[str] = None
+    tags: Optional[dict[str, str]] = None
+    root_run_id: Optional[str] = None
+    parent_run_id: Optional[str] = None
+    job_snapshot_id: Optional[str] = None
+    execution_plan_snapshot_id: Optional[str] = None
+
+    op_name: Optional[str] = None
+    asset_key: Optional[str] = None
 
 
 class QueryTags(BaseModel):

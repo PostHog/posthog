@@ -851,6 +851,25 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_member_cannot_delete_invite_when_members_can_invite_false(self):
+        # Create a member user and log in as them
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        # Create an invite as an admin (so it exists)
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
+        invite = OrganizationInvite.objects.create(organization=self.organization, created_by=admin_user)
+
+        # Try to delete as member
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+
     def test_member_can_invite_when_members_can_invite_true_and_feature_available(self):
         """Test that members can invite when members_can_invite is True and ORGANIZATION_INVITE_SETTINGS is available."""
         # Create a member user

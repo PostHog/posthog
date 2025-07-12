@@ -8,6 +8,7 @@ import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.se
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
@@ -28,6 +29,7 @@ export abstract class CdpConsumerBase {
     isStopping = false
     hogFunctionMonitoringService: HogFunctionMonitoringService
     redis: CdpRedis
+    hogFunctionTemplateManager: HogFunctionTemplateManagerService
 
     protected kafkaProducer?: KafkaProducerWrapper
     protected abstract name: string
@@ -41,7 +43,8 @@ export abstract class CdpConsumerBase {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(this.hub)
+        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(this.hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(this.hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
     }

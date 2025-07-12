@@ -885,8 +885,6 @@ def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
 ):
-    pipeline = PipelineNonDLT(
-        source, logger, job_inputs.run_id, schema.should_use_incremental_field, reset_pipeline, shutdown_monitor
-    )
+    pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, reset_pipeline, shutdown_monitor)
     pipeline.run()
     del pipeline

@@ -296,13 +296,13 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def dangerously_get_permissions(self):
-        if self.action == "create":
-            create_permissions = [
+        if self.action in ["create", "destroy"]:
+            write_permissions = [
                 permission()
                 for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
             ]
 
-            return create_permissions
+            return write_permissions
 
         raise NotImplementedError()
 

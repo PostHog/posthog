@@ -54,7 +54,9 @@ describe('CDP API', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
+        hub = await createHub({
+            SITE_URL: 'http://localhost:8000',
+        })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub)
 

@@ -85,6 +85,14 @@ export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
     return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
 }
 
+export function getRecordingStatus(event: LLMTrace | LLMTraceEvent): string | null {
+    if (isLLMTraceEvent(event)) {
+        return event.properties.$recording_status || null
+    }
+
+    return event.events.find((e) => e.properties.$recording_status !== null)?.properties.$recording_status || null
+}
+
 export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
     return (
         input !== null &&

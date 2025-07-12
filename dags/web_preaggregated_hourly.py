@@ -84,7 +84,6 @@ def pre_aggregate_web_analytics_hourly_data(
     name="web_analytics_bounces_hourly",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_hourly_tables"],
     metadata={"table": "web_bounces_hourly"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
@@ -105,7 +104,6 @@ def web_bounces_hourly(
     name="web_analytics_stats_table_hourly",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_hourly_tables"],
     metadata={"table": "web_stats_hourly"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )

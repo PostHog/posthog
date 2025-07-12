@@ -72,7 +72,7 @@ def pre_aggregate_web_analytics_data(
     try:
         # Drop the partition first, ensuring a clean state before insertion
         # Note: No ON CLUSTER needed since tables are replicated (not sharded) and replication handles distribution
-        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start, on_cluster=False)
+        drop_partition_query = DROP_PARTITION_SQL(table_name, date_start)
         context.log.info(f"Dropping partition for {date_start}: {drop_partition_query}")
 
         try:
@@ -103,7 +103,6 @@ def pre_aggregate_web_analytics_data(
     name="web_analytics_bounces_daily",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_bounces_daily"},
@@ -131,7 +130,6 @@ def web_bounces_daily(
     name="web_analytics_stats_table_daily",
     group_name="web_analytics",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_preaggregated_tables"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
     metadata={"table": "web_stats_daily"},

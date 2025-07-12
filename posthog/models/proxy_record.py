@@ -13,6 +13,7 @@ class ProxyRecord(UUIDModel):
         WAITING = "waiting"
         ISSUING = "issuing"
         VALID = "valid"
+        WARNING = "warning"
         ERRORING = "erroring"
         DELETING = "deleting"
         TIMED_OUT = "timed_out"

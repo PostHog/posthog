@@ -75,6 +75,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "feature_flag_confirmation_enabled": false,
+        "feature_flag_confirmation_message": "",
         "flags_persistence_default": false,
         "group_types": [
           {

@@ -87,6 +87,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                                 AccessControlLevel.None,
                                 AccessControlLevel.Viewer,
                                 AccessControlLevel.Editor,
+                                AccessControlLevel.Manager,
                             ],
                             user_access_level: AccessControlLevel.None,
                             default_access_level: AccessControlLevel.None,

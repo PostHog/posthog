@@ -988,7 +988,7 @@ class LinearIntegration:
         link_attachment_query = f'mutation AttachmentCreate {{ attachmentCreate(input: {{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }}) {{ success }} }}'
         self.query(link_attachment_query)
 
-        return linear_issue_id
+        return {"id": linear_issue_id}
 
     def query(self, query):
         response = requests.post(
@@ -1006,8 +1006,8 @@ class GitHubIntegration:
     def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
         jwt_token = jwt.encode(
             {
-                "iat": int(time.time()),
-                "exp": int(time.time()) + 600,  # 10 minutes
+                "iat": int(time.time()) - 300,  # 5 minutes in the past
+                "exp": int(time.time()) + 300,  # 5 minutes in the future
                 "iss": settings.GITHUB_APP_CLIENT_ID,
             },
             settings.GITHUB_APP_PRIVATE_KEY,
@@ -1098,8 +1098,45 @@ class GitHubIntegration:
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
 
-    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
-        pass
+    def organization(self) -> str:
+        return dot_get(self.integration.config, "account.name")
+
+    def list_repositories(self, page: int = 1) -> list[dict]:
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.get(
+            f"https://api.github.com/orgs/{org}/repos?sort=pushed&order=desc&page={page}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        return [repo["name"] for repo in response.json()]
+
+    def create_issue(self, config: dict[str, str]):
+        title: str = config.pop("title")
+        body: str = config.pop("body")
+        repository: str = config.pop("repository")
+
+        org = self.organization()
+        access_token = self.integration.sensitive_config["access_token"]
+
+        response = requests.post(
+            f"https://api.github.com/repos/{org}/{repository}/issues",
+            json={"title": title, "body": body},
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+
+        issue = response.json()
+
+        return {"id": issue["id"], "repository": repository}
 
 
 class MetaAdsIntegration:

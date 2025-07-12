@@ -59,10 +59,8 @@ from posthog.models import (
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
-from products.batch_exports.backend.temporal.destination_tests import (
-    get_destination_test,
-)
-from products.batch_exports.backend.temporal.s3_batch_export import (
+from products.batch_exports.backend.api.destination_tests import get_destination_test
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     SUPPORTED_COMPRESSIONS,
 )
 

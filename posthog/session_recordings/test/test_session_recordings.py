@@ -783,7 +783,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_get_snapshots_v2_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
+    def test_get_snapshots_blobby_v1_from_lts(self, mock_list_objects: MagicMock, _mock_exists: MagicMock) -> None:
         session_id = str(uuid.uuid4())
         timestamp = round(now().timestamp() * 1000)
 
@@ -1616,6 +1616,76 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Block index out of range" in response.json()["detail"]
+
+    @freeze_time("2023-01-01T00:00:00Z")
+    @patch(
+        "posthog.session_recordings.session_recording_api.list_blocks",
+        side_effect=Exception(
+            "if the LTS loading works then we'll not call list_blocks, we throw in the mock to enforce this"
+        ),
+    )
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_get_snapshots_blobby_v2_from_lts(
+        self,
+        _mock_feature_enabled: MagicMock,
+        mock_list_objects: MagicMock,
+        _mock_exists: MagicMock,
+        _mock_v2_list_blocks: MagicMock,
+    ) -> None:
+        session_id = str(uuid.uuid4())
+        timestamp = round(now().timestamp() * 1000)
+
+        SessionRecording.objects.create(
+            team=self.team,
+            session_id=session_id,
+            deleted=False,
+            storage_version="2023-08-01",
+            full_recording_v2_path="an lts stored object path",
+        )
+
+        def list_objects_func(path: str) -> list[str]:
+            # this mock simulates a recording whose blob storage has been deleted by TTL
+            # but which has been stored in LTS blob storage
+            if path == "an lts stored object path":
+                return [
+                    f"an lts stored object path/{timestamp - 10000}-{timestamp - 5000}",
+                    f"an lts stored object path/{timestamp - 5000}-{timestamp}",
+                ]
+            else:
+                return []
+
+        mock_list_objects.side_effect = list_objects_func
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+        )
+        assert response.status_code == 200
+        response_data = response.json()
+
+        assert response_data == {
+            "sources": [
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:50Z",
+                    "end_timestamp": "2022-12-31T23:59:55Z",
+                    "blob_key": "1672531190000-1672531195000",
+                },
+                {
+                    "source": "blob",
+                    "start_timestamp": "2022-12-31T23:59:55Z",
+                    "end_timestamp": "2023-01-01T00:00:00Z",
+                    "blob_key": "1672531195000-1672531200000",
+                },
+            ]
+        }
+        assert mock_list_objects.call_args_list == [
+            call("an lts stored object path"),
+        ]
 
     def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
         """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
