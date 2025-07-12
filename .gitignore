@@ -103,3 +103,5 @@ target/*
 
 # Ignore user's Cursor rules
 .cursor/**/user*.mdc
+
+.test_durations
