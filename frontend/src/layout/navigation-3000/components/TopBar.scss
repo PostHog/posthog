@@ -5,7 +5,7 @@
     top: 0;
     z-index: var(--z-top-navigation);
     display: flex;
-    align-items: start;
+    align-items: flex-start;
     height: var(--breadcrumbs-height-full);
     white-space: nowrap;
     pointer-events: none;

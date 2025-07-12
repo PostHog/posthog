@@ -1,10 +1,10 @@
 import { Link, Tooltip } from '@posthog/lemon-ui'
-import IconHTTP from 'public/hedgehog/running-hog.png'
-import IconS3 from 'public/services/aws-s3.png'
-import IconBigQuery from 'public/services/bigquery.png'
-import IconPostgres from 'public/services/postgres.png'
-import IconRedshift from 'public/services/redshift.png'
-import IconSnowflake from 'public/services/snowflake.png'
+import IconHTTP from '~/assets/hedgehog/running-hog.png'
+import IconS3 from '~/assets/services/aws-s3.png'
+import IconBigQuery from '~/assets/services/bigquery.png'
+import IconPostgres from '~/assets/services/postgres.png'
+import IconRedshift from '~/assets/services/redshift.png'
+import IconSnowflake from '~/assets/services/snowflake.png'
 
 import { BatchExportService } from '~/types'
 

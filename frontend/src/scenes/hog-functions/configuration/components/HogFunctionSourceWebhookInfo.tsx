@@ -13,7 +13,7 @@ export function HogFunctionSourceWebhookInfo(): JSX.Element {
             <CodeSnippet thing="Webhook URL">
                 {!id
                     ? 'The webhook URL will be shown here once you save'
-                    : window.location.origin + '/public/webhooks/' + id}
+                    : window.location.origin + '/src/assets/webhooks/' + id}
             </CodeSnippet>
 
             <p className="text-sm">

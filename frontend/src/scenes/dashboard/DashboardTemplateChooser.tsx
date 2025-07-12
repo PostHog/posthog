@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import BlankDashboardHog from 'public/blank-dashboard-hog.png'
+import BlankDashboardHog from '~/assets/blank-dashboard-hog.png'
 import { useState } from 'react'
 import {
     DashboardTemplateProps,

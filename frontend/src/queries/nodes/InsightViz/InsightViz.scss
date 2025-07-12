@@ -15,7 +15,7 @@
 
     &.InsightViz--horizontal {
         flex-flow: row wrap;
-        align-items: start;
+        align-items: flex-start;
 
         .EditorFiltersWrapper {
             width: 100%;

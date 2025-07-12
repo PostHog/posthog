@@ -60,6 +60,7 @@ frontend/@posthog/apps-common/dist/
 frontend/dist/
 frontend/pnpm-error.log
 frontend/public/Matter*.woff* # Paid font
+frontend/src/assets/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
 frontend/src/products.tsx
