@@ -151,6 +151,19 @@ class _SharedAssistantState(BaseModel):
     Tracks the number of times the query generation has been retried.
     """
 
+    generated_filter_options: Optional[dict] = Field(default=None)
+    """
+    The filter options to apply to the product.
+    """
+    change: Optional[str] = Field(default=None)
+    """
+    The change requested for the filters.
+    """
+    current_filters: Optional[dict] = Field(default=None)
+    """
+    The current filters applied to the product.
+    """
+
 
 class AssistantState(_SharedAssistantState):
     messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages]
@@ -180,6 +193,9 @@ class PartialAssistantState(_SharedAssistantState):
             root_conversation_start_id="",
             rag_context="",
             query_generation_retry_count=0,
+            generated_filter_options=None,
+            change="",
+            current_filters=None,
         )
 
 
@@ -217,6 +233,8 @@ class AssistantNodeName(StrEnum):
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
     INSIGHTS_SUBGRAPH = "insights_subgraph"
     TITLE_GENERATOR = "title_generator"
+    FILTER_OPTIONS = "filter_options"
+    FILTER_OPTIONS_TOOLS = "filter_options_tools"
 
 
 class AssistantMode(StrEnum):
