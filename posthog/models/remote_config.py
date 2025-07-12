@@ -103,8 +103,7 @@ def _should_have_custom_rrweb_script(team_id: int) -> bool:
     # default to off if not provided
     sample_rate: float = settings.SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE or 0
     # a given team id will always be true or false here
-    should = sample_on_property(str(team_id), sample_rate)
-    return should
+    return sample_on_property(str(team_id), sample_rate)
 
 
 class RemoteConfig(UUIDModel):
