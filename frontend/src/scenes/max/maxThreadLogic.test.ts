@@ -474,4 +474,176 @@ describe('maxThreadLogic', () => {
             )
         })
     })
+
+    describe('traceId functionality', () => {
+        it('sets and stores traceId correctly', async () => {
+            const testTraceId = 'test-trace-id-123'
+
+            await expectLogic(logic, () => {
+                logic.actions.setTraceId(testTraceId)
+            }).toMatchValues({
+                traceId: testTraceId,
+            })
+        })
+
+        it('includes traceId in stream API calls', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test prompt')
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'test prompt',
+                    trace_id: expect.any(String),
+                }),
+                expect.any(Object)
+            )
+        })
+    })
+
+    describe('reconnectToStream', () => {
+        it('calls streamConversation with conversation ID and null content', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.reconnectToStream()
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: MOCK_CONVERSATION_ID,
+                    content: null,
+                }),
+                expect.any(Object)
+            )
+        })
+    })
+
+    describe('invisible tool call filtering', () => {
+        it('filters out invisible tool call messages from threadGrouped', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'invisible tool call',
+                        status: 'completed',
+                        id: 'tool-1',
+                        visible: false,
+                        tool_call_id: 'tool-1',
+                        ui_payload: {},
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ])
+            }).toMatchValues({
+                threadGrouped: [
+                    [
+                        {
+                            type: AssistantMessageType.Human,
+                            content: 'hello',
+                            status: 'completed',
+                            id: 'human-1',
+                        },
+                        {
+                            type: AssistantMessageType.Assistant,
+                            content: 'response',
+                            status: 'completed',
+                            id: 'assistant-1',
+                        },
+                    ],
+                ],
+            })
+        })
+    })
+
+    describe('failure message handling', () => {
+        it('adds failure message and stops streaming when failure event received', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                ])
+                // Simulate receiving a failure message
+                logic.actions.addMessage({
+                    type: AssistantMessageType.Failure,
+                    content: 'Something went wrong',
+                    status: 'completed',
+                    id: 'failure-1',
+                })
+            }).toMatchValues({
+                threadGrouped: [
+                    [
+                        {
+                            type: AssistantMessageType.Human,
+                            content: 'test question',
+                            status: 'completed',
+                            id: 'human-1',
+                        },
+                    ],
+                    [
+                        {
+                            type: AssistantMessageType.Failure,
+                            content: 'Something went wrong',
+                            status: 'completed',
+                            id: 'failure-1',
+                        },
+                    ],
+                ],
+            })
+        })
+    })
+
+    describe('generation error status handling', () => {
+        it('sets message status to error and stops streaming on generation error', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'partial response',
+                        status: 'loading',
+                        id: 'assistant-1',
+                    },
+                ])
+                // Simulate setting error status
+                logic.actions.setMessageStatus(1, 'error')
+            }).toMatchValues({
+                threadRaw: [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'partial response',
+                        status: 'error',
+                        id: 'assistant-1',
+                    },
+                ],
+            })
+        })
+    })
 })

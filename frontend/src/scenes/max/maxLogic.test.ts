@@ -112,4 +112,54 @@ describe('maxLogic', () => {
             }),
         })
     })
+
+    it('generates and uses frontendConversationId correctly', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        const initialFrontendId = logic.values.frontendConversationId
+        expect(initialFrontendId).toBeTruthy()
+        expect(typeof initialFrontendId).toBe('string')
+
+        // Test that the ID is a valid UUID
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        expect(initialFrontendId).toMatch(uuidRegex)
+
+        // Test that starting a new conversation generates a new frontend ID
+        await expectLogic(logic, () => {
+            logic.actions.startNewConversation()
+        }).toMatchValues({
+            frontendConversationId: expect.not.stringMatching(initialFrontendId),
+        })
+
+        expect(logic.values.frontendConversationId).toBeTruthy()
+        expect(logic.values.frontendConversationId).not.toBe(initialFrontendId)
+
+        // Test that the new ID is also a valid UUID
+        expect(logic.values.frontendConversationId).toMatch(uuidRegex)
+    })
+
+    it('uses threadLogicKey correctly with frontendConversationId', async () => {
+        logic = maxLogic()
+        logic.mount()
+
+        // When no conversation ID is set, should use frontendConversationId
+        await expectLogic(logic).toMatchValues({
+            threadLogicKey: logic.values.frontendConversationId,
+        })
+
+        // When conversation ID is set, should use conversationId when not in threadKeys
+        await expectLogic(logic, () => {
+            logic.actions.setConversationId('test-conversation-id')
+        }).toMatchValues({
+            threadLogicKey: 'test-conversation-id', // Uses conversationId when not in threadKeys
+        })
+
+        // When threadKey is set for conversation ID, should use that
+        await expectLogic(logic, () => {
+            logic.actions.setThreadKey('test-conversation-id', 'custom-thread-key')
+        }).toMatchValues({
+            threadLogicKey: 'custom-thread-key',
+        })
+    })
 })
