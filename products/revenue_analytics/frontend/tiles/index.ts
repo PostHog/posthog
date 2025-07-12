@@ -1,3 +1,4 @@
+export { ArpuTile } from './ArpuTile'
 export { CustomerCountTile } from './CustomerCountTile'
 export { OverviewTile } from './OverviewTile'
 export { RevenueGrowthRateTile } from './RevenueGrowthRateTile'
