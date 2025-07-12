@@ -41,7 +41,9 @@ import {
     EventsQueryResponse,
     GroupsQuery,
     GroupsQueryResponse,
+    HogQLQuery,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     HogQLVariable,
     InsightVizNode,
     MarketingAnalyticsTableQuery,
@@ -379,7 +381,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (
+                    if (isHogQLQuery(props.query)) {
+                        const newResponse =
+                            (await performQuery(
+                                addModifiers(values.nextQuery, props.modifiers),
+                                undefined,
+                                props.refresh
+                            )) ?? null
+                        actions.setElapsedTime(performance.now() - now)
+                        return {
+                            ...newResponse,
+                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            hasMore: newResponse?.hasMore,
+                        }
+                    } else if (
                         isEventsQuery(props.query) ||
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
@@ -637,6 +652,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query, response, responseError, dataLoading, isShowingCachedResults): DataNode | null => {
                 if (isShowingCachedResults) {
                     return null
+                }
+
+                if (isHogQLQuery(query) && response) {
+                    const _response = response as HogQLQueryResponse
+                    const _pagination = {
+                        limit: _response.limit,
+                        offset: _response.offset,
+                        hasMore: _response.hasMore,
+                    }
+                    if (_pagination.hasMore) {
+                        return {
+                            ...query,
+                            pagination: _pagination,
+                        } as HogQLQuery
+                    }
                 }
 
                 if (
