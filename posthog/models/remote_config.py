@@ -92,7 +92,6 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
     return config
 
 
-# KLUDGE: this is duplicated in posthog/api/decide.py
 def _should_have_custom_rrweb_script(team_id: int) -> bool:
     if settings.SESSION_REPLAY_RRWEB_SCRIPT is None:
         return False
