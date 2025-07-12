@@ -591,66 +591,8 @@ def _should_have_custom_rrweb_script(team_id: int) -> bool:
         return False
 
 
-# KLUDGE: this is duplicated in posthog/models/remote_config.py
 def _session_recording_config_response(request: HttpRequest, team: Team) -> Union[bool, dict[str, Any]]:
-    session_recording_config_response: Union[bool, dict[str, Any]] = False
+    if _session_recording_domain_not_allowed(team, request):
+        return False
 
-    try:
-        if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):
-            capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = (
-                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
-            )
-
-            if sample_rate == "1.00":
-                sample_rate = None
-
-            minimum_duration = team.session_recording_minimum_duration_milliseconds or None
-
-            linked_flag = None
-            linked_flag_config = team.session_recording_linked_flag or None
-            if isinstance(linked_flag_config, dict):
-                linked_flag_key = linked_flag_config.get("key", None)
-                linked_flag_variant = linked_flag_config.get("variant", None)
-                if linked_flag_variant is not None:
-                    linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-                else:
-                    linked_flag = linked_flag_key
-
-            rrweb_script_config = None
-
-            if _should_have_custom_rrweb_script(team.pk):
-                rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
-                }
-
-            session_recording_config_response = {
-                "endpoint": "/s/",
-                "consoleLogRecordingEnabled": capture_console_logs,
-                "recorderVersion": "v2",
-                "sampleRate": sample_rate,
-                "minimumDurationMilliseconds": minimum_duration,
-                "linkedFlag": linked_flag,
-                "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
-                "masking": team.session_recording_masking_config or None,
-                "urlTriggers": team.session_recording_url_trigger_config,
-                "urlBlocklist": team.session_recording_url_blocklist_config,
-                "eventTriggers": team.session_recording_event_trigger_config,
-                "triggerMatchType": team.session_recording_trigger_match_type_config,
-                "scriptConfig": rrweb_script_config,
-            }
-
-            if isinstance(team.session_replay_config, dict):
-                record_canvas = team.session_replay_config.get("record_canvas", False)
-                session_recording_config_response.update(
-                    {
-                        "recordCanvas": record_canvas,
-                        # hard coded during beta while we decide on sensible values
-                        "canvasFps": 3 if record_canvas else None,
-                        "canvasQuality": "0.4" if record_canvas else None,
-                    }
-                )
-    except Exception as e:
-        capture_exception(e)  # we don't want to fail decide if session recording config fails to load
-
-    return session_recording_config_response
+    return RemoteConfig.session_recording_config_response(team)
