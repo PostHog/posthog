@@ -46,8 +46,7 @@ from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework.utils.encoders import JSONEncoder
 
-from posthog.cloud_utils import get_cached_instance_license, is_cloud
-from posthog.constants import AvailableFeature
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -966,13 +965,6 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     ):
         return True
 
-    if settings.MULTI_ORG_ENABLED:
-        license = get_cached_instance_license()
-        if license is not None and AvailableFeature.ZAPIER in license.available_features:
-            return True
-        else:
-            logger.warning("You have configured MULTI_ORG_ENABLED, but not the required premium PostHog plan!")
-
     return False
 
 
@@ -990,21 +982,12 @@ def get_instance_available_sso_providers() -> dict[str, bool]:
 
     # Get license information
     bypass_license: bool = is_cloud() or settings.DEMO
-    license = None
-    if not bypass_license:
-        try:
-            from ee.models.license import License
-        except ImportError:
-            pass
-        else:
-            license = License.objects.first_valid()
-
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
         settings,
         "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET",
         None,
     ):
-        if bypass_license or (license is not None and AvailableFeature.SOCIAL_SSO in license.available_features):
+        if bypass_license:
             output["google-oauth2"] = True
         else:
             logger.warning("You have Google login set up, but not the required license!")
