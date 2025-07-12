@@ -5,6 +5,7 @@ from langchain_core.runnables.base import RunnableLike
 from langgraph.graph.state import StateGraph
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.billing.nodes import BillingNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
@@ -319,6 +320,7 @@ class AssistantGraph(BaseAssistantGraph):
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
+            "billing": AssistantNodeName.BILLING,
             "end": AssistantNodeName.END,
         }
         root_node = RootNode(self._team, self._user)
@@ -456,6 +458,13 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
+    def add_billing(self):
+        builder = self._graph
+        billing_node = BillingNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.BILLING, billing_node)
+        builder.add_edge(AssistantNodeName.BILLING, AssistantNodeName.ROOT)
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
@@ -465,5 +474,6 @@ class AssistantGraph(BaseAssistantGraph):
             .add_root()
             .add_insights()
             .add_inkeep_docs()
+            .add_billing()
             .compile(checkpointer=checkpointer)
         )
