@@ -1,5 +1,6 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { expectLogic, truth } from 'kea-test-utils'
+
 import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { now } from 'lib/dayjs'

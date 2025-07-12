@@ -1,5 +1,7 @@
 import './SavedInsights.scss'
 
+import { useActions, useValues } from 'kea'
+
 import {
     IconAI,
     IconBrackets,
@@ -26,7 +28,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
@@ -34,17 +36,17 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -52,8 +54,8 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { OverlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

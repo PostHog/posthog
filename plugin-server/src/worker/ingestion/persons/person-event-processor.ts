@@ -42,9 +42,8 @@ export class PersonEventProcessor {
         if (personFromMerge) {
             // Try to shortcut if we have the person from identify or alias
             try {
-                const [updatedPerson, updateKafkaAck] = await this.propertyService.updatePersonProperties(
-                    personFromMerge
-                )
+                const [updatedPerson, updateKafkaAck] =
+                    await this.propertyService.updatePersonProperties(personFromMerge)
                 return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
             } catch (error) {
                 // Shortcut didn't work, swallow the error and try normal retry loop below

@@ -6,10 +6,9 @@ import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queu
 import { TimestampFormat } from '../../../../../src/types'
 import { parseJSON } from '../../../../../src/utils/json-parse'
 import { castTimestampOrNow } from '../../../../../src/utils/utils'
+import { mockProducer, mockProducerObserver } from '../../../../helpers/mocks/producer.mock'
 
 jest.mock('../../../../../src/utils/logger')
-
-import { mockProducer, mockProducerObserver } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
     source: string | null,

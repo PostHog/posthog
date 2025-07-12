@@ -1,4 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
+
 import { FeatureFlagSettings as BasicFeatureFlagSettings } from 'scenes/feature-flags/FeatureFlagSettings'
 import { urls } from 'scenes/urls'
 

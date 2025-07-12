@@ -1,4 +1,5 @@
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
 interface MetadataTagProps {

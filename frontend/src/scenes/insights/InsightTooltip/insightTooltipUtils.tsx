@@ -1,6 +1,7 @@
+import React from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'

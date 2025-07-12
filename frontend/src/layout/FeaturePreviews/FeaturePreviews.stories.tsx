@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { FeatureFlagKey } from 'lib/constants'
 import { EarlyAccessFeature } from 'posthog-js'
+
+import { FeatureFlagKey } from 'lib/constants'
 
 import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 

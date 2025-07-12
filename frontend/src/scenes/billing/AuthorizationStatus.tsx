@@ -1,6 +1,7 @@
-import { SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
+
+import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 

@@ -1,4 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
+
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 
 import { useStorybookMocks } from '~/mocks/browser'

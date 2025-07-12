@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import {
     BaseIcon,
     IconCheck,
@@ -9,14 +12,13 @@ import {
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconChevronRight, IconComment, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
 import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
-import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { SharedListMiniFilter, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
     FilterableInspectorListItemTypes,
     InspectorListItem,
@@ -26,7 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 function sideActionForType({
@@ -115,12 +117,12 @@ function FilterSettingsButton({
                 upsellSideAction
                     ? upsellSideAction
                     : allItemsByItemType[type]?.length > 1
-                    ? sideActionForType({
-                          setMiniFilter,
-                          allItemsByMiniFilterKey,
-                          miniFilters: filteredMiniFiltersForType,
-                      })
-                    : undefined
+                      ? sideActionForType({
+                            setMiniFilter,
+                            allItemsByMiniFilterKey,
+                            miniFilters: filteredMiniFiltersForType,
+                        })
+                      : undefined
             }
             label={label || capitalizeFirstLetter(type)}
             icon={icon}

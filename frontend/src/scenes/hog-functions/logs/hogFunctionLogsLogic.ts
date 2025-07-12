@@ -1,6 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { beforeUnload } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
@@ -8,7 +10,7 @@ import { hogql } from '~/queries/utils'
 import { LogEntryLevel } from '~/types'
 
 import type { hogFunctionLogsLogicType } from './hogFunctionLogsLogicType'
-import { GroupedLogEntry, logsViewerLogic, LogsViewerLogicProps } from './logsViewerLogic'
+import { GroupedLogEntry, LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
 
 export type RetryInvocationState = 'pending' | 'success' | 'failure'
 

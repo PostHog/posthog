@@ -25,7 +25,7 @@ describe('SessionBatchManager', () => {
                 return 0
             },
             discardPartition: jest.fn(),
-        } as unknown as jest.Mocked<SessionBatchRecorder>)
+        }) as unknown as jest.Mocked<SessionBatchRecorder>
 
     beforeEach(() => {
         jest.mocked(SessionBatchRecorder).mockImplementation(() => {

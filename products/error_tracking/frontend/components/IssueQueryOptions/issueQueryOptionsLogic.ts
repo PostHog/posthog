@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { Params } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
@@ -66,7 +67,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'assignee', values.assignee, DEFAULT_ASSIGNEE)

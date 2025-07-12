@@ -1,4 +1,4 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import { LogLevel, PluginLogLevel, PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -22,15 +22,15 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/posthog'
-            : '',
+              ? 'postgres://posthog:posthog@localhost:5432/posthog'
+              : '',
         PERSONS_READONLY_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,

@@ -1,8 +1,10 @@
+import { useState } from 'react'
+
 import { IconX } from '@posthog/icons'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { formatDate, formatDateRange } from 'lib/utils'
-import { useState } from 'react'
 
 import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 

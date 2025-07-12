@@ -1,17 +1,18 @@
 import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration } from 'lib/utils'
+import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType } from '~/types'
 
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayLogicType'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 export const quickEmojis = ['💖', '👍', '🤔', '👎', '🌶️']
 
@@ -112,8 +113,8 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 content: !content?.trim()
                     ? 'An annotation must have text content.'
                     : content.length > 400
-                    ? 'Must be 400 characters or less'
-                    : null,
+                      ? 'Must be 400 characters or less'
+                      : null,
             }),
             submit: async (data) => {
                 const { annotationId, content, dateForTimestamp, scope } = data

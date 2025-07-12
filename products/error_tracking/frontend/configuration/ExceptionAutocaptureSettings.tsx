@@ -1,7 +1,9 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
+
+import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonCard, LemonDivider } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'

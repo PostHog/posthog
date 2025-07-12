@@ -1,12 +1,14 @@
 import './SidePanel.scss'
 
-import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { useEffect, useRef } from 'react'
+
+import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
+
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,18 +20,18 @@ import {
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
-import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
-import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
-import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
-import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
+import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
+import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { sidePanelLogic } from './sidePanelLogic'
-import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
+import { WithinSidePanelContext, sidePanelStateLogic } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -195,7 +197,7 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
+                width: sidePanelOpenAndAvailable ? (desiredSize ?? DEFAULT_WIDTH) : undefined,
                 ...theme?.sidebarStyle,
             }}
             id="side-panel"

@@ -1,5 +1,6 @@
 import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
+
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'

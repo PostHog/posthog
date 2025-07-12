@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,7 +11,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'

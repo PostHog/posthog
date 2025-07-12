@@ -1,6 +1,7 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 

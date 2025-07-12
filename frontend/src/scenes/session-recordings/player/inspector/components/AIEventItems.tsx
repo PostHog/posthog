@@ -2,6 +2,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+
 import { ConversationMessagesDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationMessagesDisplay'
 import { LLMInputOutput } from 'products/llm_observability/frontend/LLMInputOutput'
 
@@ -23,7 +24,7 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
                     output={
                         event.properties.$ai_is_error
                             ? event.properties.$ai_error
-                            : event.properties.$ai_output_choices ?? event.properties.$ai_output
+                            : (event.properties.$ai_output_choices ?? event.properties.$ai_output)
                     }
                     httpStatus={event.properties.$ai_http_status}
                     raisedError={event.properties.$ai_is_error}

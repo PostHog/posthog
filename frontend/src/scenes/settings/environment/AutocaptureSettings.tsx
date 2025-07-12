@@ -1,7 +1,9 @@
-import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
+
+import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,8 +25,8 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
                 userLoading
                     ? 'Loading user'
                     : currentTeam?.autocapture_web_vitals_opt_in
-                    ? null
-                    : 'Enable web vitals autocapture to set allowed metrics'
+                      ? null
+                      : 'Enable web vitals autocapture to set allowed metrics'
             }
             onChange={(checked) => {
                 if (!currentTeam) {

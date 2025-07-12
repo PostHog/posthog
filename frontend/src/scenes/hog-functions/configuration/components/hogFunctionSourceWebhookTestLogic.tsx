@@ -1,8 +1,9 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+
 import { tryJsonParse } from 'lib/utils'
 
-import { hogFunctionConfigurationLogic, HogFunctionConfigurationLogicProps } from '../hogFunctionConfigurationLogic'
+import { HogFunctionConfigurationLogicProps, hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import type { hogFunctionSourceWebhookTestLogicType } from './hogFunctionSourceWebhookTestLogicType'
 
 export type HogFunctionSourceWebhookTestForm = {

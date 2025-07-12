@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { userLogic } from 'scenes/userLogic'
 

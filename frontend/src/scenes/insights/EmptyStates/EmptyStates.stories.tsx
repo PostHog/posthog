@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 

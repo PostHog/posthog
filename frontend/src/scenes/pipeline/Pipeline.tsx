@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ConcreteLemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -11,15 +12,15 @@ import { ActivityScope, PipelineStage, PipelineTab } from '~/types'
 
 import { DataPipelinesSources } from '../data-pipelines/DataPipelinesSources'
 import { AppsManagement } from './AppsManagement'
-import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
-import { Destinations } from './destinations/Destinations'
 import { FrontendApps } from './FrontendApps'
 import { ImportApps } from './ImportApps'
-import { importAppsLogic } from './importAppsLogic'
 import { Overview } from './Overview'
+import { Transformations } from './Transformations'
+import { Destinations } from './destinations/Destinations'
+import { DESTINATION_TYPES, SITE_APP_TYPES } from './destinations/constants'
+import { importAppsLogic } from './importAppsLogic'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
-import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
     const { canGloballyManagePlugins } = useValues(pipelineAccessLogic)

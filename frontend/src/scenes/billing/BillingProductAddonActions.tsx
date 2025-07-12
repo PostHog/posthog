@@ -1,17 +1,19 @@
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { toSentenceCase } from 'lib/utils'
-import { useMemo } from 'react'
 
 import { BillingProductV2AddonType } from '~/types'
 
+import { formatFlatRate } from './BillingProductAddon'
 import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
-import { formatFlatRate } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 
 interface BillingProductAddonActionsProps {

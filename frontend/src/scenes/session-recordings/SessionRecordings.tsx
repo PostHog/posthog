@@ -1,16 +1,18 @@
-import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconEllipsis, IconGear, IconOpenSidebar } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
+
 import {
-    authorizedUrlListLogic,
     AuthorizedUrlListType,
+    authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -25,8 +27,8 @@ import { urls } from 'scenes/urls'
 
 import { NotebookNodeType, ProductKey, ReplayTab, ReplayTabs } from '~/types'
 
-import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
+import { createPlaylist } from './playlist/playlistUtils'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'

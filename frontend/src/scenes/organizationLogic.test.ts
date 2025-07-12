@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { initKeaTests } from '~/test/init'

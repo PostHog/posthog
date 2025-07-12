@@ -4,7 +4,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { SDKInstructionsMap, SDKKey, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, SDKInstructionsMap, SDKKey } from '~/types'
 
 import {
     AndroidInstructions,
@@ -14,16 +14,16 @@ import {
     FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
-    iOSInstructions,
     JSWebInstructions,
     NextJSInstructions,
     NuxtJSInstructions,
+    RNInstructions,
     ReactInstructions,
     RemixInstructions,
-    RNInstructions,
     SvelteInstructions,
     VueInstructions,
     WebflowInstructions,
+    iOSInstructions,
 } from '.'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {

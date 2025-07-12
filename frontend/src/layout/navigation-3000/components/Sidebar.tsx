@@ -1,9 +1,11 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import React, { useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { SidebarLogic, SidebarNavbarItem } from '../types'

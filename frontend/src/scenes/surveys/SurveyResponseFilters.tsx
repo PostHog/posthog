@@ -1,13 +1,15 @@
+import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+
 import { IconCode, IconCopy, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { allOperatorsMapping } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import React, { useState } from 'react'
 import { QUESTION_TYPE_ICON_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyEndDateForQuery, getSurveyIdBasedResponseKey, getSurveyStartDateForQuery } from 'scenes/surveys/utils'
 
@@ -22,8 +24,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
-import { surveyLogic } from './surveyLogic'
 import { SurveySQLHelper } from './SurveySQLHelper'
+import { surveyLogic } from './surveyLogic'
 
 type OperatorOption = { label: string; value: PropertyOperator }
 

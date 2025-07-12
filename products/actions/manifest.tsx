@@ -1,4 +1,5 @@
 import { IconCursor } from '@posthog/icons'
+
 import { urls } from 'scenes/urls'
 
 import { ActionType, ProductManifest } from '../../frontend/src/types'

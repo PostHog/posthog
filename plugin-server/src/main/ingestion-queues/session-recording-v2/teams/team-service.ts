@@ -2,7 +2,7 @@ import { TeamIDWithConfig } from '../../../../cdp/consumers/cdp-base.consumer'
 import { Team } from '../../../../types'
 import { BackgroundRefresher } from '../../../../utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
-import { logger as logger } from '../../../../utils/logger'
+import { logger } from '../../../../utils/logger'
 import { TeamForReplay } from './types'
 
 export class TeamService {
@@ -50,8 +50,11 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
         'fetchTeamTokensWithRecordings'
     )
 
-    return selectResult.rows.reduce((acc, row) => {
-        acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
-        return acc
-    }, {} as Record<string, TeamIDWithConfig>)
+    return selectResult.rows.reduce(
+        (acc, row) => {
+            acc[row.api_token] = { teamId: row.id, consoleLogIngestionEnabled: row.capture_console_log_opt_in }
+            return acc
+        },
+        {} as Record<string, TeamIDWithConfig>
+    )
 }

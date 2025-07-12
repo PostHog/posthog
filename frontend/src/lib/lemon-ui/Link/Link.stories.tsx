@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { urls } from 'scenes/urls'
 
 import { Link, LinkProps } from './Link'

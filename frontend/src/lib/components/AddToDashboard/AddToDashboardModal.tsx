@@ -1,6 +1,11 @@
-import { IconHome } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { CSSProperties } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+
+import { IconHome } from '@posthog/icons'
+
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -8,9 +13,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
-import { CSSProperties } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -68,8 +70,8 @@ const DashboardRelationRow = ({
                     !canEditInsight
                         ? "You don't have permission to edit this dashboard"
                         : dashboardWithActiveAPICall
-                        ? 'Loading...'
-                        : ''
+                          ? 'Loading...'
+                          : ''
                 }
                 size="small"
                 onClick={(e) => {

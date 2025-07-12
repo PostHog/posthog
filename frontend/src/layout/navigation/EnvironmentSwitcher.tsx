@@ -1,12 +1,14 @@
-import { IconChevronDown, IconCornerDownRight, IconGear, IconPlus, IconWarning } from '@posthog/icons'
-import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
+
+import { IconChevronDown, IconCornerDownRight, IconGear, IconPlus, IconWarning } from '@posthog/icons'
+import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonMenuItem, LemonMenuOverlay, LemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, TeamPublicType } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
-import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './environmentsSwitcherLogic'
+import { TeamBasicTypeWithProjectName, environmentSwitcherLogic } from './environmentsSwitcherLogic'
 
 /**
  * Regex matching a possible emoji (any emoji) at the beginning of the string.
@@ -217,8 +219,8 @@ function convertTeamToMenuItem(
             team.id === currentTeam.id
                 ? 'Currently active environment'
                 : team.project_id === currentTeam.project_id
-                ? 'Switch to this environment'
-                : 'Switch to this environment of the project',
+                  ? 'Switch to this environment'
+                  : 'Switch to this environment of the project',
         onClick: onClickInside,
         sideAction: {
             icon: <IconGear />,

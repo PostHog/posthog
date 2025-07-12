@@ -1,5 +1,7 @@
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+
 import { SceneIcon } from 'lib/components/SceneDashboardChoice/SceneIcon'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -9,8 +11,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 import {
-    sceneDashboardChoiceModalLogic,
     SceneDashboardChoiceModalProps,
+    sceneDashboardChoiceModalLogic,
     sceneDescription,
 } from './sceneDashboardChoiceModalLogic'
 

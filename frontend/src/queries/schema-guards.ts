@@ -4,6 +4,7 @@ import { RevenueAnalyticsPropertyFilters, WebAnalyticsPropertyFilters } from '~/
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import schema from './schema.json'
+
 const ajv = new Ajv({
     allowUnionTypes: true,
 })

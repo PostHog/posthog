@@ -1,5 +1,7 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
+
+import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
@@ -14,10 +16,9 @@ import {
     Team,
 } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
+import { BatchWritingGroupStoreForBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
 import { MeasuringPersonsStoreForBatch } from '../../src/worker/ingestion/persons/measuring-person-store'
 import { resetTestDatabase } from '../helpers/sql'
-import { v4 } from 'uuid'
-import { BatchWritingGroupStoreForBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
 
 jest.setTimeout(10000)
 

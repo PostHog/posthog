@@ -4,21 +4,22 @@ import * as ipaddr from 'ipaddr.js'
 import net from 'node:net'
 import { Counter } from 'prom-client'
 import {
-    type HeadersInit,
     Agent,
-    errors,
-    fetch as undiciFetch,
-    request,
+    type HeadersInit,
     RequestInfo,
     RequestInit,
     Response,
+    errors,
+    request,
+    fetch as undiciFetch,
 } from 'undici'
-export { Response } from 'undici'
 import { URL } from 'url'
 
 import { defaultConfig } from '../config/config'
 import { isProdEnv } from './env-utils'
 import { parseJSON } from './json-parse'
+
+export { Response } from 'undici'
 
 const unsafeRequestCounter = new Counter({
     name: 'node_request_unsafe',

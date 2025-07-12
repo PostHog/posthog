@@ -1,7 +1,8 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
 import { kea, path, useAllValues } from 'kea'
 import { Form, forms } from 'kea-forms'
+
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from './LemonField'
 import type { formLogicType } from './LemonField.storiesType'

@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { resizerLogic, ResizerLogicProps } from './resizerLogic'
+import { ResizerLogicProps, resizerLogic } from './resizerLogic'
 
 export type ResizerProps = ResizerLogicProps & {
     offset?: number | string

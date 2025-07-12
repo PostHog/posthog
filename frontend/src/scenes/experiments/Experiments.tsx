@@ -1,18 +1,20 @@
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
+
+import { LemonDialog, LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,10 +25,10 @@ import { urls } from 'scenes/urls'
 
 import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
 
-import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+import { EXPERIMENTS_PER_PAGE, experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
@@ -55,8 +57,8 @@ export function Experiments(): JSX.Element {
         return experiment.end_date
             ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
             : experiment.start_date
-            ? dayjs().diff(dayjs(experiment.start_date), 'day')
-            : undefined
+              ? dayjs().diff(dayjs(experiment.start_date), 'day')
+              : undefined
     }
 
     const columns: LemonTableColumns<Experiment> = [

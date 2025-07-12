@@ -1,4 +1,3 @@
-import ClickHouse from '@posthog/clickhouse'
 import * as fs from 'fs'
 import { Kafka, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -6,6 +5,8 @@ import { hostname } from 'os'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+
+import ClickHouse from '@posthog/clickhouse'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'

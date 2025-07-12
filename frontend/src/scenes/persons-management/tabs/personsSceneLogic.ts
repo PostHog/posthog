@@ -1,5 +1,7 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, kea, listeners, path, reducers } from 'kea'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'

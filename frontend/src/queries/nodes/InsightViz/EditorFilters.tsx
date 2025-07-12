@@ -1,9 +1,11 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { CSSTransition } from 'react-transition-group'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'

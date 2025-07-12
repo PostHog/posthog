@@ -1,17 +1,18 @@
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    APIScopeObject,
     AccessControlResourceType,
     AccessControlResponseType,
     AccessControlType,
     AccessControlTypeRole,
     AccessControlUpdateType,
-    APIScopeObject,
     OrganizationMemberType,
     RoleType,
 } from '~/types'

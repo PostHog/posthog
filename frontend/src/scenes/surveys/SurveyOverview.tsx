@@ -1,12 +1,14 @@
-import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonDivider, Link } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
-import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAPIEditor } from 'scenes/surveys/SurveyAPIEditor'
 import { SurveyFormAppearance } from 'scenes/surveys/SurveyFormAppearance'
+import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { SurveyQuestionType, SurveySchedule as SurveyScheduleEnum, SurveyType } from '~/types'

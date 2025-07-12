@@ -1,12 +1,14 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

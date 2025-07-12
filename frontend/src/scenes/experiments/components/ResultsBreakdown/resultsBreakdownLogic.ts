@@ -1,7 +1,8 @@
 import { actions, afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { P, match } from 'ts-pattern'
+
 import { FunnelLayout } from 'lib/constants'
-import { match, P } from 'ts-pattern'
 
 import { performQuery } from '~/queries/query'
 import type {
@@ -11,7 +12,7 @@ import type {
     InsightVizNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricType, isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentMetricType, NodeKind, isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import {
     addExposureToMetric,
     compose,

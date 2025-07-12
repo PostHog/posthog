@@ -1,15 +1,17 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { InstanceSetting } from '~/types'
 
 import type { asyncMigrationsLogicType } from './asyncMigrationsLogicType'
+
 export type TabName = 'overview' | 'internal_metrics'
 
 // keep in sync with MigrationStatus in posthog/models/async_migration.py

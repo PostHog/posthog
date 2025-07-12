@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import {
     IconEllipsis,
     IconHourglass,
@@ -7,12 +9,12 @@ import {
     IconTortoise,
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,

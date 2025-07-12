@@ -1,8 +1,10 @@
+import { Layouts } from 'react-grid-layout'
+
 import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { currentSessionId } from 'lib/internalMetrics'
 import { shouldCancelQuery, toParams } from 'lib/utils'
-import { Layouts } from 'react-grid-layout'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'

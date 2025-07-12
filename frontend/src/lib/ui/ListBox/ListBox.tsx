@@ -1,10 +1,9 @@
-import { cn } from 'lib/utils/css-classes'
 import React, {
+    ReactNode,
     cloneElement,
     createContext,
     forwardRef,
     isValidElement,
-    ReactNode,
     useCallback,
     useContext,
     useEffect,
@@ -13,6 +12,8 @@ import React, {
     useRef,
     useState,
 } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 /** Imperative API handle for Combobox to call focusFirstItem() etc */
 export interface ListBoxHandle {

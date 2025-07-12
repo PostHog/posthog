@@ -1,12 +1,14 @@
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { useActions } from 'kea'
+import { useRef } from 'react'
+
+import { IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconBold, IconComment, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL, uuid } from 'lib/utils'
-import { useRef } from 'react'
 
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'

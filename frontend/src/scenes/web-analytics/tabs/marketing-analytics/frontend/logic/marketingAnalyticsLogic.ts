@@ -1,28 +1,29 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    CurrencyCode,
-    DatabaseSchemaDataWarehouseTable,
-    DataWarehouseNode,
-    SourceMap,
     ConversionGoalFilter,
-    MarketingAnalyticsOrderBy,
+    CurrencyCode,
+    DataWarehouseNode,
+    DatabaseSchemaDataWarehouseTable,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsOrderBy,
+    SourceMap,
 } from '~/queries/schema/schema-general'
+import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
 
-import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
-    NativeMarketingSource,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
+    NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
 } from './utils'
 

@@ -1,36 +1,37 @@
 import './SessionRecordingPlayer.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import posthog from 'posthog-js'
-import { useEffect, useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
+import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { PlayerController } from './controller/PlayerController'
-import { PlayerMeta } from './player-meta/PlayerMeta'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
-import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
+import { PlayerController } from './controller/PlayerController'
+import { PlayerMeta } from './player-meta/PlayerMeta'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
     ONE_FRAME_MS,
     PLAYBACK_SPEEDS,
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 

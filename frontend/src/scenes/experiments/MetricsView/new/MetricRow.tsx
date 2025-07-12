@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+
+import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
-import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from 'scenes/experiments/constants'
 import { useSvgResizeObserver } from '../hooks/useSvgResizeObserver'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'

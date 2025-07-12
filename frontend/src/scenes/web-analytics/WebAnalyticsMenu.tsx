@@ -1,5 +1,7 @@
-import { IconEllipsis, IconSearch } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconEllipsis, IconSearch } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'

@@ -1,15 +1,18 @@
-import { LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea } from '@posthog/lemon-ui'
+
+import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
+import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { ICONS } from 'lib/integrations/utils'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { urls } from 'scenes/urls'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
-import { urls } from 'scenes/urls'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
-import { ICONS } from 'lib/integrations/utils'
-import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 

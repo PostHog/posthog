@@ -1,6 +1,8 @@
+import { useValues } from 'kea'
+
 import { IconArrowRightDown, IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { compactNumber } from 'lib/utils'
 
 import {
@@ -10,8 +12,8 @@ import {
     ProductPricingTierSubrows,
 } from '~/types'
 
-import { billingLogic } from './billingLogic'
 import { getTierDescription } from './BillingProduct'
+import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {

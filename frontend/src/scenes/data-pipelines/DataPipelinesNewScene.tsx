@@ -1,4 +1,5 @@
 import { kea, path, props, selectors, useValues } from 'kea'
+
 import { NotFound } from 'lib/components/NotFound'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'

@@ -1,6 +1,8 @@
-import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
 

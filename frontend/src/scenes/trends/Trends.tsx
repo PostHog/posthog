@@ -1,5 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'

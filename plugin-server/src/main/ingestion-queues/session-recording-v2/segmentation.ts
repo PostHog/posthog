@@ -5,7 +5,6 @@
  * It has been modified to not need the same dependencies
  * Any changes may need to be sync'd between the two
  */
-
 import { SnapshotEvent } from './kafka/types'
 import { RRWebEventSource, RRWebEventType } from './rrweb-types'
 

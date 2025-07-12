@@ -1,7 +1,8 @@
 import { connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'

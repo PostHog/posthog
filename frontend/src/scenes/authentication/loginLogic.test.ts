@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { testUtilsPlugin } from 'kea-test-utils'
+
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogic'
 
 import { initKea } from '~/initKea'

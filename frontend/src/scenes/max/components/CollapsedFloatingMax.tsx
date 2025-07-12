@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { HedgehogAvatar } from './HedgehogAvatar'
 

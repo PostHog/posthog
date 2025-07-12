@@ -1,5 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
@@ -47,7 +48,10 @@ interface CacheMetrics {
 }
 
 export class MeasuringPersonsStore implements PersonsStore {
-    constructor(private db: DB, private options: PersonsStoreOptions) {}
+    constructor(
+        private db: DB,
+        private options: PersonsStoreOptions
+    ) {}
 
     forBatch(): PersonsStoreForBatch {
         return new MeasuringPersonsStoreForBatch(this.db, this.options)

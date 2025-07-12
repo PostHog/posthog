@@ -1,5 +1,7 @@
-import { LemonTag } from '@posthog/lemon-ui'
 import classNames from 'classnames'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { lowercaseFirstLetter } from 'lib/utils'
 
 import { MetadataTag } from '../components/MetadataTag'

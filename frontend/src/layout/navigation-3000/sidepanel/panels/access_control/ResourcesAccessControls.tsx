@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'kea-forms'
+import { useEffect, useMemo, useState } from 'react'
+
 import {
     LemonButton,
     LemonInputSelect,
@@ -8,19 +12,17 @@ import {
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
-import { useEffect, useMemo, useState } from 'react'
 
-import { AccessControlLevel, APIScopeObject, AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
+import { APIScopeObject, AccessControlLevel, AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
 
 import {
     DefaultResourceAccessControls,
     MemberResourceAccessControls,
-    resourcesAccessControlLogic,
     RoleResourceAccessControls,
+    resourcesAccessControlLogic,
 } from './resourcesAccessControlLogic'
 
 export function ResourcesAccessControls(): JSX.Element {
