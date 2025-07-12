@@ -2,7 +2,7 @@ import base64
 import json
 import random
 import time
-from typing import Optional
+from typing import Optional, Literal
 from unittest.mock import patch
 
 from inline_snapshot import snapshot
@@ -71,6 +71,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "sampleRate": None,
         "eventTriggers": [],
         "triggerMatchType": None,
+        "domains": [],
         **overrides,
     }
 
@@ -552,14 +553,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "defaults to none",
                 None,
                 None,
-                None,
                 [],
                 {"scriptConfig": None},
             ],
             [
                 "no sample or force enable list",
                 "new-recorder",
-                None,
                 None,
                 [],
                 {"scriptConfig": None},
@@ -583,7 +582,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "new-recorder",
                 0,
                 [9999],
-                {"scriptConfig": None},
+                None,
             ],
             [
                 "sample rate of 0 and force enable current team",
@@ -599,7 +598,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         _name: str,
         rrweb_script_name: str | None,
         sample_rate: float | None,
-        force_enable_teams: list[int],
+        force_enable_teams: list[int | Literal["self"]],
         expected: dict,
     ) -> None:
         self._update_team(
@@ -611,7 +610,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with self.settings(
             SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
             SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE=sample_rate,
-            SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS=[self.team.pk if "self" else x for x in force_enable_teams],
+            SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS=[
+                self.team.pk if x == "self" else x for x in force_enable_teams
+            ],
         ):
             response = self._post_decide(api_version=3)
             assert response.status_code == 200

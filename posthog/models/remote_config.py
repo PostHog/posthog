@@ -101,9 +101,11 @@ def _should_have_custom_rrweb_script(team_id: int) -> bool:
     if force_enable_list and team_id in force_enable_list:
         return True
 
-    sample_rate: float = settings.SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE or 1.0
+    # default to off if not provided
+    sample_rate: float = settings.SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE or 0
     # a given team id will always be true or false here
-    return sample_on_property(str(team_id), sample_rate)
+    should = sample_on_property(str(team_id), sample_rate)
+    return should
 
 
 class RemoteConfig(UUIDModel):
@@ -412,13 +414,6 @@ class RemoteConfig(UUIDModel):
                     else:
                         linked_flag = linked_flag_key
 
-                rrweb_script_config = None
-
-                if _should_have_custom_rrweb_script(team.pk):
-                    rrweb_script_config = {
-                        "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
-                    }
-
                 session_recording_config_response = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
@@ -432,7 +427,11 @@ class RemoteConfig(UUIDModel):
                     "urlBlocklist": team.session_recording_url_blocklist_config,
                     "eventTriggers": team.session_recording_event_trigger_config,
                     "triggerMatchType": team.session_recording_trigger_match_type_config,
-                    "scriptConfig": rrweb_script_config,
+                    "scriptConfig": {
+                        "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                    }
+                    if _should_have_custom_rrweb_script(team.pk)
+                    else None,
                     # NOTE: This is cached but stripped out at the api level depending on the caller
                     "domains": team.recording_domains or [],
                 }
