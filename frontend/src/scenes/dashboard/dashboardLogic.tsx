@@ -1272,16 +1272,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             const newDashboard = { ...dashboard }
             // Check if there are temporary filters
-            if (values.temporaryFilters.properties != null) {
+            const temporaryFilters = values.temporaryFilters
+            if (
+                temporaryFilters.properties != null ||
+                temporaryFilters.breakdown_filter != null ||
+                temporaryFilters.date_from != null ||
+                temporaryFilters.date_to != null
+            ) {
                 // If filter value is not applied and preview, do not replace
                 if (!values.filtersUpdated) {
-                    if (
-                        JSON.stringify(values.dashboard.filters.properties ?? []) !==
-                        JSON.stringify(dashboard.filters.properties ?? [])
-                    ) {
-                        newDashboard.filters = values.dashboard.filters
-                        newDashboard.tiles = values.dashboard.tiles
-                    }
+                    newDashboard.filters = values.dashboard.filters
+                    newDashboard.tiles = values.dashboard.tiles
                 }
             }
             actions.updateDashboard(newDashboard)
