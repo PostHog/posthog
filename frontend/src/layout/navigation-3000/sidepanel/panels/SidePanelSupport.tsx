@@ -177,7 +177,7 @@ const SupportResponseTimesTable = ({
 export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
-    const { isEmailFormOpen, title: supportPanelTitle, sendSupportRequest } = useValues(supportLogic)
+    const { isEmailFormOpen, title: supportPanelTitle, targetArea } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { isCurrentOrganizationNew } = useValues(organizationLogic)
@@ -187,7 +187,7 @@ export function SidePanelSupport(): JSX.Element {
         billing?.subscription_level === 'paid' ||
         billing?.subscription_level === 'custom' ||
         (!!billing?.trial?.status && billing.trial.status === 'active') ||
-        sendSupportRequest.target_area === 'billing' ||
+        targetArea === 'billing' ||
         isCurrentOrganizationNew
 
     const hasActiveTrial = !!billing?.trial?.status && billing.trial.status === 'active'

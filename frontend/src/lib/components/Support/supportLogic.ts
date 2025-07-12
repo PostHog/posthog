@@ -387,7 +387,6 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
-        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -402,14 +401,6 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
-            },
-        ],
-        focusedField: [
-            null as string | null,
-            {
-                setFocusedField: (_, { field }) => field,
-                // Reset focused field when form is closed
-                closeSupportForm: () => null,
             },
         ],
     })),
@@ -450,6 +441,10 @@ export const supportLogic = kea<supportLogicType>([
                 sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
+        ],
+        targetArea: [
+            (s) => [s.sendSupportRequest],
+            (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
         ],
     }),
     listeners(({ actions, props, values }) => ({
