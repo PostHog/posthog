@@ -1,4 +1,5 @@
 import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'

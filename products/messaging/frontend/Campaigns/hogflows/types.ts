@@ -1,5 +1,6 @@
 import { Node } from '@xyflow/react'
 import { z } from 'zod'
+
 import { HogFlowActionSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({

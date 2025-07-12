@@ -1,5 +1,6 @@
-import { Webhook } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
+
+import { Webhook } from '@posthog/plugin-scaffold'
 
 import { buildIntegerMatcher } from '../config/config'
 import { PluginsServerConfig, ValueMatcher } from '../types'

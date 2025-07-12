@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { NoRowsUpdatedError } from '~/utils/utils'
 
@@ -33,7 +34,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
+import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
@@ -65,7 +66,10 @@ interface PersonUpdateResult {
 }
 
 class MaxRetriesError extends Error {
-    constructor(message: string, public latestPersonUpdate: PersonUpdate) {
+    constructor(
+        message: string,
+        public latestPersonUpdate: PersonUpdate
+    ) {
         super(message)
         this.name = 'MaxRetriesError'
     }
@@ -95,7 +99,10 @@ interface CacheMetrics {
 export class BatchWritingPersonsStore implements PersonsStore {
     private options: BatchWritingPersonsStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingPersonsStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingPersonsStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
@@ -122,7 +129,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
     private cacheMetrics: CacheMetrics
     private options: BatchWritingPersonsStoreOptions
 
-    constructor(private db: DB, options?: Partial<BatchWritingPersonsStoreOptions>) {
+    constructor(
+        private db: DB,
+        options?: Partial<BatchWritingPersonsStoreOptions>
+    ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.distinctIdToPersonId = new Map()
         this.personUpdateCache = new Map()

@@ -1,21 +1,25 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+import { useEffect } from 'react'
 
+import { IconFlag, IconRocket } from '@posthog/icons'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+
+import { urls } from '~/scenes/urls'
+import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
+
+import { PersonList } from 'products/early_access_features/frontend/EarlyAccessFeature'
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,
 } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
-import { PersonList } from 'products/early_access_features/frontend/EarlyAccessFeature'
-import { urls } from '~/scenes/urls'
+
+import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
-import { useEffect } from 'react'
-import { NotFound } from 'lib/components/NotFound'
-import { IconFlag, IconRocket } from '@posthog/icons'
+import { notebookNodeLogic } from './notebookNodeLogic'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
@@ -67,8 +71,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                     earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                         ? 'warning'
                                         : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
-                                        ? 'success'
-                                        : 'default'
+                                          ? 'success'
+                                          : 'default'
                                 }
                                 className="uppercase"
                             >

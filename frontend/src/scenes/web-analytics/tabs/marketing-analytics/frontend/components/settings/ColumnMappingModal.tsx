@@ -1,9 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { OPTIONS_FOR_IMPORTANT_CURRENCIES, OPTIONS_FOR_OTHER_CURRENCIES } from 'lib/components/BaseCurrency/utils'
 
 import { MARKETING_ANALYTICS_SCHEMA, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 

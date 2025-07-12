@@ -1,7 +1,8 @@
-import { IconHourglass } from '@posthog/icons'
-import { LemonLabel } from '@posthog/lemon-ui'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
+
+import { IconHourglass } from '@posthog/icons'
+import { LemonLabel } from '@posthog/lemon-ui'
 
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'

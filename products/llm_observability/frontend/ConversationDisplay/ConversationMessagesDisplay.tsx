@@ -1,13 +1,15 @@
-import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import React from 'react'
+
+import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
-import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { llmObservabilityTraceLogic } from '../llmObservabilityTraceLogic'
@@ -200,10 +202,10 @@ export const LLMMessageDisplay = React.memo(
                     isOutput
                         ? 'bg-[var(--bg-fill-success-tertiary)] not-last:mb-2'
                         : role === 'user'
-                        ? 'bg-[var(--bg-fill-tertiary)]'
-                        : role === 'assistant'
-                        ? 'bg-[var(--bg-fill-info-tertiary)]'
-                        : null
+                          ? 'bg-[var(--bg-fill-tertiary)]'
+                          : role === 'assistant'
+                            ? 'bg-[var(--bg-fill-info-tertiary)]'
+                            : null
                 )}
             >
                 <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">

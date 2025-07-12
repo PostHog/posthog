@@ -1,8 +1,9 @@
 import './LemonSwitch.scss'
 
 import clsx from 'clsx'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { forwardRef, useMemo, useState } from 'react'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface LemonSwitchProps {
     className?: string

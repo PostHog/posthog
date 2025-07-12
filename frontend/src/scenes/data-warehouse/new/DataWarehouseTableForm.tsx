@@ -1,6 +1,8 @@
-import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ManualLinkSourceType } from '~/types'

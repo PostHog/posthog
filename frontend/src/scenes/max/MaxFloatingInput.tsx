@@ -1,12 +1,13 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import clsx from 'clsx'
+import './MaxFloatingInput.scss'
 
-import { ExpandedFloatingMax } from './components/ExpandedFloatingMax'
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+
 import { CollapsedFloatingMax } from './components/CollapsedFloatingMax'
+import { ExpandedFloatingMax } from './components/ExpandedFloatingMax'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
-import './MaxFloatingInput.scss'
+import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { useFloatingMaxPosition } from './utils/floatingMaxPositioning'
 
 export function MaxFloatingInput(): JSX.Element | null {

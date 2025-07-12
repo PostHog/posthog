@@ -3,17 +3,18 @@ import './EditorScene.scss'
 import { Monaco } from '@monaco-editor/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useRef, useState } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { variableModalLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableModalLogic'
 import {
-    variablesLogic,
     VariablesLogicProps,
+    variablesLogic,
 } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataVisualizationLogicProps } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
@@ -21,10 +22,10 @@ import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { ItemMode } from '~/types'
 
 import { ViewLinkModal } from '../ViewLinkModal'
+import { QueryWindow } from './QueryWindow'
 import { editorSizingLogic } from './editorSizingLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic } from './outputPaneLogic'
-import { QueryWindow } from './QueryWindow'
 import { EditorSidebar } from './sidebar/EditorSidebar'
 import { editorSidebarLogic } from './sidebar/editorSidebarLogic'
 

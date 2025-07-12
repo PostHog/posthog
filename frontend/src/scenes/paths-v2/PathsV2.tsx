@@ -1,17 +1,18 @@
 import './Paths.scss'
 
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { lightenDarkenColor } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 
 import { PathNodeLabel } from './PathNodeLabel'
-import { pathsDataLogic } from './pathsDataLogic'
 import type { PathNodeData } from './pathUtils'
+import { pathsDataLogic } from './pathsDataLogic'
 import { renderPaths } from './renderPaths'
 
 export function PathsV2(): JSX.Element {

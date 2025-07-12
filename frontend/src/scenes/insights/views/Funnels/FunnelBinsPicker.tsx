@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 

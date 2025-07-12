@@ -1,4 +1,4 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
@@ -10,7 +10,7 @@ import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
-import { createHogFunction, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
+import { insertHogFunction as _insertHogFunction, createHogFunction } from './_tests/fixtures'
 import { CdpApi } from './cdp-api'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'

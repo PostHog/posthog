@@ -1,11 +1,12 @@
-import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonModal } from '@posthog/lemon-ui'
 
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
 import { modalsLogic } from '../modalsLogic'
+import { getDefaultFunnelMetric, getDefaultFunnelsMetric } from '../utils'
 
 export function MetricSourceModal({
     experimentId,

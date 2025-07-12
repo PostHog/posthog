@@ -2,9 +2,10 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { PostHogErrorBoundary } from 'posthog-js/react'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PostHogErrorBoundary } from 'posthog-js/react'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface ErrorBoundaryProps {

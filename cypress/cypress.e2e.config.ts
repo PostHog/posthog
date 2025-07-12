@@ -1,10 +1,11 @@
-import { defineConfig } from 'cypress'
-import { createClient } from 'redis'
 import * as webpackPreprocessor from '@cypress/webpack-preprocessor'
-import { PNG } from 'pngjs'
-import * as pixelmatch from 'pixelmatch'
+import { defineConfig } from 'cypress'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as pixelmatch from 'pixelmatch'
+import { PNG } from 'pngjs'
+import { createClient } from 'redis'
+
 import { createEntry } from '../common/storybook/webpack.config'
 
 const downloadDirectory = path.join(__dirname, '..', '..', 'downloads')

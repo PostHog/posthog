@@ -1,11 +1,12 @@
 import { BindLogic, useValues } from 'kea'
+
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Modifiers } from 'scenes/debug/Modifiers'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { HogQLQuery, HogQLQueryResponse } from '~/queries/schema/schema-general'

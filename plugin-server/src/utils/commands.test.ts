@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import '../../tests/helpers/mocks/producer.mock'
 
 import express from 'express'

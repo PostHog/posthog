@@ -1,11 +1,13 @@
+import { match } from 'ts-pattern'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { match } from 'ts-pattern'
+
 import {
-    actionsAndEventsToSeries,
     FilterTypeActionsAndEvents,
+    actionsAndEventsToSeries,
 } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
     ActionsNode,
@@ -29,6 +31,7 @@ import { ExperimentMetricSource, ExperimentMetricType, NodeKind } from '~/querie
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import type { Experiment, FilterType, IntervalType, MultivariateFlagVariant } from '~/types'
 import { ChartDisplayType, ExperimentMetricMathType, PropertyFilterType, PropertyOperator } from '~/types'
+
 // TODO: extract types to a separate file, since this is a circular dependency
 import type { EventConfig } from './RunningTimeCalculator/runningTimeCalculatorLogic'
 

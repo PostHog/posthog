@@ -1,14 +1,15 @@
 import './Site.scss'
 
 import { useValues } from 'kea'
+
 import {
-    authorizedUrlListLogic,
     AuthorizedUrlListType,
+    authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { siteLogic, SiteLogicProps } from './siteLogic'
+import { SiteLogicProps, siteLogic } from './siteLogic'
 
 export const scene: SceneExport = {
     component: Site,

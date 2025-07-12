@@ -1,7 +1,11 @@
-import { IconArrowLeft, IconCopy, IconEllipsis, IconPlusSmall, IconServer } from '@posthog/icons'
-import { lemonToast, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useRef } from 'react'
+
+import { IconArrowLeft, IconCopy, IconEllipsis, IconPlusSmall, IconServer } from '@posthog/icons'
+import { Tooltip, lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef } from 'react'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,8 +30,6 @@ import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsL
 import { editorSceneLogic, renderTableCount } from '../editorSceneLogic'
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import api from 'lib/api'
 
 export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)

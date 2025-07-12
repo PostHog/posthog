@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import * as libUtils from 'lib/utils'
 import { entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 

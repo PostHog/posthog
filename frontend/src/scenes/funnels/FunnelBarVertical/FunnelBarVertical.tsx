@@ -1,16 +1,17 @@
 import './FunnelBarVertical.scss'
 
 import { useValues } from 'kea'
+import { useLayoutEffect, useRef, useState } from 'react'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useLayoutEffect, useRef, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams } from '~/types'
 
+import { useFunnelTooltip } from '../FunnelTooltip'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { useFunnelTooltip } from '../FunnelTooltip'
 import { StepBarLabels } from './StepBarLabels'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
@@ -35,24 +36,24 @@ export function FunnelBarVertical({ showPersonsModal: showPersonsModalProp = tru
         seriesCount >= 60
             ? 4
             : seriesCount >= 20
-            ? 8
-            : seriesCount >= 12
-            ? 16
-            : seriesCount >= 10
-            ? 20
-            : seriesCount >= 8
-            ? 24
-            : seriesCount >= 6
-            ? 32
-            : seriesCount >= 5
-            ? 40
-            : seriesCount >= 4
-            ? 48
-            : seriesCount >= 3
-            ? 64
-            : seriesCount >= 2
-            ? 96
-            : 192
+              ? 8
+              : seriesCount >= 12
+                ? 16
+                : seriesCount >= 10
+                  ? 20
+                  : seriesCount >= 8
+                    ? 24
+                    : seriesCount >= 6
+                      ? 32
+                      : seriesCount >= 5
+                        ? 40
+                        : seriesCount >= 4
+                          ? 48
+                          : seriesCount >= 3
+                            ? 64
+                            : seriesCount >= 2
+                              ? 96
+                              : 192
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
 

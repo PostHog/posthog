@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconFilter } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { LogMessage } from '~/queries/schema/schema-general'

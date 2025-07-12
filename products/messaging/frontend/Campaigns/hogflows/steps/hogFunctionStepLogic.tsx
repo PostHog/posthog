@@ -1,12 +1,14 @@
+import { Node } from '@xyflow/react'
 import { afterMount, kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
+
 import { HogFunctionTemplateType } from '~/types'
 
-import type { hogFunctionStepLogicType } from './hogFunctionStepLogicType'
 import { HogFlowAction } from '../types'
-import { Node } from '@xyflow/react'
+import type { hogFunctionStepLogicType } from './hogFunctionStepLogicType'
 
 export type StepFunctionNode = Node<
     Extract<

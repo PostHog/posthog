@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
-import { generateSparklineLabels } from './utils'
-import { errorTrackingQuery } from './queries'
 import { FilterLogicalOperator } from '../../../frontend/src/types'
+import { errorTrackingQuery } from './queries'
+import { generateSparklineLabels } from './utils'
 
 function getSparklineLabels(timeAgo: string, resolution: number): string[] {
     const dateRange = { date_from: timeAgo }

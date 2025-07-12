@@ -1,5 +1,7 @@
-import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonModal } from '@posthog/lemon-ui'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 import { upgradeModalLogic } from './upgradeModalLogic'

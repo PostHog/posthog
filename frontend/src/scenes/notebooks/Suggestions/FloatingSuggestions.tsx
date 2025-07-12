@@ -2,8 +2,9 @@ import './FloatingSuggestions.scss'
 
 import { Editor as TTEditor } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useEffect, useState } from 'react'
+
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { isCurrentNodeEmpty } from '../Notebook/utils'

@@ -1,11 +1,13 @@
+import { useActions, useValues } from 'kea'
+import Papa from 'papaparse'
+
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'
 
 import {
@@ -23,7 +25,7 @@ import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
 import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
-import { dataTableLogic, DataTableRow } from './dataTableLogic'
+import { DataTableRow, dataTableLogic } from './dataTableLogic'
 
 // Sync with posthog/hogql/constants.py
 export const MAX_SELECT_RETURNED_ROWS = 50000
@@ -142,41 +144,50 @@ const getJsonTableData = (
             const record = n.result as Record<string, any> | undefined
             const recordWithPerson = { ...record, person: record?.name }
 
-            return filteredColumns.reduce((acc, cur) => {
-                acc[cur] = recordWithPerson[cur]
-                return acc
-            }, {} as Record<string, any>)
+            return filteredColumns.reduce(
+                (acc, cur) => {
+                    acc[cur] = recordWithPerson[cur]
+                    return acc
+                },
+                {} as Record<string, any>
+            )
         })
     }
 
     if (isEventsQuery(query.source)) {
         return dataTableRows.map((n) => {
-            return columns.reduce((acc, col, colIndex) => {
-                if (columnDisallowList.includes(col)) {
+            return columns.reduce(
+                (acc, col, colIndex) => {
+                    if (columnDisallowList.includes(col)) {
+                        return acc
+                    }
+
+                    if (col === 'person') {
+                        acc[col] = asDisplay(n.result?.[colIndex])
+                        return acc
+                    }
+
+                    const colName = extractExpressionComment(col)
+
+                    acc[colName] = n.result?.[colIndex]
+
                     return acc
-                }
-
-                if (col === 'person') {
-                    acc[col] = asDisplay(n.result?.[colIndex])
-                    return acc
-                }
-
-                const colName = extractExpressionComment(col)
-
-                acc[colName] = n.result?.[colIndex]
-
-                return acc
-            }, {} as Record<string, any>)
+                },
+                {} as Record<string, any>
+            )
         })
     }
 
     if (isHogQLQuery(query.source)) {
         return dataTableRows.map((n) => {
             const data = n.result ?? {}
-            return columns.reduce((acc, cur, index) => {
-                acc[cur] = data[index]
-                return acc
-            }, {} as Record<string, any>)
+            return columns.reduce(
+                (acc, cur, index) => {
+                    acc[cur] = data[index]
+                    return acc
+                },
+                {} as Record<string, any>
+            )
         })
     }
 

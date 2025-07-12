@@ -1,8 +1,10 @@
 import './EditSurvey.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils'

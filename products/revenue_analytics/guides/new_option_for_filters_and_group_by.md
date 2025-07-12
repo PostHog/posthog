@@ -20,7 +20,7 @@ Adding a new filter/breakdown option in Revenue Analytics requires changes acros
 
 ### 1. Frontend Schema Definition
 
-**File**: `frontend/src/queries/schema/schema-general.ts`
+**File**: `frontend/~/queries/schema/schema-general.ts`
 
 ```typescript
 export enum RevenueAnalyticsGroupBy {
@@ -198,7 +198,7 @@ After making the necessary changes, run these commands to regenerate the auto-ge
 # After updating posthog/taxonomy/taxonomy.py
 pnpm build:taxonomy
 
-# After updating frontend/src/queries/schema/schema-general.ts
+# After updating frontend/~/queries/schema/schema-general.ts
 pnpm build:schema
 ```
 
@@ -206,7 +206,7 @@ pnpm build:schema
 
 When adding a new Revenue Analytics filter/breakdown option, you need to modify these files:
 
-1. **`frontend/src/queries/schema/schema-general.ts`** - Frontend schema type
+1. **`frontend/~/queries/schema/schema-general.ts`** - Frontend schema type
 1. **`posthog/taxonomy/taxonomy.py`** - Filter metadata definition
 1. **`posthog/hogql/property.py`** - HogQL property mapping
 1. **`products/revenue_analytics/backend/hogql_queries/revenue_analytics_query_runner.py`** - Join requirements

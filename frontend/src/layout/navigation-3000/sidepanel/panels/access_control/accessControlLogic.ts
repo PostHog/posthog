@@ -1,15 +1,18 @@
-import { LemonSelectOption } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
+import { LemonSelectOption } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { toSentenceCase } from 'lib/utils'
-import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    APIScopeObject,
     AccessControlLevel,
     AccessControlResourceType,
     AccessControlResponseType,
@@ -19,7 +22,6 @@ import {
     AccessControlTypeProject,
     AccessControlTypeRole,
     AccessControlUpdateType,
-    APIScopeObject,
     OrganizationMemberType,
     RoleType,
 } from '~/types'

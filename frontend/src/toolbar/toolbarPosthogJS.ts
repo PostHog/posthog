@@ -1,6 +1,7 @@
-import { FeatureFlagKey } from 'lib/constants'
 import PostHog from 'posthog-js-lite'
 import { useEffect, useState } from 'react'
+
+import { FeatureFlagKey } from 'lib/constants'
 
 const DEFAULT_API_KEY = 'sTMFPsFhdP1Ssg'
 

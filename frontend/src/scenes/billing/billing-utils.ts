@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { LogicWrapper } from 'kea'
 import { routerType } from 'kea-router/lib/routerType'
+
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Params } from 'scenes/sceneTypes'

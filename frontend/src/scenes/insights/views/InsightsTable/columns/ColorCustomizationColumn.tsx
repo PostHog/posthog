@@ -1,5 +1,7 @@
-import { LemonColorButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonColorButton } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'

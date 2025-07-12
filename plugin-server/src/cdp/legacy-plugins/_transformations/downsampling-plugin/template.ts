@@ -1,5 +1,5 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent, setupPlugin } from '.'
+import { LegacyTransformationPlugin } from '../../types'
 
 export const downsamplingPlugin: LegacyTransformationPlugin = {
     processEvent,

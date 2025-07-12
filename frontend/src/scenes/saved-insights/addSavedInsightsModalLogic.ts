@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -13,7 +14,7 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import type { QueryBasedInsightModel } from '~/types'
 
 import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogicType'
-import { cleanFilters, SavedInsightFilters } from './savedInsightsLogic'
+import { SavedInsightFilters, cleanFilters } from './savedInsightsLogic'
 
 export const INSIGHTS_PER_PAGE = 30
 

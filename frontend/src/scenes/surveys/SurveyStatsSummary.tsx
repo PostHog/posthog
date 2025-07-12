@@ -1,8 +1,10 @@
-import { LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { memo } from 'react'
+
+import { LemonLabel, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
-import { memo } from 'react'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 
 import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'

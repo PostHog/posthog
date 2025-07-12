@@ -1,13 +1,15 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { RoleMemberType, UserType } from '~/types'
@@ -51,8 +53,8 @@ export function CreateRoleModal(): JSX.Element {
                 isNewRole
                     ? 'Create role'
                     : isAdminOrOwner
-                    ? `Edit ${roleInFocus.name} role`
-                    : `${roleInFocus.name} role`
+                      ? `Edit ${roleInFocus.name} role`
+                      : `${roleInFocus.name} role`
             }
             footer={
                 rolesLoading ? (

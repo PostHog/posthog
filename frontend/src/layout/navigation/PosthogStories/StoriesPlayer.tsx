@@ -1,6 +1,7 @@
-import { IconArrowRight, IconChevronLeft, IconChevronRight, IconPauseFilled, IconX } from '@posthog/icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import React from 'react'
+
+import { IconArrowRight, IconChevronLeft, IconChevronRight, IconPauseFilled, IconX } from '@posthog/icons'
 
 import { ArrowIcon, StoryType } from './storiesMap'
 import type { SeeMoreOptions } from './storiesMap'
@@ -314,8 +315,8 @@ export const StoriesPlayer = ({
                             currentStory.seeMoreOptions?.backgroundColor === 'black'
                                 ? 'bg-black/20 hover:bg-black/30'
                                 : currentStory.seeMoreOptions?.backgroundColor === 'white'
-                                ? 'bg-white/20 hover:bg-white/30'
-                                : 'hover:bg-white/20'
+                                  ? 'bg-white/20 hover:bg-white/30'
+                                  : 'hover:bg-white/20'
                         }`}
                         role="button"
                         aria-label="See more about this story - swipe up for more"

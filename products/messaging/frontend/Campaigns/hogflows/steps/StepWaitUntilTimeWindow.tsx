@@ -1,10 +1,13 @@
-import { IconDay } from '@posthog/icons'
-import { LemonLabel, LemonSelect, LemonInputSelect, LemonDivider } from '@posthog/lemon-ui'
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+
+import { IconDay } from '@posthog/icons'
+import { LemonDivider, LemonInputSelect, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+
+import { timeZoneLabel } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { timeZoneLabel } from 'lib/utils'
+
 import { WeekdayType } from '~/types'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'

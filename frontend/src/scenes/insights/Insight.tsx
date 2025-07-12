@@ -1,5 +1,7 @@
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { DebugCHQueries } from 'lib/components/CommandPalette/DebugCHQueries'
 import { isEmptyObject, isObject } from 'lib/utils'
@@ -13,10 +15,11 @@ import { Node } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
+import { InsightsNav } from './InsightNav/InsightsNav'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
+
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }

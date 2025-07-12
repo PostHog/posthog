@@ -1,11 +1,12 @@
 import emojiRegex from 'emoji-regex'
+
 import {
     LegacyRecordingFilters,
     RecordingUniversalFilters,
     type SessionRecordingMaskingConfig,
     type SessionRecordingMaskingLevel,
-    UniversalFiltersGroup,
     UniversalFilterValue,
+    UniversalFiltersGroup,
 } from '~/types'
 
 export const TimestampFormatToLabel = {

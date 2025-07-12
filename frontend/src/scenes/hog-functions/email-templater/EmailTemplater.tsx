@@ -1,14 +1,16 @@
-import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import EmailEditor from 'react-email-editor'
+
+import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { capitalizeFirstLetter } from 'lib/utils'
-import EmailEditor from 'react-email-editor'
 
-import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterLogic'
+import { EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 
 function EmailTemplaterForm({ mode }: { mode: 'full' | 'preview' }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, appliedTemplate, templates, templatesLoading, mergeTags } =

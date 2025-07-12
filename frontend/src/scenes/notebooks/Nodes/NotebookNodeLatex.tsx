@@ -5,11 +5,15 @@ import { RegisterHTMLHandler } from 'mathjax-full/js/handlers/html.js'
 import { TeX } from 'mathjax-full/js/input/tex.js'
 import { mathjax } from 'mathjax-full/js/mathjax.js'
 import { SVG } from 'mathjax-full/js/output/svg.js'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
-import { NotebookNodeProps, CustomNotebookNodeAttributes } from '../Notebook/utils'
 import { useEffect, useRef, useState } from 'react'
+
 import { LemonTextArea } from '@posthog/lemon-ui'
+
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+
+import { NotebookNodeType } from '~/types'
+
+import { CustomNotebookNodeAttributes, NotebookNodeProps } from '../Notebook/utils'
 
 RegisterHTMLHandler(browserAdaptor())
 const tex = new TeX({

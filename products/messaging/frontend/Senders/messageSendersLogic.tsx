@@ -1,4 +1,5 @@
 import { actions, connect, kea, path, reducers } from 'kea'
+
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { IntegrationType } from '~/types'

@@ -2,6 +2,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
+
 type IntercomMeta = LegacyDestinationPluginMeta & {
     global: {
         intercomUrl: string

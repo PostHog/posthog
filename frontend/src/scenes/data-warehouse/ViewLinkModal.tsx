@@ -1,5 +1,9 @@
 import './ViewLinkModal.scss'
 
+import { useActions, useValues } from 'kea'
+import { Field, Form } from 'kea-forms'
+import { useState } from 'react'
+
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,12 +14,10 @@ import {
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Field, Form } from 'kea-forms'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -90,7 +92,7 @@ export function ViewLinkForm(): JSX.Element {
                                     />
                                 </Field>
                             ) : (
-                                selectedSourceTableName ?? ''
+                                (selectedSourceTableName ?? '')
                             )}
                         </div>
                     </div>
@@ -114,7 +116,7 @@ export function ViewLinkForm(): JSX.Element {
                                 <LemonSelect
                                     fullWidth
                                     onSelect={selectSourceKey}
-                                    value={sourceIsUsingHogQLExpression ? '' : selectedSourceKey ?? undefined}
+                                    value={sourceIsUsingHogQLExpression ? '' : (selectedSourceKey ?? undefined)}
                                     disabledReason={selectedSourceTableName ? '' : 'Select a table to choose join key'}
                                     options={[...sourceTableKeys, { value: '', label: <span>SQL Expression</span> }]}
                                     placeholder="Select a key"
@@ -140,7 +142,7 @@ export function ViewLinkForm(): JSX.Element {
                                 <LemonSelect
                                     fullWidth
                                     onSelect={selectJoiningKey}
-                                    value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
+                                    value={joiningIsUsingHogQLExpression ? '' : (selectedJoiningKey ?? undefined)}
                                     disabledReason={selectedJoiningTableName ? '' : 'Select a table to choose join key'}
                                     options={[...joiningTableKeys, { value: '', label: <span>SQL Expression</span> }]}
                                     placeholder="Select a key"

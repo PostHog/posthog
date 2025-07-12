@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
@@ -48,8 +49,8 @@ export function TrendsSeries(): JSX.Element | null {
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
-        ? MathAvailability.ActorsOnly
-        : MathAvailability.All
+          ? MathAvailability.ActorsOnly
+          : MathAvailability.All
 
     return (
         <>

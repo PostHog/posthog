@@ -1,6 +1,7 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { navigation3000Logic } from '../navigationLogic'
 import { SidebarCategory } from '../types'

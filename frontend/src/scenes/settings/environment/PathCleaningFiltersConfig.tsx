@@ -1,9 +1,11 @@
-import { LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonInput, Link } from '@posthog/lemon-ui'
+
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { isValidRegexp } from 'lib/utils/regexp'
-import { useState } from 'react'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'

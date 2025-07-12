@@ -1,8 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
-import { examples } from '~/queries/examples'
 import { Query } from '~/queries/Query/Query'
+import { examples } from '~/queries/examples'
 
 import webVitals from './__mocks__/WebVitals.json'
 import webVitalsTrends from './__mocks__/WebVitalsTrends.json'

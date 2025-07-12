@@ -1,13 +1,14 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog, { JsonRecord } from 'posthog-js'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
-import posthog, { JsonRecord } from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
@@ -239,7 +240,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                                       notificationDate: dayjs(notification.notificationDate as string),
                                       email: notification.email,
                                       name: notification.name,
-                                  } as ChangelogFlagPayload)
+                                  }) as ChangelogFlagPayload
                           )
                         : null
 
@@ -257,7 +258,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                                         description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
                                         created_at: changelogNotification.notificationDate,
                                         unread: lastRead?.isSameOrBefore(changelogNotification.notificationDate),
-                                    } as HumanizedActivityLogItem)
+                                    }) as HumanizedActivityLogItem
                             ),
                         ]
 

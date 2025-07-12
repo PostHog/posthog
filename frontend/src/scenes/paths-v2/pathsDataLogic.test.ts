@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { pathsDataLogic } from 'scenes/paths-v2/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'

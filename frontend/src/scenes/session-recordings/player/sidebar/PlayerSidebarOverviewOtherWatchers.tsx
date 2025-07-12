@@ -1,5 +1,7 @@
-import { IconPeople } from '@posthog/icons'
 import { useValues } from 'kea'
+
+import { IconPeople } from '@posthog/icons'
+
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 

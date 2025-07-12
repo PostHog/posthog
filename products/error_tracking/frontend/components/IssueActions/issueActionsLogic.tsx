@@ -1,6 +1,7 @@
 import { actions, kea, listeners, path } from 'kea'
-import api from 'lib/api'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 

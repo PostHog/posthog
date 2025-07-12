@@ -1,7 +1,9 @@
-import { IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { getOutgoers, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+
+import { IconTrash, IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 import { HogFlowFilters } from './filters/HogFlowFilters'

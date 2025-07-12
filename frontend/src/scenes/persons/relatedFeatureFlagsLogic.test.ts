@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagsFilters, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'

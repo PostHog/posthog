@@ -1,7 +1,9 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Fragment } from 'react'
+
+import { Link } from '@posthog/lemon-ui'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'

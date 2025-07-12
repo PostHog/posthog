@@ -1,8 +1,10 @@
 import './PlayerFrameOverlay.scss'
 
-import { IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 

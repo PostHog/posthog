@@ -1,11 +1,13 @@
-import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import posthog from 'posthog-js'
+import React from 'react'
+
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import posthog from 'posthog-js'
-import React from 'react'
 
 import {
     BillingPlan,
@@ -258,7 +260,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (customLimit === 0 || customLimit) {
                     return customLimit
                 }
-                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] ?? null : null
+                return product.usage_key ? (billing?.custom_limits_usd?.[product.usage_key] ?? null) : null
             },
         ],
         visibleAddons: [
@@ -332,7 +334,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (nextPeriodLimit === 0 || nextPeriodLimit) {
                     return nextPeriodLimit
                 }
-                return product.usage_key ? billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null : null
+                return product.usage_key ? (billing?.next_period_custom_limits_usd?.[product.usage_key] ?? null) : null
             },
         ],
         billingGaugeItems: [
