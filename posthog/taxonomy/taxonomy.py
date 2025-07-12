@@ -160,6 +160,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
         },
+        "$materialized_view_success": {
+            "label": "Materialized view success",
+            "description": "When a materialized view is successfully created.",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
+        },
+        "$materialized_view_failed": {
+            "label": "Materialized view failed",
+            "description": "When a materialized view fails to be created.",
+            "ignored_in_assistant": True,  # Irrelevant product-wise
+        },
         "$feature_view": {
             "label": "Feature view",
             "description": "When a user views a feature.",

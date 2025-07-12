@@ -1751,6 +1751,16 @@
             "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
             "label": "Identify"
         },
+        "$materialized_view_failed": {
+            "description": "When a materialized view fails to be created.",
+            "ignored_in_assistant": true,
+            "label": "Materialized view failed"
+        },
+        "$materialized_view_success": {
+            "description": "When a materialized view is successfully created.",
+            "ignored_in_assistant": true,
+            "label": "Materialized view success"
+        },
         "$merge_dangerously": {
             "description": "An alias ID has been added to a user.",
             "ignored_in_assistant": true,
