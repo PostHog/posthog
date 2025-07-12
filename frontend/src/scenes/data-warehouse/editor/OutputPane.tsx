@@ -675,8 +675,6 @@ function InternalDataTableVisualization(
 }
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
@@ -690,11 +688,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 excludeDetail
                 title={error}
                 fixWithAIComponent={
-                    featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] ? (
-                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                    ) : (
-                        <></>
-                    )
+                    <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
             />
         </div>
