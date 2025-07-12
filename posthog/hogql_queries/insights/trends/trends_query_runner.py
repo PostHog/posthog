@@ -40,6 +40,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import (
     QueryPreviousPeriodDateRange,
 )
+from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
@@ -141,11 +142,18 @@ class TrendsQueryRunner(QueryRunner):
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
+            # If user requests 'all' time, determine the true earliest timestamp
+            earliest_timestamp = None
+            if self.query.dateRange and self.query.dateRange.date_from == "all":
+                earliest_timestamp = self._earliest_timestamp
+
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
                 else:
                     query_date_range = self.query_previous_date_range
+
+                query_date_range._earliest_timestamp_fallback = earliest_timestamp
 
                 query_builder = TrendsQueryBuilder(
                     trends_query=series.overriden_query or self.query,
@@ -655,6 +663,13 @@ class TrendsQueryRunner(QueryRunner):
         return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
 
     @cached_property
+    def _earliest_timestamp(self) -> datetime:
+        return get_earliest_timestamp_from_series(
+            team=self.team,
+            series=[series.series for series in self.series],
+        )
+
+    @cached_property
     def query_date_range(self):
         interval = IntervalType.DAY if self._trends_display.is_total_value() else self.query.interval
 
@@ -664,7 +679,6 @@ class TrendsQueryRunner(QueryRunner):
             interval=interval,
             now=datetime.now(),
             exact_timerange=self.exact_timerange,
-            # earliest_timestamp_fallback=earliest_timestamp,
         )
 
     @cached_property
