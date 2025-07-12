@@ -21,7 +21,14 @@ import {
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import {
+    GroupTypeIndex,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyFilterBaseValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -62,8 +69,10 @@ export function PropertyValue({
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+    const propertyOptions = options[propertyKey]
+    const isFlagDependencyProperty = type === PropertyFilterType.FlagDependency
 
-    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isMultiSelect = operator && !isFlagDependencyProperty && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
@@ -98,7 +107,7 @@ export function PropertyValue({
         }
     }, [propertyKey, isDateTimeProperty])
 
-    const displayOptions = options[propertyKey]?.values || []
+    const displayOptions = propertyOptions?.values || []
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -141,6 +150,15 @@ export function PropertyValue({
     const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
         (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
+
+    // For flag dependencies, we need to preserve the original typed values
+    const typedValues = isFlagDependencyProperty
+        ? value === null || value === undefined
+            ? []
+            : Array.isArray(value)
+            ? value
+            : [value]
+        : formattedValues
 
     if (!editable) {
         return <>{formattedValues.join(' or ')}</>
@@ -199,14 +217,25 @@ export function PropertyValue({
         )
     }
 
-    return (
-        <LemonInputSelect
+    function formatLabelContent(value: any): JSX.Element {
+        const name = toString(value)
+        if (name === '') {
+            return <i>(empty string)</i>
+        }
+        if (isFlagDependencyProperty && typeof value === 'boolean') {
+            return <code>{name}</code>
+        }
+        return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
+    }
+
+    return isFlagDependencyProperty ? (
+        <LemonInputSelect<PropertyFilterBaseValue>
             className={inputClassName}
             data-attr="prop-val"
-            loading={options[propertyKey]?.status === 'loading'}
-            value={formattedValues}
+            loading={propertyOptions?.status === 'loading'}
+            value={typedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues={options[propertyKey]?.allowCustomValues ?? true}
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
@@ -219,18 +248,59 @@ export function PropertyValue({
                     : undefined
             }
             popoverClassName="max-w-200"
-            options={displayOptions.map(({ name: _name }, index) => {
-                const name = toString(_name)
+            options={displayOptions.map(({ name: value }, index) => {
+                const name = toString(value)
+                const hasVariants = displayOptions.length > 2
+                let tooltip: string | undefined = undefined
+
+                // Add tooltip for boolean values when flag has variants
+                if (typeof value === 'boolean' && hasVariants) {
+                    tooltip = value
+                        ? 'Matches any variant of the flag'
+                        : "Flag is disabled or doesn't match any conditions"
+                }
+
                 return {
                     key: name,
                     label: name,
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? (
-                                <i>(empty string)</i>
-                            ) : (
-                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
-                            )}
+                            {formatLabelContent(value)}
+                        </span>
+                    ),
+                    value,
+                    tooltip,
+                }
+            })}
+        />
+    ) : (
+        <LemonInputSelect
+            className={inputClassName}
+            data-attr="prop-val"
+            loading={propertyOptions?.status === 'loading'}
+            value={formattedValues}
+            mode={isMultiSelect ? 'multiple' : 'single'}
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
+            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
+            onInputChange={onSearchTextChange}
+            placeholder={placeholder}
+            size={size}
+            title={
+                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
+                    ? 'Suggested values (last 7 days)'
+                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
+                    ? 'Suggested values'
+                    : undefined
+            }
+            popoverClassName="max-w-200"
+            options={displayOptions.map(({ name: value }, index) => {
+                const name = toString(value)
+                return {
+                    key: name,
+                    label: name,
+                    labelComponent: (
+                        <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
+                            {formatLabelContent(value)}
                         </span>
                     ),
                 }

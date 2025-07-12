@@ -267,9 +267,11 @@ class FeatureFlagSerializer(
             )
 
         if aggregation_group_type_index is None:
-            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort"])
+            is_valid = properties_all_match(lambda prop: prop.type in ["person", "cohort", "flag"])
             if not is_valid:
-                raise serializers.ValidationError("Filters are not valid (can only use person and cohort properties)")
+                raise serializers.ValidationError(
+                    "Filters are not valid (can only use person, cohort, and flag properties)"
+                )
         elif self.instance is not None and hasattr(self.instance, "features") and self.instance.features.count() > 0:
             raise serializers.ValidationError(
                 "Cannot change this flag to a group-based when linked to an Early Access Feature."
@@ -745,6 +747,16 @@ class FeatureFlagViewSet(
                     queryset = queryset.filter(~Q(experiment__isnull=True))
                 elif type == "remote_config":
                     queryset = queryset.filter(is_remote_configuration=True)
+            elif key == "excluded_properties":
+                import json
+
+                try:
+                    excluded_keys = json.loads(request.GET["excluded_properties"])
+                    if excluded_keys:
+                        queryset = queryset.exclude(key__in=excluded_keys)
+                except (json.JSONDecodeError, TypeError):
+                    # If the JSON is invalid, ignore the filter
+                    pass
 
         return queryset
 
@@ -819,6 +831,13 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["boolean", "multivariant", "experiment"],
+            ),
+            OpenApiParameter(
+                "excluded_properties",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="JSON-encoded list of feature flag keys to exclude from the results.",
             ),
         ]
     )
@@ -942,6 +961,36 @@ class FeatureFlagViewSet(
             }
             for feature_flag in all_serialized_flags
         )
+
+    @action(methods=["POST"], detail=False)
+    def bulk_keys(self, request: request.Request, **kwargs):
+        """
+        Get feature flag keys by IDs.
+        Accepts a list of feature flag IDs and returns a mapping of ID to key.
+        """
+        flag_ids = request.data.get("ids", [])
+
+        if not flag_ids:
+            return Response({"keys": {}})
+
+        # Convert to integers and filter out invalid IDs
+        try:
+            flag_ids = [int(id) for id in flag_ids if str(id).isdigit()]
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid flag IDs provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not flag_ids:
+            return Response({"keys": {}})
+
+        # Fetch flags by IDs
+        flags = FeatureFlag.objects.filter(
+            id__in=flag_ids, team__project_id=self.project_id, deleted=False
+        ).values_list("id", "key")
+
+        # Create mapping of ID to key
+        keys_mapping = {str(flag_id): key for flag_id, key in flags}
+
+        return Response({"keys": keys_mapping})
 
     @action(
         methods=["GET"],

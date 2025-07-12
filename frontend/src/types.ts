@@ -758,7 +758,7 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterBaseValue = string | number | bigint
+export type PropertyFilterBaseValue = string | number | bigint | boolean
 export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
@@ -872,6 +872,8 @@ export enum PropertyFilterType {
     Element = 'element',
     /** Event property with "$feature/" prepended */
     Feature = 'feature',
+    /** Feature flag dependency (property type is 'flag') */
+    FlagDependency = 'flag',
     Session = 'session',
     Cohort = 'cohort',
     Recording = 'recording',
@@ -970,6 +972,12 @@ export interface FeaturePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface FlagDependencyPropertyFilter extends Omit<BasePropertyFilter, 'value'> {
+    type: PropertyFilterType.FlagDependency
+    operator: PropertyOperator
+    value?: PropertyFilterBaseValue | boolean | (PropertyFilterBaseValue | boolean)[] | null
+}
+
 export interface HogQLPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.HogQL
     key: string
@@ -1000,6 +1008,7 @@ export type AnyPropertyFilter =
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
     | RevenueAnalyticsPropertyFilter
+    | FlagDependencyPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -3570,6 +3579,7 @@ export enum PropertyType {
     Cohort = 'Cohort',
     Assignee = 'Assignee',
     StringArray = 'StringArray',
+    Flag = 'Flag',
 }
 
 export enum PropertyDefinitionType {
@@ -3583,6 +3593,7 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    FlagValue = 'flag_value',
 }
 
 export interface PropertyDefinition {
@@ -5135,6 +5146,7 @@ export type CyclotronJobFilterPropertyFilter =
     | ElementPropertyFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
+    | FlagDependencyPropertyFilter
     | HogQLPropertyFilter
 
 export interface CyclotronJobFiltersType {
