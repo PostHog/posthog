@@ -133,116 +133,116 @@ class TestSessionRecordingsListOperandsQueries(ClickhouseTestMixin, APIBaseTest)
             [target_vip_session, target_non_vip_session, non_target_vip_session],
         )
 
-        @snapshot_clickhouse_queries
-        def test_positive_and_negative_anded(self):
-            _target_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-target-page", "vip": True}
-            )
-            _target_non_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-target-page", "vip": False}
-            )
-            non_target_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-other-page", "vip": True}
-            )
-            _non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-other-page", "vip": False}
-            )
+    @snapshot_clickhouse_queries
+    def test_positive_and_negative_anded(self):
+        _target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": True}
+        )
+        _target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": False}
+        )
+        non_target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": True}
+        )
+        _non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": False}
+        )
 
-            self._assert_query_matches_session_ids(
-                {
-                    "operand": "AND",
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "name": "$pageview",
-                            "type": "events",
-                            "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "exact"}],
-                        },
-                        {
-                            "id": "$pageview",
-                            "name": "$pageview",
-                            "type": "events",
-                            "properties": [
-                                {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
-                            ],
-                        },
-                    ],
-                },
-                [non_target_vip_session],
-            )
+        self._assert_query_matches_session_ids(
+            {
+                "operand": "AND",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "exact"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [
+                            {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
+                        ],
+                    },
+                ],
+            },
+            [non_target_vip_session],
+        )
 
-        @snapshot_clickhouse_queries
-        def test_two_negative_anded(self):
-            _target_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-target-page", "vip": True}
-            )
-            _target_non_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-target-page", "vip": False}
-            )
-            _non_target_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-other-page", "vip": True}
-            )
-            non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-other-page", "vip": False}
-            )
+    @snapshot_clickhouse_queries
+    def test_two_negative_anded(self):
+        _target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": True}
+        )
+        _target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": False}
+        )
+        _non_target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": True}
+        )
+        non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": False}
+        )
 
-            self._assert_query_matches_session_ids(
-                {
-                    "operand": "AND",
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "name": "$pageview",
-                            "type": "events",
-                            "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
-                        },
-                        {
-                            "id": "$pageview",
-                            "name": "$pageview",
-                            "type": "events",
-                            "properties": [
-                                {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
-                            ],
-                        },
-                    ],
-                },
-                [non_target_non_vip_session],
-            )
+        self._assert_query_matches_session_ids(
+            {
+                "operand": "AND",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [
+                            {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
+                        ],
+                    },
+                ],
+            },
+            [non_target_non_vip_session],
+        )
 
-        @snapshot_clickhouse_queries
-        def test_two_negative_ORed(self):
-            _target_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-target-page", "vip": True}
-            )
-            target_non_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-target-page", "vip": False}
-            )
-            non_target_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-other-page", "vip": True}
-            )
-            non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
-                {"$pathname": "/my-other-page", "vip": False}
-            )
+    @snapshot_clickhouse_queries
+    def test_two_negative_ORed(self):
+        _target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": True}
+        )
+        target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-target-page", "vip": False}
+        )
+        non_target_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": True}
+        )
+        non_target_non_vip_session = self._a_session_with_properties_on_pageviews(
+            {"$pathname": "/my-other-page", "vip": False}
+        )
 
-            self._assert_query_matches_session_ids(
-                {
-                    "operand": "AND",
-                    "events": [
-                        {
-                            "id": "$pageview",
-                            "name": "$pageview",
-                            "type": "events",
-                            "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
-                        },
-                        {
-                            "id": "$pageview",
-                            "name": "$pageview",
-                            "type": "events",
-                            "properties": [
-                                {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
-                            ],
-                        },
-                    ],
-                },
-                [non_target_non_vip_session, non_target_vip_session, target_non_vip_session],
-            )
+        self._assert_query_matches_session_ids(
+            {
+                "operand": "AND",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [{"key": "vip", "type": "event", "value": ["true"], "operator": "is_not"}],
+                    },
+                    {
+                        "id": "$pageview",
+                        "name": "$pageview",
+                        "type": "events",
+                        "properties": [
+                            {"key": "$pathname", "type": "event", "value": "target", "operator": "not_icontains"}
+                        ],
+                    },
+                ],
+            },
+            [non_target_non_vip_session, non_target_vip_session, target_non_vip_session],
+        )

@@ -3853,6 +3853,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3870,6 +3871,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="2",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3887,6 +3889,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="3",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3904,6 +3907,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="4",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3927,6 +3931,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
 
         create_event(
@@ -3946,6 +3951,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="3",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3964,6 +3970,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="4",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -3997,6 +4004,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="1",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -4014,6 +4022,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="3",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
@@ -4031,6 +4040,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             session_id="4",
             first_timestamp=self.an_hour_ago,
             team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
         )
         create_event(
             team=self.team,
