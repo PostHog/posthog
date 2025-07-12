@@ -11,6 +11,7 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { buildGlobalsWithInputs, HogExecutorService } from '../../hog-executor.service'
+import { HogFunctionManagerService } from '../../managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'
@@ -19,6 +20,7 @@ export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
+        private hogFunctionManager: HogFunctionManagerService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {}
 
@@ -72,10 +74,14 @@ export class HogFunctionHandler implements ActionHandler {
             deleted: false,
             hog: '<<TEMPLATE>>',
             bytecode: template.bytecode,
+            inputs: action.config.inputs,
+            inputs_schema: template.inputs_schema,
             is_addon_required: false,
             created_at: '',
             updated_at: '',
         }
+
+        await this.hogFunctionManager.enrichWithIntegrations([hogFunction])
 
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.hub.SITE_URL}/project/${teamId}`
