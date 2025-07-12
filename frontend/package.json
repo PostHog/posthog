@@ -107,6 +107,7 @@
         "@tiptap/extension-document": "^2.1.16",
         "@tiptap/extension-floating-menu": "^2.1.16",
         "@tiptap/extension-placeholder": "^2.1.16",
+        "@tiptap/extension-table-of-contents": "^2.25.0",
         "@tiptap/extension-task-item": "^2.1.16",
         "@tiptap/extension-task-list": "^2.1.16",
         "@tiptap/pm": "^2.1.16",
