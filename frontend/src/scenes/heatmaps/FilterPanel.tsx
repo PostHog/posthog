@@ -1,15 +1,17 @@
-import { IconCollapse } from '@posthog/icons'
 import clsx from 'clsx'
+import { useEffect, useState } from 'react'
+
+import { IconCollapse } from '@posthog/icons'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useEffect, useState } from 'react'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {

@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -8,8 +9,8 @@ import {
     AlertCalculationInterval,
     AlertConditionType,
     GoalLine,
-    InsightsThresholdBounds,
     InsightThresholdType,
+    InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 

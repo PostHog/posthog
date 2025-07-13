@@ -1,5 +1,6 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInput } from '@posthog/lemon-ui'
 
 import { logsLogic } from '../logsLogic'
 

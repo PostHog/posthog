@@ -1,8 +1,10 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -822,8 +824,8 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
             values.batchExportConfig
                 ? actions.resetConfiguration(getConfigurationFromBatchExportConfig(values.batchExportConfig))
                 : values.service
-                ? actions.resetConfiguration(getDefaultConfiguration(values.service))
-                : actions.resetConfiguration()
+                  ? actions.resetConfiguration(getDefaultConfiguration(values.service))
+                  : actions.resetConfiguration()
         },
     })),
 

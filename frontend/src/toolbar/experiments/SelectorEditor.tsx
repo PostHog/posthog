@@ -1,9 +1,11 @@
-import { IconPencil } from '@posthog/icons'
 import { useActions } from 'kea'
+import { useMemo, useState } from 'react'
+
+import { IconPencil } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { useMemo, useState } from 'react'
 
 import { experimentsTabLogic } from './experimentsTabLogic'
 

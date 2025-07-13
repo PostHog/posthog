@@ -1,5 +1,6 @@
 import { IconCode, IconEye } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
+
 import { IconAdsClick, IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'

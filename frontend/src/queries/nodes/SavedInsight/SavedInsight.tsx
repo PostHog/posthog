@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

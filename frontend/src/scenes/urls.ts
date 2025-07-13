@@ -1,22 +1,23 @@
 import { combineUrl } from 'kea-router'
+
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import type { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import {
     ActivityTab,
     AnnotationType,
+    OnboardingStepKey,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
     SDKKey,
-    OnboardingStepKey,
 } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 /**
  * To add a new URL to the front end:

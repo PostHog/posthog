@@ -1,9 +1,11 @@
 import './CalendarHeatMap.scss'
 
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { cn } from 'lib/utils/css-classes'
 import React, { useCallback, useEffect, useState } from 'react'
+
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'

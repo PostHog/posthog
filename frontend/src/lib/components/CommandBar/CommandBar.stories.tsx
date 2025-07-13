@@ -1,8 +1,9 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
+import { useEffect } from 'react'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 

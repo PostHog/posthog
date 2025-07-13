@@ -1,5 +1,6 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
-import { dayjs, QUnitType } from 'lib/dayjs'
+
+import { QUnitType, dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload, RetentionTrendPayload } from 'scenes/retention/types'

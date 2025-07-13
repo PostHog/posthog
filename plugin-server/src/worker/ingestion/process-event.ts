@@ -1,6 +1,7 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
+
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import {

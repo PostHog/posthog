@@ -1,5 +1,7 @@
 import { LemonDialog } from '@posthog/lemon-ui'
+
 import { capitalizeFirstLetter } from 'lib/utils'
+
 import { FeatureFlagType } from '~/types'
 
 type ConfirmationModalType = 'flag-status' | 'rollout' | 'multi-changes'
@@ -93,8 +95,8 @@ export function openConfirmationModal({
                 type === 'flag-status'
                     ? `${capitalizeFirstLetter(activeNewValue ? 'enable' : 'disable')} flag`
                     : type === 'rollout'
-                    ? 'Update conditions'
-                    : 'Save changes',
+                      ? 'Update conditions'
+                      : 'Save changes',
             onClick: onConfirm,
         },
         secondaryButton: {

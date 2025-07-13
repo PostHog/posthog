@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -8,9 +11,8 @@ import {
     LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -18,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { AnnotationScope, AnnotationType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 export function NewAnnotationButton(): JSX.Element {
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)

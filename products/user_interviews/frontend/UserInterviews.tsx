@@ -1,10 +1,12 @@
+import { useActions, useValues } from 'kea'
+
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { PhonePairHogs } from 'lib/components/hedgehogs'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'

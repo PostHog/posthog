@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -46,7 +47,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
                     showEventFilter: false,
                     showPersistentColumnConfigurator: true,
                     propertiesViaUrl: true,
-                } as DataTableNode),
+                }) as DataTableNode,
             { setQuery: (_, { query }) => query },
         ],
         queryWasModified: [

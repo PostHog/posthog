@@ -1,6 +1,7 @@
-import { IconBolt } from '@posthog/icons'
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
+
+import { IconBolt } from '@posthog/icons'
 
 import { HogFlowFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'

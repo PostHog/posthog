@@ -1,17 +1,19 @@
 import './PersonDisplay.scss'
 
-import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
 import { router } from 'kea-router'
+import React, { useMemo, useState } from 'react'
+
+import { IconCopy } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { asDisplay, asLink, PersonPropType } from './person-utils'
 import { PersonPreview } from './PersonPreview'
+import { PersonPropType, asDisplay, asLink } from './person-utils'
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null

@@ -1,8 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionTemplateType, HogFunctionType } from '~/types'
+
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
@@ -17,8 +20,6 @@ jest.mock('lib/api', () => ({
 // the mock api object
 
 const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
-
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 
 const HOG_TEMPLATE: HogFunctionTemplateType = {
     free: false,

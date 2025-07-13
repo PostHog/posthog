@@ -1,6 +1,7 @@
+import { useActions } from 'kea'
+
 import { IconDrag } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
 
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { getHogFlowStep } from './steps/HogFlowSteps'

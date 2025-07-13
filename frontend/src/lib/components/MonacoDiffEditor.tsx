@@ -1,5 +1,4 @@
 // adapted from https://github.com/react-monaco-editor/react-monaco-editor/blob/d2fd2521e0557c880dec93acaab9a087f025426c/src/diff.tsx
-
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 

@@ -1,4 +1,4 @@
-import { KafkaConsumer as RdKafkaConsumer, Message } from 'node-rdkafka'
+import { Message, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
 import { delay } from '../utils/utils'
 import { KafkaConsumer } from './consumer'

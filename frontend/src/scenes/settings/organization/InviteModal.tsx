@@ -1,8 +1,10 @@
 import './InviteModal.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -11,8 +13,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEmail, pluralize } from 'lib/utils'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { inviteLogic } from './inviteLogic'
@@ -284,8 +286,8 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                         userCannotInvite
                                             ? "You don't have permissions to invite others."
                                             : !canSubmit
-                                            ? 'Please fill out all fields'
-                                            : undefined
+                                              ? 'Please fill out all fields'
+                                              : undefined
                                     }
                                     data-attr="invite-team-member-submit"
                                 >

@@ -23,7 +23,6 @@
  * - Contains newline-delimited JSON records after decompression
  * - Each record is an array of [windowId, event]
  */
-
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 

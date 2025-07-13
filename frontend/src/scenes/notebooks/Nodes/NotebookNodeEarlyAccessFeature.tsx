@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -67,8 +68,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                     earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                         ? 'warning'
                                         : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
-                                        ? 'success'
-                                        : 'default'
+                                          ? 'success'
+                                          : 'default'
                                 }
                                 className="uppercase"
                             >

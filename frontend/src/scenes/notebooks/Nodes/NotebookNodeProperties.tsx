@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'

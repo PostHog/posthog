@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 
 import type { SharedMetric } from './sharedMetricLogic'

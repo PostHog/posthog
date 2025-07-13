@@ -1,16 +1,17 @@
-import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
+
 import { Query } from '~/queries/Query/Query'
 import {
-    MarketingAnalyticsBaseColumns,
     ConversionGoalFilter,
     DataTableNode,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsTableQuery,
     NodeKind,
-    MarketingAnalyticsHelperForColumnNames,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
@@ -136,12 +137,15 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
         columns: {
             ...webAnalyticsDataTableQueryContext.columns,
             // Indexes start at 1 because the orderBy field is 1-indexed e.g ORDER BY 1 DESC would sort by the first column
-            ...Object.values(MarketingAnalyticsBaseColumns).reduce((acc, column, index) => {
-                acc[column] = {
-                    renderTitle: makeMarketingSortableCell(column, index + QUERY_ORDER_BY_START_INDEX),
-                }
-                return acc
-            }, {} as Record<string, QueryContextColumn>),
+            ...Object.values(MarketingAnalyticsBaseColumns).reduce(
+                (acc, column, index) => {
+                    acc[column] = {
+                        renderTitle: makeMarketingSortableCell(column, index + QUERY_ORDER_BY_START_INDEX),
+                    }
+                    return acc
+                },
+                {} as Record<string, QueryContextColumn>
+            ),
             ...conversionGoalColumns,
         },
     }

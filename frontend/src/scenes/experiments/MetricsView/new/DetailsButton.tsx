@@ -1,5 +1,6 @@
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'

@@ -46,8 +46,8 @@ export const seriesNodeToFilter = (
         type: isDataWarehouseNode(node)
             ? EntityTypes.DATA_WAREHOUSE
             : isActionsNode(node)
-            ? EntityTypes.ACTIONS
-            : EntityTypes.EVENTS,
+              ? EntityTypes.ACTIONS
+              : EntityTypes.EVENTS,
         id: isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null,
         order: index,
         name: node.name,
@@ -103,10 +103,13 @@ export const seriesToActionsAndEvents = (
 export const hiddenLegendItemsToKeys = (
     hidden_items: number[] | string[] | undefined
 ): Record<string, boolean | undefined> | undefined =>
-    hidden_items?.reduce((k, b) => {
-        k[b] = true
-        return k
-    }, {} as Record<string, boolean | undefined>)
+    hidden_items?.reduce(
+        (k, b) => {
+            k[b] = true
+            return k
+        },
+        {} as Record<string, boolean | undefined>
+    )
 
 export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
@@ -262,8 +265,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
             queryCopy.retentionFilter?.meanRetentionCalculation === 'simple'
                 ? true
                 : queryCopy.retentionFilter?.meanRetentionCalculation === 'none'
-                ? false
-                : undefined
+                  ? false
+                  : undefined
         camelCasedRetentionProps.cumulative = queryCopy.retentionFilter?.cumulative
         delete queryCopy.retentionFilter?.retentionReference
         delete queryCopy.retentionFilter?.retentionType

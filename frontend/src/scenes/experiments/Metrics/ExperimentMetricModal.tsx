@@ -1,12 +1,13 @@
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
+
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
+import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 
 export function ExperimentMetricModal({

@@ -1,5 +1,5 @@
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import { summarizeInsight, SummaryContext } from 'scenes/insights/summarizeInsight'
+import { SummaryContext, summarizeInsight } from 'scenes/insights/summarizeInsight'
 import {
     BASE_MATH_DEFINITIONS,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,

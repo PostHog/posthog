@@ -1,4 +1,3 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { Editor as TTEditor } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
 import { FloatingMenu } from '@tiptap/extension-floating-menu'
@@ -8,9 +7,12 @@ import TaskList from '@tiptap/extension-task-list'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { sampleOne } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, useRef } from 'react'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { sampleOne } from 'lib/utils'
 
 import { NotebookNodeType } from '~/types'
 
@@ -40,8 +42,8 @@ import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { InlineMenu } from './InlineMenu'
 import { MentionsExtension } from './MentionsExtension'
-import { notebookLogic } from './notebookLogic'
 import { SlashCommandsExtension } from './SlashCommands'
+import { notebookLogic } from './notebookLogic'
 import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 
 const CustomDocument = ExtensionDocument.extend({

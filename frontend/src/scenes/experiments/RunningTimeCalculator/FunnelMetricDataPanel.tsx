@@ -1,5 +1,7 @@
-import { IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconInfo } from '@posthog/icons'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'

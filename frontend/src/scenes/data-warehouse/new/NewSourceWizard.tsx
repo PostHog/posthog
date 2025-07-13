@@ -1,12 +1,19 @@
-import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, lemonToast, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
 import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
+
+import { IconBell, IconCheck } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SourceConfig } from '~/queries/schema/schema-general'
 import { ManualLinkSourceType, SurveyEventName, SurveyEventProperties } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
@@ -14,14 +21,9 @@ import SchemaForm from '../external/forms/SchemaForm'
 import SourceForm from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
+import { availableSourcesDataLogic } from './availableSourcesDataLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
-import { availableSourcesDataLogic } from './availableSourcesDataLogic'
-import { SourceConfig } from '~/queries/schema/schema-general'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { IconBlank } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: NewSourceWizardScene,

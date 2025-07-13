@@ -1,9 +1,11 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconCollapse, IconExpand, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
-import { useState } from 'react'
 
 // import { TimelineEntry } from '~/queries/schema/schema-general'
 import { NotebookNodeType } from '~/types'

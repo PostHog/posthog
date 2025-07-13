@@ -1,9 +1,11 @@
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { DOMAIN_REGEX } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { useState } from 'react'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 

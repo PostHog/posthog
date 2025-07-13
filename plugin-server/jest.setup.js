@@ -1,10 +1,10 @@
-const { readFileSync } = require('fs')
-const { DateTime } = require('luxon')
-const { join } = require('path')
-
 import fetch from 'node-fetch'
 
 import { logger, shutdownLogger } from './src/utils/logger'
+
+const { readFileSync } = require('fs')
+const { DateTime } = require('luxon')
+const { join } = require('path')
 
 // Setup spies on the logger for all tests to use
 

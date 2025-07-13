@@ -1,8 +1,13 @@
 import './AnnotationsOverlay.scss'
 
-import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
+import React, { useRef, useState } from 'react'
+
+import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
+
 import { Chart } from 'lib/Chart'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { dayjs } from 'lib/dayjs'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,7 +15,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
-import React, { useRef, useState } from 'react'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,13 +23,11 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationScope, AnnotationType, IntervalType } from '~/types'
 
 import {
-    annotationsOverlayLogic,
     AnnotationsOverlayLogicProps,
+    annotationsOverlayLogic,
     determineAnnotationsDateGroup,
 } from './annotationsOverlayLogic'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -158,8 +160,8 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                 !isDateLocked
                     ? lockDate
                     : active
-                    ? unlockDate
-                    : () => activateDate(date, buttonRef.current as HTMLButtonElement)
+                      ? unlockDate
+                      : () => activateDate(date, buttonRef.current as HTMLButtonElement)
             }
         >
             {annotations.length ? (

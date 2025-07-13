@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AnimationType } from 'lib/animations/animations'
 import { DataColorToken } from 'lib/colors'
 import { Animation } from 'lib/components/Animation/Animation'

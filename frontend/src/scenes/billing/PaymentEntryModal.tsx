@@ -1,8 +1,9 @@
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
+
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 

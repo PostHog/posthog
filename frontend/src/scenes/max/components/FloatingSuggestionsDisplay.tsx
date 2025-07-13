@@ -1,9 +1,10 @@
-import { IconChevronLeft } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { maxLogic, QUESTION_SUGGESTIONS_DATA, SuggestionGroup } from '../maxLogic'
+import { IconChevronLeft } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
+import { QUESTION_SUGGESTIONS_DATA, SuggestionGroup, maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { checkSuggestionRequiresUserInput, stripSuggestionPlaceholders } from '../utils'
 

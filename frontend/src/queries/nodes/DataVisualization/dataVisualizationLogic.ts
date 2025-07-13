@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
+
+import { dayjs } from 'lib/dayjs'
+import { RGBToHex, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,7 +23,7 @@ import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
+import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 

@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import {
     ErrorEventId,
     ErrorEventProperties,

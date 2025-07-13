@@ -9,10 +9,10 @@ import { createPlugin, createPluginConfig } from '../../../tests/helpers/sql'
 import { Hub, PluginConfig, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import {
+    insertHogFunction as _insertHogFunction,
     createExampleInvocation,
     createHogExecutionGlobals,
     createHogFunction,
-    insertHogFunction as _insertHogFunction,
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'

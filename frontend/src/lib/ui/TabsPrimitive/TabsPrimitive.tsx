@@ -1,6 +1,7 @@
 import './TabsPrimitive.scss'
 
 import * as Tabs from '@radix-ui/react-tabs'
+
 import { cn } from 'lib/utils/css-classes'
 
 export interface TabsPrimitiveProps extends Tabs.TabsProps {}

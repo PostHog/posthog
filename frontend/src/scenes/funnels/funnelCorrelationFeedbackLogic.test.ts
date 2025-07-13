@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'

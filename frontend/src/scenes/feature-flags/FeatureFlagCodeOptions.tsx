@@ -1,4 +1,5 @@
 import { IconServer } from '@posthog/icons'
+
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -16,13 +17,12 @@ import {
 import { SDKKey } from '~/types'
 
 import {
-    AndroidSnippet,
     APISnippet,
+    AndroidSnippet,
     CSharpSnippet,
     FeatureFlagSnippet,
     FlutterSnippet,
     GolangSnippet,
-    iOSSnippet,
     JSBootstrappingSnippet,
     JSSnippet,
     NodeJSSnippet,
@@ -32,6 +32,7 @@ import {
     ReactSnippet,
     RubySnippet,
     UTM_TAGS,
+    iOSSnippet,
 } from './FeatureFlagSnippets'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'

@@ -6,6 +6,7 @@ import { QueryContext } from '~/queries/types'
 import { BaseMathType } from '~/types'
 
 import { WebActiveHoursHeatmap } from './WebActiveHoursHeatmap'
+
 const meta: Meta<typeof WebActiveHoursHeatmap> = {
     title: 'Scenes/Web Analytics/WebActiveHoursHeatmap',
     component: WebActiveHoursHeatmap,

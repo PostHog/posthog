@@ -1,10 +1,10 @@
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
+import { IconX } from '@posthog/icons'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
-    isLemonMenuSection,
     LemonMenu,
     LemonMenuItem,
     LemonMenuItemBase,
@@ -12,6 +12,7 @@ import {
     LemonMenuItemNode,
     LemonMenuProps,
     LemonMenuSection,
+    isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
 import { PopoverProps } from '../Popover'
 import { TooltipProps } from '../Tooltip'
@@ -171,8 +172,8 @@ export function LemonSelect<T extends string | number | boolean | null>({
                     {renderButtonContent
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
-                        ? activeLeaf.label
-                        : value ?? placeholder}
+                          ? activeLeaf.label
+                          : (value ?? placeholder)}
                 </span>
             </LemonButton>
         </LemonMenu>

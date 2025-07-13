@@ -1,5 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { GoalLine, HogQLQueryModifiers, TrendsQuery } from '~/queries/schema/schema-general'

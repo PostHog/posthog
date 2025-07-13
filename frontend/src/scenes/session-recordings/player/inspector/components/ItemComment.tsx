@@ -1,18 +1,20 @@
-import { IconInfo, IconPencil } from '@posthog/icons'
 import { useActions } from 'kea'
+
+import { IconInfo, IconPencil } from '@posthog/icons'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toSentenceCase } from 'lib/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
+import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
+import { RecordingAnnotationForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import {
     InspectorListItemAnnotationComment,
     InspectorListItemComment,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
-import { RecordingAnnotationForm } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 export interface ItemCommentProps {
     item: InspectorListItemComment

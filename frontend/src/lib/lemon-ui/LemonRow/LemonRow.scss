@@ -12,7 +12,11 @@
     background: none;
     border: none;
     border-radius: var(--radius);
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease;
+    transition:
+        background-color 200ms ease,
+        color 200ms ease,
+        border 200ms ease,
+        opacity 200ms ease;
 
     &.LemonRow--status-highlighted {
         font-weight: 600;
@@ -146,7 +150,9 @@
     flex-shrink: 0;
     font-size: 1.5rem;
     color: var(--text-secondary);
-    transition: background-color 200ms ease, color 200ms ease;
+    transition:
+        background-color 200ms ease,
+        color 200ms ease;
 }
 
 .LemonRow__content {

@@ -16,7 +16,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
+import { SEARCHABLE_EXCEPTION_PROPERTIES, resolveDateRange } from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,

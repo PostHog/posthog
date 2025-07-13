@@ -1,16 +1,18 @@
 import './StoriesModal.scss'
 
-import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconX } from '@posthog/icons'
+
+import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
+import { StoriesPlayer, Story } from './StoriesPlayer'
 import { storiesLogic } from './storiesLogic'
 import { CloseOverlayAction, StoryType } from './storiesMap'
 import type { story } from './storiesMap'
-import { StoriesPlayer, Story } from './StoriesPlayer'
 
 const IMAGE_STORY_INTERVAL = 6000
 const MIN_WIDTH = 320 // Minimum width in pixels

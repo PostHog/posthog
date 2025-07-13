@@ -1,6 +1,7 @@
-import { LemonDropdown } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { LemonDropdown } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 

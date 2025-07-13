@@ -1,5 +1,6 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import posthog, { CaptureResult } from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface WindowWithCypressCaptures extends Window {
     // our Cypress tests will use this to check what events were sent to PostHog

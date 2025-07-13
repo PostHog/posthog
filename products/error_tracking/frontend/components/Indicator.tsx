@@ -1,5 +1,6 @@
-import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+
+import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 

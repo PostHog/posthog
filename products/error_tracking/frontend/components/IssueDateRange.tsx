@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'

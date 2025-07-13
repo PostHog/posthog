@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import React, { useState } from 'react'
+
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import React, { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'

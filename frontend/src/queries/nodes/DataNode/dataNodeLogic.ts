@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -23,10 +24,11 @@ import { shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { dataNodeCollectionLogic, DataNodeCollectionProps } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
 import {
@@ -69,7 +71,6 @@ import {
 import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -422,7 +423,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             ...values.response,
                             results: [
                                 ...(values.response && 'results' in values.response
-                                    ? values.response?.results ?? []
+                                    ? (values.response?.results ?? [])
                                     : []),
                                 ...(newResponse?.results ?? []),
                             ],
@@ -557,9 +558,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return error ?? 'Error loading data'
                 },
                 loadDataSuccess: (_, { response }) =>
-                    response && 'error' in response ? response?.error ?? null : null,
+                    response && 'error' in response ? (response?.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>
-                    response && 'error' in response ? response?.error ?? null : null,
+                    response && 'error' in response ? (response?.error ?? null) : null,
             },
         ],
         elapsedTime: [
@@ -660,7 +661,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | MarketingAnalyticsTableQueryResponse
                         )?.hasMore
                     ) {
-                        const sortKey = isTracesQuery(query) ? null : query.orderBy?.[0] ?? 'timestamp DESC'
+                        const sortKey = isTracesQuery(query) ? null : (query.orderBy?.[0] ?? 'timestamp DESC')
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
                             const sortColumnIndex = query.select
@@ -730,7 +731,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // get limit from response
             (s) => [s.response],
             (response): number | null => {
-                return response && 'limit' in response ? response.limit ?? null : null
+                return response && 'limit' in response ? (response.limit ?? null) : null
             },
         ],
         backToSourceQuery: [

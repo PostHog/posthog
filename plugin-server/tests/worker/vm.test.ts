@@ -1,4 +1,4 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import { mockProducerObserver } from '../helpers/mocks/producer.mock'
 
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'

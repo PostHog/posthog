@@ -1,7 +1,9 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -11,10 +13,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
 export function ExposureCriteriaModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)

@@ -1,12 +1,14 @@
+import { useState } from 'react'
+
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { useState } from 'react'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 

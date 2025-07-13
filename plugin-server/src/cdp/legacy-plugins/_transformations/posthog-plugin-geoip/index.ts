@@ -20,15 +20,21 @@ const props = {
     time_zone: null,
 }
 
-const defaultLocationSetProps = Object.entries(props).reduce((acc, [key]) => {
-    acc[`$geoip_${key}`] = null
-    return acc
-}, {} as Record<string, any>)
+const defaultLocationSetProps = Object.entries(props).reduce(
+    (acc, [key]) => {
+        acc[`$geoip_${key}`] = null
+        return acc
+    },
+    {} as Record<string, any>
+)
 
-const defaultLocationSetOnceProps = Object.entries(props).reduce((acc, [key]) => {
-    acc[`$initial_geoip_${key}`] = null
-    return acc
-}, {} as Record<string, any>)
+const defaultLocationSetOnceProps = Object.entries(props).reduce(
+    (acc, [key]) => {
+        acc[`$initial_geoip_${key}`] = null
+        return acc
+    },
+    {} as Record<string, any>
+)
 
 export const processEvent = (event: PluginEvent, { geoip }: LegacyTransformationPluginMeta) => {
     if (!geoip) {

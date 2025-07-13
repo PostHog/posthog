@@ -1,3 +1,10 @@
+import { Extension } from '@tiptap/core'
+import { ReactRenderer } from '@tiptap/react'
+import Suggestion from '@tiptap/suggestion'
+import Fuse from 'fuse.js'
+import { useValues } from 'kea'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
+
 import {
     IconCursor,
     IconFunnels,
@@ -15,17 +22,12 @@ import {
 } from '@posthog/icons'
 import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { Extension } from '@tiptap/core'
-import { ReactRenderer } from '@tiptap/react'
-import Suggestion from '@tiptap/suggestion'
-import Fuse from 'fuse.js'
-import { useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'

@@ -1,11 +1,13 @@
-import { IconUser } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { useEffect, useRef } from 'react'
 
-import { panelLayoutLogic } from '../panelLayoutLogic'
+import { IconUser } from '@posthog/icons'
+
+import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
+
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { panelLayoutLogic } from '../panelLayoutLogic'
 import { personsTreeLogic } from './personsTreeLogic'
 
 export function PersonsTree({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {

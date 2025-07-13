@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+
 import {
-    calculateSnapPosition,
-    getFloatingMaxDimensions,
-    getElementDimensions,
     Position,
     PositionWithSide,
+    calculateSnapPosition,
+    getElementDimensions,
+    getFloatingMaxDimensions,
 } from './floatingMaxPositioning'
 
 const DRAG_THRESHOLD = 5 // pixels
@@ -115,8 +116,8 @@ export function useDragAndSnap({
                 const { width: elementWidth, height: elementHeight } = containerElement
                     ? getElementDimensions(containerElement)
                     : dragElementRef.current
-                    ? getElementDimensions(dragElementRef.current)
-                    : getFloatingMaxDimensions()
+                      ? getElementDimensions(dragElementRef.current)
+                      : getFloatingMaxDimensions()
                 const snapPosition = calculateSnapPosition(
                     e.clientX,
                     cachedBottomOffset,

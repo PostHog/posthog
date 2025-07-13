@@ -1,5 +1,6 @@
-import ClickHouse from '@posthog/clickhouse'
 import { performance } from 'perf_hooks'
+
+import ClickHouse from '@posthog/clickhouse'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'

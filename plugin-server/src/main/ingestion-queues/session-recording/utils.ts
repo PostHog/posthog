@@ -4,7 +4,7 @@ import path from 'path'
 import { Counter } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
+import { PipelineEvent, RRWebEvent, RawEventMessage } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'

@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { mergeAttributes } from '@tiptap/core'
 import { InputRule } from '@tiptap/core'
 import { browserAdaptor } from 'mathjax-full/js/adaptors/browserAdaptor.js'

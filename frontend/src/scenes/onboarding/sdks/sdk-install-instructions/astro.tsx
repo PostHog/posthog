@@ -1,9 +1,12 @@
 import { useValues } from 'kea'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useJsSnippet } from 'lib/components/JSSnippet'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { LemonDivider } from '@posthog/lemon-ui'
 
 function CreatePostHogAstroFileSnippet(): JSX.Element {
     return (

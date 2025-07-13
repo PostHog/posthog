@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconComment } from 'lib/lemon-ui/icons'
 import {
     playerCommentOverlayLogic,
     quickEmojis,
 } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { IconComment } from 'lib/lemon-ui/icons'
 
 export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {

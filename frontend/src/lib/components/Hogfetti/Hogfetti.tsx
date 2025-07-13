@@ -1,3 +1,5 @@
+import React, { useCallback, useEffect, useState } from 'react'
+
 import {
     BlushingHog,
     DetectiveHog,
@@ -23,7 +25,6 @@ import {
     XRayHog,
     XRayHog2,
 } from 'lib/components/hedgehogs'
-import React, { useCallback, useEffect, useState } from 'react'
 
 export type HogComponent = React.ComponentType<{ width: number; height: number }>
 

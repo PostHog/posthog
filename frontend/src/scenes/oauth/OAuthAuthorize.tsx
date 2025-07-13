@@ -1,6 +1,8 @@
-import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconCheck, IconWarning, IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'

@@ -1,9 +1,11 @@
+import { useActions, useValues } from 'kea'
+
 import { IconExternal, IconX } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import api from 'lib/api'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
@@ -82,29 +84,29 @@ export function IntegrationChoice({
                           ],
                       }
                     : ['email'].includes(kind)
-                    ? {
-                          items: [
-                              {
-                                  to: urls.messaging('senders'),
-                                  label: 'Configure new email sender domain',
-                              },
-                          ],
-                      }
-                    : {
-                          items: [
-                              {
-                                  to: api.integrations.authorizeUrl({
-                                      kind,
-                                      next: redirectUrl,
-                                  }),
-                                  disableClientSideRouting: true,
-                                  onClick: beforeRedirect,
-                                  label: integrationsOfKind?.length
-                                      ? `Connect to a different integration for ${kindName}`
-                                      : `Connect to ${kindName}`,
-                              },
-                          ],
-                      },
+                      ? {
+                            items: [
+                                {
+                                    to: urls.messaging('senders'),
+                                    label: 'Configure new email sender domain',
+                                },
+                            ],
+                        }
+                      : {
+                            items: [
+                                {
+                                    to: api.integrations.authorizeUrl({
+                                        kind,
+                                        next: redirectUrl,
+                                    }),
+                                    disableClientSideRouting: true,
+                                    onClick: beforeRedirect,
+                                    label: integrationsOfKind?.length
+                                        ? `Connect to a different integration for ${kindName}`
+                                        : `Connect to ${kindName}`,
+                                },
+                            ],
+                        },
                 {
                     items: [
                         {

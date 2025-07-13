@@ -4,11 +4,11 @@ This file contains a bunch of legacy E2E tests mixed with unit tests.
 Rather than add tests here, consider improving event-pipeline-integration test suite or adding
 unit tests to appropriate classes/functions.
 */
+import * as IORedis from 'ioredis'
+import { DateTime } from 'luxon'
 
 import { Properties } from '@posthog/plugin-scaffold'
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-import * as IORedis from 'ioredis'
-import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
@@ -444,9 +444,9 @@ test('capture new person', async () => {
     expect(persons[0].properties).toEqual(expectedProps)
 
     const chPeople2 = await delayUntilEventIngested(async () =>
-        (
-            await hub.db.fetchPersons(Database.ClickHouse)
-        ).filter((p) => p && parseJSON(p.properties).utm_medium == 'instagram')
+        (await hub.db.fetchPersons(Database.ClickHouse)).filter(
+            (p) => p && parseJSON(p.properties).utm_medium == 'instagram'
+        )
     )
     expect(chPeople2.length).toEqual(1)
     expect(parseJSON(chPeople2[0].properties)).toEqual(expectedProps)

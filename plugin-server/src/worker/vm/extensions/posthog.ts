@@ -1,7 +1,8 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, RawEventMessage } from '../../../types'
 import { UUIDT } from '../../../utils/utils'

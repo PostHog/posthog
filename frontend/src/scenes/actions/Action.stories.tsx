@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'

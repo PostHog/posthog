@@ -1,14 +1,16 @@
-import { IconInfo, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+
+import { IconInfo, IconPlus } from '@posthog/icons'
+
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { ActionHogFunctions } from 'scenes/actions/ActionHogFunctions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,8 +19,8 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
-import { actionEditLogic, ActionEditLogicProps, DEFAULT_ACTION_STEP } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
+import { ActionEditLogicProps, DEFAULT_ACTION_STEP, actionEditLogic } from './actionEditLogic'
 
 export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {

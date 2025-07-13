@@ -1,15 +1,17 @@
 import './NotebookScene.scss'
 
-import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
 
-import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))

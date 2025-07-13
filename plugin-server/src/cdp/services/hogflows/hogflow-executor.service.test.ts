@@ -1,13 +1,3 @@
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
-    return {
-        ...original,
-        fetch: jest.fn().mockImplementation((url, options) => {
-            return original.fetch(url, options)
-        }),
-    }
-})
-
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
@@ -24,6 +14,16 @@ import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { HogFlowExecutorService } from './hogflow-executor.service'
+
+jest.mock('~/utils/request', () => {
+    const original = jest.requireActual('~/utils/request')
+    return {
+        ...original,
+        fetch: jest.fn().mockImplementation((url, options) => {
+            return original.fetch(url, options)
+        }),
+    }
+})
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -381,7 +381,7 @@ describe('Hogflow Executor', () => {
                     finished: boolean
                     scheduledAt?: DateTime
                     nextActionId: string
-                }
+                },
             ][] = [
                 [
                     'wait_until_condition',

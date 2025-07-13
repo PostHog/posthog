@@ -1,6 +1,9 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -9,7 +12,6 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
@@ -306,8 +308,8 @@ export function GoalsConfiguration(): JSX.Element {
                             isAdding
                                 ? 'Finish adding current goal first'
                                 : editingIndex !== null
-                                ? 'Finish editing current goal first'
-                                : undefined
+                                  ? 'Finish editing current goal first'
+                                  : undefined
                         }
                     >
                         Add Goal

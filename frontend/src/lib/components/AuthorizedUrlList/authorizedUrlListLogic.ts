@@ -15,6 +15,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
@@ -352,8 +353,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     editUrlIndex && index < editUrlIndex
                         ? editUrlIndex - 1
                         : index === editUrlIndex
-                        ? null
-                        : editUrlIndex,
+                          ? null
+                          : editUrlIndex,
                 newUrl: () => -1,
                 updateUrl: () => null,
                 addUrl: () => null,

@@ -1,5 +1,7 @@
-import { LemonInputSelect, LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInputSelect, LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'

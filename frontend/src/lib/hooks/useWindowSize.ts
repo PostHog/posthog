@@ -1,5 +1,6 @@
-import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 import { useCallback, useEffect, useState } from 'react'
+
+import { TAILWIND_BREAKPOINTS } from 'lib/constants'
 
 type WindowSize = {
     width: number | undefined

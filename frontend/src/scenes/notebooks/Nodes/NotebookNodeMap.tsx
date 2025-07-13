@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { Marker } from 'maplibre-gl'
 
 import { NotebookNodeType } from '~/types'

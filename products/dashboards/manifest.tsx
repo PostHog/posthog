@@ -1,5 +1,7 @@
-import { IconDashboard } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+
+import { IconDashboard } from '@posthog/icons'
+
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'

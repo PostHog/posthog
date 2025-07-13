@@ -1,5 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
+
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
+
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -14,13 +17,12 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import {
     DISPLAY_MODE_OPTIONS,
-    extractLabelAndDatasets,
     RevenueAnalyticsLineGraph,
     TileProps,
     TileWrapper,
+    extractLabelAndDatasets,
 } from './shared'
 
 let uniqueNode = 0

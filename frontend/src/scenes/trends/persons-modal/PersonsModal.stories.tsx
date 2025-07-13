@@ -1,10 +1,11 @@
 import { Meta, StoryFn } from '@storybook/react'
+
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import { PersonsModal as PersonsModalComponent } from './PersonsModal'
+import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import { ListActorsResponse } from './personsModalLogic'
 
 const meta: Meta = {

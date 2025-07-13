@@ -1,11 +1,12 @@
 import './SideBar.scss'
 
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ChartDisplayType } from '~/types'
 
-import { dataVisualizationLogic, SideBarTab } from '../dataVisualizationLogic'
+import { SideBarTab, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ConditionalFormattingTab } from './ConditionalFormatting/ConditionalFormattingTab'
 import { DisplayTab } from './DisplayTab'
 import { SeriesTab } from './SeriesTab'

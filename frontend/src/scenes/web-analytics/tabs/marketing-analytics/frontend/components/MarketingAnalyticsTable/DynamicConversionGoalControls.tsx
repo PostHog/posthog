@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useRef, useState } from 'react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
-import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonInput } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { objectsEqual, uuid } from 'lib/utils'
 
+import { ConversionGoalFilter } from '~/queries/schema/schema-general'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
-import { defaultConversionGoalFilter } from '../settings/constants'
-import { LemonInput } from '@posthog/lemon-ui'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { generateUniqueName } from '../../logic/utils'
+import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
+import { defaultConversionGoalFilter } from '../settings/constants'
 
 export const DynamicConversionGoalControls = (): JSX.Element => {
     const { setDynamicConversionGoal } = useActions(marketingAnalyticsLogic)

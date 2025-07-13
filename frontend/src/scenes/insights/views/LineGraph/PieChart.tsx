@@ -1,7 +1,8 @@
 import 'chartjs-adapter-dayjs-3'
-
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import {
     ActiveElement,
     Chart,
@@ -14,15 +15,14 @@ import {
     TooltipModel,
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { useEffect, useRef } from 'react'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import {
+    LineGraphProps,
     ensureTooltip,
     filterNestedDataset,
-    LineGraphProps,
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
@@ -258,8 +258,8 @@ export function PieChart({
                                             labelGroupType === 'people'
                                                 ? 'people'
                                                 : labelGroupType === 'none'
-                                                ? ''
-                                                : aggregationLabel(labelGroupType).plural
+                                                  ? ''
+                                                  : aggregationLabel(labelGroupType).plural
                                         }
                                         {...tooltipConfig}
                                     />

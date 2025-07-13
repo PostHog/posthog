@@ -1,6 +1,9 @@
-import { IconGear, IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
+
+import { IconGear, IconPlus } from '@posthog/icons'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,7 +11,6 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
-import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

@@ -1,5 +1,7 @@
-import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { LifecycleFilter } from '~/queries/schema/schema-general'

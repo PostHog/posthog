@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 

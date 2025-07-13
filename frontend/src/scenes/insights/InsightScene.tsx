@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { NotFound } from 'lib/components/NotFound'
 import { useEffect } from 'react'
+
+import { NotFound } from 'lib/components/NotFound'
 import { Insight } from 'scenes/insights/Insight'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

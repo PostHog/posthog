@@ -1,9 +1,11 @@
+import clsx from 'clsx'
+import { useCallback, useState } from 'react'
+
 import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useCallback, useState } from 'react'
 
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 

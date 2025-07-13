@@ -1,4 +1,5 @@
 import '~/styles'
+
 import '~/toolbar/styles.scss'
 
 import { Meta, StoryFn } from '@storybook/react'

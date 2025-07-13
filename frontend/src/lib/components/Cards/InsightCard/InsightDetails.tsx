@@ -1,26 +1,27 @@
 import { useValues } from 'kea'
+import React from 'react'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import {
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     convertPropertiesToPropertyGroup,
     formatPropertyLabel,
     isAnyPropertyfilter,
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
-    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
 } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconCalculate } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { IconCalculate } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
-import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -97,8 +98,8 @@ function CompactPropertyFiltersDisplay({
                                             ? 'where '
                                             : null
                                         : subType === FilterLogicalOperator.Or
-                                        ? 'or '
-                                        : 'and '}
+                                          ? 'or '
+                                          : 'and '}
                                     {isCohortPropertyFilter(leafFilter) ? (
                                         <>
                                             {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
@@ -193,8 +194,8 @@ function SeriesDisplay({
         isLifecycleQuery(query)
             ? 'dau'
             : series.math
-            ? apiValueToMathType(series.math, series.math_group_type_index)
-            : 'total'
+              ? apiValueToMathType(series.math, series.math_group_type_index)
+              : 'total'
     ] as MathDefinition | undefined
 
     return (

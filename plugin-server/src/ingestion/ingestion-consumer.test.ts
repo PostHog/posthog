@@ -1,4 +1,4 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'

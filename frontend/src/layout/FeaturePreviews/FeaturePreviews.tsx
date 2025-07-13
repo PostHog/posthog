@@ -1,10 +1,12 @@
-import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
+
+import { IconBell, IconCheck } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
+
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { IconLink } from 'lib/lemon-ui/icons'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 

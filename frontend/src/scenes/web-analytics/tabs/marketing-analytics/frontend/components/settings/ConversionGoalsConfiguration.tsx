@@ -1,16 +1,18 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconCheck, IconPencil, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils'
-import { useState } from 'react'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
 import { ConversionGoalFilter } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { defaultConversionGoalFilter } from './constants'
 import { ConversionGoalDropdown } from '../common/ConversionGoalDropdown'
+import { defaultConversionGoalFilter } from './constants'
 
 interface ConversionGoalFormState {
     filter: ConversionGoalFilter

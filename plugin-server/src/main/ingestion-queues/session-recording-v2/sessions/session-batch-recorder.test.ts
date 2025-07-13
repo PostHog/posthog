@@ -45,7 +45,11 @@ export class SnappySessionRecorderMock {
     private endDateTime: DateTime | null = null
     private _distinctId: string | null = null
 
-    constructor(public readonly sessionId: string, public readonly teamId: number, private readonly batchId: string) {}
+    constructor(
+        public readonly sessionId: string,
+        public readonly teamId: number,
+        private readonly batchId: string
+    ) {}
 
     public recordMessage(message: ParsedMessageData): number {
         let bytesWritten = 0
@@ -1386,7 +1390,7 @@ describe('SessionBatchRecorder', () => {
                             consoleWarnCount: 3,
                             consoleErrorCount: 2,
                         }),
-                    } as unknown as SessionConsoleLogRecorder)
+                    }) as unknown as SessionConsoleLogRecorder
             )
 
             const message = createMessage('session_custom', [
@@ -1564,7 +1568,7 @@ describe('SessionBatchRecorder', () => {
                     ({
                         recordMessage: jest.fn().mockReturnValue(1),
                         end: () => Promise.reject(new Error('Stream read error')),
-                    } as unknown as SnappySessionRecorder)
+                    }) as unknown as SnappySessionRecorder
             )
 
             await recorder.record(createMessage('session', events))

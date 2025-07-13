@@ -39,14 +39,14 @@ export function getRedisConnectionOptions(
                       },
                   }
                 : serverConfig.POSTHOG_REDIS_HOST
-                ? {
-                      url: serverConfig.POSTHOG_REDIS_HOST,
-                      options: {
-                          port: serverConfig.POSTHOG_REDIS_PORT,
-                          password: serverConfig.POSTHOG_REDIS_PASSWORD,
-                      },
-                  }
-                : fallback
+                  ? {
+                        url: serverConfig.POSTHOG_REDIS_HOST,
+                        options: {
+                            port: serverConfig.POSTHOG_REDIS_PORT,
+                            password: serverConfig.POSTHOG_REDIS_PASSWORD,
+                        },
+                    }
+                  : fallback
         case 'session-recording':
             return serverConfig.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {

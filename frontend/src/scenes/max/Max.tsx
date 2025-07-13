@@ -1,23 +1,27 @@
+import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
+import React, { useEffect, useState } from 'react'
+
 import {
     IconArrowLeft,
     IconChevronLeft,
     IconClockRewind,
-    IconExternal,
     IconCornerDownRight,
+    IconExternal,
     IconMinus,
     IconPlus,
     IconSidePanel,
 } from '@posthog/icons'
 import { LemonBanner, LemonTag, Link } from '@posthog/lemon-ui'
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -26,19 +30,17 @@ import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/componen
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
+import { ConversationHistory } from './ConversationHistory'
+import { HistoryPreview } from './HistoryPreview'
+import { Intro } from './Intro'
+import { Thread } from './Thread'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
-import { ConversationHistory } from './ConversationHistory'
-import { HistoryPreview } from './HistoryPreview'
-import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
-import { maxThreadLogic, MaxThreadLogicProps } from './maxThreadLogic'
-import { Thread } from './Thread'
-import clsx from 'clsx'
-import { IconArrowUp } from 'lib/lemon-ui/icons'
+import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 
 export const scene: SceneExport = {
     component: Max,

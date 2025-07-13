@@ -1,8 +1,10 @@
-import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+
+import { IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import React, { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 const MIN_BOUNCE_RATE_DURATION = 1
@@ -70,14 +72,14 @@ export function BounceRateDurationSetting(): JSX.Element {
                         bounceRateDuration === savedDuration
                             ? 'No changes to save'
                             : bounceRateDuration == undefined
-                            ? undefined
-                            : isNaN(bounceRateDuration)
-                            ? 'Invalid number'
-                            : bounceRateDuration < MIN_BOUNCE_RATE_DURATION
-                            ? `Duration must be at least ${MIN_BOUNCE_RATE_DURATION} second`
-                            : bounceRateDuration > MAX_BOUNCE_RATE_DURATION
-                            ? `Duration must be less than ${MAX_BOUNCE_RATE_DURATION} seconds`
-                            : undefined
+                              ? undefined
+                              : isNaN(bounceRateDuration)
+                                ? 'Invalid number'
+                                : bounceRateDuration < MIN_BOUNCE_RATE_DURATION
+                                  ? `Duration must be at least ${MIN_BOUNCE_RATE_DURATION} second`
+                                  : bounceRateDuration > MAX_BOUNCE_RATE_DURATION
+                                    ? `Duration must be less than ${MAX_BOUNCE_RATE_DURATION} seconds`
+                                    : undefined
                     }
                 >
                     Save

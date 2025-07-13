@@ -10,7 +10,7 @@ import {
     HogFunctionType,
     MinimalLogEntry,
 } from '../../../types'
-import { buildGlobalsWithInputs, HogExecutorService } from '../../hog-executor.service'
+import { HogExecutorService, buildGlobalsWithInputs } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerResult } from './action.interface'

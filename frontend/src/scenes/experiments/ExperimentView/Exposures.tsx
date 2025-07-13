@@ -1,18 +1,20 @@
-import { IconCorrelationAnalysis, IconInfo, IconPencil } from '@posthog/icons'
-import { LemonButton, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
+import { IconCorrelationAnalysis, IconInfo, IconPencil } from '@posthog/icons'
+import { LemonButton, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
+
 import { Chart, ChartConfiguration } from 'lib/Chart'
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils'
-import { useEffect, useRef } from 'react'
 
 import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
 import { modalsLogic } from '../modalsLogic'
+import { VariantTag } from './components'
 
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config

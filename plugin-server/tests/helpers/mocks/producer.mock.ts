@@ -3,7 +3,6 @@
  *
  * If you just want to observe a real producer class then use `producer.spy.ts`
  */
-
 import { HighLevelProducer } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'

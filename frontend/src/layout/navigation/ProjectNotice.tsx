@@ -1,12 +1,14 @@
-import { IconGear, IconPlus } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { IconGear, IconPlus } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -16,7 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OnboardingStepKey, ProductKey } from '~/types'
 
-import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
+import { ProjectNoticeVariant, navigationLogic } from './navigationLogic'
 
 interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -35,8 +37,8 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     const countdown = pastCountdown
         ? 'Expired'
         : duration.hours() > 0
-        ? duration.format('HH:mm:ss')
-        : duration.format('mm:ss')
+          ? duration.format('HH:mm:ss')
+          : duration.format('mm:ss')
 
     useEffect(() => {
         const interval = setInterval(() => setNow(dayjs()), 1000)

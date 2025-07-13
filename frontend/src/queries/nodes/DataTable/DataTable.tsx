@@ -2,33 +2,34 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import { useCallback, useState } from 'react'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { useCallback, useState } from 'react'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
+import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { DataTableLogicProps, DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
-import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
     extractExpressionComment,
     getDataNodeDefaultColumns,
@@ -182,7 +183,7 @@ export function DataTable({
     const eventActionsColumnShown =
         showActions && sourceFeatures.has(QueryFeature.eventActionsColumn) && columnsInResponse?.includes('*')
     const columnsInLemonTable = sourceFeatures.has(QueryFeature.columnsInResponse)
-        ? columnsInResponse ?? columnsInQuery
+        ? (columnsInResponse ?? columnsInQuery)
         : columnsInQuery
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
@@ -310,8 +311,8 @@ export function DataTable({
                                 const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
                                     : isGroupsQuery(query.source)
-                                    ? taxonomicGroupFilterToHogQL(g, v)
-                                    : taxonomicEventFilterToHogQL(g, v)
+                                      ? taxonomicGroupFilterToHogQL(g, v)
+                                      : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
@@ -341,8 +342,8 @@ export function DataTable({
                                 const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
                                     : isGroupsQuery(query.source)
-                                    ? taxonomicGroupFilterToHogQL(g, v)
-                                    : taxonomicEventFilterToHogQL(g, v)
+                                      ? taxonomicGroupFilterToHogQL(g, v)
+                                      : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQLAggregation(hogQl)
                                     const source = query.source as EventsQuery
@@ -592,8 +593,8 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? response.error
-                                                    : responseError
+                                                      ? response.error
+                                                      : responseError
                                             }
                                         />
                                     ) : (

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+
 import { CodeEditorResizableProps, CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 export interface CodeEditorInlineProps extends Omit<CodeEditorResizableProps, 'height'> {

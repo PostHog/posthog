@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,

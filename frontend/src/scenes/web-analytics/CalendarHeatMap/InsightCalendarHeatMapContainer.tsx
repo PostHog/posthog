@@ -1,6 +1,7 @@
 import './CalendarHeatMap.scss'
 
 import { useValues } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'

@@ -1,15 +1,17 @@
 import './sparkline-loading.scss'
 
-import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import colors from 'ansi-colors'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LogMessage } from '~/queries/schema/schema-general'

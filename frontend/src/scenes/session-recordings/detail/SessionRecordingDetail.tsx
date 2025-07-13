@@ -1,14 +1,15 @@
 import './SessionRecordingScene.scss'
 
 import { useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
-    sessionRecordingDetailLogic,
     SessionRecordingDetailLogicProps,
+    sessionRecordingDetailLogic,
 } from 'scenes/session-recordings/detail/sessionRecordingDetailLogic'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'

@@ -9,10 +9,10 @@ import {
     ExperimentMetricType,
     FunnelsQuery,
     InsightVizNode,
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
     NodeKind,
     TrendsQuery,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
 } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
@@ -20,9 +20,8 @@ import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConver
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
-import { filterToMetricConfig, getAllowedMathTypes, getDefaultExperimentMetric, getMathAvailability } from './utils'
-
 import { addExposureToQuery, compose, getFilter, getInsight, getQuery } from './metricQueryUtils'
+import { filterToMetricConfig, getAllowedMathTypes, getDefaultExperimentMetric, getMathAvailability } from './utils'
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {

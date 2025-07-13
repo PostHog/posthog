@@ -1,14 +1,16 @@
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
+import { billingLogic } from './billingLogic'
 import { BillingGaugeItemKind } from './types'
 
 export const PurchaseCreditsModal = (): JSX.Element | null => {

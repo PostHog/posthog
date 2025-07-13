@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { CodeSnippet, CodeSnippetProps, Language } from './CodeSnippet'

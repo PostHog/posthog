@@ -115,14 +115,14 @@ export function convertToPipelineNode<S extends PipelineStage>(
 ): S extends PipelineStage.Transformation
     ? Transformation
     : S extends PipelineStage.Destination
-    ? Destination
-    : S extends PipelineStage.SiteApp
-    ? SiteApp
-    : S extends PipelineStage.ImportApp
-    ? ImportApp
-    : S extends PipelineStage.Source
-    ? Source
-    : never {
+      ? Destination
+      : S extends PipelineStage.SiteApp
+        ? SiteApp
+        : S extends PipelineStage.ImportApp
+          ? ImportApp
+          : S extends PipelineStage.Source
+            ? Source
+            : never {
     let node: PipelineNode
 
     // check if type is a hog function

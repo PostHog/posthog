@@ -1,5 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { SurveyEditSection, surveyLogic } from 'scenes/surveys/surveyLogic'
 
 interface Props {

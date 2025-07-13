@@ -1,5 +1,6 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../src/kafka/producer'
 import {

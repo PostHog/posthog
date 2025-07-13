@@ -1,12 +1,13 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
-import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,8 +22,8 @@ import {
     UserType,
 } from '~/types'
 
-import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
+import type { supportLogicType } from './supportLogicType'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -512,7 +513,7 @@ export const supportLogic = kea<supportLogicType>([
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
                 ': ' +
                 (target_area
-                    ? getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`
+                    ? (getLabelBasedOnTargetArea(target_area) ?? `${target_area} (feature preview)`)
                     : 'General') +
                 ' (' +
                 zendesk_ticket_uuid +
@@ -588,8 +589,8 @@ export const supportLogic = kea<supportLogicType>([
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
-                                ? 'email_support'
-                                : 'free_support',
+                                  ? 'email_support'
+                                  : 'free_support',
                         },
                     ],
                     comment: {

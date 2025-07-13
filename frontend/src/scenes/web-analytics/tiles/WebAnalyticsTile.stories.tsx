@@ -3,17 +3,17 @@ import { useActions } from 'kea'
 import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
-import { examples } from '~/queries/examples'
 import { Query } from '~/queries/Query/Query'
+import { examples } from '~/queries/examples'
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
 
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
+import { webAnalyticsDataTableQueryContext } from './WebAnalyticsTile'
 import browserMock from './__mocks__/Browser.json'
 import pathMock from './__mocks__/Path.json'
 import referringDomainMock from './__mocks__/ReferringDomain.json'
 import retentionMock from './__mocks__/Retention.json'
 import worldMapMock from './__mocks__/WorldMap.json'
-import { webAnalyticsDataTableQueryContext } from './WebAnalyticsTile'
 
 type Story = StoryObj<typeof Query>
 const meta: Meta<typeof Query> = {

@@ -1,13 +1,15 @@
+import { useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+
 import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { MultipleChoiceQuestionViz } from 'scenes/surveys/components/question-visualizations/MultipleChoiceQuestionViz'
 import { ResponseSummariesButton } from 'scenes/surveys/components/question-visualizations/OpenQuestionSummarizer'
 import { OpenQuestionViz } from 'scenes/surveys/components/question-visualizations/OpenQuestionViz'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { QuestionProcessedResponses, surveyLogic } from 'scenes/surveys/surveyLogic'
-import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SurveyQuestion, SurveyQuestionType } from '~/types'

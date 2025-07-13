@@ -1,9 +1,9 @@
 import '@testing-library/jest-dom'
-
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { PersonsManagementScene } from 'scenes/persons-management/PersonsManagementScene'
 import { urls } from 'scenes/urls'
