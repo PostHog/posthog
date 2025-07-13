@@ -1,6 +1,5 @@
 import os
 
-from posthog.git import get_repo_root
 
 DAGSTER_S3_BUCKET: str = os.getenv("DAGSTER_S3_BUCKET", "posthog-dags")
 DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL: str = os.getenv("DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL", "#alerts-clickhouse")
@@ -13,4 +12,6 @@ SQUASH_PERSON_OVERRIDES_SCHEDULE: str = os.getenv(
     "SQUASH_PERSON_OVERRIDES_SCHEDULE", "0 22 * * 6"
 )  # At 22:00 (10 PM) on Saturday
 DAGSTER_DOMAIN: str | None = os.getenv("DAGSTER_DOMAIN")
-DAGSTER_HOME: str | None = os.getenv("DAGSTER_HOME", os.path.join(get_repo_root(), ".dagster_home"))
+
+DAGSTER_UI_HOST: str = os.getenv("DAGSTER_UI_HOST", "localhost")
+DAGSTER_UI_PORT: int = int(os.getenv("DAGSTER_UI_PORT", 3030))
