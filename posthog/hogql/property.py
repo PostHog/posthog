@@ -660,6 +660,7 @@ def map_virtual_properties(e: ast.Expr):
         isinstance(e, ast.Field)
         and len(e.chain) >= 2
         and e.chain[-2] == "properties"
+        and isinstance(e.chain[-1], str)
         and e.chain[-1].startswith("$virt")
     ):
         # we pretend virtual properties are regular properties, but they should map to the same field directly on the parent table

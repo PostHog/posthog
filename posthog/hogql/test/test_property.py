@@ -950,12 +950,16 @@ class TestProperty(BaseTest):
         assert map_virtual_properties(
             ast.Field(chain=["person", "properties", "$virt_initial_channel_type"])
         ) == ast.Field(chain=["person", "$virt_initial_channel_type"])
-        assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
-            chain=["person", "properties", "other property"]
-        )
         assert map_virtual_properties(ast.Field(chain=["properties", "$virt_initial_channel_type"])) == ast.Field(
             chain=["$virt_initial_channel_type"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
+            chain=["person", "properties", "other property"]
         )
         assert map_virtual_properties(ast.Field(chain=["properties", "other property"])) == ast.Field(
             chain=["properties", "other property"]
         )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", 42])) == ast.Field(
+            chain=["person", "properties", 42]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])
