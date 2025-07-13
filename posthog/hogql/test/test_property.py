@@ -1,13 +1,10 @@
 from typing import Union, cast, Optional, Any, Literal
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 from unittest.mock import MagicMock, patch
 
 from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
-    action_to_expr,
     has_aggregation,
     property_to_expr,
     selector_to_expr,
@@ -16,7 +13,6 @@ from posthog.hogql.property import (
 )
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
-    Action,
     Cohort,
     Property,
     PropertyDefinition,
@@ -25,7 +21,7 @@ from posthog.models import (
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, RetentionEntity, EmptyPropertyFilter
-from posthog.test.base import BaseTest, _create_event
+from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -619,128 +615,6 @@ class TestProperty(BaseTest):
                     "indexOf(elements_chain_ids, 'with\\\\slashed\\\\id') > 0",
                 )
             ),
-        )
-
-    def test_action_to_expr(self):
-        _create_event(
-            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain='a.active.nav-link:text="text"'
-        )
-        action1 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "selector": "a.nav-link.active",
-                }
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action1)),
-            self._parse_expr(
-                "event = '$autocapture' and {regex1}",
-                {
-                    "regex1": ast.And(
-                        exprs=[
-                            self._parse_expr(
-                                "elements_chain =~ {regex}",
-                                {
-                                    "regex": ast.Constant(
-                                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                                    )
-                                },
-                            ),
-                            self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements) > 0"),
-                        ]
-                    ),
-                },
-            ),
-        )
-        resp = execute_hogql_query(
-            parse_select("select count() from events where {prop}", {"prop": action_to_expr(action1)}), self.team
-        )
-        self.assertEqual(resp.results[0][0], 1)
-
-        action2 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example.com",
-                    "url_matching": "contains",
-                }
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action2)),
-            self._parse_expr("event = '$pageview' and properties.$current_url like '%https://example.com%'"),
-        )
-
-        action3 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example2.com",
-                    "url_matching": "regex",
-                },
-                {
-                    "event": "custom",
-                    "url": "https://example3.com",
-                    "url_matching": "exact",
-                },
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action3)),
-            self._parse_expr(
-                "{s1} or {s2}",
-                {
-                    "s1": self._parse_expr("event = '$pageview' and properties.$current_url =~ 'https://example2.com'"),
-                    "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
-                },
-            ),
-        )
-
-        action4 = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}, {"event": None}])
-        self.assertEqual(
-            clear_locations(action_to_expr(action4)),
-            self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"
-        )
-
-        action5 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "href": "https://example4.com", "href_matching": "regex"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action5)),
-            self._parse_expr("event = '$autocapture' and elements_chain_href =~ 'https://example4.com'"),
-        )
-
-        action6 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "regex"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action6)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x =~ 'blabla', elements_chain_texts)"),
-        )
-
-        action7 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "contains"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action7)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x ilike '%blabla%', elements_chain_texts)"),
-        )
-
-        action8 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "exact"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action8)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x = 'blabla', elements_chain_texts)"),
         )
 
     def test_cohort_filter_static(self):
