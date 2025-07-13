@@ -1,3 +1,4 @@
+import os
 import subprocess
 from typing import Optional
 
@@ -38,3 +39,7 @@ def get_git_branch() -> Optional[str]:
         )
     except Exception:
         return None
+
+
+def get_repo_root() -> str:
+    return os.path.dirname(os.path.abspath(__file__))
