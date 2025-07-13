@@ -38,7 +38,7 @@ import {
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
-import { get, set } from './db'
+// Removed db import - no longer using local storage
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
@@ -57,9 +57,7 @@ export interface MultitabEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
 }
 
-export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
-export const activeModelStateKey = (key: string | number): string => `${key}/activeModelUri`
-export const activeModelVariablesStateKey = (key: string | number): string => `${key}/activeModelVariables`
+// Removed local storage key constants - now using database-only state management
 
 export const NEW_QUERY = 'Untitled'
 
@@ -85,27 +83,7 @@ const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     return untitledNumbers.length + 1
 }
 
-const getStorageItem = async (key: string): Promise<string | null> => {
-    const dbValue = await get(key)
-
-    if (dbValue) {
-        return dbValue
-    }
-
-    const lsValue = localStorage.getItem(key)
-
-    if (lsValue) {
-        await set(key, lsValue)
-        localStorage.removeItem(key)
-        return lsValue
-    }
-
-    return null
-}
-
-const setStorageItem = async (key: string, value: string): Promise<void> => {
-    await set(key, value)
-}
+// Local storage functions removed - now using database-only state management
 
 export interface QueryTab {
     uri: Uri
@@ -190,7 +168,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         removeTab: (tab: QueryTab) => ({ tab }),
         selectTab: (tab: QueryTab) => ({ tab }),
         updateTab: (tab: QueryTab) => ({ tab }),
-        setLocalState: (key: string, value: any) => ({ key, value }),
+        // setLocalState removed - now using database-only state management
         initialize: true,
         saveAsView: (materializeAfterSave = false) => ({ materializeAfterSave }),
         saveAsViewSubmit: (name: string, materializeAfterSave = false) => ({ name, materializeAfterSave }),
@@ -237,7 +215,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.initialize()
         }
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values }) => ({
         queryTabState: [
             null as QueryTabState | null,
             {
@@ -252,14 +230,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         console.error(e)
                     }
 
-                    const localEditorModels = await getStorageItem(editorModelsStateKey(props.key))
-                    const localActiveModelUri = await getStorageItem(activeModelStateKey(props.key))
-
                     if (queryTabStateModel === null) {
                         queryTabStateModel = await api.queryTabState.create({
                             state: {
-                                editorModelsStateKey: localEditorModels || '',
-                                activeModelStateKey: localActiveModelUri || '',
+                                editorModelsStateKey: '',
+                                activeModelStateKey: '',
                                 sourceQuery: values.sourceQuery ? JSON.stringify(values.sourceQuery) : '',
                             },
                         })
@@ -554,7 +529,48 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.updateTab(updatedTab)
                 actions.selectTab(updatedTab)
             } else {
-                actions.createTab(query, undefined, insight)
+                // Create a new tab with a unique URI to prevent state conflicts
+                if (props.monaco) {
+                    const uri = props.monaco.Uri.parse(`insight-${insight.short_id}-${Date.now()}`)
+                    const model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                    props.editor?.setModel(model)
+
+                    const mountedCodeEditorLogic =
+                        codeEditorLogic.findMounted() ||
+                        codeEditorLogic({
+                            key: props.key,
+                            query: values.sourceQuery?.source.query ?? '',
+                            language: 'hogQL',
+                        })
+
+                    if (mountedCodeEditorLogic) {
+                        initModel(model, mountedCodeEditorLogic)
+                    }
+
+                    const newTab: QueryTab = {
+                        uri,
+                        insight,
+                        name: insight.name || 'Untitled',
+                        sourceQuery: insight.query as DataVisualizationNode | undefined,
+                    }
+
+                    actions.addTab(newTab)
+                    actions.selectTab(newTab)
+
+                    // Set up the editor state
+                    actions.setSourceQuery({
+                        kind: NodeKind.DataVisualizationNode,
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query,
+                        },
+                        display: ChartDisplayType.ActionsTable,
+                    })
+                } else {
+                    console.warn('Monaco not ready, falling back to createTab')
+                    // Fallback to createTab if Monaco is not ready
+                    actions.createTab(query, undefined, insight)
+                }
             }
         },
         createTab: async ({ query = '', view, insight }) => {
@@ -576,7 +592,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const tabName = view?.name || insight?.name || `${NEW_QUERY} ${nextUntitledNumber}`
 
             if (props.monaco) {
-                const uri = props.monaco.Uri.parse(currentModelCount.toString())
+                // Use unique URI for insights to prevent state conflicts
+                const uri = insight
+                    ? props.monaco.Uri.parse(`insight-${insight.short_id}-${Date.now()}`)
+                    : props.monaco.Uri.parse(currentModelCount.toString())
                 const model = props.monaco.editor.createModel(query, 'hogQL', uri)
                 props.editor?.setModel(model)
 
@@ -599,33 +618,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     sourceQuery: insight?.query as DataVisualizationNode | undefined,
                 })
 
-                const queries = values.allTabs.map((tab) => {
-                    return {
-                        query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
-                        path: tab.uri.path.split('/').pop(),
-                        view: uri.path === tab.uri.path ? view : tab.view,
-                        insight: uri.path === tab.uri.path ? insight : tab.insight,
-                        sourceQuery: uri.path === tab.uri.path ? insight?.query : tab.insight?.query,
-                        name: tab.name,
-                        response: tab.response,
-                    }
-                })
-                actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+                // State is now managed by updateQueryTabState, no need to call setLocalState
             } else if (query) {
                 // if navigating from URL without monaco loaded
-                const queries = [
-                    ...values.allTabs,
-                    {
-                        query,
-                        path: currentModelCount.toString(),
-                        view,
-                        insight,
-                        name: tabName,
-                        sourceQuery: insight?.query as DataVisualizationNode | undefined,
-                    },
-                ]
-                actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-                actions.setLocalState(activeModelStateKey(props.key), currentModelCount.toString())
+                // State is now managed by updateQueryTabState, no need to call setLocalState
             }
         },
         renameTab: ({ tab, newName }) => {
@@ -653,7 +649,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const path = tab.uri.path.split('/').pop()
             if (path) {
-                actions.setLocalState(activeModelStateKey(props.key), path)
                 actions.updateQueryTabState()
             }
 
@@ -723,24 +718,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
             model?.dispose()
             actions.removeTab(tabToRemove)
-            const queries = values.allTabs.map((tab) => {
-                return {
-                    query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
-                    path: tab.uri.path.split('/').pop(),
-                    view: tab.view,
-                    insight: tab.insight,
-                    response: tab.response,
-                }
-            })
-            actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+            // State is now managed by updateQueryTabState, no need to call setLocalState
         },
-        setLocalState: async ({ key, value }) => {
-            await setStorageItem(key, value)
-        },
+        // setLocalState removed - now using database-only state management
         initialize: async () => {
-            // TODO: replace with queryTabState
-            const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
-            const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
+            // Wait for queryTabState to be loaded before initializing
+            if (!values.queryTabState) {
+                console.warn('queryTabState not loaded, skipping initialization')
+                return
+            }
 
             const mountedCodeEditorLogic =
                 codeEditorLogic.findMounted() ||
@@ -750,16 +736,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     language: 'hogQL',
                 })
 
-            if (allModelQueries) {
+            // Parse the state from the database
+            const state = values.queryTabState.state
+            const allModelQueries = state.editorModelsStateKey ? JSON.parse(state.editorModelsStateKey) : []
+            const activeModelUri = state.activeModelStateKey || ''
+
+            if (allModelQueries && allModelQueries.length > 0) {
                 // clear existing models
                 props.monaco?.editor.getModels().forEach((model: editor.ITextModel) => {
                     model.dispose()
                 })
 
-                const models = JSON.parse(allModelQueries || '[]')
                 const newModels: QueryTab[] = []
 
-                models.forEach((model: Record<string, any>) => {
+                allModelQueries.forEach((model: Record<string, any>) => {
                     if (props.monaco) {
                         const uri = props.monaco.Uri.parse(model.path)
                         const newModel = props.monaco.editor.createModel(model.query, 'hogQL', uri)
@@ -848,17 +838,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 await breakpoint(100)
             }
 
-            const queries = values.allTabs.map((model) => {
-                return {
-                    query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
-                    path: model.uri.path.split('/').pop(),
-                    name: model.view?.name || model.name,
-                    view: model.view,
-                    insight: model.insight,
-                    response: model.response,
-                }
-            })
-            actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+            // Only update the database state, not local storage
             actions.updateQueryTabState(skipBreakpoint)
         },
         runQuery: ({ queryOverride, switchTab }) => {
@@ -1076,10 +1056,24 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return
             }
             try {
+                // Build the state data directly from current state instead of reading from local storage
+                const queries = values.allTabs.map((model) => {
+                    return {
+                        query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
+                        path: model.uri.path.split('/').pop(),
+                        name: model.view?.name || model.name,
+                        view: model.view,
+                        insight: model.insight,
+                        response: model.response,
+                    }
+                })
+
+                const activeModelUri = values.activeModelUri?.uri.path.split('/').pop() || ''
+
                 await api.queryTabState.update(values.queryTabState.id, {
                     state: {
-                        editorModelsStateKey: await getStorageItem(editorModelsStateKey(props.key)),
-                        activeModelStateKey: await getStorageItem(activeModelStateKey(props.key)),
+                        editorModelsStateKey: JSON.stringify(queries),
+                        activeModelStateKey: activeModelUri,
                         sourceQuery: JSON.stringify(values.sourceQuery),
                     },
                 })
@@ -1185,6 +1179,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.resetDataModelingJobs()
                 actions.loadDataModelingJobs(editingView.id)
                 actions.loadUpstream(editingView.id)
+            }
+        },
+        queryTabState: (queryTabState) => {
+            // Initialize after queryTabState is loaded
+            if (queryTabState && props.monaco && props.editor) {
+                actions.initialize()
             }
         },
     })),
@@ -1332,11 +1332,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             // Wait for Monaco to be ready before proceeding
             if (!props.monaco) {
+                console.warn('Monaco not ready, skipping URL parameter handling')
                 return
             }
 
-            try {
-                if (searchParams.open_insight) {
+            let tabAdded = false
+
+            const createQueryTab = async (): Promise<void> => {
+                if (searchParams.open_view) {
+                    const view = dataWarehouseViewsLogic.values.dataWarehouseSavedQueryMapById[searchParams.open_view]
+                    if (view) {
+                        const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query.query
+                        actions.editView(queryToOpen, view)
+                        tabAdded = true
+                    }
+                } else if (searchParams.open_insight) {
                     if (searchParams.open_insight === 'new') {
                         // Add new blank tab
                         actions.createTab()
@@ -1344,48 +1354,38 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         return
                     }
 
-                    // Load insight data first
-                    const shortId = searchParams.open_insight
-                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
-                    if (!insight) {
-                        lemonToast.error('Insight not found')
-                        return
+                    try {
+                        // Load insight data first
+                        const shortId = searchParams.open_insight
+                        const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                        if (!insight) {
+                            lemonToast.error('Insight not found')
+                            return
+                        }
+
+                        // Get the query from the insight
+                        let query = ''
+                        if (insight.query?.kind === NodeKind.DataVisualizationNode) {
+                            query = (insight.query as DataVisualizationNode).source.query
+                        }
+
+                        // Use the editInsight action to properly handle tab creation and state management
+                        actions.editInsight(query, insight)
+                        tabAdded = true
+                    } catch (error) {
+                        lemonToast.error('Failed to load insight')
+                        console.error(error)
                     }
-
-                    // Get the query from the insight
-                    let query = ''
-                    if (insight.query?.kind === NodeKind.DataVisualizationNode) {
-                        query = (insight.query as DataVisualizationNode).source.query
-                    }
-
-                    // Create a new model with a unique URI to prevent state conflicts
-                    const uri = props.monaco.Uri.parse(`insight-${insight.short_id}-${Date.now()}`)
-
-                    // Create a new tab with fresh state
-                    const newTab: QueryTab = {
-                        uri,
-                        insight,
-                        name: insight.name || 'Untitled',
-                        sourceQuery: insight.query as DataVisualizationNode | undefined,
-                    }
-
-                    // Add the new tab and select it
-                    actions.addTab(newTab)
-                    actions.selectTab(newTab)
-
-                    // Set up the editor state
-                    actions.setSourceQuery({
-                        kind: NodeKind.DataVisualizationNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query,
-                        },
-                        display: ChartDisplayType.ActionsTable,
-                    })
+                } else if (searchParams.open_query) {
+                    actions.createTab(searchParams.open_query)
+                    tabAdded = true
                 }
-            } catch (error) {
-                lemonToast.error('Failed to load insight')
-                console.error(error)
+            }
+
+            await createQueryTab()
+
+            if (tabAdded) {
+                router.actions.replace(router.values.location.pathname)
             }
         },
     })),
