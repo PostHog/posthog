@@ -121,25 +121,6 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     )
 }
 
-/**
- * There are several issues with how autocapture actions are matched. See https://github.com/PostHog/posthog/issues/7333
- *
- * Until they are fixed this validator can be used to guide users to working solutions
- */
-const validateSelector = (val: string, selectorPrompts: (s: JSX.Element | null) => void): void => {
-    if (val.includes('#')) {
-        selectorPrompts(
-            <>
-                PostHog actions don't support the <code>#example</code> syntax.
-                <br />
-                Use the equivalent <code>[id="example"]</code> instead.
-            </>
-        )
-    } else {
-        selectorPrompts(null)
-    }
-}
-
 function Option({
     step,
     sendStep,
@@ -157,12 +138,9 @@ function Option({
     placeholder?: string
     caption?: JSX.Element | string
 }): JSX.Element {
-    const [selectorPrompt, setSelectorPrompt] = useState(null as JSX.Element | null)
+    const [selectorPrompt] = useState(null as JSX.Element | null)
 
     const onOptionChange = (val: string): void => {
-        if (item === 'selector') {
-            validateSelector(val, setSelectorPrompt)
-        }
         sendStep({
             ...step,
             [item]: val || null, // "" is a valid filter, we don't want it
