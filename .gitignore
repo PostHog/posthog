@@ -96,6 +96,7 @@ playwright/test-results/
 
 .dagster_home/*
 !.dagster_home/.gitkeep
+!.dagster_home/workspace.yaml
 .tmp_dagster_home*/*
 
 # Dist release target dir

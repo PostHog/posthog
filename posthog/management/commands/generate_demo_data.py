@@ -213,20 +213,32 @@ class Command(BaseCommand):
             "$prev_pageview_max_scroll_percentage",
             "$screen_name",
             "$lib",
+            "$lib_version",
             "$geoip_country_code",
             "$geoip_subdivision_1_code",
             "$geoip_subdivision_1_name",
             "$geoip_city_name",
             "$browser_language",
             "$timezone_offset",
+            "$host",
             "$exception_issue_id",
             "$exception_types",
             "$exception_values",
             "$exception_sources",
             "$exception_functions",
+            "$exception_fingerprint",
         }
 
-        person_properties = {*PERSON_PROPERTIES_ADAPTED_FROM_EVENT, "email"}
+        person_properties = {
+            *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
+            "email",
+            "Email",
+            "name",
+            "Name",
+            "username",
+            "Username",
+            "UserName",
+        }
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):
                 continue
