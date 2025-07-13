@@ -10,6 +10,7 @@ from posthog.hogql.property import (
     selector_to_expr,
     tag_name_to_expr,
     entity_to_expr,
+    map_virtual_properties,
 )
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
@@ -818,3 +819,21 @@ class TestProperty(BaseTest):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
         ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")
+
+    def test_map_virtual_properties(self):
+        assert map_virtual_properties(
+            ast.Field(chain=["person", "properties", "$virt_initial_channel_type"])
+        ) == ast.Field(chain=["person", "$virt_initial_channel_type"])
+        assert map_virtual_properties(ast.Field(chain=["properties", "$virt_initial_channel_type"])) == ast.Field(
+            chain=["$virt_initial_channel_type"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
+            chain=["person", "properties", "other property"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", "other property"])) == ast.Field(
+            chain=["properties", "other property"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", 42])) == ast.Field(
+            chain=["person", "properties", 42]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])
