@@ -2,7 +2,12 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType } from '~/exporter/types'
-
+import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json?url'
+import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json?url'
+import funnelTopToBottomInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json?url'
+import funnelTopToBottomBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json?url'
+import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json?url'
+import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json?url'
 import { Exporter } from '../Exporter'
 
 type Story = StoryObj<typeof Exporter>
@@ -42,7 +47,7 @@ const Template: StoryFn<typeof Exporter> = (props) => {
 
 export const FunnelLeftToRightInsight: Story = Template.bind({})
 FunnelLeftToRightInsight.args = {
-    insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
+    insight: funnelLeftToRightInsight,
 }
 
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
@@ -52,12 +57,12 @@ FunnelLeftToRightInsightNoResults.args = { insight: { ...FunnelLeftToRightInsigh
 
 export const FunnelLeftToRightBreakdownInsight: Story = Template.bind({})
 FunnelLeftToRightBreakdownInsight.args = {
-    insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
+    insight: funnelLeftToRightBreakdownInsight,
 }
 
 export const FunnelTopToBottomInsight: Story = Template.bind({})
 FunnelTopToBottomInsight.args = {
-    insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
+    insight: funnelTopToBottomInsight,
 }
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
 export const FunnelTopToBottomInsightNoResults: Story = Template.bind({})
@@ -66,16 +71,16 @@ FunnelTopToBottomInsightNoResults.args = { insight: { ...FunnelTopToBottomInsigh
 
 export const FunnelTopToBottomBreakdownInsight: Story = Template.bind({})
 FunnelTopToBottomBreakdownInsight.args = {
-    insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
+    insight: funnelTopToBottomBreakdownInsight,
 }
 
 export const FunnelHistoricalTrendsInsight: Story = Template.bind({})
 FunnelHistoricalTrendsInsight.tags = ['test-skip']
 FunnelHistoricalTrendsInsight.args = {
-    insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
+    insight: funnelHistoricalTrendsInsight,
 }
 
 export const FunnelTimeToConvertInsight: Story = Template.bind({})
 FunnelTimeToConvertInsight.args = {
-    insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
+    insight: funnelTimeToConvertInsight,
 }

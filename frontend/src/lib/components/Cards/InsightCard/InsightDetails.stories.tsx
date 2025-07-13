@@ -3,6 +3,20 @@ import { Meta, StoryFn } from '@storybook/react'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { InsightModel } from '~/types'
 
+import trendsLineInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json?url'
+import trendsLineMultiInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json?url'
+import trendsValueInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json?url'
+import trendsTableInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json?url'
+import trendsPieInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json?url'
+import trendsWorldMapInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json?url'
+import funnelLeftToRightInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json?url'
+import retentionInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/retention.json?url'
+import userPathsInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json?url'
+import stickinessInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json?url'
+import lifecycleInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json?url'
+import dataTableHogQLInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json?url'
+import dataVisualizationHogQLInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json?url'
+import dataTableEventsInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json?url'
 import { InsightDetails as InsightDetailsComponent } from './InsightDetails'
 
 const meta: Meta = {
@@ -20,66 +34,66 @@ const Template: StoryFn<{ insight: InsightModel }> = ({ insight: legacyInsight }
     )
 }
 
-export const Trends = Template.bind({})
+export const Trends: StoryFn<{ insight: InsightModel }> = Template.bind({})
 Trends.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+    insight: trendsLineInsight,
 }
 
-export const TrendsMulti = Template.bind({})
+export const TrendsMulti: StoryFn<{ insight: InsightModel }> = Template.bind({})
 TrendsMulti.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+    insight: trendsLineMultiInsight,
 }
 
-export const TrendsHorizontalBar = Template.bind({})
+export const TrendsHorizontalBar: StoryFn<{ insight: InsightModel }> = Template.bind({})
 TrendsHorizontalBar.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'),
+    insight: trendsValueInsight,
 }
 
-export const TrendsTable = Template.bind({})
-TrendsTable.args = { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json') }
+export const TrendsTable: StoryFn<{ insight: InsightModel }> = Template.bind({})
+TrendsTable.args = { insight: trendsTableInsight }
 
-export const TrendsPie = Template.bind({})
-TrendsPie.args = { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json') }
+export const TrendsPie: StoryFn<{ insight: InsightModel }> = Template.bind({})
+TrendsPie.args = { insight: trendsPieInsight }
 
-export const TrendsWorldMap = Template.bind({})
+export const TrendsWorldMap: StoryFn<{ insight: InsightModel }> = Template.bind({})
 TrendsWorldMap.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
+    insight: trendsWorldMapInsight,
 }
 
-export const Funnel = Template.bind({})
+export const Funnel: StoryFn<{ insight: InsightModel }> = Template.bind({})
 Funnel.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
+    insight: funnelLeftToRightInsight,
 }
 
-export const Retention = Template.bind({})
+export const Retention: StoryFn<{ insight: InsightModel }> = Template.bind({})
 Retention.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/retention.json'),
+    insight: retentionInsight,
 }
 
-export const Paths = Template.bind({})
+export const Paths: StoryFn<{ insight: InsightModel }> = Template.bind({})
 Paths.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
+    insight: userPathsInsight,
 }
 
-export const Stickiness = Template.bind({})
-Stickiness.args = { insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/stickiness.json') }
+export const Stickiness: StoryFn<{ insight: InsightModel }> = Template.bind({})
+Stickiness.args = { insight: stickinessInsight }
 
-export const Lifecycle = Template.bind({})
+export const Lifecycle: StoryFn<{ insight: InsightModel }> = Template.bind({})
 Lifecycle.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'),
+    insight: lifecycleInsight,
 }
 
-export const DataTableHogQLQuery = Template.bind({})
+export const DataTableHogQLQuery: StoryFn<{ insight: InsightModel }> = Template.bind({})
 DataTableHogQLQuery.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'),
+    insight: dataTableHogQLInsight,
 }
 
-export const DataVisualizationHogQLQuery = Template.bind({})
+export const DataVisualizationHogQLQuery: StoryFn<{ insight: InsightModel }> = Template.bind({})
 DataVisualizationHogQLQuery.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'),
+    insight: dataVisualizationHogQLInsight,
 }
 
-export const DataTableEventsQuery = Template.bind({})
+export const DataTableEventsQuery: StoryFn<{ insight: InsightModel }> = Template.bind({})
 DataTableEventsQuery.args = {
-    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'),
+    insight: dataTableEventsInsight,
 }
