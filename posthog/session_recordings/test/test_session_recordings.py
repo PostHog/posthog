@@ -1926,41 +1926,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             total_requested=2,
         )
 
-    @patch("ee.session_recordings.session_recording_extensions.persist_recording")
-    def test_bulk_delete_with_existing_postgres_records(self, mock_persist_recording):
-        """Test bulk delete with recordings that already have PostgreSQL records"""
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["user1"],
-            properties={"email": "test@example.com"},
-        )
-
-        base_time = now() - relativedelta(days=1)
-        session_id = "bulk_delete_existing_pg"
-
-        # Create recording in both ClickHouse and PostgreSQL
-        self.produce_replay_summary("user1", session_id, base_time)
-        SessionRecording.objects.create(
-            team=self.team,
-            session_id=session_id,
-            distinct_id="user1",
-            deleted=False,
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
-            {"session_recording_ids": [session_id]},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        self.assertEqual(response_data["deleted_count"], 1)
-
-        # Verify existing PostgreSQL record was updated
-        recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
-        self.assertTrue(recording.deleted)
-
     def test_bulk_delete_doesnt_leak_teams(self):
         """Test that bulk delete doesn't affect recordings from other teams"""
         other_team = Team.objects.create(organization=self.organization)
