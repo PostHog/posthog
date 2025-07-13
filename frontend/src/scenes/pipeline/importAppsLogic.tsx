@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -7,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PipelineStage, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType } from '~/types'
 
 import type { importAppsLogicType } from './importAppsLogicType'
-import { convertToPipelineNode, ImportApp } from './types'
+import { ImportApp, convertToPipelineNode } from './types'
 import { capturePluginEvent, checkPermissions, loadPluginsFromUrl } from './utils'
 
 export const importAppsLogic = kea<importAppsLogicType>([

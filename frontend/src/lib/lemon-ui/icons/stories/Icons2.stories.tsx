@@ -1,8 +1,9 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import * as React from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import * as React from 'react'
 
 import * as icons from '../icons'
 
@@ -47,8 +48,8 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
         letter === undefined
             ? allIcons
             : letter !== null
-            ? allIcons.filter((icon) => icon.name.replace('Icon', '').toLowerCase().startsWith(letter))
-            : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
+              ? allIcons.filter((icon) => icon.name.replace('Icon', '').toLowerCase().startsWith(letter))
+              : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
 
     return (
         <div className="deprecated-space-y-2">

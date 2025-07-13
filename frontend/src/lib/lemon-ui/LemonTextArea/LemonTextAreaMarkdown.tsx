@@ -1,15 +1,16 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import React, { useRef, useState } from 'react'
+
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconMarkdown, IconTools, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea, LemonTextAreaProps } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import posthog from 'posthog-js'
-import React, { useRef, useState } from 'react'
+import { IconMarkdown, IconTools, IconUploadFile } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(

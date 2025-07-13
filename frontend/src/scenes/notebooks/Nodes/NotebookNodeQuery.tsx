@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -239,8 +240,8 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         query.kind === NodeKind.SavedInsightNode
             ? urls.insightView(query.shortId)
             : isInsightVizNode(query)
-            ? urls.insightNew({ query })
-            : undefined,
+              ? urls.insightNew({ query })
+              : undefined,
     Settings,
     pasteOptions: {
         find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),

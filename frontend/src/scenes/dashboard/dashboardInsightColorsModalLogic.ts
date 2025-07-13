@@ -1,4 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+
 import { getFunnelDatasetKey, getTrendDatasetKey, sortCohorts } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'

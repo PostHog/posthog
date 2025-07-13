@@ -1,11 +1,14 @@
-import 'chartjs-adapter-dayjs-3'
-
 import { DeepPartial } from 'chart.js/dist/types/utils'
+import 'chartjs-adapter-dayjs-3'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
+import { Root, createRoot } from 'react-dom/client'
+
 import { LegendOptions, ScaleOptions } from 'lib/Chart'
 import {
     ActiveElement,
@@ -27,13 +30,10 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
-import { createRoot, Root } from 'react-dom/client'
-import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
@@ -418,8 +418,8 @@ export function LineGraph_({
         const themeColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
             : isHorizontal
-            ? dataset.backgroundColor
-            : getTrendsColor(dataset) || '#000000' // Default to black if no color found
+              ? dataset.backgroundColor
+              : getTrendsColor(dataset) || '#000000' // Default to black if no color found
         const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
@@ -806,8 +806,8 @@ export function LineGraph_({
                                         labelGroupType === 'people'
                                             ? 'people'
                                             : labelGroupType === 'none'
-                                            ? ''
-                                            : aggregationLabel(labelGroupType).plural
+                                              ? ''
+                                              : aggregationLabel(labelGroupType).plural
                                     }
                                     {...tooltipConfig}
                                 />

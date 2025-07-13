@@ -1,7 +1,9 @@
 import './SavedInsights.scss'
 
-import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,8 +21,8 @@ import { urls } from 'scenes/urls'
 
 import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
-import { addSavedInsightsModalLogic, INSIGHTS_PER_PAGE } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './SavedInsights'
+import { INSIGHTS_PER_PAGE, addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
     const { modalPage, insights, count, insightsLoading, filters, sorting, dashboardUpdatesInProgress } =

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -9,6 +10,7 @@ import { GroupTypeIndex } from '~/types'
 
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
+
 export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): JSX.Element {
     const { groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
     const { query, queryWasModified } = useValues(groupsListLogic({ groupTypeIndex }))

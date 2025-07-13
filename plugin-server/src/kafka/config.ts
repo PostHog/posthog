@@ -20,29 +20,32 @@ export const getKafkaConfigFromEnv = (prefix: KafkaConfigTarget): GlobalConfig =
     const PREFIX = `KAFKA_${prefix}_`
     return Object.entries(process.env)
         .filter(([key]) => key.startsWith(PREFIX))
-        .reduce((acc, [key, value]) => {
-            // If there is an explicit config value then we don't override it
-            if (!value || key in defaultConfig) {
+        .reduce(
+            (acc, [key, value]) => {
+                // If there is an explicit config value then we don't override it
+                if (!value || key in defaultConfig) {
+                    return acc
+                }
+
+                let parsedValue: string | number | boolean = value
+
+                // parse value to a number if it is one
+                const numberValue = Number(value)
+                if (!isNaN(numberValue)) {
+                    parsedValue = numberValue
+                }
+
+                // parse value to a boolean if it is one
+                if (value.toLowerCase() === 'true') {
+                    parsedValue = true
+                } else if (value.toLowerCase() === 'false') {
+                    parsedValue = false
+                }
+
+                const rdkafkaKey = key.replace(PREFIX, '').replace(/_/g, '.').toLowerCase()
+                acc[rdkafkaKey] = parsedValue
                 return acc
-            }
-
-            let parsedValue: string | number | boolean = value
-
-            // parse value to a number if it is one
-            const numberValue = Number(value)
-            if (!isNaN(numberValue)) {
-                parsedValue = numberValue
-            }
-
-            // parse value to a boolean if it is one
-            if (value.toLowerCase() === 'true') {
-                parsedValue = true
-            } else if (value.toLowerCase() === 'false') {
-                parsedValue = false
-            }
-
-            const rdkafkaKey = key.replace(PREFIX, '').replace(/_/g, '.').toLowerCase()
-            acc[rdkafkaKey] = parsedValue
-            return acc
-        }, {} as Record<string, any>)
+            },
+            {} as Record<string, any>
+        )
 }

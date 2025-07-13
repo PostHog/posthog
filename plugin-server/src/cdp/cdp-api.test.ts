@@ -1,4 +1,4 @@
-// eslint-disable-next-line simple-import-sort/imports
+// sort-imports-ignore
 import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 

@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'

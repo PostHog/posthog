@@ -1,13 +1,15 @@
-import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+import { useCallback, useEffect, useState } from 'react'
+
+import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useCallback, useEffect, useState } from 'react'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 
 import { NotebookSyncStatus } from '~/types'
 
-import { notebookLogic, NotebookLogicProps } from './notebookLogic'
+import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {

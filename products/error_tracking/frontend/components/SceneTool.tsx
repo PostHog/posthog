@@ -1,12 +1,15 @@
-import MaxTool from 'scenes/max/MaxTool'
-import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
-import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
-import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 import { useActions, useValues } from 'kea'
+
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import MaxTool from 'scenes/max/MaxTool'
+
 import { ErrorTrackingSceneToolOutput } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+
+import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
 import { taxonomicFilterLogicKey, taxonomicGroupTypes } from './ErrorFilters/FilterGroup'
+import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
+import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
 function updateFilterGroup(
     removedFilterIndexes: number[] | undefined,

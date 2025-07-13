@@ -1,30 +1,32 @@
 import './ErrorTracking.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
+import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { SidePanelTab } from '~/types'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { ErrorFilters } from './components/ErrorFilters'
+import { ConnectIssueButton } from './components/ErrorTrackingExternalReference'
 import { ErrorTrackingSetupPrompt } from './components/ErrorTrackingSetupPrompt/ErrorTrackingSetupPrompt'
 import { ExceptionCard } from './components/ExceptionCard'
 import { GenericSelect } from './components/GenericSelect'
 import { IssueStatus, StatusIndicator } from './components/Indicator'
 import { issueActionsLogic } from './components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 import { Metadata } from './issue/Metadata'
 import { ISSUE_STATUS_OPTIONS } from './utils'
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { SidePanelTab } from '~/types'
-import { SidePanelDiscussionIcon } from '~/layout/navigation-3000/sidepanel/panels/discussion/SidePanelDiscussion'
-import { ConnectIssueButton } from './components/ErrorTrackingExternalReference'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useErrorTagRenderer } from './hooks/use-error-tag-renderer'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,

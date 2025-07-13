@@ -1,3 +1,4 @@
+// sort-imports-ignore
 // Helpers for Kea issue with double importing
 import { LemonButtonProps } from '@posthog/lemon-ui'
 import {

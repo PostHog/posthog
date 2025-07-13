@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import { PluginInstallationType, PluginType } from '~/types'
@@ -10,7 +11,7 @@ import { PluginInstallationType, PluginType } from '~/types'
 import { canInstallPlugins } from './access'
 import type { appsManagementLogicType } from './appsManagementLogicType'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'
+import { SourcePluginKind, getInitialCode } from './sourceAppInitialCode'
 import { GLOBAL_PLUGINS, loadPluginsFromUrl } from './utils'
 
 function capturePluginEvent(event: string, plugin: PluginType, type: PluginInstallationType): void {

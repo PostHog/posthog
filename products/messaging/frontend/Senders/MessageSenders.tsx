@@ -1,7 +1,9 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPlusSmall, IconWarning } from '@posthog/icons'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'

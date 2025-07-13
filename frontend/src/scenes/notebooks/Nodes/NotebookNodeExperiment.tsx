@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { IconFlag, IconFlask } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'

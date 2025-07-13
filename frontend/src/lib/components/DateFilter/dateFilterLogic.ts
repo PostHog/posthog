@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import {
     DateFilterLogicProps,
     DateFilterView,
@@ -155,20 +156,20 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 isFixedRange
                     ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
-                    ? `${
-                          dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
-                      } to now`
-                    : isFixedDate
-                    ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
-                    : dateFilterToText(
-                          dateFrom,
-                          dateTo,
-                          isFixedDateMode
-                              ? placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER
-                              : NO_OVERRIDE_RANGE_PLACEHOLDER,
-                          dateOptions,
-                          false
-                      ),
+                      ? `${
+                            dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
+                        } to now`
+                      : isFixedDate
+                        ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
+                        : dateFilterToText(
+                              dateFrom,
+                              dateTo,
+                              isFixedDateMode
+                                  ? (placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER)
+                                  : NO_OVERRIDE_RANGE_PLACEHOLDER,
+                              dateOptions,
+                              false
+                          ),
         ],
     }),
     listeners(({ actions, values, props }) => ({

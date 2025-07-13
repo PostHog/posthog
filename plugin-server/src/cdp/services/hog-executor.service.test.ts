@@ -1,13 +1,3 @@
-jest.mock('~/utils/request', () => {
-    const original = jest.requireActual('~/utils/request')
-    return {
-        ...original,
-        fetch: jest.fn().mockImplementation((url, options) => {
-            return original.fetch(url, options)
-        }),
-    }
-})
-
 import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
@@ -16,7 +6,7 @@ import { truth } from '~/tests/helpers/truth'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { formatHogInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { HogExecutorService, formatHogInput } from '../../../src/cdp/services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
     HogFunctionQueueParametersFetchRequest,
@@ -29,6 +19,16 @@ import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { EXTEND_OBJECT_KEY } from './hog-executor.service'
+
+jest.mock('~/utils/request', () => {
+    const original = jest.requireActual('~/utils/request')
+    return {
+        ...original,
+        fetch: jest.fn().mockImplementation((url, options) => {
+            return original.fetch(url, options)
+        }),
+    }
+})
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing

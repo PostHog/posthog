@@ -1,12 +1,14 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconCalendar } from '@posthog/icons'
 import { LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
-import { useEffect } from 'react'
 
-import { campaignMetricsLogic, CampaignMetricsLogicProps } from './campaignMetricsLogic'
+import { CampaignMetricsLogicProps, campaignMetricsLogic } from './campaignMetricsLogic'
 
 export function CampaignMetrics({ id }: CampaignMetricsLogicProps): JSX.Element {
     // Get the metrics based off of the campaign id

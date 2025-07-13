@@ -1,6 +1,8 @@
-import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonSnack } from '@posthog/lemon-ui'
+
 import { FolderSelect } from 'lib/components/FileSystem/FolderSelect/FolderSelect'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'

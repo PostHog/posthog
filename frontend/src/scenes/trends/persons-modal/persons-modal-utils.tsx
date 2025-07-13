@@ -31,7 +31,11 @@ export const funnelTitle = (props: {
             ) : (
                 <>
                     {props.converted ? 'Completed' : 'Dropped off at'} step {props.step} •{' '}
-                    <PropertyKeyInfo value={props.label || ''} disablePopover type={TaxonomicFilterGroupType.Events} />{' '}
+                    <PropertyKeyInfo
+                        value={props.label || ''}
+                        disablePopover
+                        type={TaxonomicFilterGroupType.Events}
+                    />{' '}
                 </>
             )}
             {props?.breakdown_value ? `• ${props.breakdown_value}` : ''}

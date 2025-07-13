@@ -1,11 +1,12 @@
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import algoliasearch from 'algoliasearch/lite'
 import { useActions } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { InstantSearch, useHits, useRefinementList, useSearchBox } from 'react-instantsearch'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List } from 'react-virtualized/dist/es/List'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'

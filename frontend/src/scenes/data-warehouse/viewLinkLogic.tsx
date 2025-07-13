@@ -1,15 +1,16 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DataWarehouseViewLink } from '~/types'
 
+import { ViewLinkKeyLabel } from './ViewLinkModal'
 import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
 import type { viewLinkLogicType } from './viewLinkLogicType'
-import { ViewLinkKeyLabel } from './ViewLinkModal'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',

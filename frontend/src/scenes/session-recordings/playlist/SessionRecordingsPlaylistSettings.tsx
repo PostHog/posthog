@@ -1,13 +1,17 @@
-import { IconEllipsis, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconEllipsis, IconSort } from '@posthog/icons'
+import { LemonBadge, LemonCheckbox } from '@posthog/lemon-ui'
+
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
+import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+
 import { RecordingUniversalFilters } from '~/types'
+import { ReplayTabs } from '~/types'
+
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { MAX_SELECTED_RECORDINGS, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { ReplayTabs } from '~/types'
-import { LemonBadge, LemonCheckbox } from '@posthog/lemon-ui'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',

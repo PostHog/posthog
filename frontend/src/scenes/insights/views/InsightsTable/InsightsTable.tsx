@@ -1,10 +1,11 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { compare as compareFn } from 'natural-orderby'
 import { useMemo } from 'react'
+
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'

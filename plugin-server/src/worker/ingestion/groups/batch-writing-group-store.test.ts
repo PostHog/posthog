@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import { Group, ProjectId, TeamId } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { MessageSizeTooLarge } from '../../../utils/db/error'
+// Import the mocked function
+import { captureIngestionWarning } from '../utils'
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
 
@@ -10,9 +12,6 @@ import { groupCacheOperationsCounter } from './metrics'
 jest.mock('../utils', () => ({
     captureIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
-
-// Import the mocked function
-import { captureIngestionWarning } from '../utils'
 
 // Mock the DB class
 

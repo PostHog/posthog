@@ -1,5 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 
 import {
@@ -30,10 +31,10 @@ import {
     TileId,
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    webAnalyticsLogic,
+    WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebTileLayout,
-    WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+    webAnalyticsLogic,
 } from './webAnalyticsLogic'
 
 export interface PageURLSearchResult {

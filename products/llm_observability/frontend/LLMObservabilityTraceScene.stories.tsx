@@ -1,13 +1,14 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
+
 import { urls } from 'scenes/urls'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { LLMTrace } from '~/queries/schema/schema-general'
 
-import fullTrace from './__mocks__/fullTrace.json'
 import { LLMObservabilityTraceScene } from './LLMObservabilityTraceScene'
+import fullTrace from './__mocks__/fullTrace.json'
 
 const meta: Meta = {
     title: 'Scenes-App/LLM Observability/Trace',

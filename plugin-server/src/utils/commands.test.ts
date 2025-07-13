@@ -1,10 +1,9 @@
-import '../../tests/helpers/mocks/producer.mock'
-
 import express from 'express'
 import supertest from 'supertest'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import '../../tests/helpers/mocks/producer.mock'
 import { resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'

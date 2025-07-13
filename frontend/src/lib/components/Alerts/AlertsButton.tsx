@@ -1,7 +1,9 @@
-import { IconBell } from '@posthog/icons'
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconBell } from '@posthog/icons'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 

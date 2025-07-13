@@ -1,5 +1,6 @@
 import '@xyflow/react/dist/style.css'
 
+import dagre from '@dagrejs/dagre'
 import {
     Background,
     BackgroundVariant,
@@ -7,26 +8,27 @@ import {
     Edge,
     Handle,
     MarkerType,
+    MiniMap,
     Node,
     NodeTypes,
     Position,
     ReactFlow,
     ReactFlowProvider,
-    MiniMap,
     useReactFlow,
 } from '@xyflow/react'
-import dagre from '@dagrejs/dagre'
-import { IconArchive, IconTarget } from '@posthog/icons'
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
+
+import { IconArchive, IconTarget } from '@posthog/icons'
+import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { LineageNode as LineageNodeType } from '~/types'
 
 import { multitabEditorLogic } from '../../multitabEditorLogic'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface UpstreamGraphProps {
     codeEditorKey: string

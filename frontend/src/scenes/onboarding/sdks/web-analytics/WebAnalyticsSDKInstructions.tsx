@@ -8,7 +8,6 @@ import {
     FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
-    iOSInstructions,
     JSWebInstructions,
     NextJSInstructions,
     NuxtJSInstructions,
@@ -18,6 +17,7 @@ import {
     VueInstructions,
     WebAnalyticsRNInstructions,
     WebflowInstructions,
+    iOSInstructions,
 } from '.'
 
 export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {

@@ -1,10 +1,12 @@
-import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { Link, Tooltip } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { shouldQueryBeAsync } from '~/queries/utils'

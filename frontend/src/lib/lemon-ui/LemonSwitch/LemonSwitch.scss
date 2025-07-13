@@ -124,7 +124,11 @@
     background-color: #fff;
     border: none;
     border-radius: var(--lemon-switch-handle-size);
-    transition: background-color 100ms ease, transform 100ms ease, width 100ms ease, border-color 100ms ease;
+    transition:
+        background-color 100ms ease,
+        transform 100ms ease,
+        width 100ms ease,
+        border-color 100ms ease;
 
     .LemonSwitch--checked & {
         background-color: var(--bg-surface-primary);

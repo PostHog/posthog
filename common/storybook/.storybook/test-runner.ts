@@ -1,9 +1,10 @@
-import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
-import type { Mocks } from '~/mocks/utils'
+import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
+import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
+import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import path from 'path'
+
+import type { Mocks } from '~/mocks/utils'
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 

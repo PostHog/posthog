@@ -1,7 +1,8 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
 

@@ -1,5 +1,7 @@
-import { IconFlag, IconInfo } from '@posthog/icons'
 import { Meta, StoryObj } from '@storybook/react'
+
+import { IconFlag, IconInfo } from '@posthog/icons'
+
 import { BreakdownTag as BreakdownTagComponent } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 
 import { LemonTag as LemonTagComponent, LemonTagType } from './LemonTag'

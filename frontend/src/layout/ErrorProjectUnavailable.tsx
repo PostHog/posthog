@@ -1,6 +1,8 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

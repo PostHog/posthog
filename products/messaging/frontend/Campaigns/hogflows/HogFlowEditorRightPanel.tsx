@@ -1,10 +1,11 @@
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { hogFlowEditorLogic, HogFlowEditorMode } from './hogFlowEditorLogic'
-import { HogFlowEditorPanel } from './components/HogFlowEditorPanel'
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
+
 import { HogFlowEditorDetailsPanel } from './HogFlowEditorDetailsPanel'
 import { HogFlowEditorToolbar } from './HogFlowEditorToolbar'
+import { HogFlowEditorPanel } from './components/HogFlowEditorPanel'
+import { HogFlowEditorMode, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorTestPanel, HogFlowTestPanelNonSelected } from './testing/HogFlowEditorTestPanel'
 
 export function HogFlowEditorRightPanel(): JSX.Element | null {

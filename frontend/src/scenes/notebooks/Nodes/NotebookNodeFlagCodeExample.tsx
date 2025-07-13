@@ -1,3 +1,4 @@
+// sort-imports-ignore
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { useActions, useValues } from 'kea'

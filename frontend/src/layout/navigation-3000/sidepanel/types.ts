@@ -1,6 +1,6 @@
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { ActivityScope, APIScopeObject } from '~/types'
+import { APIScopeObject, ActivityScope } from '~/types'
 
 /** Allows scenes to set a context which enables richer features of the side panel */
 export type SidePanelSceneContext = {

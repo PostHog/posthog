@@ -1,20 +1,22 @@
-import { IconBolt, IconBrackets, IconServer } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
+
+import { IconBolt, IconBrackets, IconServer } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
 import { editorSceneLogic } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
-import { editorSidebarLogic, EditorSidebarTab } from './editorSidebarLogic'
+import { multitabEditorLogic } from '../multitabEditorLogic'
 import { QueryDatabase } from './QueryDatabase'
 import { QueryInfo } from './QueryInfo'
 import { QueryVariables } from './QueryVariables'
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { EditorSidebarTab, editorSidebarLogic } from './editorSidebarLogic'
 
 export const EditorSidebar = ({
     sidebarRef,

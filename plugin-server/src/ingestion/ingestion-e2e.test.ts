@@ -1,7 +1,8 @@
-import ClickHouse from '@posthog/clickhouse'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
+
+import ClickHouse from '@posthog/clickhouse'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 

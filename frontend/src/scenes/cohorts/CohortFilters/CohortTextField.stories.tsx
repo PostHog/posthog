@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortTextFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
 

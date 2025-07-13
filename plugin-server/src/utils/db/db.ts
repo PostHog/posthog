@@ -1,19 +1,20 @@
-import ClickHouse from '@posthog/clickhouse'
-import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+
+import ClickHouse from '@posthog/clickhouse'
+import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
     ClickHouseEvent,
-    ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
     ClickHouseTimestamp,
+    ClickhouseGroup,
     Cohort,
     CohortPeople,
     Database,
@@ -50,14 +51,14 @@ import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
 import {
-    castTimestampOrNow,
-    escapeClickHouseString,
     NoRowsUpdatedError,
     RaceConditionError,
-    sanitizeSqlIdentifier,
-    tryTwice,
     UUID,
     UUIDT,
+    castTimestampOrNow,
+    escapeClickHouseString,
+    sanitizeSqlIdentifier,
+    tryTwice,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'

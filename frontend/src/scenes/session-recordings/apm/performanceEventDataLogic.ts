@@ -1,4 +1,5 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
+
 import {
     getPerformanceEvents,
     initiatorToAssetTypeMapping,
@@ -6,8 +7,8 @@ import {
 } from 'scenes/session-recordings/apm/performance-event-utils'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
-    sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
+    sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { PerformanceEvent, RecordingEventType } from '~/types'

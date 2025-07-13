@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
     <head>
         <meta name="robots" content="noindex" />
@@ -17,7 +17,7 @@
             }
 
             if (window.POSTHOG_EXPORTED_DATA.rootClassName) {
-              document.documentElement.className += ' ' + window.POSTHOG_EXPORTED_DATA.rootClassName
+                document.documentElement.className += ' ' + window.POSTHOG_EXPORTED_DATA.rootClassName
             }
         </script>
         {% include "head.html" %} {% if add_og_tags %}

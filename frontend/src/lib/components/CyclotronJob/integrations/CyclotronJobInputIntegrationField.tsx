@@ -1,16 +1,18 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import {
     GoogleAdsConversionActionPicker,
     GoogleAdsCustomerIdPicker,
 } from 'lib/integrations/GoogleAdsIntegrationHelpers'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LinearTeamPicker } from 'lib/integrations/LinearIntegrationHelpers'
 import {
     LinkedInAdsAccountIdPicker,
     LinkedInAdsConversionRulePicker,
 } from 'lib/integrations/LinkedInIntegrationHelpers'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 

@@ -1,13 +1,14 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { AnyDataNode } from '~/queries/schema/schema-general'
-import { UniversalFiltersGroup, UniversalFilterValue } from '~/types'
+import { IconPlusSmall } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/lemon-ui'
 
-import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
+import { AnyDataNode } from '~/queries/schema/schema-general'
+import { UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+
 import { PropertyFilters } from '../PropertyFilters/PropertyFilters'
+import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'
 import { isValidPropertyFilter } from '../PropertyFilters/utils'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'

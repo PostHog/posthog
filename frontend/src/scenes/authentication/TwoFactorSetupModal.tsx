@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { twoFactorLogic } from './twoFactorLogic'
 import { TwoFactorSetup } from './TwoFactorSetup'
+import { twoFactorLogic } from './twoFactorLogic'
 
 export function TwoFactorSetupModal(): JSX.Element {
     const { isTwoFactorSetupModalOpen, forceOpenTwoFactorSetupModal } = useValues(twoFactorLogic)

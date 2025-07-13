@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
+
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { Dayjs } from 'lib/dayjs'
-import { useMemo } from 'react'
 
 import { SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'

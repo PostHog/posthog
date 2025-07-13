@@ -1,7 +1,8 @@
-import { ExecResult } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import RE2 from 're2'
+
+import { ExecResult } from '@posthog/hogvm'
 
 import { HogFlow } from '../../schema/hogflow'
 import { logger } from '../../utils/logger'

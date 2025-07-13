@@ -1,19 +1,21 @@
-import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
-import { isDayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
+
+import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
+import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { isDayjs } from 'lib/dayjs'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Link } from 'lib/lemon-ui/Link'
+import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { SearchHighlight } from '~/layout/navigation-3000/components/SearchHighlight'
 
@@ -259,25 +261,25 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
               await item.onSave(name)
           }
         : !isListItemAccordion(item) && item.onRename
-        ? async (newName: string): Promise<void> => {
-              if (!newName || newName === item.name) {
-                  return cancel() // No change to be saved
-              }
-              if (!validate(newName)) {
-                  return
-              }
-              setIsSavingName(true)
-              try {
-                  await item.onRename?.(newName)
-              } catch (error) {
-                  posthog.captureException(error)
-                  lemonToast.error('Could not rename item')
-              } finally {
-                  setIsSavingName(false)
-                  cancel()
-              }
-          }
-        : null
+          ? async (newName: string): Promise<void> => {
+                if (!newName || newName === item.name) {
+                    return cancel() // No change to be saved
+                }
+                if (!validate(newName)) {
+                    return
+                }
+                setIsSavingName(true)
+                try {
+                    await item.onRename?.(newName)
+                } catch (error) {
+                    posthog.captureException(error)
+                    lemonToast.error('Could not rename item')
+                } finally {
+                    setIsSavingName(false)
+                    cancel()
+                }
+            }
+          : null
 
     useEffect(() => {
         // Add double-click handler for renaming

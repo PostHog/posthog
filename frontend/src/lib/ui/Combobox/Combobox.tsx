@@ -1,9 +1,7 @@
-import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
-import { cn } from 'lib/utils/css-classes'
 import React, {
+    ReactNode,
     createContext,
     forwardRef,
-    ReactNode,
     useCallback,
     useContext,
     useEffect,
@@ -14,9 +12,12 @@ import React, {
     useState,
 } from 'react'
 
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
+import { cn } from 'lib/utils/css-classes'
+
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
 import { TextInputPrimitive } from '../TextInputPrimitive/TextInputPrimitive'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 interface ComboboxContextType {
     searchValue: string

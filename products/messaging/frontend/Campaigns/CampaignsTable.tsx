@@ -1,14 +1,16 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { campaignsLogic } from './campaignsLogic'
 import { HogFlow } from './hogflows/types'
-import { LemonTag } from '@posthog/lemon-ui'
-import { capitalizeFirstLetter } from 'lib/utils'
 
 export function CampaignsTable(): JSX.Element {
     useMountedLogic(campaignsLogic)

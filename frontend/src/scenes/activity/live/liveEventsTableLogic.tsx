@@ -1,5 +1,7 @@
-import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+
+import { Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'

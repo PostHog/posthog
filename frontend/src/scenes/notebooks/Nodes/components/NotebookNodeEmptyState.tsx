@@ -1,3 +1,4 @@
+// sort-imports-ignore
 type NotebookNodeEmptyStateProps = {
     message: string
 }

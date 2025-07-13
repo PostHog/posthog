@@ -1,7 +1,9 @@
-import { IconLock } from '@posthog/icons'
-import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
+import { IconLock } from '@posthog/icons'
+import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 

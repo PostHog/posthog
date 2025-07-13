@@ -1,4 +1,5 @@
 import { Tooltip } from '@posthog/lemon-ui'
+
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { humanizeBytes } from 'lib/utils'
 import { assetTypeToColor } from 'scenes/session-recordings/apm/performance-event-utils'

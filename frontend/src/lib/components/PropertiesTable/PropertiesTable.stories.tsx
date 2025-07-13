@@ -1,7 +1,8 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { useEffect } from 'react'
+
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 
 import { PropertyDefinitionType } from '~/types'
 

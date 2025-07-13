@@ -1,10 +1,11 @@
-import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { JSONViewer } from 'lib/components/JSONViewer'
-import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { useActions, useValues } from 'kea'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { exceptionCardLogic } from '../exceptionCardLogic'
+
+import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -12,9 +13,10 @@ import {
     DropdownMenuItemIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { IconChevronDown } from '@posthog/icons'
+import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+
 import { ContextDisplay } from '../../ContextDisplay'
+import { exceptionCardLogic } from '../exceptionCardLogic'
 
 export interface PropertiesTabProps extends TabsPrimitiveContentProps {}
 

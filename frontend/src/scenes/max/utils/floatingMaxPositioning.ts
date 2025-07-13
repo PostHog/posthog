@@ -1,6 +1,8 @@
-import { useLayoutEffect, useRef, useState } from 'react'
 import { useValues } from 'kea'
+import { useLayoutEffect, useRef, useState } from 'react'
+
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+
 import { maxGlobalLogic } from '../maxGlobalLogic'
 
 /**

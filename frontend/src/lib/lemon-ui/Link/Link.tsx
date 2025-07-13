@@ -1,16 +1,18 @@
 import './Link.scss'
 
-import { IconExternal, IconOpenSidebar } from '@posthog/icons'
 import { router } from 'kea-router'
+import React, { useContext } from 'react'
+
+import { IconExternal, IconOpenSidebar } from '@posthog/icons'
+
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
-import React, { useContext } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
-import { sidePanelStateLogic, WithinSidePanelContext } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { WithinSidePanelContext, sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'

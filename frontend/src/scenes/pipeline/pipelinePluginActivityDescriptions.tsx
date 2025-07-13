@@ -1,10 +1,10 @@
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityLogItem,
-    defaultDescriber,
     HumanizedChange,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { dayjs } from 'lib/dayjs'
 
 import { ActivityScope } from '~/types'

@@ -1,4 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
+
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 

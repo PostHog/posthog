@@ -1,3 +1,9 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { useState } from 'react'
+
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
 import {
     LemonBanner,
@@ -11,10 +17,7 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -22,7 +25,6 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,8 +46,8 @@ import {
     ReplayTabs,
 } from '~/types'
 
-import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
+import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -333,9 +335,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                                 earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                                     ? 'warning'
                                                     : earlyAccessFeature.stage ===
-                                                      EarlyAccessFeatureStage.GeneralAvailability
-                                                    ? 'success'
-                                                    : 'default'
+                                                        EarlyAccessFeatureStage.GeneralAvailability
+                                                      ? 'success'
+                                                      : 'default'
                                             }
                                             className="mt-2 uppercase"
                                         >
