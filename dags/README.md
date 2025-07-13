@@ -27,6 +27,7 @@ Dagster is an open-source data orchestration tool designed to help you define an
 Dagster uses the `DAGSTER_HOME` environment variable to determine where to store instance configuration, logs, and other local artifacts. Set this to the .dagster_home file at the top of this repository:
 
 ```bash
+export DAGSTER_HOME=$(pwd)/.dagster_home
 ```
 
 You can add this to your shell profile if you want to always store your assets, or to your local `.env` file which will be automatically detected by `dagster dev`.
