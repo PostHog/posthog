@@ -5,10 +5,9 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { useState } from 'react'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
@@ -138,8 +137,6 @@ function Option({
     placeholder?: string
     caption?: JSX.Element | string
 }): JSX.Element {
-    const [selectorPrompt] = useState(null as JSX.Element | null)
-
     const onOptionChange = (val: string): void => {
         sendStep({
             ...step,
@@ -161,7 +158,6 @@ function Option({
                 value={step[item] || ''}
                 placeholder={placeholder}
             />
-            {item === 'selector' && selectorPrompt && <LemonBanner type="warning">{selectorPrompt}</LemonBanner>}
         </div>
     )
 }
