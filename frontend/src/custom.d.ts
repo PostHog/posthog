@@ -33,3 +33,9 @@ declare module '*.json' {
     const content: any
     export default content
 }
+
+// This fixes TS errors when importing an .json file with ?url suffix
+declare module '*.json?url' {
+    const content: any
+    export default content
+}

@@ -5,6 +5,13 @@ import { ExportType } from '~/exporter/types'
 
 import { Exporter } from '../Exporter'
 
+import retentionInsight from '../../mocks/fixtures/api/projects/team_id/insights/retention.json?url'
+import lifecycleInsight from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json?url'
+import stickinessInsight from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json?url'
+import userPathsInsight from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json?url'
+import eventTableInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json?url'
+import sqlInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json?url'
+
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {
     title: 'Exporter/Other',
@@ -41,22 +48,22 @@ const Template: StoryFn<typeof Exporter> = (props) => {
 }
 
 export const RetentionInsight: Story = Template.bind({})
-RetentionInsight.args = { insight: require('../../mocks/fixtures/api/projects/team_id/insights/retention.json') }
+RetentionInsight.args = { insight: retentionInsight }
 
 export const LifecycleInsight: Story = Template.bind({})
-LifecycleInsight.args = { insight: require('../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json') }
+LifecycleInsight.args = { insight: lifecycleInsight }
 LifecycleInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const StickinessInsight: Story = Template.bind({})
-StickinessInsight.args = { insight: require('../../mocks/fixtures/api/projects/team_id/insights/stickiness.json') }
+StickinessInsight.args = { insight: stickinessInsight }
 StickinessInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
 
 export const UserPathsInsight: Story = Template.bind({})
-UserPathsInsight.args = { insight: require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json') }
+UserPathsInsight.args = { insight: userPathsInsight }
 UserPathsInsight.tags = ['test-skip'] // FIXME: flaky tests, most likely due to resize observer changes
 
 export const EventTableInsight: Story = Template.bind({})
-EventTableInsight.args = { insight: require('../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json') }
+EventTableInsight.args = { insight: eventTableInsight }
 
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
 export const EventTableInsightNoResults: Story = Template.bind({})
@@ -64,7 +71,7 @@ export const EventTableInsightNoResults: Story = Template.bind({})
 EventTableInsightNoResults.args = { insight: { ...EventTableInsight.args.insight, result: null } }
 
 export const SQLInsight: Story = Template.bind({})
-SQLInsight.args = { insight: require('../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json') }
+SQLInsight.args = { insight: sqlInsight }
 
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
 export const SQLInsightNoResults: Story = Template.bind({})

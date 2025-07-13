@@ -5,6 +5,8 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
+import lifecycleInsight from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json?url'
+
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Lifecycle',
@@ -35,22 +37,14 @@ const meta: Meta = {
     ],
 }
 export default meta
-/* eslint-disable @typescript-eslint/no-var-requires */
 
 // Lifecycle
 
-export const Lifecycle: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json')
-)
+export const Lifecycle: Story = createInsightStory(lifecycleInsight)
 Lifecycle.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
-export const LifecycleEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'),
-    'edit'
-)
+export const LifecycleEdit: Story = createInsightStory(lifecycleInsight, 'edit')
 LifecycleEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
-
-/* eslint-enable @typescript-eslint/no-var-requires */

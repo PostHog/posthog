@@ -14,7 +14,7 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
-
+import trendsLineBreakdownInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json?url'
 type Story = StoryObj<typeof ActionFilter>
 const meta: Meta<typeof ActionFilter> = {
     title: 'Filters/Action Filter',
@@ -52,8 +52,7 @@ const Template: StoryFn<typeof ActionFilter> = ({ ...props }: Partial<ActionFilt
 
     const [dashboardItemId] = useState(() => `ActionFilterStory.${uniqueNode++}`)
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = trendsLineBreakdownInsight
     const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
     const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
 

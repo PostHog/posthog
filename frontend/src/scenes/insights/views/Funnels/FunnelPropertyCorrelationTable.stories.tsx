@@ -12,6 +12,7 @@ import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps } from '~/types'
 
 import { FunnelPropertyCorrelationTable } from './FunnelPropertyCorrelationTable'
+import funnelLeftToRightInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json?url'
 
 type Story = StoryObj<typeof FunnelPropertyCorrelationTable>
 const meta: Meta<typeof FunnelPropertyCorrelationTable> = {
@@ -32,9 +33,7 @@ let uniqueNode = 0
 
 const Template: StoryFn<typeof FunnelPropertyCorrelationTable> = () => {
     const [dashboardItemId] = useState(() => `FunnelPropertyCorrelationTableStory.${uniqueNode++}`)
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
+    const insight = funnelLeftToRightInsight
     const cachedInsight = { ...insight, short_id: dashboardItemId }
 
     const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps

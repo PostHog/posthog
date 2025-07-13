@@ -5,6 +5,8 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
+import retentionInsight from '../../mocks/fixtures/api/projects/team_id/insights/retention.json?url'
+
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Retention',
@@ -35,22 +37,14 @@ const meta: Meta = {
     ],
 }
 export default meta
-/* eslint-disable @typescript-eslint/no-var-requires */
 
 // Retention
 
-export const Retention: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retention.json')
-)
+export const Retention: Story = createInsightStory(retentionInsight)
 Retention.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
-export const RetentionEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retention.json'),
-    'edit'
-)
+export const RetentionEdit: Story = createInsightStory(retentionInsight, 'edit')
 RetentionEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
-
-/* eslint-enable @typescript-eslint/no-var-requires */

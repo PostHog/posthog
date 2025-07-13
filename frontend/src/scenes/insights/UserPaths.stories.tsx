@@ -5,6 +5,8 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
+import userPathsInsight from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json?url'
+
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/User Paths',
@@ -35,12 +37,8 @@ const meta: Meta = {
     ],
 }
 export default meta
-/* eslint-disable @typescript-eslint/no-var-requires */
 
 // User Paths
 
-export const UserPaths: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json')
-)
+export const UserPaths: Story = createInsightStory(userPathsInsight)
 UserPaths.parameters = { testOptions: { waitForSelector: '[data-attr=path-node-card-button]:nth-child(7)' } }
-/* eslint-enable @typescript-eslint/no-var-requires */

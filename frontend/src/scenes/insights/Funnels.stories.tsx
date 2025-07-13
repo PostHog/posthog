@@ -5,6 +5,11 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
+import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json?url'
+import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json?url'
+import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json?url'
+import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json?url'
+
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Funnels',
@@ -35,60 +40,36 @@ const meta: Meta = {
     ],
 }
 export default meta
-/* eslint-disable @typescript-eslint/no-var-requires */
 
 // Funnels
-
-export const FunnelLeftToRight: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
-)
+export const FunnelLeftToRight: Story = createInsightStory(funnelLeftToRightInsight)
 FunnelLeftToRight.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
-export const FunnelLeftToRightEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
+export const FunnelLeftToRightEdit: Story = createInsightStory(funnelLeftToRightInsight, 'edit')
 FunnelLeftToRightEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
 
-export const FunnelLeftToRightBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
-)
+export const FunnelLeftToRightBreakdown: Story = createInsightStory(funnelLeftToRightBreakdownInsight)
 FunnelLeftToRightBreakdown.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
-export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
-    'edit'
-)
+export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(funnelLeftToRightBreakdownInsight, 'edit')
 FunnelLeftToRightBreakdownEdit.parameters = {
     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
 
-export const FunnelHistoricalTrends: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
-)
+export const FunnelHistoricalTrends: Story = createInsightStory(funnelHistoricalTrendsInsight)
 FunnelHistoricalTrends.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
-export const FunnelHistoricalTrendsEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
-    'edit'
-)
+export const FunnelHistoricalTrendsEdit: Story = createInsightStory(funnelHistoricalTrendsInsight, 'edit')
 FunnelHistoricalTrendsEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
 
-export const FunnelTimeToConvert: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json')
-)
+export const FunnelTimeToConvert: Story = createInsightStory(funnelTimeToConvertInsight)
 FunnelTimeToConvert.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
-export const FunnelTimeToConvertEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
-    'edit'
-)
+export const FunnelTimeToConvertEdit: Story = createInsightStory(funnelTimeToConvertInsight, 'edit')
 FunnelTimeToConvertEdit.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
-
-/* eslint-enable @typescript-eslint/no-var-requires */

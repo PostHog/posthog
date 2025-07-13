@@ -9,6 +9,7 @@ import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
 import { InsightsTable } from './InsightsTable'
+import trendsLineBreakdownInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json?url'
 
 type Story = StoryObj<typeof InsightsTable>
 const meta: Meta<typeof InsightsTable> = {
@@ -21,9 +22,7 @@ let uniqueNode = 0
 
 const Template: StoryFn<typeof InsightsTable> = (props, { parameters }) => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
+    const insight = trendsLineBreakdownInsight
     const cachedInsight = {
         ...insight,
         short_id: dashboardItemId,
