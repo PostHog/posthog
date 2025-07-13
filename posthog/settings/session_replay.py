@@ -1,5 +1,3 @@
-import os
-
 from posthog.settings import get_from_env, get_list
 from posthog.utils import str_to_bool
 from django.conf import settings
@@ -47,7 +45,7 @@ SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS = [
 # defaults to 0 i.e. nobody gets the alternative script
 SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE", 0, type_cast=float)
 
-# a AI model to use for session recording filters
+# an AI model to use for session recording filters
 SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
 
