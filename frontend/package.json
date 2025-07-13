@@ -55,7 +55,7 @@
         "@dnd-kit/utilities": "^3.2.1",
         "@floating-ui/react": "^0.26.9",
         "@lottiefiles/react-lottie-player": "^3.4.7",
-        "@medv/finder": "^3.1.0",
+        "@medv/finder": "^4.0.2",
         "@microlink/react-json-view": "^1.26.2",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.6.0",
