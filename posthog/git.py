@@ -42,4 +42,4 @@ def get_git_branch() -> Optional[str]:
 
 
 def get_repo_root() -> str:
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
