@@ -45,6 +45,13 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'false',
 ]
 
+export class MergeRaceConditionError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'MergeRaceConditionError'
+    }
+}
+
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = ['[object Object]', 'NaN', 'None', 'none', 'null', '0', 'undefined']
 
 // we have seen illegal ids received but wrapped in double quotes
@@ -385,16 +392,34 @@ export class PersonMergeService {
         const [updatedTempPerson, _] = applyEventPropertyUpdates(propertyUpdates, tempPerson)
         const properties = updatedTempPerson.properties
 
-        const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
-            mergeInto,
-            mergeIntoDistinctId,
-            otherPerson,
-            otherPersonDistinctId,
-            olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
-            properties
-        )
-
-        return [mergedPerson, kafkaAcks]
+        try {
+            const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
+                mergeInto,
+                mergeIntoDistinctId,
+                otherPerson,
+                otherPersonDistinctId,
+                olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
+                properties
+            )
+            return [mergedPerson, kafkaAcks]
+        } catch (error) {
+            if (error instanceof MergeRaceConditionError) {
+                await captureIngestionWarning(
+                    this.context.kafkaProducer,
+                    this.context.team.id,
+                    'merge_race_condition',
+                    {
+                        sourcePersonDistinctId: otherPersonDistinctId,
+                        targetPersonDistinctId: mergeIntoDistinctId,
+                        eventUuid: this.context.event.uuid,
+                    },
+                    { alwaysSend: true }
+                )
+                logger.warn('🤔', 'merge race condition detected, too many concurrent merges')
+                return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
+            }
+            throw error
+        }
     }
 
     private isMergeAllowed(mergeFrom: InternalPerson): boolean {
@@ -410,8 +435,7 @@ export class PersonMergeService {
         sourceDistinctId: string,
         createdAt: DateTime,
         properties: Properties,
-        maxRetries: number = 3,
-        retryInterval: number = 50
+        maxRetries: number = 3
     ): Promise<[InternalPerson, Promise<void>]> {
         let currentTargetPerson = targetPerson
         let currentSourcePerson = sourcePerson
@@ -538,7 +562,6 @@ export class PersonMergeService {
                     }
 
                     currentSourcePerson = refreshedSourcePerson
-                    await new Promise((resolve) => setTimeout(resolve, retryInterval))
                     continue
                 } else if (error instanceof TargetPersonNotFoundError && attempt < maxRetries) {
                     logger.info('Target person not found, retrying with fresh data', {
@@ -589,7 +612,11 @@ export class PersonMergeService {
             }
         }
 
-        throw new Error(`Failed to merge persons after ${maxRetries + 1} attempts`)
+        throw new MergeRaceConditionError(
+            `Failed to merge persons due to concurrent merges, ` +
+                `source person: ${sourcePerson.id}, target person: ${targetPerson.id}, team: ${this.context.team.id} ` +
+                `source distinct id: ${sourceDistinctId}, target distinct id: ${targetDistinctId}`
+        )
     }
 
     public async addDistinctId(
