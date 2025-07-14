@@ -13,7 +13,7 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
 
     permission_classes = [IsAuthenticated]
-    scope_object = "FEATURE_FLAG"
+    scope_object = "feature_flag"
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
