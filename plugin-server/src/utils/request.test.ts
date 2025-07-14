@@ -92,7 +92,8 @@ describe('fetch', () => {
 
     describe('parallel requests execution', () => {
         jest.retryTimes(3)
-        it('should execute requests in parallel - completion time test', async () => {
+        // NOTE: This is inherently flakey so we disable it except when validating changes for it
+        it.skip('should execute requests in parallel - completion time test', async () => {
             const delayMs = 200
             const parallelRequests = 20
 

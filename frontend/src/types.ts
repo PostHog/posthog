@@ -3770,6 +3770,7 @@ export interface CohortCriteriaGroupFilter {
     id?: string
     type: FilterLogicalOperator
     values: AnyCohortCriteriaType[] | CohortCriteriaGroupFilter[]
+    sort_key?: string // Client-side only stable id for sorting.
 }
 
 export interface SelectOptionWithChildren extends SelectOption {
@@ -5020,7 +5021,6 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
-    FeaturePreviews = 'feature-previews',
     Activity = 'activity',
     Discussion = 'discussion',
     Status = 'status',
