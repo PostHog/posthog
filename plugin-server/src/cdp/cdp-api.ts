@@ -31,7 +31,6 @@ export class CdpApi {
     private hogTransformer: HogTransformerService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
-    private personsManager: PersonsManagerService
     private messagingMailjetManagerService: MessagingMailjetManagerService
 
     constructor(private hub: Hub) {
