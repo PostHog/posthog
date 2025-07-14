@@ -55,8 +55,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         elif self.series.math == "total" or self.series.math == "first_time_for_user":
             return parse_expr("count()")
         elif self.series.math == "dau":
-            # Need to use person field here, as `weekly_active` and `monthly_active` queries are shared between persons
-            # and groups, so we need to get the actor accordingly.
+            # `weekly_active` and `monthly_active` turn into `dau` for intervals longer than their period, hence the
+            # need to use person field here so we need to get the actor accordingly.
             actor = self._get_person_field()
             return parse_expr(f"count(DISTINCT {actor})")
         elif self.series.math == "weekly_active":
