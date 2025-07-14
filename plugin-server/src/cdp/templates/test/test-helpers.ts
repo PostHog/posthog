@@ -19,6 +19,7 @@ import {
     HogFunctionTemplate,
     HogFunctionTemplateCompiled,
     HogFunctionType,
+    NativeTemplate,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
 import { createInvocation } from '../../utils/invocation-utils'
@@ -50,13 +51,13 @@ const compileObject = async (obj: any): Promise<any> => {
 const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
     _inputs: Record<string, any>
-): Promise<Record<string, HogFunctionInputType>> => {
+): Promise<Record<string, CyclotronInputType>> => {
     const defaultInputs = template.inputs_schema.reduce((acc, input) => {
         if (typeof input.default !== 'undefined') {
             acc[input.key] = input.default
         }
         return acc
-    }, {} as Record<string, HogFunctionInputType>)
+    }, {} as Record<string, CyclotronInputType>)
 
     const allInputs = { ...defaultInputs, ..._inputs }
 
@@ -77,7 +78,7 @@ const compileInputs = async (
             bytecode: value,
         }
         return acc
-    }, {} as Record<string, HogFunctionInputType>)
+    }, {} as Record<string, CyclotronInputType>)
 }
 
 const createGlobals = (
@@ -367,7 +368,7 @@ export class DestinationTester {
                 bytecode: item.bytecode,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 
