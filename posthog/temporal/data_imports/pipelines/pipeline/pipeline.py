@@ -71,7 +71,6 @@ class PipelineNonDLT:
         source: DltSource | SourceResponse,
         logger: FilteringBoundLogger,
         job_id: str,
-        is_incremental: bool,
         reset_pipeline: bool,
         shutdown_monitor: ShutdownMonitor,
     ) -> None:
@@ -93,7 +92,6 @@ class PipelineNonDLT:
             self._resource_name = source.name
 
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
-        self._is_incremental = is_incremental
         self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
@@ -101,6 +99,7 @@ class PipelineNonDLT:
         schema: ExternalDataSchema | None = self._job.schema
         assert schema is not None
         self._schema = schema
+        self._is_incremental = schema.is_incremental
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()

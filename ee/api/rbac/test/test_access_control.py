@@ -145,8 +145,8 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert res.json() == {
             "access_controls": [],
-            "available_access_levels": ["none", "viewer", "editor"],
-            "user_access_level": "editor",
+            "available_access_levels": ["none", "viewer", "editor", "manager"],
+            "user_access_level": "manager",
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,
         }
@@ -221,7 +221,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
 
         # Check that creator has highest access level
         creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
-        assert creator_user["access_level"] == "editor"
+        assert creator_user["access_level"] == "manager"
         assert creator_user["access_source"] == AccessSource.CREATOR.value
 
     def test_org_admin_has_highest_access(self):
@@ -238,7 +238,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
 
         data = res.json()
         admin_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
-        assert admin_user["access_level"] == "editor"
+        assert admin_user["access_level"] == "manager"
         assert admin_user["access_source"] == AccessSource.ORGANIZATION_ADMIN.value
 
     def test_explicit_access_control_shows_correct_source(self):
@@ -324,7 +324,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         # Only creator should have access (others have "none" access level)
         assert data["total_count"] == 4  # All users are included, but with "none" access
         creator_user = next(user for user in data["users"] if user["user_id"] == str(self.user.uuid))
-        assert creator_user["access_level"] == "editor"
+        assert creator_user["access_level"] == "manager"
         assert creator_user["access_source"] == AccessSource.CREATOR.value
 
         # Other users should have "none" access level
@@ -356,7 +356,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
 
         data = res.json()
         user2_data = next(user for user in data["users"] if user["user_id"] == str(self.user2.uuid))
-        assert user2_data["access_level"] == "editor"
+        assert user2_data["access_level"] == "manager"
         assert user2_data["access_source"] == AccessSource.ORGANIZATION_ADMIN.value
 
     def test_users_sorted_by_access_level_then_email(self):
@@ -387,7 +387,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
 
         data = res.json()
         # Should be sorted: editor (creator), editor (user3), viewer (user2), editor (user4 default)
-        assert data["users"][0]["access_level"] == "editor"  # creator
+        assert data["users"][0]["access_level"] == "manager"  # creator
         assert data["users"][1]["access_level"] == "editor"  # user3
         assert data["users"][2]["access_level"] == "editor"  # user4 (default)
         assert data["users"][3]["access_level"] == "viewer"  # user2
