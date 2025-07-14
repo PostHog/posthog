@@ -1296,6 +1296,9 @@ importers:
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
+      chance:
+        specifier: ^1.1.13
+        version: 1.1.13
       dayjs:
         specifier: 1.11.11
         version: 1.11.11(patch_hash=lbfir4woetqmvzqg7l4q5mjtfq)
@@ -1519,9 +1522,6 @@ importers:
       c8:
         specifier: ^7.12.0
         version: 7.13.0
-      chance:
-        specifier: ^1.1.13
-        version: 1.1.13
       deepmerge:
         specifier: ^4.2.2
         version: 4.3.1
