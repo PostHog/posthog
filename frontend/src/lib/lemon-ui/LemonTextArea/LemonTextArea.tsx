@@ -68,7 +68,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
-    const hasFooter = (actions || []).length || textProps.maxLength
+    const hasFooter = (actions || []).length || textProps.maxLength || rightFooter
 
     const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
     useEffect(() => {
