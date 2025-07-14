@@ -1,9 +1,10 @@
-from ee.hogai.utils.types import AssistantNodeName
+from ee.hogai.utils.types import AssistantNodeName, FilterOptionsState
 
 from .nodes import FilterOptionsNode, FilterOptionsToolsNode
 from ee.hogai.graph.graph import BaseAssistantGraph
 from typing import Optional
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from langgraph.graph.state import StateGraph
 
 
 class FilterOptionsGraph(BaseAssistantGraph):
@@ -12,6 +13,8 @@ class FilterOptionsGraph(BaseAssistantGraph):
     def __init__(self, team, user, injected_prompts: Optional[dict] = None):
         super().__init__(team, user)
         self.injected_prompts = injected_prompts or {}
+        # Override the graph to use FilterOptionsState
+        self._graph = StateGraph(FilterOptionsState)
 
     def add_filter_options_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
         """Add the filter options generator nodes to the graph."""

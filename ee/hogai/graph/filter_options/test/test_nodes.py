@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage as LangchainAIMessage
 from ee.hogai.utils.tests import FakeChatOpenAI
 
 from ee.hogai.graph.filter_options.nodes import FilterOptionsNode, FilterOptionsToolsNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from langchain_core.agents import AgentAction
@@ -45,7 +45,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = AssistantState(
+            state = FilterOptionsState(
                 messages=[],
                 change="show me user properties",
                 current_filters={"property": "active"},
@@ -54,7 +54,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             result = node.run(state, {})
 
             # Verify result structure
-            self.assertIsInstance(result, PartialAssistantState)
+            self.assertIsInstance(result, PartialFilterOptionsState)
             assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
 
@@ -74,7 +74,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = AssistantState(messages=[], change="test query")
+            state = FilterOptionsState(messages=[], change="test query")
 
             with self.assertRaises(ValueError) as context:
                 node.run(state, {})
@@ -91,11 +91,11 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = AssistantState(messages=[], change="filter users by activity", current_filters={"active": True})
+            state = FilterOptionsState(messages=[], change="filter users by activity", current_filters={"active": True})
 
             result = node.run(state, {})
 
-            self.assertIsInstance(result, PartialAssistantState)
+            self.assertIsInstance(result, PartialFilterOptionsState)
             assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
 
@@ -116,11 +116,11 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         node = FilterOptionsNode(self.team, self.user)
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = AssistantState(messages=[], change="")
+            state = FilterOptionsState(messages=[], change="")
 
             result = node.run(state, {})
 
-            self.assertIsInstance(result, PartialAssistantState)
+            self.assertIsInstance(result, PartialFilterOptionsState)
             assert result.intermediate_steps is not None
             self.assertEqual(len(result.intermediate_steps), 1)
 
@@ -139,7 +139,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
         existing_steps: list[tuple[AgentAction, str | None]] = [(existing_action, "previous_result")]
 
         with patch.object(node, "_get_model", return_value=mock_model):
-            state = AssistantState(messages=[], change="continue processing", intermediate_steps=existing_steps)
+            state = FilterOptionsState(messages=[], change="continue processing", intermediate_steps=existing_steps)
 
             result = node.run(state, {})
 
@@ -175,7 +175,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        state = AssistantState(messages=[], change="test query")
+        state = FilterOptionsState(messages=[], change="test query")
 
         # Test that both node configurations work through the public interface
         # This proves injected prompts don't break functionality
@@ -188,8 +188,8 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             custom_result = custom_node.run(state, {})
 
         # Both should succeed
-        self.assertIsInstance(default_result, PartialAssistantState)
-        self.assertIsInstance(custom_result, PartialAssistantState)
+        self.assertIsInstance(default_result, PartialFilterOptionsState)
+        self.assertIsInstance(custom_result, PartialFilterOptionsState)
 
         # Both should create tool actions (proving the injected prompts didn't break functionality)
         assert default_result.intermediate_steps is not None
@@ -202,7 +202,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_with_generated_filter_options(self):
         """Test router returns 'end' when filter options are generated."""
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = AssistantState(messages=[], generated_filter_options={"result": "filter", "data": {}})
+        state = FilterOptionsState(messages=[], generated_filter_options={"result": "filter", "data": {}})
 
         result = node.router(state)
 
@@ -213,7 +213,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
         from posthog.schema import AssistantToolCallMessage
 
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = AssistantState(
+        state = FilterOptionsState(
             messages=[AssistantToolCallMessage(tool_call_id="ask_user_for_help", content="Need help with filters")]
         )
 
@@ -226,7 +226,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
         from posthog.schema import AssistantToolCallMessage
 
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = AssistantState(
+        state = FilterOptionsState(
             messages=[AssistantToolCallMessage(tool_call_id="max_iterations", content="Reached maximum iterations")]
         )
 
@@ -237,7 +237,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
     def test_router_continue_normal_processing(self):
         """Test router returns 'continue' for normal processing."""
         node = FilterOptionsToolsNode(self.team, self.user)
-        state = AssistantState(messages=[])
+        state = FilterOptionsState(messages=[])
 
         result = node.router(state)
 
@@ -266,7 +266,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
 
         node = FilterOptionsToolsNode(self.team, self.user)
         action = AgentAction(tool=tool_name, tool_input=tool_args["arguments"], log="test")
-        state = AssistantState(messages=[], intermediate_steps=[(action, None)])
+        state = FilterOptionsState(messages=[], intermediate_steps=[(action, None)])
 
         if tool_name == "final_answer":
             result = node.run(state, {})

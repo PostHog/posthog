@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
 
 from .prompts import (
     FILTER_INITIAL_PROMPT,
@@ -76,7 +76,7 @@ class FilterOptionsNode(AssistantNode):
             .content,
         )
 
-    def _get_model(self, state: AssistantState):
+    def _get_model(self, state: FilterOptionsState):
         return MaxChatOpenAI(
             model="gpt-4o", streaming=False, temperature=0.2, user=self._user, team=self._team
         ).bind_tools(
@@ -90,7 +90,7 @@ class FilterOptionsNode(AssistantNode):
             parallel_tool_calls=False,
         )
 
-    def _construct_messages(self, state: AssistantState) -> ChatPromptTemplate:
+    def _construct_messages(self, state: FilterOptionsState) -> ChatPromptTemplate:
         """
         Construct the conversation thread for the agent. Handles both initial conversation setup
         and continuation with intermediate steps.
@@ -148,7 +148,7 @@ class FilterOptionsNode(AssistantNode):
             .content,
         )
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         """Process the state and return filtering options."""
         conversation = self._construct_messages(state)
 
@@ -185,7 +185,7 @@ class FilterOptionsNode(AssistantNode):
         result = AgentAction(tool_call["name"], tool_call["args"].get("arguments", {}), tool_call["id"])
 
         intermediate_steps = state.intermediate_steps or []
-        return PartialAssistantState(
+        return PartialFilterOptionsState(
             intermediate_steps=[*intermediate_steps, (result, None)],
             generated_filter_options=state.generated_filter_options,
         )
@@ -194,7 +194,7 @@ class FilterOptionsNode(AssistantNode):
 class FilterOptionsToolsNode(AssistantNode, ABC):
     MAX_ITERATIONS = 5  # Maximum number of iterations for the ReAct agent
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         toolkit = FilterOptionsToolkit(self._team)
         intermediate_steps = state.intermediate_steps or []
         action, _output = intermediate_steps[-1]
@@ -220,7 +220,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                         "data": input.arguments.data,  # type: ignore
                     }
 
-                    return PartialAssistantState(
+                    return PartialFilterOptionsState(
                         generated_filter_options=full_response,
                         change=state.change,
                         intermediate_steps=[],
@@ -254,12 +254,12 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
             else:
                 output = toolkit.handle_incorrect_response(input)
 
-        return PartialAssistantState(
+        return PartialFilterOptionsState(
             messages=tool_progress_messages,
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
         )
 
-    def router(self, state: AssistantState):
+    def router(self, state: FilterOptionsState):
         # If we have a final answer, end the process
         if state.generated_filter_options:
             return "end"
@@ -275,8 +275,8 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         # Continue normal processing - agent should see tool results and make next decision
         return "continue"
 
-    def _get_reset_state(self, output: str, tool_call_id: str, state: AssistantState):
-        reset_state = PartialAssistantState.get_reset_state()
+    def _get_reset_state(self, output: str, tool_call_id: str, state: FilterOptionsState):
+        reset_state = PartialFilterOptionsState.get_reset_state()
         reset_state.messages = [
             AssistantToolCallMessage(
                 tool_call_id=tool_call_id,
