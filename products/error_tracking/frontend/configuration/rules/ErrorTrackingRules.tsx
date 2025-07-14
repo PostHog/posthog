@@ -10,18 +10,19 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { errorTrackingRulesLogic } from './errorTrackingRulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRule, ErrorTrackingRuleType } from './types'
+import { PageHeader } from 'lib/components/PageHeader'
 
 function ErrorTrackingRules<T extends ErrorTrackingRule>({
     ruleType,
     children,
 }: {
     ruleType: ErrorTrackingRuleType
-    children: ({ rule, editable }: { rule: T; editable: boolean }) => JSX.Element
+    children: ({ rule, editing }: { rule: T; editing: boolean }) => JSX.Element
 }): JSX.Element {
     const logicProps = { ruleType }
     const logic = errorTrackingRulesLogic(logicProps)
 
-    const { allRules, localRules, initialLoadComplete } = useValues(logic)
+    const { allRules, localRules, initialLoadComplete, isReorderingRules } = useValues(logic)
     const { loadRules } = useActions(logic)
 
     useEffect(() => {
@@ -36,23 +37,57 @@ function ErrorTrackingRules<T extends ErrorTrackingRule>({
                 {allRules.map((persistedRule) => {
                     const editingRule = localRules.find((r) => r.id === persistedRule.id) as T
 
-                    const editable = !!editingRule
+                    const editing = !isReorderingRules && !!editingRule
                     const rule = editingRule ?? persistedRule
 
-                    return children({ rule, editable })
+                    return children({ rule, editing })
                 })}
 
-                <AddRuleButton />
+                <PageHeader
+                    buttons={
+                        <>
+                            <ReorderRules />
+                            <AddRule />
+                        </>
+                    }
+                />
             </div>
         </BindLogic>
     )
 }
 
-const AddRuleButton = (): JSX.Element | null => {
-    const { hasNewRule } = useValues(errorTrackingRulesLogic)
+const ReorderRules = (): JSX.Element | null => {
+    const { localRules, isReorderingRules } = useValues(errorTrackingRulesLogic)
+    const { startReorderingRules, finishReorderingRules, cancelReorderingRules } = useActions(errorTrackingRulesLogic)
+
+    return isReorderingRules ? (
+        <>
+            <LemonButton type="secondary" size="small" onClick={cancelReorderingRules}>
+                Cancel
+            </LemonButton>
+            <LemonButton type="primary" size="small" onClick={finishReorderingRules}>
+                Finish reordering
+            </LemonButton>
+        </>
+    ) : (
+        <div>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={startReorderingRules}
+                disabledReason={localRules.length > 0 ? 'Finish editing all rules before reordering' : undefined}
+            >
+                Reorder rules
+            </LemonButton>
+        </div>
+    )
+}
+
+const AddRule = (): JSX.Element | null => {
+    const { hasNewRule, isReorderingRules } = useValues(errorTrackingRulesLogic)
     const { addRule } = useActions(errorTrackingRulesLogic)
 
-    return !hasNewRule ? (
+    return !hasNewRule && !isReorderingRules ? (
         <div>
             <LemonButton type="primary" size="small" onClick={addRule}>
                 Add rule
@@ -61,12 +96,12 @@ const AddRuleButton = (): JSX.Element | null => {
     ) : null
 }
 
-const Actions = ({ rule, editable }: { rule: ErrorTrackingRule; editable: boolean }): JSX.Element => {
+const Actions = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean }): JSX.Element => {
     const { saveRule, deleteRule, setRuleEditable, unsetRuleEditable } = useActions(errorTrackingRulesLogic)
 
     return (
         <div className="flex gap-1">
-            {editable ? (
+            {editing ? (
                 <>
                     {rule.id === 'new' ? null : (
                         <LemonButton
@@ -106,12 +141,12 @@ const Actions = ({ rule, editable }: { rule: ErrorTrackingRule; editable: boolea
 
 const Filters = ({
     rule,
-    editable,
+    editing,
     taxonomicGroupTypes,
     ...props
 }: Pick<PropertyFiltersProps, 'taxonomicGroupTypes' | 'propertyAllowList'> & {
     rule: ErrorTrackingRule
-    editable: boolean
+    editing: boolean
     taxonomicGroupTypes: PropertyFiltersProps['taxonomicGroupTypes']
     excludedProperties?: PropertyFiltersProps['excludedProperties']
 }): JSX.Element => {
@@ -119,7 +154,7 @@ const Filters = ({
 
     return (
         <PropertyFilters
-            editable={editable}
+            editable={editing}
             propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(properties: AnyPropertyFilter[]) =>
@@ -135,10 +170,10 @@ const Filters = ({
     )
 }
 
-const Assignee = ({ rule, editable }: { rule: ErrorTrackingAssignmentRule; editable: boolean }): JSX.Element => {
+const Assignee = ({ rule, editing }: { rule: ErrorTrackingAssignmentRule; editing: boolean }): JSX.Element => {
     const { updateLocalRule } = useActions(errorTrackingRulesLogic)
 
-    return editable ? (
+    return editing ? (
         <AssigneeSelect assignee={rule.assignee} onChange={(assignee) => updateLocalRule({ ...rule, assignee })}>
             {(displayAssignee) => (
                 <LemonButton fullWidth type="secondary" size="small">
@@ -158,12 +193,12 @@ const Assignee = ({ rule, editable }: { rule: ErrorTrackingAssignmentRule; edita
     )
 }
 
-const Operator = ({ rule, editable }: { rule: ErrorTrackingRule; editable: boolean }): JSX.Element => {
+const Operator = ({ rule, editing }: { rule: ErrorTrackingRule; editing: boolean }): JSX.Element => {
     const { updateLocalRule } = useActions(errorTrackingRulesLogic)
 
     const operator = rule.filters.type
 
-    return editable ? (
+    return editing ? (
         <LemonSelect
             size="small"
             value={operator}

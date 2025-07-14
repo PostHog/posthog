@@ -12,25 +12,25 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                 was seen.
             </p>
             <ErrorTrackingRules<ErrorTrackingAssignmentRule> ruleType={ErrorTrackingRuleType.Assignment}>
-                {({ rule, editable }) => {
+                {({ rule, editing }) => {
                     return (
                         <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
                             <div className="flex gap-2 justify-between px-2 py-3">
                                 <div className="flex gap-1 items-center">
                                     <div>Assign to</div>
-                                    <ErrorTrackingRules.Assignee rule={rule} editable={editable} />
+                                    <ErrorTrackingRules.Assignee rule={rule} editing={editing} />
                                     <div>when</div>
-                                    <ErrorTrackingRules.Operator rule={rule} editable={editable} />
+                                    <ErrorTrackingRules.Operator rule={rule} editing={editing} />
                                     <div>filters match</div>
                                 </div>
-                                <ErrorTrackingRules.Actions rule={rule} editable={editable} />
+                                <ErrorTrackingRules.Actions rule={rule} editing={editing} />
                             </div>
                             <LemonDivider className="my-0" />
                             <div className="p-2">
                                 <ErrorTrackingRules.Filters
                                     taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
                                     rule={rule}
-                                    editable={editable}
+                                    editing={editing}
                                 />
                             </div>
                         </LemonCard>

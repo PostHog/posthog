@@ -7,13 +7,14 @@ import { FilterLogicalOperator } from '~/types'
 import type { errorTrackingRulesLogicType } from './errorTrackingRulesLogicType'
 import { ErrorTrackingRule, ErrorTrackingRuleNew, ErrorTrackingRulesLogicProps, ErrorTrackingRuleType } from './types'
 
-function createNewRule(ruleType: ErrorTrackingRuleType): ErrorTrackingRuleNew {
+function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): ErrorTrackingRuleNew {
     switch (ruleType) {
         case 'assignment_rules':
             return {
                 id: 'new',
                 assignee: null,
                 filters: { type: FilterLogicalOperator.Or, values: [] },
+                order_key,
             }
         case 'grouping_rules':
             return {
@@ -21,11 +22,13 @@ function createNewRule(ruleType: ErrorTrackingRuleType): ErrorTrackingRuleNew {
                 assignee: null,
                 description: '',
                 filters: { type: FilterLogicalOperator.And, values: [] },
+                order_key,
             }
         case 'suppression_rules':
             return {
                 id: 'new',
                 filters: { type: FilterLogicalOperator.Or, values: [] },
+                order_key,
             }
         default:
             throw new Error(`Unsupported rule type: ${ruleType}`)
@@ -39,6 +42,9 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
 
     actions({
         addRule: true,
+        startReorderingRules: true,
+        finishReorderingRules: true,
+        cancelReorderingRules: true,
         setRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
         unsetRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
         updateLocalRule: (rule: ErrorTrackingRule) => ({ rule }),
@@ -47,6 +53,14 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
 
     reducers({
         localRules: [[] as ErrorTrackingRule[], { _setLocalRules: (_, { rules }) => rules }],
+        isReorderingRules: [
+            false,
+            {
+                startReorderingRules: () => true,
+                finishReorderingRules: () => false,
+                cancelReorderingRules: () => false,
+            },
+        ],
         initialLoadComplete: [
             false,
             {
@@ -91,7 +105,7 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
 
     listeners(({ props, values, actions }) => ({
         addRule: () => {
-            actions._setLocalRules([...values.localRules, createNewRule(props.ruleType)])
+            actions._setLocalRules([...values.localRules, createNewRule(props.ruleType, values.localRules.length)])
         },
         saveRuleSuccess: ({ payload: id }) => {
             const localRules = [...values.localRules]
@@ -126,13 +140,22 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
                 actions._setLocalRules(newEditingRules)
             }
         },
+        startReorderingRules: () => actions._setLocalRules([...values.rules]),
+        cancelReorderingRules: () => actions._setLocalRules([]),
+        finishReorderingRules: () => {
+            // TODO: manage save
+
+            actions._setLocalRules([])
+        },
     })),
 
     selectors({
         allRules: [
             (s) => [s.localRules, s.rules],
-            (localRules, rules): ErrorTrackingRule[] =>
-                Array.from(new Map([...rules, ...localRules].map((item) => [item.id, item])).values()),
+            (localRules, rules): ErrorTrackingRule[] => {
+                const sortedRules = [...rules, ...localRules].sort((a, b) => a.order_key - b.order_key)
+                return Array.from(new Map(sortedRules.map((item) => [item.id, item])).values())
+            },
         ],
         hasNewRule: [(s) => [s.allRules], (allRules): boolean => allRules.some((r) => r.id === 'new')],
     }),

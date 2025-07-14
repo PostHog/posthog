@@ -742,7 +742,7 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -755,7 +755,7 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
 
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingAssignmentRule.objects.all()
+    queryset = ErrorTrackingAssignmentRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -810,7 +810,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingGroupingRule
-        fields = ["id", "filters", "assignee"]
+        fields = ["id", "filters", "assignee", "order_key"]
         read_only_fields = ["team_id"]
 
     def get_assignee(self, obj):
@@ -823,7 +823,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
 
 class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingGroupingRule.objects.all()
+    queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
 
     def safely_get_queryset(self, queryset):
@@ -885,7 +885,7 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
 
 class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
-    queryset = ErrorTrackingSuppressionRule.objects.all()
+    queryset = ErrorTrackingSuppressionRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingSuppressionRuleSerializer
 
     def safely_get_queryset(self, queryset):
