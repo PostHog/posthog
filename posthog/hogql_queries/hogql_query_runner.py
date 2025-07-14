@@ -82,7 +82,7 @@ class HogQLQueryRunner(QueryRunner):
         ):
             assert self.settings is not None
             # p95 threads is 102
-            self.settings.max_threads = 80
+            self.settings.max_threads = 60
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 
