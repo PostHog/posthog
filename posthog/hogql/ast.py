@@ -768,7 +768,7 @@ class ExprCall(Expr):
 @dataclass(kw_only=True)
 class JoinConstraint(Expr):
     expr: Expr
-    constraint_type: Literal["ON", "USING"] = "ON"
+    constraint_type: Literal["ON", "USING"]
 
 
 @dataclass(kw_only=True)
