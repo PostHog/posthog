@@ -18,6 +18,7 @@ Once all necessary data is collected, the agent should return the filter in this
     "data": {
         "date_from": "<date_from>",
         "date_to": "<date_to>",
+        "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],  // Use "gt", "lt", "gte", "lte"
         "filter_group": {
             "type": "<FilterLogicalOperator>",
             "values": [
@@ -238,7 +239,7 @@ json
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
-            "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],  // Use "gt", "lt", "gte", "lte"
+    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}], // Always make sure to include the duration filter.
     "filter_group": {
     "type": FilterLogicalOperator.OR,
     "values": [
@@ -287,7 +288,7 @@ json
     "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],
     "filter_test_accounts": "<boolean>",
     "filter_group": {
         "type": FilterLogicalOperator.AND,

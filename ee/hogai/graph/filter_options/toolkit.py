@@ -1,16 +1,8 @@
-from collections.abc import Iterable
 from enum import Enum
-from posthog.models import Team
-from posthog.models.property_definition import PropertyDefinition
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from functools import cached_property
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.schema import ActorsPropertyTaxonomyQuery, CachedActorsPropertyTaxonomyQueryResponse
-from posthog.models.property_definition import PropertyType
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Union, Literal
+from pydantic import BaseModel, ConfigDict, Field, RootModel
+from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool, RetrieveEntityPropertiesValuesTool
 
 
 class EntityType(str, Enum):
@@ -26,36 +18,39 @@ class EntityType(str, Enum):
         return [entity.value for entity in cls]
 
 
-class ask_user_for_help(BaseModel):
-    """
-    Use this tool to ask a clarifying question to the user. Your question must be concise and clear.
-    """
-
-    request: str = Field(..., description="The question you want to ask the user.")
+class RetrieveEntityPropertiesToolArgs(BaseModel):
+    entity: str = Field(..., description="The entity type (e.g. 'person', 'session', 'event')")
 
 
-class retrieve_entity_properties(BaseModel):
+class RetrieveEntityPropertiesTool(BaseModel):
     """
     Retrieves available property names for a specific entity type (e.g., events, users, groups).
     Use when you know the entity type but need to discover what properties are available.
     Returns property names, data types, and descriptions.
     """
 
-    entity: str = Field(..., description="The entity type (e.g. 'person', 'session', 'event')")
+    model_config = ConfigDict(title="retrieve_entity_properties")
+
+    name: Literal["retrieve_entity_properties"]
+    arguments: RetrieveEntityPropertiesToolArgs
 
 
-class retrieve_entity_property_values(BaseModel):
+class AskUserForHelpToolArgs(BaseModel):
+    request: str = Field(..., description="The question you want to ask the user.")
+
+
+class AskUserForHelpTool(BaseModel):
     """
-    Retrieves possible values for a specific property of a given entity type.
-    Use when you know both the entity type and property name but need to see available values.
-    Returns a list of actual property values found in the data or a message that values have not been found.
+    Use this tool to ask a clarifying question to the user. Your question must be concise and clear.
     """
 
-    entity: str = Field(..., description="The entity type (e.g. 'person', 'session', 'event')")
-    property_name: str = Field(..., description="Property name to retrieve values for.")
+    model_config = ConfigDict(title="ask_user_for_help")
+
+    name: Literal["ask_user_for_help"]
+    arguments: AskUserForHelpToolArgs
 
 
-class final_answer(BaseModel):
+class FinalAnswerToolArgs(BaseModel):
     """
     Use this tool to finalize the filter options answer.
     You MUST use this tool ONLY when you have all the information you need to build the filter.
@@ -66,25 +61,93 @@ class final_answer(BaseModel):
     data: dict = Field(description="Complete filter object as defined in the prompts")
 
 
-class FilterOptionsToolkit:
-    _team: Team
+class FinalAnswerTool(BaseModel):
+    """Tool for providing the final answer with filter data."""
 
-    def __init__(self, team: Team):
-        self._team = team
+    model_config = ConfigDict(title="final_answer")
 
-    @property
-    def _groups(self):
-        return GroupTypeMapping.objects.filter(project=self._team.project).order_by("group_type_index")
+    name: Literal["final_answer"]
+    arguments: FinalAnswerToolArgs
+
+
+FilterOptionsToolUnion = Union[
+    RetrieveEntityPropertiesTool,
+    RetrieveEntityPropertiesValuesTool,
+    AskUserForHelpTool,
+    FinalAnswerTool,
+]
+
+
+class FilterOptionsTool(RootModel[FilterOptionsToolUnion]):
+    root: FilterOptionsToolUnion = Field(..., discriminator="name")
+
+
+class FilterOptionsToolkit(TaxonomyAgentToolkit):
+    def _get_tools(self) -> list[ToolkitTool]:
+        """Required implementation of abstract method from TaxonomyAgentToolkit"""
+        stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
+        return [
+            {
+                "name": "retrieve_entity_properties",
+                "signature": f"(entity: Literal[{stringified_entities}])",
+                "description": """
+                    Retrieves available property names for a specific entity type (e.g., events, users, groups).
+                    Use when you know the entity type but need to discover what properties are available.
+                    Returns property names, data types, and descriptions.
+
+                    Args:
+                        entity: The entity type (e.g. 'person', 'session', 'event')
+                """,
+            },
+            {
+                "name": "retrieve_entity_property_values",
+                "signature": f"(entity: Literal[{stringified_entities}], property_name: str)",
+                "description": """
+                    Retrieves possible values for a specific property of a given entity type.
+                    Use when you know both the entity type and property name but need to see available values.
+                    Returns a list of actual property values found in the data or a message that values have not been found.
+
+                    Args:
+                        entity: The entity type (e.g. 'person', 'session', 'event')
+                        property_name: Property name to retrieve values for.
+                """,
+            },
+            {
+                "name": "ask_user_for_help",
+                "signature": "(request: str)",
+                "description": """
+                    Use this tool to ask a clarifying question to the user. Your question must be concise and clear.
+
+                    Args:
+                        request: The question you want to ask the user.
+                """,
+            },
+            {
+                "name": "final_answer",
+                "signature": "(result: str, data: dict)",
+                "description": """
+                    Use this tool to finalize the filter options answer.
+                    You MUST use this tool ONLY when you have all the information you need to build the filter.
+
+                    Args:
+                        result: Should be 'filter' for filter responses.
+                        data: Complete filter object as defined in the prompts
+                """,
+            },
+        ]
 
     @cached_property
     def _entity_names(self) -> list[str]:
         """
-        The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
-        so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
-        to create various tools for different group types. Since we don't use function calling here, we want to limit the
-        number of tools because non-function calling models can't handle many tools.
+        Override to include event type and use EntityType enum.
         """
         return EntityType.values() + [group.group_type for group in self._groups]
+
+    def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        """
+        Override parent implementation to use YAML format instead of XML.
+        """
+        return self._generate_properties_yaml(props)
 
     def _generate_properties_yaml(self, children: list[tuple[str, str | None, str | None]]):
         import yaml
@@ -108,150 +171,80 @@ class FilterOptionsToolkit:
         result = {"properties": properties_by_type}
         return yaml.dump(result, default_flow_style=False, sort_keys=True)
 
-    def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
-        enriched_props = []
-        mapping = {
-            "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
-            "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
-            "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
-        }
-        for prop_name, prop_type in props:
-            description = None
-            if entity_definition := mapping.get(entity, {}).get(prop_name):
-                if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
-                    continue
-                description = entity_definition.get("description_llm") or entity_definition.get("description")
-            enriched_props.append((prop_name, prop_type, description))
-        return enriched_props
+    # def retrieve_entity_properties(self, entity: str) -> str:
+    #     """
+    #     Use parent implementation but with custom error messages for better UX.
+    #     """
+    #     if entity not in self._entity_names:
+    #         return f"Entity '{entity}' does not exist. Available entities are: {', '.join(self._entity_names)}. Try one of these other entities."
 
-    def _format_property_values(
-        self, sample_values: list, sample_count: Optional[int] = 0, format_as_string: bool = False
-    ) -> str:
-        if len(sample_values) == 0 or sample_count == 0:
-            return f"The property does not have any values in the taxonomy. Use the value that the user has provided in the query."
+    #     # Use parent implementation
+    #     result = super().retrieve_entity_properties(entity)
 
-        # Add quotes to the String type, so the LLM can easily infer a type.
-        # Strings like "true" or "10" are interpreted as booleans or numbers without quotes, so the schema generation fails.
-        # Remove the floating point the value is an integer.
-        formatted_sample_values: list[str] = []
-        for value in sample_values:
-            if format_as_string:
-                formatted_sample_values.append(f'"{value}"')
-            elif isinstance(value, float) and value.is_integer():
-                formatted_sample_values.append(str(int(value)))
-            else:
-                formatted_sample_values.append(str(value))
-        prop_values = ", ".join(formatted_sample_values)
+    #     # if "does not exist in the taxonomy" in result and entity in result:
+    #     #     if "Group" in result:
+    #     #         return f"Group {entity} does not exist in the taxonomy. Try one of these other groups: {', '.join([group.group_type for group in self._groups])}."
+    #     #     elif "Properties do not exist" in result:
+    #     #         return f"Properties do not exist in the taxonomy for the entity {entity}. Try one of these other entities: {', '.join(self._entity_names)}."
 
-        # If there wasn't an exact match with the user's search, we provide a hint that LLM can use an arbitrary value.
-        if sample_count is None:
-            return f"{prop_values} and many more distinct values."
-        elif sample_count > len(sample_values):
-            diff = sample_count - len(sample_values)
-            return f"{prop_values} and {diff} more distinct value{'' if diff == 1 else 's'}."
+    #     return result
 
-        return prop_values
+    # def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
+    #     """
+    #     Override parent implementation with different logic for session properties and error messages.
+    #     """
 
-    def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-        """
-        Retrieve property values for an entity and property name.
-        """
-        MAX_PROP_VALUES = 50
-        if entity not in self._entity_names:
-            return f"The entity {entity} does not exist in the taxonomy. Try one of these entities: {', '.join(self._entity_names)}."
+    #     if entity not in self._entity_names:
+    #         return f"The entity {entity} does not exist in the taxonomy. Try one of these entities: {', '.join(self._entity_names)}."
 
-        if entity == "person" or entity == "session":
-            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=MAX_PROP_VALUES)
-        else:
-            group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
-            if group_index is None:
-                return f"The entity {entity} does not exist in the taxonomy."
-            query = ActorsPropertyTaxonomyQuery(
-                group_type_index=group_index, property=property_name, maxPropertyValues=MAX_PROP_VALUES
-            )
+    #     if entity == "person" or entity == "session":
+    #         query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=MAX_PROP_VALUES)
+    #     else:
+    #         group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
+    #         if group_index is None:
+    #             return f"The entity {entity} does not exist in the taxonomy."
+    #         query = ActorsPropertyTaxonomyQuery(
+    #             group_type_index=group_index, property=property_name, maxPropertyValues=MAX_PROP_VALUES
+    #         )
 
-        try:
-            if query.group_type_index is not None:
-                prop_type = PropertyDefinition.Type.GROUP
-                group_type_index = query.group_type_index
-            elif entity == "person":
-                prop_type = PropertyDefinition.Type.PERSON
-                group_type_index = None
-            elif entity == "session":
-                prop_type = PropertyDefinition.Type.SESSION
-                group_type_index = None
+    #     try:
+    #         if query.group_type_index is not None:
+    #             prop_type = PropertyDefinition.Type.GROUP
+    #             group_type_index = query.group_type_index
+    #         elif entity == "person":
+    #             prop_type = PropertyDefinition.Type.PERSON
+    #             group_type_index = None
+    #         elif entity == "session":
+    #             prop_type = PropertyDefinition.Type.SESSION
+    #             group_type_index = None
 
-            property_definition = PropertyDefinition.objects.get(
-                team=self._team,
-                name=property_name,
-                type=prop_type,
-                group_type_index=group_type_index,
-            )
-        except PropertyDefinition.DoesNotExist:
-            return f"The property {property_name} does not exist in the taxonomy for the entity {entity}. Try another property that is relevant to the user's question."
+    #         property_definition = PropertyDefinition.objects.get(
+    #             team=self._team,
+    #             name=property_name,
+    #             type=prop_type,
+    #             group_type_index=group_type_index,
+    #         )
+    #     except PropertyDefinition.DoesNotExist:
+    #         return f"The property {property_name} does not exist in the taxonomy for the entity {entity}. Try another property that is relevant to the user's question."
 
-        response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
+    #     response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+    #         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+    #     )
 
-        if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
-            return f"The entity {entity} does not exist in the taxonomy."
+    #     if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
+    #         return f"The entity {entity} does not exist in the taxonomy."
 
-        if not response.results:
-            return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}. Use the value that the user has provided in the query."
+    #     if not response.results:
+    #         return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}. Use the value that the user has provided in the query."
 
-        return self._format_property_values(
-            response.results.sample_values,
-            response.results.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
-        )
-
-    def retrieve_entity_properties(self, entity: str) -> str:
-        """
-        Retrieve properties for an entitiy like person, session, event, or one of the groups.
-        """
-        MAX_PROPERTIES = 500
-        if entity not in self._entity_names:
-            return f"Entity '{entity}' does not exist. Available entities are: {', '.join(self._entity_names)}. Try one of these other entities."
-
-        if entity == "person":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
-                "name", "property_type"
-            )[:MAX_PROPERTIES]
-            props = self._enrich_props_with_descriptions("person", qs)
-        elif entity == "session":
-            props = self._enrich_props_with_descriptions(
-                "session",
-                [
-                    (prop_name, prop["type"])
-                    for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
-                    if prop.get("type") is not None
-                ],
-            )
-        elif entity == "event":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.EVENT).values_list(
-                "name", "property_type"
-            )[:MAX_PROPERTIES]
-            props = self._enrich_props_with_descriptions("event", qs)
-        else:
-            group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == entity), None
-            )
-            if group_type_index is None:
-                return f"Group {entity} does not exist in the taxonomy. Try one of these other groups: {', '.join([group.group_type for group in self._groups])}."
-            qs = PropertyDefinition.objects.filter(
-                team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-            ).values_list("name", "property_type")[:MAX_PROPERTIES]
-            props = self._enrich_props_with_descriptions(entity, qs)
-
-        if not props:
-            return f"Properties do not exist in the taxonomy for the entity {entity}. Try one of these other entities: {', '.join(self._entity_names)}."
-
-        return self._generate_properties_yaml(props)
+    #     return self._format_property_values(
+    #         response.results.sample_values,
+    #         response.results.sample_count,
+    #         format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+    #     )
 
     def handle_incorrect_response(self, response: BaseModel) -> str:
         """
-        No-op tool. Take a parsing error and return a response that the LLM can use to correct itself.
-        Used to control a number of retries.
+        Override parent implementation to handle BaseModel responses.
         """
         return response.model_dump_json()

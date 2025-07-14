@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import cast, Union, Optional
+from typing import cast, Optional
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -25,15 +25,16 @@ from .prompts import (
     EXAMPLES_PROMPT,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
-from pydantic import BaseModel
 from .toolkit import (
-    final_answer,
-    retrieve_entity_property_values,
-    retrieve_entity_properties,
-    ask_user_for_help,
     EntityType,
     FilterOptionsToolkit,
+    FilterOptionsTool,
+    RetrieveEntityPropertiesTool,
+    AskUserForHelpTool,
+    FinalAnswerTool,
 )
+from ee.hogai.graph.taxonomy_agent.toolkit import RetrieveEntityPropertiesValuesTool
+
 from abc import ABC
 import json
 
@@ -46,19 +47,6 @@ from .prompts import (
 from posthog.schema import AssistantToolCallMessage, AssistantMessage
 from uuid import uuid4
 from ee.hogai.llm import MaxChatOpenAI
-
-
-FilterOptionsToolUnion = Union[
-    retrieve_entity_properties,
-    retrieve_entity_property_values,
-    ask_user_for_help,
-    final_answer,
-]
-
-
-class FilterOptionsTool(BaseModel):
-    name: str
-    arguments: FilterOptionsToolUnion
 
 
 class FilterOptionsNode(AssistantNode):
@@ -94,10 +82,10 @@ class FilterOptionsNode(AssistantNode):
             model="gpt-4o", streaming=False, temperature=0.2, user=self._user, team=self._team
         ).bind_tools(
             [
-                retrieve_entity_properties,
-                retrieve_entity_property_values,
-                ask_user_for_help,
-                final_answer,
+                RetrieveEntityPropertiesTool,
+                RetrieveEntityPropertiesValuesTool,
+                AskUserForHelpTool,
+                FinalAnswerTool,
             ],
             tool_choice="required",
             parallel_tool_calls=False,
@@ -216,7 +204,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         tool_progress_messages: list[AssistantMessage] = []
 
         try:
-            input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input})
+            input = FilterOptionsTool.model_validate(action.tool_input).root
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")

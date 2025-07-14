@@ -4,7 +4,11 @@ from collections.abc import Iterable
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
+<<<<<<< HEAD:ee/hogai/graph/query_planner/toolkit.py
 from pydantic import BaseModel, Field, field_validator
+=======
+from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
+>>>>>>> b9cee6ede8 (employ inheritance to reuse some of the codebase):ee/hogai/graph/taxonomy_agent/toolkit.py
 
 from ee.hogai.tool import MaxSupportedQueryKind
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
@@ -181,6 +185,13 @@ class TaxonomyAgentToolkit:
 
         return ET.tostring(root, encoding="unicode")
 
+    def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
+        """
+        Generate the output format for properties. Can be overridden by subclasses.
+        Default implementation uses XML format.
+        """
+        return self._generate_properties_xml(props)
+
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
         enriched_props = []
         mapping = {
@@ -197,17 +208,17 @@ class TaxonomyAgentToolkit:
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 
-    def retrieve_entity_properties(self, entity: str) -> str:
+    def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
+        if entity not in self._entity_names:
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
-            )
+            )[:max_properties]
             props = self._enrich_props_with_descriptions("person", qs)
         elif entity == "session":
             # Session properties are not in the DB.
@@ -227,13 +238,13 @@ class TaxonomyAgentToolkit:
                 return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-            ).values_list("name", "property_type")
+            ).values_list("name", "property_type")[:max_properties]
             props = self._enrich_props_with_descriptions(entity, qs)
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
-        return self._generate_properties_xml(props)
+        return self._generate_properties_output(props)
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
