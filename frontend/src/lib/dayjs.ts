@@ -8,6 +8,7 @@ import quarterOfYear from 'dayjs/plugin/quarterOfYear'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import timezone from 'dayjs/plugin/timezone'
 import utc from 'dayjs/plugin/utc'
+import weekOfYear from 'dayjs/plugin/weekOfYear'
 import updateLocale from 'dayjs/plugin/updateLocale'
 
 // necessary for any localized date formatting to work
@@ -19,6 +20,7 @@ dayjs.extend(utc)
 dayjs.extend(timezone)
 dayjs.extend(duration)
 dayjs.extend(quarterOfYear)
+dayjs.extend(weekOfYear)
 dayjs.extend(updateLocale)
 
 const now = (): Dayjs => dayjs()
