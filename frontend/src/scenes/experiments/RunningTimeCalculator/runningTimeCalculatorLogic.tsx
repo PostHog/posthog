@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -276,6 +276,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        // Initial calculation if we have a valid metric selected and no metric result yet
+        if (values.metric && !values.metricResult && values.metricIndex !== null) {
+            actions.loadMetricResult()
+        }
+    }),
     selectors({
         defaultMetricIndex: [
             (s) => [s.experiment, s.exposureEstimateConfig],
