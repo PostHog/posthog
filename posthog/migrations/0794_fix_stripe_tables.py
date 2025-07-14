@@ -15,7 +15,7 @@ def forwards(apps, schema_editor):
 
     ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("posthog", "ExternalDataSchema")
 
-    for id in stripe_schemas:
+    for (id,) in stripe_schemas:
         schema = ExternalDataSchema.objects.get(id=id)
         schema.sync_type_config["incremental_field"] = "created"
         schema.sync_type_config["incremental_field_type"] = "integer"
