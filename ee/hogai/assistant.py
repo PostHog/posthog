@@ -193,8 +193,8 @@ class Assistant:
                 # Send the last message with the initialized id.
                 yield AssistantEventType.MESSAGE, self._latest_message
 
-            last_ai_message: AssistantMessage = None
-            last_viz_message: VisualizationMessage = None
+            last_ai_message: Optional[AssistantMessage] = None
+            last_viz_message: Optional[VisualizationMessage] = None
             try:
                 async for update in generator:
                     if messages := await self._process_update(update):
