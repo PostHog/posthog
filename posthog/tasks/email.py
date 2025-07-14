@@ -26,8 +26,6 @@ from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
-from django.db.models import Q
-from datetime import timedelta
 
 logger = structlog.get_logger(__name__)
 
@@ -507,55 +505,48 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_hog_functions_digest_email(team_id: int, date_str: str, function_metrics: list[dict]) -> None:
+def send_hog_functions_digest_email(digest_data: dict) -> None:
     """
-    Send HogFunctions digest email to a specific team.
+    Send HogFunctions digest email to a specific team using pre-calculated data.
+    All calculations should be done in tasks.py before calling this function.
     """
     if not is_email_available(with_absolute_urls=True):
         return
-    
+
+    team_id = digest_data["team_id"]
+
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        logger.error(f"Team {team_id} not found for HogFunctions digest email")
+        logger.exception(f"Team {team_id} not found for HogFunctions digest email")
         return
-    
+
     # Get members to email (using plugin_disabled setting as it's similar context)
     memberships_to_email = get_members_to_notify(team, "plugin_disabled")
     if not memberships_to_email:
         return
-    
-    # Calculate totals
-    total_succeeded = sum(f["succeeded"] for f in function_metrics)
-    total_failed = sum(f["failed"] for f in function_metrics)
-    total_filtered = sum(f["filtered"] for f in function_metrics)
-    total_runs = total_succeeded + total_failed
-    
-    # Parse date for display
-    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-    formatted_date = date_obj.strftime("%B %d, %Y")
-    
-    campaign_key = f"hog_functions_daily_digest_{team_id}_{date_str}"
-    
+
+    campaign_key = f"hog_functions_daily_digest_{team_id}_{digest_data['date_str']}"
+
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=f"Daily HogFunctions Digest for {team.name}",
         template_name="hog_functions_daily_digest",
         template_context={
             "team": team,
-            "date": formatted_date,
-            "functions": function_metrics,
-            "total_functions": len(function_metrics),
-            "total_succeeded": total_succeeded,
-            "total_failed": total_failed,
-            "total_filtered": total_filtered,
-            "total_runs": total_runs,
+            "date": digest_data["formatted_date"],
+            "functions": digest_data["functions"],
+            "total_functions": digest_data["total_functions"],
+            "total_succeeded": digest_data["total_succeeded"],
+            "total_failed": digest_data["total_failed"],
+            "total_filtered": digest_data["total_filtered"],
+            "total_runs": digest_data["total_runs"],
             "site_url": settings.SITE_URL,
         },
     )
-    
+
     for membership in memberships_to_email:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
-    
+
     message.send()
-    logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(function_metrics)} functions")
+    logger.info(f"Sent HogFunctions digest email to team {team_id} with {digest_data['total_functions']} functions")
