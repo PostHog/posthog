@@ -243,6 +243,11 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
 
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
+    schema = ExternalDataSchema.objects.get(id=schedule_id)
+    logger = bind_temporal_worker_logger_sync(team_id=schema.team.pk)
+
+    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
     temporal = sync_connect()
     trigger_schedule_buffer_one(temporal, schedule_id)
 

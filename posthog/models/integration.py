@@ -1102,11 +1102,10 @@ class GitHubIntegration:
         return dot_get(self.integration.config, "account.name")
 
     def list_repositories(self, page: int = 1) -> list[dict]:
-        org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
 
         response = requests.get(
-            f"https://api.github.com/orgs/{org}/repos?sort=pushed&order=desc&page={page}",
+            f"https://api.github.com/installation/repositories?page={page}&per_page=100",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
@@ -1114,7 +1113,8 @@ class GitHubIntegration:
             },
         )
 
-        return [repo["name"] for repo in response.json()]
+        repositories = response.json()["repositories"]
+        return [repo["name"] for repo in repositories]
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
