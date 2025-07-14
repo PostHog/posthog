@@ -17,12 +17,17 @@ class InvoiceListWithAllLines:
         total_line_calls = 0
         for invoice in invoices.auto_paging_iter():
             all_lines = []
-            for line in invoice.lines.auto_paging_iter():
-                all_lines.append(line)
+            if invoice.id:
+                line_items = self.client.invoices.line_items.list(invoice=invoice.id, params={"limit": 100})
+                for line in line_items.auto_paging_iter():
+                    all_lines.append(line)
+            else:
+                self.logger.warning(f"Invoice {invoice.id} has no id")
+                continue
 
-            # number of api pages made. Each page is 10
+            # number of api pages made. Each page is 100
             # TODO: figure out how to set the limit of a nested paged item higher (100)
-            total_line_calls += len(all_lines) // 10 + 1
+            total_line_calls += len(all_lines) // 100 + 1
 
             invoice.lines.data = all_lines
             invoice.lines.has_more = False
