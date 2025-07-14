@@ -676,6 +676,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
                             sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
                         logic.actions.loadPinnedRecordings()
+                        logic.unmount()
                     } catch (e) {
                         posthog.captureException(e)
                     }
@@ -710,6 +711,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
                             sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
                         logic.actions.loadPinnedRecordings()
+                        logic.unmount()
                     } catch (e) {
                         posthog.captureException(e)
                     }
@@ -748,6 +750,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: shortId }) ??
                                 sessionRecordingsPlaylistSceneLogic({ shortId: shortId })
                             logic.actions.loadPinnedRecordings()
+                            logic.unmount()
                         } else {
                             actions.loadSessionRecordings()
                         }
