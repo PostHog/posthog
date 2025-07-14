@@ -23,7 +23,7 @@ class InvoiceListWithAllLines:
                 for line in line_items.auto_paging_iter():
                     all_lines.append(line)
             else:
-                self.logger.warning(f"Invoice {invoice.id} has no id")
+                self.logger.warning("Invoice has no id")
                 continue
 
             # number of api pages made. Each page is 100
