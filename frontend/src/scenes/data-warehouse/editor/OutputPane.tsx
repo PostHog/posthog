@@ -416,8 +416,8 @@ export function OutputPane(): JSX.Element {
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white dark:bg-black">
-            <div className="flex flex-row justify-between align-center w-full h-[50px] overflow-y-auto">
-                <div className="flex h-[50px] gap-2 ml-4">
+            <div className="flex flex-row justify-between align-center w-full min-h-[50px] overflow-y-auto">
+                <div className="flex min-h-[50px] gap-2 ml-4">
                     {[
                         {
                             key: OutputTab.Results,
@@ -675,8 +675,6 @@ function InternalDataTableVisualization(
 }
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
@@ -690,11 +688,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 excludeDetail
                 title={error}
                 fixWithAIComponent={
-                    featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] ? (
-                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                    ) : (
-                        <></>
-                    )
+                    <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                 }
             />
         </div>

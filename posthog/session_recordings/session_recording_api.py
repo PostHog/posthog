@@ -24,7 +24,6 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
-from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ValidationError
 from rest_framework import exceptions, request, serializers, viewsets, status
@@ -34,6 +33,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from ee.session_recordings.session_summary.llm.call import get_openai_client
 from ee.session_recordings.session_summary.stream import stream_recording_summary
 import posthog.session_recordings.queries.session_recording_list_from_query
 import posthog.session_recordings.queries.sub_queries.events_subquery
@@ -73,8 +73,9 @@ from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
-
 from ..models.product_intent.product_intent import ProductIntent
+
+USE_BLOB_V2_LTS = "use-blob-v2-lts"
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -108,6 +109,14 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
     labelnames=["blob_version"],
+)
+
+LOADING_V1_LTS_COUNTER = Counter(
+    "session_snapshots_loading_v1_lts_counter", "Count of times we loaded a v1 recording from the lts path"
+)
+
+LOADING_V2_LTS_COUNTER = Counter(
+    "session_snapshots_loading_v2_lts_counter", "Count of times we loaded a v2 recording from the lts path"
 )
 
 logger = structlog.get_logger(__name__)
@@ -708,7 +717,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         source = validated_data.get("source")
         source_log_label = source or "listing"
-        is_v2_enabled = validated_data.get("blob_v2", False)
+
+        is_v2_enabled: bool = validated_data.get("blob_v2", False)
+        user_distinct_id: str = str(cast(User, request.user).distinct_id) if isinstance(request.user, User) else "anon"
+        is_v2_lts_enabled: bool = (
+            posthoganalytics.feature_enabled(
+                USE_BLOB_V2_LTS,
+                user_distinct_id,
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team_id),
+                },
+                group_properties={
+                    "organization": {
+                        "id": str(self.team.organization_id),
+                    },
+                    "project": {
+                        "id": str(self.team_id),
+                    },
+                },
+            )
+            or False
+        )
 
         SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
 
@@ -734,7 +764,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         try:
             response: Response | HttpResponse
             if not source:
-                response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
+                response = self._gather_session_recording_sources(recording, timer, is_v2_enabled, is_v2_lts_enabled)
             elif source == "realtime":
                 with timer("send_realtime_snapshots_to_client"):
                     response = self._send_realtime_snapshots_to_client(recording)
@@ -752,7 +782,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         max_blob_key=validated_data["max_blob_key"],
                     )
                 else:
-                    response = self._gather_session_recording_sources(recording, timer, is_v2_enabled)
+                    response = self._gather_session_recording_sources(
+                        recording, timer, is_v2_enabled, is_v2_lts_enabled
+                    )
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
@@ -825,6 +857,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         recording: SessionRecording,
         timer: ServerTimingsGathered,
         is_v2_enabled: bool = False,
+        is_v2_lts_enabled: bool = False,
     ) -> Response:
         might_have_realtime = True
         newest_timestamp = None
@@ -835,27 +868,40 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         with GATHER_RECORDING_SOURCES_HISTOGRAM.labels(blob_version="v2" if is_v2_enabled else "v1").time():
             if is_v2_enabled:
-                with timer("list_blocks__gather_session_recording_sources"):
-                    blocks = list_blocks(recording)
+                with posthoganalytics.new_context():
+                    posthoganalytics.tag("gather_session_recording_sources_version", "2")
+                    if is_v2_lts_enabled and recording.full_recording_v2_path:
+                        posthoganalytics.tag("recording_location", "recording.full_recording_v2_path")
+                        LOADING_V2_LTS_COUNTER.inc()
+                        try:
+                            blob_prefix = recording.full_recording_v2_path
+                            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                            might_have_realtime = False
+                        except Exception as e:
+                            capture_exception(e)
+                    else:
+                        with timer("list_blocks__gather_session_recording_sources"):
+                            blocks = list_blocks(recording)
 
-                for i, block in enumerate(blocks):
-                    sources.append(
-                        {
-                            "source": "blob_v2",
-                            "start_timestamp": block.start_time,
-                            "end_timestamp": block.end_time,
-                            "blob_key": str(i),
-                        }
-                    )
-
-            with timer("list_objects__gather_session_recording_sources"):
-                if recording.object_storage_path:
-                    blob_prefix = recording.object_storage_path
-                    blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                    might_have_realtime = False
-                else:
-                    blob_prefix = recording.build_blob_ingestion_storage_path()
-                    blob_keys = object_storage.list_objects(blob_prefix)
+                        for i, block in enumerate(blocks):
+                            sources.append(
+                                {
+                                    "source": "blob_v2",
+                                    "start_timestamp": block.start_time,
+                                    "end_timestamp": block.end_time,
+                                    "blob_key": str(i),
+                                }
+                            )
+            else:
+                with timer("list_objects__gather_session_recording_sources"):
+                    if recording.object_storage_path:
+                        LOADING_V1_LTS_COUNTER.inc()
+                        blob_prefix = recording.object_storage_path
+                        blob_keys = object_storage.list_objects(cast(str, blob_prefix))
+                        might_have_realtime = False
+                    else:
+                        blob_prefix = recording.build_blob_ingestion_storage_path()
+                        blob_keys = object_storage.list_objects(blob_prefix)
 
             with timer("prepare_sources__gather_session_recording_sources"):
                 if blob_keys:
@@ -881,7 +927,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                     if might_have_realtime:
                         might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
 
-                if might_have_realtime:
+                if might_have_realtime and not is_v2_enabled:
                     sources.append(
                         {
                             "source": "realtime",
@@ -889,11 +935,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                             "end_timestamp": None,
                         }
                     )
+
                     # the UI will use this to try to load realtime snapshots
                     # so, we can publish the request for Mr. Blobby to start syncing to Redis now
                     # it takes a short while for the subscription to be sync'd into redis
                     # let's use the network round trip time to get started
                     publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
+
                 response_data["sources"] = sources
 
             with timer("serialize_data__gather_session_recording_sources"):
@@ -964,16 +1012,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
-
-        # TODO: Calculate timings for stream, and track summarization events (follow-up)
-        # timings_header = summary.pop("timings_header", None)
-        # cache.set(cache_key, summary, timeout=30)
-        # posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
-        # # let the browser cache for half the time we cache on the server
-        # r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        # if timings_header:
-        #     r.headers["Server-Timing"] = timings_header
-        # return r
 
     def _stream_blob_to_client(
         self, recording: SessionRecording, blob_key: str, if_none_match: str | None
@@ -1134,7 +1172,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             user_content=clean_prompt_whitespace(request.data["regex"]),
         )
 
-        client = _get_openai_client()
+        client = get_openai_client()
 
         completion = client.beta.chat.completions.parse(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
@@ -1354,21 +1392,6 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         pass
 
     return modifiers
-
-
-def _get_openai_client() -> OpenAI:
-    """Get configured OpenAI client or raise appropriate error."""
-    if not settings.DEBUG and not is_cloud():
-        raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
-
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise exceptions.ValidationError("OpenAI API key is not configured")
-
-    client = posthoganalytics.default_client
-    if not client:
-        raise exceptions.ValidationError("PostHog analytics client is not configured")
-
-    return OpenAI(posthog_client=client)
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:

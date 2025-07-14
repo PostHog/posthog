@@ -673,8 +673,8 @@ export class DB {
         return [person, kafkaMessages]
     }
 
-    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<number | undefined> {
-        const result = await this.postgres.query<{ version: string }>(
+    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
+        const { rows } = await this.postgres.query<RawPerson>(
             PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_person SET
@@ -684,7 +684,7 @@ export class DB {
                 is_identified = $4,
                 version = COALESCE(version, 0)::numeric + 1
             WHERE team_id = $5 AND uuid = $6 AND version = $7
-            RETURNING version
+            RETURNING *
             `,
             [
                 JSON.stringify(personUpdate.properties),
@@ -698,11 +698,15 @@ export class DB {
             'updatePersonAssertVersion'
         )
 
-        if (result.rows.length === 0) {
-            return undefined
+        if (rows.length === 0) {
+            return [undefined, []]
         }
 
-        return Number(result.rows[0].version || 0)
+        const updatedPerson = this.toPerson(rows[0])
+
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+        return [updatedPerson.version, [kafkaMessage]]
     }
 
     // Currently in use, but there are various problems with this function
@@ -770,12 +774,25 @@ export class DB {
     }
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
-        const { rows } = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
-            [person.team_id, person.id],
-            'deletePerson'
-        )
+        let rows: { version: string }[] = []
+        try {
+            const result = await this.postgres.query<{ version: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
+                [person.team_id, person.id],
+                'deletePerson'
+            )
+            rows = result.rows
+        } catch (error) {
+            if (error.code === '40P01') {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                    team_id: person.team_id,
+                    person_id: person.id,
+                })
+            }
+            throw error
+        }
 
         let kafkaMessages: TopicMessage[] = []
 
