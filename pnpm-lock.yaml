@@ -515,8 +515,8 @@ importers:
         specifier: ^3.4.7
         version: 3.4.7(react@18.2.0)
       '@medv/finder':
-        specifier: ^3.1.0
-        version: 3.2.0
+        specifier: ^4.0.2
+        version: 4.0.2
       '@microlink/react-json-view':
         specifier: ^1.26.2
         version: 1.26.2(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -1296,6 +1296,9 @@ importers:
       aws-sdk:
         specifier: ^2.927.0
         version: 2.1366.0
+      chance:
+        specifier: ^1.1.13
+        version: 1.1.13
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -4464,8 +4467,8 @@ packages:
     peerDependencies:
       react: '>=16'
 
-  '@medv/finder@3.2.0':
-    resolution: {integrity: sha512-JmU7JIBwyL8RAzefvzALT4sP2M0biGk8i2invAgpQmma/QgfsaqoHIvJ7S0YC8n9hUVG8X3Leul2nGa06PvhbQ==}
+  '@medv/finder@4.0.2':
+    resolution: {integrity: sha512-RraNY9SCcx4KZV0Dh6BEW6XEW2swkqYca74pkFFRw6hHItSHiy+O/xMnpbofjYbzXj0tSpBGthUF1hHTsr3vIQ==}
 
   '@microlink/react-json-view@1.26.2':
     resolution: {integrity: sha512-NamaHDT21njvbg2RZQq+rnu+owlPyj5lnUdVH5ZtChfTX+75QD2EGnccB1gs0De42jdPj77UQHYLr7d4J46IYA==}
@@ -20401,7 +20404,7 @@ snapshots:
       '@types/react': 17.0.52
       react: 18.2.0
 
-  '@medv/finder@3.2.0': {}
+  '@medv/finder@4.0.2': {}
 
   '@microlink/react-json-view@1.26.2(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
