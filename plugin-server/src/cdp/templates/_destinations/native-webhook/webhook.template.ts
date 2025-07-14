@@ -42,6 +42,7 @@ export const template: NativeTemplate = {
                     secret: false,
                     required: true,
                     description: 'The URL to send the request to.',
+                    format: 'uri',
                 },
                 {
                     key: 'method',
