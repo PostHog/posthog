@@ -257,7 +257,7 @@ class Assistant:
                         yield AssistantEventType.MESSAGE, FailureMessage()
             finally:
                 await self._report_conversation_state(
-                    last_assistant_message=last_ai_message, last_viz_message=last_viz_message
+                    last_assistant_message=last_ai_message, last_visualization_message=last_viz_message
                 )
 
     @property
