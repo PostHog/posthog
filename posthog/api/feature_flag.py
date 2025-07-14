@@ -255,7 +255,7 @@ class FeatureFlagSerializer(
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
-            return self.instance.filters
+            return self.instance.filters  # type: ignore[union-attr]
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -285,9 +285,9 @@ class FeatureFlagSerializer(
                 # Get the current flag key
                 current_key = None
                 if self.instance:
-                    current_key = self.instance.key
+                    current_key = str(self.instance.key)  # type: ignore[union-attr]
                 elif "key" in self.initial_data:
-                    current_key = self.initial_data["key"]
+                    current_key = str(self.initial_data["key"])
 
                 if current_key:
                     self._check_flag_circular_dependencies(filters, current_key)
@@ -333,8 +333,10 @@ class FeatureFlagSerializer(
 
                 if prop.type == "cohort":
                     try:
+                        # For cohorts, value should be a single ID
+                        cohort_id = prop.value if not isinstance(prop.value, list) else prop.value[0]
                         initial_cohort: Cohort = Cohort.objects.get(
-                            pk=prop.value, team__project_id=self.context["project_id"]
+                            pk=cohort_id, team__project_id=self.context["project_id"]
                         )
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
@@ -436,7 +438,7 @@ class FeatureFlagSerializer(
         # Get the current flag's ID
         current_flag_id = None
         if self.instance:
-            current_flag_id = str(self.instance.id)
+            current_flag_id = str(self.instance.id)  # type: ignore[union-attr]
         else:
             # For new flags, we don't have an ID yet, so we'll use the key
             # and convert dependent flags to use keys for comparison
@@ -1064,7 +1066,8 @@ class FeatureFlagViewSet(
             return Response([])
 
         groups = json.loads(request.GET.get("groups", "{}"))
-        matches, *_ = get_all_feature_flags(self.team, request.user.distinct_id, groups)
+        distinct_id = request.user.distinct_id or ""
+        matches, *_ = get_all_feature_flags(self.team, distinct_id, groups)
 
         all_serialized_flags = MinimalFeatureFlagSerializer(
             feature_flags, many=True, context=self.get_serializer_context()
