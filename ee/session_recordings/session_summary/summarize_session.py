@@ -23,7 +23,7 @@ class ExtraSummaryContext:
 
 
 @dataclass(frozen=True)
-class _SessionSummaryDBData:
+class SessionSummaryDBData:
     session_metadata: RecordingMetadata
     session_events_columns: list[str] | None
     session_events: list[tuple[str | datetime.datetime | list[str] | None, ...]] | None
@@ -76,7 +76,7 @@ class SingleSessionSummaryLlmInputs:
     session_duration: int
 
 
-async def get_session_data_from_db(session_id: str, team_id: int, local_reads_prod: bool) -> _SessionSummaryDBData:
+async def get_session_data_from_db(session_id: str, team_id: int, local_reads_prod: bool) -> SessionSummaryDBData:
     session_metadata = await database_sync_to_async(get_session_metadata)(
         session_id=session_id,
         team_id=team_id,
@@ -93,7 +93,7 @@ async def get_session_data_from_db(session_id: str, team_id: int, local_reads_pr
         raw_error_message = str(e)
         if "No events found for session_id" in raw_error_message:
             # Stop processing early (as no events found) and return meaningful error message down the line
-            return _SessionSummaryDBData(
+            return SessionSummaryDBData(
                 session_metadata=session_metadata,
                 session_events_columns=None,
                 session_events=None,
@@ -112,7 +112,7 @@ async def get_session_data_from_db(session_id: str, team_id: int, local_reads_pr
     # TODO Get feature flag data to understand what version of the app the user was using
     # and how different features enabled/disabled affect the session
 
-    return _SessionSummaryDBData(
+    return SessionSummaryDBData(
         session_metadata=session_metadata,
         session_events_columns=session_events_columns,
         session_events=session_events,
@@ -186,15 +186,11 @@ async def prepare_data_for_single_session_summary(
     session_id: str,
     user_id: int,
     team_id: int,
+    session_db_data: SessionSummaryDBData,
     extra_summary_context: ExtraSummaryContext | None,
     local_reads_prod: bool = False,
 ) -> SingleSessionSummaryData:
-    db_data = await get_session_data_from_db(
-        session_id=session_id,
-        team_id=team_id,
-        local_reads_prod=local_reads_prod,
-    )
-    if not db_data.session_events or not db_data.session_events_columns:
+    if not session_db_data.session_events or not session_db_data.session_events_columns:
         # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
         return SingleSessionSummaryData(
             session_id=session_id,
@@ -206,9 +202,9 @@ async def prepare_data_for_single_session_summary(
     prompt_data = prepare_prompt_data(
         session_id=session_id,
         # Convert to a dict, so that we can amend its values freely
-        session_metadata=dict(db_data.session_metadata),  # type: ignore[arg-type]
-        session_events_columns=db_data.session_events_columns,
-        session_events=db_data.session_events,
+        session_metadata=dict(session_db_data.session_metadata),  # type: ignore[arg-type]
+        session_events_columns=session_db_data.session_events_columns,
+        session_events=session_db_data.session_events,
     )
     prompt = generate_single_session_summary_prompt(
         prompt_data=prompt_data.prompt_data,
@@ -217,10 +213,6 @@ async def prepare_data_for_single_session_summary(
         extra_summary_context=extra_summary_context,
     )
     return SingleSessionSummaryData(session_id=session_id, user_id=user_id, prompt_data=prompt_data, prompt=prompt)
-
-    # TODO: Track the timing for streaming (inside the function, start before the request, end after the last chunk is consumed)
-    # with timer("openai_completion"):
-    # return {"content": session_summary.data, "timings_header": timer.to_header_string()}
 
 
 def prepare_single_session_summary_input(
