@@ -281,7 +281,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
     def _created_before_or_on_expr(self, offset: int = 0) -> ast.Expr:
-        period_start = ast.Field(chain=["period_start"])
+        period_start: ast.Expr = ast.Field(chain=["period_start"])
 
         if offset != 0:
             period_start = ast.Call(
@@ -315,7 +315,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
         )
 
     def _ended_after_or_on_expr(self, offset: int = 0) -> ast.Expr:
-        period_start = ast.Field(chain=["period_start"])
+        period_start: ast.Expr = ast.Field(chain=["period_start"])
 
         if offset != 0:
             period_start = ast.Call(
