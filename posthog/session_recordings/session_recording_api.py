@@ -74,6 +74,8 @@ from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from ..models.product_intent.product_intent import ProductIntent
+from posthog.models.activity_logging.activity_log import log_activity, Detail
+from loginas.utils import is_impersonated_session
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
 
@@ -710,20 +712,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         deleted_count = len(created_records) + updated_count
 
-        # Report user action with count
-        report_user_action(
-            user=cast(User, request.user),
-            event="session recordings bulk deleted",
-            properties={"count": deleted_count, "total_requested": len(session_recording_ids)},
-            team=self.team,
-        )
-
         logger.info(
             "bulk_recordings_deleted",
             team_id=self.team.id,
             deleted_count=deleted_count,
             total_requested=len(session_recording_ids),
         )
+
+        # Single activity log entry for the bulk operation
+        if deleted_count > 0:
+            log_activity(
+                organization_id=cast(User, request.user).current_organization_id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=None,  # No single item for bulk operation
+                scope="Replay",
+                activity="bulk_deleted",
+                detail=Detail(
+                    name=f"Bulk deletion of {deleted_count} session recordings",
+                    changes=None,
+                ),
+            )
 
         return Response(
             {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
