@@ -14,6 +14,8 @@ from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
+from dagster_graphql import DagsterGraphQLClient
+from posthog.settings import DAGSTER_UI_HOST, DAGSTER_UI_PORT
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
 
@@ -153,7 +155,10 @@ class Command(BaseCommand):
                     )
                 )
             print("Materializing common columns...")
-            self.materialize_common_columns()
+            self.materialize_common_columns(options["days_past"])
+
+            print("Running dagster materializations...")
+            self.initialize_dagster_materialization(options["days_past"])
         else:
             print("Dry run - not saving results.")
 
@@ -205,7 +210,7 @@ class Command(BaseCommand):
         )
         print("\n".join(summary_lines))
 
-    def materialize_common_columns(self) -> None:
+    def materialize_common_columns(self, backfill_days: int) -> None:
         event_properties = {
             *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
             "$prev_pageview_pathname",
@@ -213,20 +218,32 @@ class Command(BaseCommand):
             "$prev_pageview_max_scroll_percentage",
             "$screen_name",
             "$lib",
+            "$lib_version",
             "$geoip_country_code",
             "$geoip_subdivision_1_code",
             "$geoip_subdivision_1_name",
             "$geoip_city_name",
             "$browser_language",
             "$timezone_offset",
+            "$host",
             "$exception_issue_id",
             "$exception_types",
             "$exception_values",
             "$exception_sources",
             "$exception_functions",
+            "$exception_fingerprint",
         }
 
-        person_properties = {*PERSON_PROPERTIES_ADAPTED_FROM_EVENT, "email"}
+        person_properties = {
+            *PERSON_PROPERTIES_ADAPTED_FROM_EVENT,
+            "email",
+            "Email",
+            "name",
+            "Name",
+            "username",
+            "Username",
+            "UserName",
+        }
         for prop in person_properties.copy():
             if prop.startswith("$initial_"):
                 continue
@@ -241,7 +258,7 @@ class Command(BaseCommand):
                 )
                 for prop in sorted(event_properties)
             ],
-            backfill_period_days=365,
+            backfill_period_days=backfill_days,
         )
         materialize_properties_task(
             properties_to_materialize=[
@@ -252,7 +269,7 @@ class Command(BaseCommand):
                 )
                 for prop in sorted(person_properties)
             ],
-            backfill_period_days=365,
+            backfill_period_days=backfill_days,
         )
         materialize_properties_task(
             properties_to_materialize=[
@@ -263,5 +280,86 @@ class Command(BaseCommand):
                 )
                 for prop in sorted(person_properties)
             ],
-            backfill_period_days=365,
+            backfill_period_days=backfill_days,
         )
+
+    def initialize_dagster_materialization(self, backfill_days: int):
+        # Use GraphQL to connect to dagster development server.
+        # I tried some other approaches, i.e. CLI and python client, but these were both extremely slow and spun
+        # up a new instance of the Dagster code server for each request, which is not what we want. This API returns
+        # immediately and is non-blocking.
+        client = DagsterGraphQLClient(DAGSTER_UI_HOST, port_number=DAGSTER_UI_PORT)
+
+        # Launch the hourly job (non-partitioned)
+        client.submit_job_execution(
+            job_name="web_pre_aggregate_current_day_hourly_job",
+            repository_location_name="dags.locations.web_analytics",
+            repository_name="__repository__",
+        )
+
+        # Submit partitioned runs for daily jobs.
+        # DagsterGraphQLClient doesn't provide a nice way to do this, so we have to use the raw GraphQL mutation.
+        end_date = dt.datetime.now()
+        partition_list = [
+            (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
+        ]
+
+        daily_asset_names = ["web_analytics_stats_table_daily", "web_analytics_bounces_daily"]
+        result = client._execute(
+            self.backfill_mutation_gql(),
+            {
+                "backfillParams": {
+                    "tags": [{"key": "generate_demo_data", "value": "true"}],
+                    "assetSelection": [{"path": [asset_name]} for asset_name in daily_asset_names],
+                    "partitionNames": partition_list,
+                    "fromFailure": False,
+                }
+            },
+        )
+
+        backfill_result = result["launchPartitionBackfill"]
+        if backfill_result["__typename"] != "LaunchBackfillSuccess":
+            raise Exception(backfill_result)
+
+    def backfill_mutation_gql(self):
+        # this comes straight out of the network tab, sadly not supported by the client SDK
+        return """
+            mutation LaunchPartitionBackfill($backfillParams: LaunchBackfillParams!) {
+                launchPartitionBackfill(backfillParams: $backfillParams) {
+                    ... on LaunchBackfillSuccess {
+                        backfillId
+                        __typename
+                    }
+                    ... on PartitionSetNotFoundError {
+                        message
+                        __typename
+                    }
+                    ... on PartitionKeysNotFoundError {
+                        message
+                        __typename
+                    }
+                    ...PythonErrorFragment
+                    __typename
+                }
+            }
+
+            fragment PythonErrorFragment on PythonError {
+                message
+                stack
+                errorChain {
+                    ...PythonErrorChain
+                    __typename
+                }
+                __typename
+            }
+
+            fragment PythonErrorChain on ErrorChainLink {
+                isExplicitLink
+                error {
+                    message
+                    stack
+                    __typename
+                }
+                __typename
+            }
+    """
