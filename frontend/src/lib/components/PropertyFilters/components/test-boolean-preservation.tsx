@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { PropertyValue } from './PropertyValue'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -20,13 +20,13 @@ export function TestBooleanPreservation(): JSX.Element {
                 type={PropertyFilterType.FlagDependency}
                 operator={PropertyOperator.Exact}
                 value={value}
-                onSet={(newValue) => {
+                onSet={(newValue: any) => {
                     setValue(newValue)
                 }}
                 endpoint="test"
                 eventNames={[]}
                 addRelativeDateTimeOptions={false}
-                groupTypeIndex={null}
+                groupTypeIndex={undefined}
                 editable={true}
                 preloadValues={false}
             />

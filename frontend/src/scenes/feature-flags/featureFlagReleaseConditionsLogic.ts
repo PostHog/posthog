@@ -238,9 +238,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setFilters: async () => {
             // Extract all flag IDs using flatMap
             const flagIds =
-                values.appropriateGroups?.flatMap(
-                    (group) =>
-                        group.properties?.flatMap((property) =>
+                values.filterGroups?.flatMap(
+                    (group: FeatureFlagGroupType) =>
+                        group.properties?.flatMap((property: AnyPropertyFilter) =>
                             property.type === PropertyFilterType.FlagDependency && property.key ? [property.key] : []
                         ) || []
                 ) || []
@@ -262,9 +262,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
                 // Extract all flag IDs using flatMap
                 const flagIds =
-                    values.appropriateGroups?.flatMap(
-                        (group) =>
-                            group.properties?.flatMap((property) =>
+                    values.filterGroups?.flatMap(
+                        (group: FeatureFlagGroupType) =>
+                            group.properties?.flatMap((property: AnyPropertyFilter) =>
                                 property.type === PropertyFilterType.FlagDependency && property.key
                                     ? [property.key]
                                     : []
@@ -272,7 +272,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     ) || []
 
                 // Add any new flag IDs from the updated properties
-                const newFlagIds = newProperties.flatMap((property) =>
+                const newFlagIds = newProperties.flatMap((property: AnyPropertyFilter) =>
                     property.type === PropertyFilterType.FlagDependency && property.key ? [property.key] : []
                 )
 
@@ -530,8 +530,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             // Extract all flag IDs using flatMap
             const flagIds =
                 values.filterGroups?.flatMap(
-                    (group) =>
-                        group.properties?.flatMap((property) =>
+                    (group: FeatureFlagGroupType) =>
+                        group.properties?.flatMap((property: AnyPropertyFilter) =>
                             property.type === PropertyFilterType.FlagDependency && property.key ? [property.key] : []
                         ) || []
                 ) || []
