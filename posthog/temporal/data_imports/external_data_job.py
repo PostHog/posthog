@@ -80,6 +80,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "Name or service not known",
         "Network is unreachable Is the server running on that host and accepting TCP/IP connections",
         "InsufficientPrivilege",
+        "Unable to connect to the database. Please check your connection details and network access",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: [
@@ -101,6 +102,9 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
     ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
     ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
     ExternalDataSource.Type.GOOGLEADS: ["PERMISSION_DENIED"],
+    ExternalDataSource.Type.METAADS: [
+        "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
+    ],
 }
 
 
@@ -190,8 +194,8 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         schema = ExternalDataSchema.objects.get(pk=inputs.schema_id)
 
         # Debug logging
-        logger.info(f"Enhancing error for source_type={source.source_type}, schema_name={schema.name}")
-        logger.info(f"Raw error: {inputs.latest_error or inputs.internal_error}")
+        logger.debug(f"Enhancing error for source_type={source.source_type}, schema_name={schema.name}")
+        logger.debug(f"Raw error: {inputs.latest_error or inputs.internal_error}")
 
         enhanced_latest_error = enhance_source_error(
             source_type=source.source_type,
@@ -199,7 +203,7 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
             raw_error=inputs.latest_error or inputs.internal_error,
         )
 
-        logger.info(f"Enhanced error: {enhanced_latest_error}")
+        logger.debug(f"Enhanced error: {enhanced_latest_error}")
 
     except Exception:
         enhanced_latest_error = inputs.latest_error
@@ -239,6 +243,11 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
 
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
+    schema = ExternalDataSchema.objects.get(id=schedule_id)
+    logger = bind_temporal_worker_logger_sync(team_id=schema.team.pk)
+
+    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
     temporal = sync_connect()
     trigger_schedule_buffer_one(temporal, schedule_id)
 
@@ -326,7 +335,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             timeout_params = (
                 {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=3)}
                 if incremental
-                else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                else {"start_to_close_timeout": dt.timedelta(hours=24), "retry_policy": RetryPolicy(maximum_attempts=1)}
             )
 
             await workflow.execute_activity(

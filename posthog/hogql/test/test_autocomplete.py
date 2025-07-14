@@ -1,4 +1,5 @@
 from typing import Optional
+from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.database.models import StringDatabaseField
@@ -331,6 +332,27 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion is not None
         assert suggestion.label == "created_at"
         assert suggestion.insertText == "created_at"
+
+    def test_autocomplete_resolve_expression_type(self):
+        database = create_hogql_database(team=self.team)
+
+        database.events.fields["expr_field"] = ast.ExpressionField(
+            name="expr_field",
+            isolate_scope=True,
+            expr=ast.Call(name="toDateTime", args=[ast.Constant(value="2025-01-01")]),
+        )
+
+        query = "select  from events"
+        results = self._select(query=query, start=7, end=7, database=database)
+
+        suggestions = list(filter(lambda x: x.label == "expr_field", results.suggestions))
+        assert len(suggestions) == 1
+
+        suggestion = suggestions[0]
+        assert suggestion is not None
+        assert suggestion.label == "expr_field"
+        assert suggestion.insertText == "expr_field"
+        assert suggestion.detail == "DateTime"
 
     def test_autocomplete_template_strings(self):
         database = create_hogql_database(team=self.team)
