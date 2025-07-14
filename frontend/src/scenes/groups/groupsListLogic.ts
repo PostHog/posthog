@@ -16,6 +16,10 @@ export interface GroupsListLogicProps {
 }
 
 const INITIAL_GROUPS_FILTER = [] as GroupPropertyFilter[]
+const persistConfig = (groupTypeIndex: GroupTypeIndex): { persist: boolean; prefix: string } => ({
+    persist: true,
+    prefix: `${window.POSTHOG_APP_CONTEXT?.current_team?.id}__group_${groupTypeIndex}__`,
+})
 
 export const groupsListLogic = kea<groupsListLogicType>([
     props({} as GroupsListLogicProps),
@@ -36,48 +40,43 @@ export const groupsListLogic = kea<groupsListLogicType>([
         setQueryWasModified: (queryWasModified: boolean) => ({ queryWasModified }),
         setGroupFilters: (filters: GroupPropertyFilter[]) => ({ filters }),
     })),
-    reducers(({ props }) => {
-        const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-        const persistConfig = { persist: true, prefix: `${teamId}__group_${props.groupTypeIndex}__` }
-
-        return {
-            query: [
-                (_: any, props: GroupsListLogicProps) =>
-                    ({
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.GroupsQuery,
-                            select: undefined,
-                            group_type_index: props.groupTypeIndex,
-                        },
-                        full: true,
-                        showEventFilter: false,
-                        showPersistentColumnConfigurator: true,
-                        propertiesViaUrl: true,
-                    } as DataTableNode),
-                { setQuery: (_, { query }) => query },
-            ],
-            groupFilters: [
-                INITIAL_GROUPS_FILTER,
-                persistConfig,
-                {
-                    setGroupFilters: (_, { filters }) => filters,
-                    setQuery: (state, { query }) => {
-                        if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
-                            return query.source.properties
-                        }
-                        return state
+    reducers(({ props }) => ({
+        query: [
+            (_: any, props: GroupsListLogicProps) =>
+                ({
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.GroupsQuery,
+                        select: undefined,
+                        group_type_index: props.groupTypeIndex,
                     },
+                    full: true,
+                    showEventFilter: false,
+                    showPersistentColumnConfigurator: true,
+                    propertiesViaUrl: true,
+                } as DataTableNode),
+            { setQuery: (_, { query }) => query },
+        ],
+        groupFilters: [
+            INITIAL_GROUPS_FILTER,
+            persistConfig(props.groupTypeIndex),
+            {
+                setGroupFilters: (_, { filters }) => filters,
+                setQuery: (state, { query }) => {
+                    if (query.source.kind === NodeKind.GroupsQuery && query.source.properties) {
+                        return query.source.properties as GroupPropertyFilter[]
+                    }
+                    return state
                 },
-            ],
-            queryWasModified: [
-                false,
-                {
-                    setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
-                },
-            ],
-        }
-    }),
+            },
+        ],
+        queryWasModified: [
+            false,
+            {
+                setQueryWasModified: (_, { queryWasModified }) => queryWasModified,
+            },
+        ],
+    })),
     listeners(({ actions }) => ({
         setQuery: () => {
             actions.setQueryWasModified(true)
@@ -86,7 +85,7 @@ export const groupsListLogic = kea<groupsListLogicType>([
     actionToUrl(({ values, props }) => ({
         setQuery: () => {
             if (router.values.location.pathname.includes(`/groups/${props.groupTypeIndex}`)) {
-                const searchParams: Record<string, any> = {}
+                const searchParams: Record<string, string> = {}
 
                 if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.properties?.length) {
                     searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.properties)
@@ -142,9 +141,10 @@ export const groupsListLogic = kea<groupsListLogicType>([
 
         const shouldRestoreFiltersFromLocalStorage =
             values.query.source.kind === NodeKind.GroupsQuery &&
-            !values.query.source.properties?.length &&
+            !values.query.source?.properties?.length &&
             values.groupFilters?.length
-        if (shouldRestoreFiltersFromLocalStorage) {
+        // node kind check is repeated because otherwise the type checking fails
+        if (shouldRestoreFiltersFromLocalStorage && values.query.source.kind === NodeKind.GroupsQuery) {
             actions.setQuery({
                 ...values.query,
                 source: {
