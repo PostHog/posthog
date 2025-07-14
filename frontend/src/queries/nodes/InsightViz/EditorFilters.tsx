@@ -2,7 +2,8 @@ import { IconInfo, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef, useEffect } from 'react'
+import {} from 'react'
+
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -82,17 +83,28 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     } = useValues(insightVizDataLogic(insightProps))
 
     const { setSuggestedInsight, onRejectSuggestedInsight } = useActions(insightSceneLogic)
-    const { suggestedInsight, previousQuery } = useValues(insightSceneLogic)
+    const { previousQuery } = useValues(insightSceneLogic)
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
-    const hasScrolled = useRef(false)
+    // const storePreviousQuery = (query: any) => {
+    //     console.log('🔄 storePreviousQuery called with:', query)
+    //     console.log('🔄 current previousQuery state:', previousQuery)
+    //     _storePreviousQuery(query)
+    //     console.log('🔄 storePreviousQuery completed')
+    // }
+    // const hasScrolled = useRef(false)
 
     // Reset scroll flag when banner disappears
-    useEffect(() => {
-        if (!suggestedInsight || !previousQuery) {
-            hasScrolled.current = false
-        }
-    }, [suggestedInsight, previousQuery])
+    // useEffect(() => {
+    //     console.log('🔄 EditorFilters useEffect triggered', {
+    //         suggestedInsight: !!suggestedInsight,
+    //         previousQuery: !!previousQuery
+    //     })
+    //     if (!suggestedInsight || !previousQuery) {
+    //         hasScrolled.current = false
+    //     }
+    // }, [suggestedInsight, previousQuery])
 
     if (!querySource) {
         return null
@@ -404,7 +416,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <>
-                <div className="relative">
+                <div>
                     <MaxTool
                         name="create_and_query_insight"
                         displayName="Edit insight"
@@ -425,10 +437,14 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                     kind: NodeKind.DataVisualizationNode,
                                     source,
                                 } satisfies DataVisualizationNode
+
                                 setSuggestedInsight(node)
+                                setQuery(node)
                             } else {
                                 const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+
                                 setSuggestedInsight(node)
+                                setQuery(node)
                             }
                         }}
                         initialMaxPrompt="Show me users who "
@@ -453,34 +469,87 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                     </div>
                                 ))}
                             </div>
-
-                            {suggestedInsight && previousQuery && (
-                                <div className="flex justify-end">
-                                    <div
-                                        className="inline-block bg-white border border-gray-300 rounded-md"
-                                        // style={{ clipPath: 'polygon(0% 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%)' }}
-                                        ref={(el) => {
-                                            if (el && !hasScrolled.current) {
-                                                el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                                hasScrolled.current = true
-                                            }
-                                        }}
-                                    >
-                                        <LemonButton
-                                            status="danger"
-                                            onClick={() => onRejectSuggestedInsight()}
-                                            tooltipPlacement="top"
-                                            size="small"
-                                            icon={<IconX />}
-                                            className="!bg-transparent border-0"
-                                        >
-                                            Reject Max's changes
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </MaxTool>
+
+                    {/* {query && previousQuery && (
+                        <div className="flex flex-col items-end gap-2">
+                            <div className="text-xs text-muted bg-surface-secondary px-2 py-1 rounded border">
+                                <span className="font-semibold">Max changed:</span>{' '}
+                                {(() => {
+                                    // Count differences between objects
+                                    const countDifferences = (obj1: any, obj2: any, only_count = ["breakdownFilter", "series",]): number => {
+                                        console.log('--------------------------------')
+                                        console.log(suggestedInsight)
+                                        console.log(previousQuery)
+                                        console.log('--------------------------------')
+                                        let count = 0
+                                        const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
+
+                                        for (const key of keys) {
+                                            const val1 = obj1?.[key]
+                                            const val2 = obj2?.[key]
+                                            if (val1 !== val2) {
+                                                // if (typeof val1 === 'object' && typeof val2 === 'object' && val1 && val2) {
+                                                //     count += countDifferences(val1, val2)
+                                                // } else {
+                                                //     count += 1
+                                                // }
+                                                count += 1
+                                            }
+                                        }
+                                        return count
+                                    }
+
+                                    const diffCount = countDifferences(suggestedInsight.source, previousQuery.source)
+                                    return `${diffCount} ${diffCount === 1 ? 'parameter' : 'parameters'}`
+                                })()}
+                            </div>
+                            <div
+                                className="inline-block bg-white border border-gray-300 rounded-md"
+                                // style={{ clipPath: 'polygon(0% 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%)' }}
+                                ref={(el) => {
+                                    if (el && !hasScrolled.current) {
+                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                        hasScrolled.current = true
+                                    }
+                                }}
+                            >
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => onRejectSuggestedInsight()}
+                                    tooltipPlacement="top"
+                                    size="small"
+                                    icon={<IconX />}
+                                    className="!bg-transparent border-0"
+                                >
+                                    Reject Max's changes
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )} */}
+
+                    {previousQuery && (
+                        <div className="w-full px-2 ">
+                            <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
+                                <div className="text-sm text-muted flex items-center gap-2 no-wrap">
+                                    <span className="size-2 bg-accent-active rounded-full" />3 changes from Max
+                                </div>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        onRejectSuggestedInsight()
+                                        // storePreviousQuery(null)
+                                    }}
+                                    tooltipPlacement="top"
+                                    size="small"
+                                    icon={<IconX />}
+                                >
+                                    Reject changes
+                                </LemonButton>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {shouldShowSessionAnalysisWarning ? (

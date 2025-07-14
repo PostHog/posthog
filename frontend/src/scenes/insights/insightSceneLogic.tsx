@@ -52,7 +52,7 @@ export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean 
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
-    connect(() => ({
+    connect((): any => ({
         logic: [eventUsageLogic],
         values: [
             teamLogic,
@@ -177,12 +177,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
-        suggestedInsight: [
-            null as Node | null,
-            {
-                setSuggestedInsight: (_, { suggestedInsight }) => suggestedInsight,
-            },
-        ],
+        // suggestedInsight: [
+        //     null as Node | null,
+        //     {
+        //         setSuggestedInsight: (_, { suggestedInsight }) => suggestedInsight,
+        //     },
+        // ],
         previousQuery: [
             null as Node | null,
             {
@@ -327,19 +327,52 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             )
         },
         onRejectSuggestedInsight: () => {
-            // Revert to previous query when rejecting suggestion
-            if (values.previousQuery && values.insightDataLogicRef?.logic) {
-                values.insightDataLogicRef.logic.actions.setQuery(values.previousQuery)
+            // Revert to previous query
+            if (values.previousQuery) {
+                // actions.upgradeQuery(values.previousQuery)
+                values.insightDataLogicRef?.logic.actions.setQuery(values.previousQuery)
+                actions.storePreviousQuery(null)
             }
-            actions.setSuggestedInsight(null)
-            actions.storePreviousQuery(null)
+
+            // Send message to Max about the revert
+            // const maxLogicInstance = maxLogic.findMounted()
+            // if (maxLogicInstance?.values.conversationId) {
+            //     console.log("Sending message to Max about the revert")
+            //     console.log('🔄 conversationId', maxLogicInstance.values.conversationId)
+            //     console.log('🔄 threadLogicKey', maxLogicInstance.values.threadLogicKey)
+
+            //     // Build and mount thread logic to send the message
+            //     const threadLogic = maxThreadLogic.build({
+            //         conversationId: maxLogicInstance.values.threadLogicKey,
+            //         conversation: null
+            //     })
+            //     const unmount = threadLogic.mount()
+
+            //     console.log('sending message to max')
+            //     threadLogic.actions.addMessage({
+            //         type: AssistantMessageType.Human,
+            //         content: "I rejected your changes and reverted to the previous query. Conside that when you generate a new query.",
+            //         status: 'completed',
+            //         id: uuid(),
+            //     })
+
+            //     // Unmount after sending the message
+            //     unmount()
+            // }
+
+            // Note: previousQuery will be cleared naturally when next suggestion comes in
         },
 
         setSuggestedInsight: ({ suggestedInsight }) => {
             if (suggestedInsight && values.insightDataLogicRef?.logic) {
-                const currentQuery = values.insightDataLogicRef.logic.values.query
+                const currentQuery = values.insightDataLogicRef?.logic.values.query
+                // Only apply suggestion if it's actually different from current query
+                // if (!objectsEqual(suggestedInsight, currentQuery)) {
+
+                //     actions.upgradeQuery(suggestedInsight)
+                // }
+
                 actions.storePreviousQuery(currentQuery)
-                values.insightDataLogicRef.logic.actions.setQuery(suggestedInsight)
             }
         },
     })),
