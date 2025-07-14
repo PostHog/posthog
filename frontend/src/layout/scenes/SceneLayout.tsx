@@ -20,14 +20,14 @@ type SceneLayoutProps = {
 
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
     const { scenePanelElement } = useValues(sceneLayoutLogic)
-    const { setScenePanelActive } = useActions(sceneLayoutLogic)
+    const { setScenePanelIsPresent } = useActions(sceneLayoutLogic)
     // HACKY: Show the panel only if this element in in the DOM
     useEffect(() => {
-        setScenePanelActive(true)
+        setScenePanelIsPresent(true)
         return () => {
-            setScenePanelActive(false)
+            setScenePanelIsPresent(false)
         }
-    }, [setScenePanelActive])
+    }, [setScenePanelIsPresent])
 
     return (
         <>
@@ -68,7 +68,7 @@ export function ScenePanelActions({ children }: { children: React.ReactNode }): 
 
 export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setScenePanelIsOverlay } = useActions(sceneLayoutLogic)
-    const { scenePanelActive, scenePanelIsOverlay, scenePanelOpen } = useValues(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelIsOverlay, scenePanelOpen } = useValues(sceneLayoutLogic)
     const sceneLayoutContainer = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -107,12 +107,12 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
                     // Ensure the grid only exists when the panel is active and not overlayed
-                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] ': scenePanelActive && !scenePanelIsOverlay,
+                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] ': scenePanelIsPresent && !scenePanelIsOverlay,
                 })}
             >
                 {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
 
-                {scenePanelActive && (
+                {scenePanelIsPresent && (
                     <>
                         <div
                             className={cn(

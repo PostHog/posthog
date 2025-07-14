@@ -26,7 +26,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const { scenePanelOpen, scenePanelActive } = useValues(sceneLayoutLogic)
+    const { scenePanelOpen, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
     return breadcrumbs.length || projectTreeRefEntry ? (
@@ -36,7 +36,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                     'flex items-center gap-1 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
                     className,
                     {
-                        'pr-2': scenePanelActive,
+                        'pr-2': scenePanelIsPresent,
                     }
                 )}
             >
@@ -72,7 +72,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         <div className="flex gap-2 items-center justify-end" ref={setActionsContainer} />
 
                         <div className="flex gap-1 items-center">
-                            {scenePanelActive && (
+                            {scenePanelIsPresent && (
                                 <LemonButton
                                     onClick={() => setScenePanelOpen(!scenePanelOpen)}
                                     icon={<IconInfo className="text-primary" />}

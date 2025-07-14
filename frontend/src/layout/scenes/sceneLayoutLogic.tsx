@@ -5,7 +5,7 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     path(['layout', 'scene-layout', 'sceneLayoutLogic']),
     actions({
         registerScenePanelElement: (element: HTMLElement | null) => ({ element }),
-        setScenePanelActive: (active: boolean) => ({ active }),
+        setScenePanelIsPresent: (active: boolean) => ({ active }),
         setScenePanelOpen: (open: boolean) => ({ open }),
         setScenePanelIsOverlay: (isOverlay: boolean) => ({ isOverlay }),
     }),
@@ -16,10 +16,10 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
                 registerScenePanelElement: (_, { element }) => element,
             },
         ],
-        scenePanelActive: [
+        scenePanelIsPresent: [
             false,
             {
-                setScenePanelActive: (_, { active }) => active,
+                setScenePanelIsPresent: (_, { active }) => active,
             },
         ],
         scenePanelOpen: [
