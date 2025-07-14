@@ -47,6 +47,8 @@ class WebAnalyticsDataFactory:
             if v is not None:
                 if isinstance(v, bool):
                     clean_params[k] = str(v).lower()
+                elif isinstance(v, list):
+                    clean_params[k] = ",".join(str(item) for item in v)
                 else:
                     clean_params[k] = str(v)
 
@@ -76,6 +78,7 @@ class WebAnalyticsDataFactory:
     def generate_trends_data(self, request_data: dict[str, Any], request: Request, team_id: int) -> dict[str, Any]:
         date_from = request_data["date_from"]
         date_to = request_data["date_to"]
+        domain = request_data["domain"]
 
         if isinstance(date_from, str):
             date_from = datetime.strptime(date_from, "%Y-%m-%d").date()
@@ -119,11 +122,16 @@ class WebAnalyticsDataFactory:
         base_params = {
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
+            "domain": domain,
             "interval": interval,
             "metric": metric,
             "limit": limit,
             "offset": offset,
         }
+
+        # Initialize pagination URLs
+        next_url = None
+        previous_url = None
 
         if has_next:
             next_params = {**base_params, "offset": offset + limit}
@@ -132,12 +140,8 @@ class WebAnalyticsDataFactory:
         if has_previous:
             prev_params = {**base_params, "offset": max(0, offset - limit)}
             previous_url = self._get_api_url(request, team_id, "trend", prev_params)
-        else:
-            previous_url = None
 
         data = {
-            "metric": metric,
-            "interval": interval,
             "count": total_count,
             "next": next_url,
             "previous": previous_url,
@@ -149,10 +153,13 @@ class WebAnalyticsDataFactory:
         return serializer.validated_data
 
     def generate_breakdown_data(self, request_data: dict[str, Any], request: Request, team_id: int) -> dict[str, Any]:
+        date_from = request_data["date_from"]
+        date_to = request_data["date_to"]
         breakdown_by = request_data["breakdown_by"]
         metrics = request_data.get("metrics") or ["visitors", "views", "bounce_rate"]
         limit = request_data.get("limit", PAGINATION_DEFAULT_LIMIT)
         offset = request_data.get("offset", 0)
+        domain = request_data["domain"]
 
         # Get breakdown values for the specified property
         values = self.breakdown_values.get(breakdown_by, [f"{breakdown_by}_{i}" for i in range(1, 50)])
@@ -183,11 +190,18 @@ class WebAnalyticsDataFactory:
         has_previous = offset > 0
 
         base_params = {
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "domain": domain,
             "breakdown_by": breakdown_by,
             "metrics": metrics,
             "limit": limit,
             "offset": offset,
         }
+
+        # Initialize pagination URLs
+        next_url = None
+        previous_url = None
 
         if has_next:
             next_params = {**base_params, "offset": offset + limit}
@@ -202,7 +216,6 @@ class WebAnalyticsDataFactory:
             previous_url = None
 
         data = {
-            "breakdown_by": breakdown_by,
             "count": total_count,
             "next": next_url,
             "previous": previous_url,
