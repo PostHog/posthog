@@ -40,7 +40,7 @@ interface LineageNodeProps {
 const MAT_VIEW_HEIGHT = 92
 const TABLE_HEIGHT = 68
 
-const NODE_WIDTH = 240
+const NODE_WIDTH = 300
 
 const MARKER_SIZE = 20
 
@@ -50,7 +50,7 @@ const RANK_SEP = 160
 function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
     const getNodeType = (type: string, lastRunAt?: string): string => {
         if (type === 'view') {
-            return lastRunAt ? 'Mat. View' : 'View'
+            return lastRunAt ? 'Mat. view' : 'View'
         }
         return 'Table'
     }
@@ -72,7 +72,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
 
     return (
         <div
-            className="bg-bg-light border border-border rounded-lg p-3 min-w-[240px] shadow-sm"
+            className="bg-bg-light border border-border rounded-md p-3 min-w-[300px] shadow-sm"
             style={{ minHeight: nodeHeight }}
         >
             {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
@@ -84,7 +84,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
-                    <span className="font-medium text-sm truncate max-w-[180px] block">{data.name}</span>
+                    <span className="font-medium text-sm truncate max-w-[280px] block">{data.name}</span>
                 </Tooltip>
             </div>
 
@@ -157,7 +157,7 @@ const getLayoutedElements = (
         id: `edge-${index}`,
         source: edge.source,
         target: edge.target,
-        type: 'smoothstep',
+        type: 'bezier',
         animated: false,
         markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -207,9 +207,6 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
     return (
         <div className="w-full h-full">
             <ReactFlow
-                proOptions={{
-                    hideAttribution: true,
-                }}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={nodes}
                 edges={edges}
@@ -221,7 +218,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
             >
                 <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
                 <Controls showInteractive={false} position="bottom-right" />
-                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} />
+                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} className="hidden lg:block" />
             </ReactFlow>
         </div>
     )
@@ -229,10 +226,12 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
 export function UpstreamGraph({ codeEditorKey }: UpstreamGraphProps): JSX.Element {
     return (
-        <div className="w-full h-full">
-            <ReactFlowProvider>
-                <UpstreamGraphContent codeEditorKey={codeEditorKey} />
-            </ReactFlowProvider>
+        <div className="h-[500px] border border-border rounded-md overflow-hidden">
+            <div className="w-full h-full">
+                <ReactFlowProvider>
+                    <UpstreamGraphContent codeEditorKey={codeEditorKey} />
+                </ReactFlowProvider>
+            </div>
         </div>
     )
 }
