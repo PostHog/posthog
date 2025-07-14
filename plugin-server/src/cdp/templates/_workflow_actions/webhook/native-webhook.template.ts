@@ -32,7 +32,7 @@ if (inputs.debug) {
     print('Sending webhook', url, payload)
 }
 
-let res := fetch(url, payload, inputs.timeout)
+let res := fetch(url, payload)
 
 if (res.status >= 400) {
     throw Error(f'Webhook failed with status {res.status}: {res.body}')
