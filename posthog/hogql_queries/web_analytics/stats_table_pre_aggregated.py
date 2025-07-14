@@ -42,11 +42,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
 
     def _get_channel_type_expr(self) -> ast.Expr:
-        """Create a channel type expression using the available fields in pre-aggregated tables."""
-
-        def _null_expr():
-            return ast.Constant(value=None)
-
         def _wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
             return ast.Call(
                 name="nullIf",
@@ -61,7 +56,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             medium=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_medium"]))),
             source=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_source"]))),
             referring_domain=ast.Field(chain=["referring_domain"]),
-            url=_null_expr(),  # URL not available in pre-aggregated tables
+            url=ast.Constant(value=None),  # URL not available in pre-aggregated tables
             hostname=ast.Field(chain=["host"]),
             pathname=ast.Field(chain=["entry_pathname"]),
             has_gclid=ast.Field(chain=["has_gclid"]),
@@ -73,7 +68,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 args=[
                     ast.Field(chain=["has_gad_source_paid_search"]),
                     ast.Constant(value="1"),
-                    _null_expr(),
+                    ast.Constant(value=None),
                 ],
             ),
         )
