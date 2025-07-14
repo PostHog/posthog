@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
         "AccessControlLevel": {
-            "enum": ["none", "member", "admin", "viewer", "editor"],
+            "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
             "type": "string"
         },
         "ActionConversionGoal": {
@@ -12787,12 +12787,6 @@
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
-                "revenueAnalyticsPersonsJoinMode": {
-                    "$ref": "#/definitions/RevenueAnalyticsPersonsJoinModeModifier"
-                },
-                "revenueAnalyticsPersonsJoinModeCustom": {
-                    "type": ["string", "null"]
-                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
@@ -20059,10 +20053,6 @@
             },
             "required": ["results"],
             "type": "object"
-        },
-        "RevenueAnalyticsPersonsJoinModeModifier": {
-            "enum": ["id", "email", "custom"],
-            "type": "string"
         },
         "RevenueAnalyticsPropertyFilter": {
             "additionalProperties": false,
