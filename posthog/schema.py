@@ -1845,6 +1845,7 @@ class PropertyFilterType(StrEnum):
     PERSON = "person"
     ELEMENT = "element"
     FEATURE = "feature"
+    FLAG = "flag"
     SESSION = "session"
     COHORT = "cohort"
     RECORDING = "recording"
@@ -1999,7 +2000,7 @@ class RecordingPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["recording"] = "recording"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RefreshType(StrEnum):
@@ -2104,7 +2105,7 @@ class RevenueAnalyticsPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["revenue_analytics"] = "revenue_analytics"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class RevenueAnalyticsRevenueQueryResult(BaseModel):
@@ -2196,7 +2197,7 @@ class SessionPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["session"] = "session"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class SnapshotSource(StrEnum):
@@ -3137,7 +3138,7 @@ class DataWarehousePersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse_person_property"] = "data_warehouse_person_property"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DataWarehousePropertyFilter(BaseModel):
@@ -3148,7 +3149,7 @@ class DataWarehousePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -3199,7 +3200,7 @@ class ElementPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["element"] = "element"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class ErrorTrackingExternalReferenceIntegration(BaseModel):
@@ -3227,7 +3228,7 @@ class ErrorTrackingIssueFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["error_tracking_issue"] = "error_tracking_issue"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -3238,7 +3239,7 @@ class EventMetadataPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["event_metadata"] = "event_metadata"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventOddsRatioSerialized(BaseModel):
@@ -3260,7 +3261,7 @@ class EventPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.EXACT
     type: Literal["event"] = Field(default="event", description="Event properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class EventTaxonomyItem(BaseModel):
@@ -3396,7 +3397,18 @@ class FeaturePropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["feature"] = Field(default="feature", description='Event property with "$feature/" prepended')
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
+
+
+class FlagDependencyPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["flag"] = Field(default="flag", description="Feature flag dependency (property type is 'flag')")
+    value: Optional[Union[bool, list[Union[bool, Union[str, float, bool]]], Union[str, float, bool]]] = None
 
 
 class FunnelCorrelationResult(BaseModel):
@@ -3444,7 +3456,7 @@ class GroupPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["group"] = "group"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLAutocompleteResponse(BaseModel):
@@ -3475,7 +3487,7 @@ class HogQLPropertyFilter(BaseModel):
     key: str
     label: Optional[str] = None
     type: Literal["hogql"] = "hogql"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class HogQLQueryModifiers(BaseModel):
@@ -3579,7 +3591,7 @@ class LogEntryPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log_entry"] = "log_entry"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class LogMessage(BaseModel):
@@ -3609,7 +3621,7 @@ class LogPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["log"] = "log"
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class MarketingAnalyticsSchemaField(BaseModel):
@@ -3665,7 +3677,7 @@ class PersonPropertyFilter(BaseModel):
     label: Optional[str] = None
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
-    value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+    value: Optional[Union[list[Union[str, float, bool]], Union[str, float, bool]]] = None
 
 
 class QueryResponseAlternative8(BaseModel):
@@ -6395,6 +6407,7 @@ class ConversionGoalFilter1(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -6443,6 +6456,7 @@ class ConversionGoalFilter1(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -6478,6 +6492,7 @@ class ConversionGoalFilter2(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -6525,6 +6540,7 @@ class ConversionGoalFilter2(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -6562,6 +6578,7 @@ class ConversionGoalFilter3(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -6610,6 +6627,7 @@ class ConversionGoalFilter3(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -6647,6 +6665,7 @@ class DashboardFilter(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = None
@@ -7085,6 +7104,7 @@ class DataWarehouseNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -7133,6 +7153,7 @@ class DataWarehouseNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7193,6 +7214,7 @@ class EntityNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -7239,6 +7261,7 @@ class EntityNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7336,6 +7359,7 @@ class ErrorTrackingSceneToolOutput(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = None
@@ -7393,6 +7417,7 @@ class EventsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -7441,6 +7466,7 @@ class EventsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7501,6 +7527,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -7547,6 +7574,7 @@ class ExperimentDataWarehouseNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7581,6 +7609,7 @@ class ExperimentEventExposureConfig(BaseModel):
             ErrorTrackingIssueFilter,
             LogPropertyFilter,
             RevenueAnalyticsPropertyFilter,
+            FlagDependencyPropertyFilter,
         ]
     ]
     response: Optional[dict[str, Any]] = None
@@ -7675,6 +7704,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -7724,6 +7754,7 @@ class FunnelExclusionActionsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7757,6 +7788,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -7807,6 +7839,7 @@ class FunnelExclusionEventsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7911,6 +7944,7 @@ class HogQLFilters(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = None
@@ -8111,6 +8145,7 @@ class PersonsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -8143,6 +8178,7 @@ class PersonsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8178,6 +8214,7 @@ class PropertyGroupFilterValue(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ],
         ]
     ]
@@ -9447,6 +9484,7 @@ class RetentionEntity(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="filters on the event")
@@ -9805,6 +9843,7 @@ class TracesQuery(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -10060,6 +10099,7 @@ class ActionsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(
@@ -10107,6 +10147,7 @@ class ActionsNode(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -10673,6 +10714,7 @@ class RecordingsQuery(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = None
@@ -10705,6 +10747,7 @@ class RecordingsQuery(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = None
@@ -10778,6 +10821,7 @@ class StickinessQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -10852,6 +10896,7 @@ class TrendsQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -10982,6 +11027,7 @@ class CalendarHeatmapQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11220,6 +11266,7 @@ class FunnelsQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11269,6 +11316,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11315,6 +11363,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11361,6 +11410,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11407,6 +11457,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11453,6 +11504,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11499,6 +11551,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11568,6 +11621,7 @@ class LifecycleQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11725,6 +11779,7 @@ class RetentionQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -11993,6 +12048,7 @@ class PathsQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -12327,6 +12383,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = None
@@ -12408,6 +12465,7 @@ class SessionBatchEventsQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ],
             ]
         ]
@@ -12446,6 +12504,7 @@ class SessionBatchEventsQuery(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -12534,6 +12593,7 @@ class EventsQuery(BaseModel):
                     ErrorTrackingIssueFilter,
                     LogPropertyFilter,
                     RevenueAnalyticsPropertyFilter,
+                    FlagDependencyPropertyFilter,
                 ],
             ]
         ]
@@ -12569,6 +12629,7 @@ class EventsQuery(BaseModel):
                 ErrorTrackingIssueFilter,
                 LogPropertyFilter,
                 RevenueAnalyticsPropertyFilter,
+                FlagDependencyPropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
