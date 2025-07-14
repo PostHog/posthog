@@ -156,7 +156,7 @@ function InsightCardInternal(
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
     const cachedResults = noCache ? undefined : insight
-    const hasResults = !!cachedResults?.result || (!!cachedResults? as any).results
+    const hasResults = !!cachedResults?.result || !!(cachedResults as any)?.results
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
