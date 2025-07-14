@@ -222,10 +222,10 @@ function FeaturePreviewsButton(): JSX.Element {
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
-                router.actions.push(urls.settings('user-feature-previews'))
             }}
             icon={<IconFeatures />}
             fullWidth
+            to={urls.settings('user-feature-previews')}
         >
             Feature previews
         </LemonButton>
