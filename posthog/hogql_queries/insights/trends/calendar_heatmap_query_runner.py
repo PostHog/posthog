@@ -43,9 +43,8 @@ from posthog.schema import (
 
 SEPARATOR = "','"
 
-# We need to use a CTE, otherwise we'll this error because of the sub-query containing some auto-generated conditions:
+# We need to use a CTE, otherwise we'll get this error because of the sub-query containing some auto-generated conditions:
 # Aggregate function any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id)) AS person_id is found in WHERE in query.
-
 templateUniqueUsers = """
 WITH uniqueSessionEvents AS (
     SELECT
