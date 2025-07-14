@@ -105,8 +105,12 @@ export const groupsListLogic = kea<groupsListLogicType>([
     })),
     urlToAction(({ actions, values, props }) => ({
         [`/groups/${props.groupTypeIndex}`]: (_, searchParams) => {
+            if (values.query.source.kind !== NodeKind.GroupsQuery) {
+                return
+            }
+
             const properties = searchParams[`properties_${props.groupTypeIndex}`]
-            if (properties && values.query.source.kind === NodeKind.GroupsQuery) {
+            if (properties) {
                 try {
                     const parsedProperties = JSON.parse(properties)
                     if (parsedProperties && Array.isArray(parsedProperties)) {
@@ -121,16 +125,14 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 } catch (error: any) {
                     posthog.captureException('Failed to parse properties', error)
                 }
-            } else if (!properties && values.query.source.kind === NodeKind.GroupsQuery) {
-                if (values.query.source.properties?.length) {
-                    actions.setQuery({
-                        ...values.query,
-                        source: {
-                            ...values.query.source,
-                            properties: undefined,
-                        },
-                    })
-                }
+            } else if (values.query.source.properties?.length) {
+                actions.setQuery({
+                    ...values.query,
+                    source: {
+                        ...values.query.source,
+                        properties: undefined,
+                    },
+                })
             }
         },
     })),

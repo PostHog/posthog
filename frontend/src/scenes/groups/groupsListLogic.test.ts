@@ -10,7 +10,7 @@ describe('groupsListLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        // localStorage.clear()
+        localStorage.clear()
         window.POSTHOG_APP_CONTEXT = { current_team: { id: 123 } } as AppContext
     })
 
