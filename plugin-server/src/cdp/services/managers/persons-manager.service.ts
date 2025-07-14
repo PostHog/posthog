@@ -62,7 +62,8 @@ export class PersonsManagerService {
             .map((_, index) => {
                 const teamIdParam = index * 2 + 1
                 const distinctIdParam = index * 2 + 2
-                return `(posthog_person.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
+                // NOTE: We have an index on posthog_persondistinctid (team_id, distinct_id) so filtering at that level should be more efficient
+                return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
             })
             .join(' OR ')
 
