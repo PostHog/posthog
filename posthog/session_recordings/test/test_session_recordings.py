@@ -1742,47 +1742,39 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
             self.assertTrue(recording.deleted)
 
-    def test_bulk_delete_empty_session_recording_ids(self):
-        """Test bulk delete with empty session_recording_ids"""
+    @parameterized.expand(
+        [
+            (
+                "empty_array",
+                {"session_recording_ids": []},
+                "session_recording_ids must be provided as a non-empty array",
+            ),
+            (
+                "missing_field",
+                {},
+                "session_recording_ids must be provided as a non-empty array",
+            ),
+            (
+                "invalid_type",
+                {"session_recording_ids": "not_a_list"},
+                "session_recording_ids must be provided as a non-empty array",
+            ),
+            (
+                "too_many_recordings",
+                {"session_recording_ids": [f"bulk_delete_test_{i}" for i in range(21)]},
+                "Cannot process more than 20 recordings at once",
+            ),
+        ]
+    )
+    def test_bulk_delete_validation_errors(self, test_name, request_data, expected_error_message):
+        """Test bulk delete validation errors"""
         response = self.client.post(
             f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
-            {"session_recording_ids": []},
+            request_data,
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("session_recording_ids must be provided as a non-empty array", response.json()["detail"])
-
-    def test_bulk_delete_missing_session_recording_ids(self):
-        """Test bulk delete without session_recording_ids field"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
-            {},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("session_recording_ids must be provided as a non-empty array", response.json()["detail"])
-
-    def test_bulk_delete_invalid_session_recording_ids_type(self):
-        """Test bulk delete with non-list session_recording_ids"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
-            {"session_recording_ids": "not_a_list"},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("session_recording_ids must be provided as a non-empty array", response.json()["detail"])
-
-    def test_bulk_delete_too_many_recordings(self):
-        """Test bulk delete with more than 20 recordings"""
-        session_ids = [f"bulk_delete_test_{i}" for i in range(21)]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
-            {"session_recording_ids": session_ids},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot process more than 20 recordings at once", response.json()["detail"])
+        self.assertIn(expected_error_message, response.json()["detail"])
 
     def test_bulk_delete_skips_already_deleted_recordings(self):
         """Test bulk delete skips recordings that are already deleted"""
