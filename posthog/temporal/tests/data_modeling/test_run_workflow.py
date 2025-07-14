@@ -1147,3 +1147,97 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert new_job.status == DataModelingJob.Status.RUNNING
     assert new_job.workflow_id == "new-workflow"
     assert new_job.workflow_run_id == "new-run"
+
+
+async def test_materialization_event_capture(ateam, bucket_name, minio_client, pageview_events):
+    """Test that materialization events are captured correctly."""
+    query = """\
+    select
+      event as event,
+      if(distinct_id != '0', distinct_id, null) as distinct_id,
+      timestamp as timestamp
+    from events
+    where event = '$pageview'
+    """
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="test_materialization_events",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    with override_settings(
+        BUCKET_URL=f"s3://{bucket_name}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+        )
+
+        # Test successful materialization event capture
+        with unittest.mock.patch("posthoganalytics.capture") as mock_capture:
+            key, delta_table, job_id = await materialize_model(
+                saved_query.id.hex,
+                ateam,
+                saved_query,
+                job,
+                unittest.mock.AsyncMock(),
+                unittest.mock.AsyncMock(),
+            )
+
+            # Verify the completed event was captured
+            mock_capture.assert_called_with(
+                distinct_id=f"team-{ateam.pk}",
+                event="$materialization_completed",
+                properties=unittest.mock.ANY,
+            )
+
+            # Verify the properties
+            call_args = mock_capture.call_args
+            properties = call_args[1]["properties"]
+            assert properties["model_id"] == str(saved_query.id)
+            assert properties["model_name"] == saved_query.name
+            assert properties["rows_materialized"] > 0
+            assert "duration_seconds" in properties
+            assert properties["job_id"] == str(job.id)
+            assert properties["team_id"] == ateam.pk
+
+        # Test failed materialization event capture
+        failed_job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+        )
+
+        with unittest.mock.patch("posthoganalytics.capture") as mock_capture:
+            # Mock materialize_model to raise an exception
+            with unittest.mock.patch(
+                "posthog.temporal.data_modeling.run_workflow.hogql_table", side_effect=Exception("Test error")
+            ):
+                with pytest.raises(Exception):
+                    await materialize_model(
+                        saved_query.id.hex,
+                        ateam,
+                        saved_query,
+                        failed_job,
+                        unittest.mock.AsyncMock(),
+                        unittest.mock.AsyncMock(),
+                    )
+
+            # Verify the failed event was captured
+            mock_capture.assert_called_with(
+                distinct_id=f"team-{ateam.pk}",
+                event="$materialization_failed",
+                properties=unittest.mock.ANY,
+            )
+
+            # Verify the properties
+            call_args = mock_capture.call_args
+            properties = call_args[1]["properties"]
+            assert properties["model_id"] == str(saved_query.id)
+            assert properties["model_name"] == saved_query.name
+            assert "Test error" in properties["error_message"]
+            assert properties["job_id"] == str(failed_job.id)
+            assert properties["team_id"] == ateam.pk

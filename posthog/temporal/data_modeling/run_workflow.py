@@ -21,6 +21,7 @@ import temporalio.workflow
 from deltalake import DeltaTable
 from django.conf import settings
 
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql.context import HogQLContext
@@ -342,6 +343,30 @@ async def handle_error(
         job.status = DataModelingJob.Status.FAILED
         job.error = str(error)
         await database_sync_to_async(job.save)()
+
+        # Capture materialization failed event
+        try:
+            team = await database_sync_to_async(Team.objects.get)(id=job.team.id)
+            saved_query = job.saved_query
+
+            if saved_query:
+                produce_internal_event(
+                    team_id=team.id,
+                    event=InternalEventEvent(
+                        event="$materialization_failed",
+                        distinct_id=f"team-{team.id}",
+                        properties={
+                            "model_id": str(saved_query.id),
+                            "model_name": saved_query.name,
+                            "error_message": str(error),
+                            "job_id": str(job.id),
+                            "team_id": team.id,
+                        },
+                    ),
+                )
+        except Exception as e:
+            await logger.aexception("Failed to capture materialization failed event: %s", str(e))
+
     await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
 
 
@@ -551,6 +576,29 @@ async def materialize_model(
     job.status = DataModelingJob.Status.COMPLETED
     job.last_run_at = dt.datetime.now(dt.UTC)
     await database_sync_to_async(job.save)()
+
+    # Capture materialization completed event
+    try:
+        start_time = job.created_at
+        duration_seconds = int((job.last_run_at - start_time).total_seconds())
+
+        produce_internal_event(
+            team_id=team.id,
+            event=InternalEventEvent(
+                event="$materialization_completed",
+                distinct_id=f"team-{team.id}",
+                properties={
+                    "model_id": str(saved_query.id),
+                    "model_name": saved_query.name,
+                    "rows_materialized": row_count,
+                    "duration_seconds": duration_seconds,
+                    "job_id": str(job.id),
+                    "team_id": team.id,
+                },
+            ),
+        )
+    except Exception as e:
+        await logger.aexception("Failed to capture materialization completed event: %s", str(e))
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
 

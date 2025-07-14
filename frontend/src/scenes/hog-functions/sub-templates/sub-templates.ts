@@ -66,6 +66,18 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'insight-alerts',
         filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
+    'materialization-completed': {
+        sub_template_id: 'materialization-completed',
+        type: 'internal_destination',
+        context_id: 'data-modeling',
+        filters: { events: [{ id: '$materialization_completed', type: 'events' }] },
+    },
+    'materialization-failed': {
+        sub_template_id: 'materialization-failed',
+        type: 'internal_destination',
+        context_id: 'data-modeling',
+        filters: { events: [{ id: '$materialization_failed', type: 'events' }] },
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -446,6 +458,124 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             },
         },
     ],
+    'materialization-completed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['materialization-completed'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on materialization completed',
+            description: 'Send a webhook when a materialization completes successfully',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['materialization-completed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on materialization completed',
+            description: 'Post to a Slack channel when a materialization completes successfully',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: '✅ Materialization Completed',
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*{event.properties.model_name}* has been successfully materialized',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [
+                                { type: 'plain_text', text: 'Rows materialized: {event.properties.rows_materialized}' },
+                                { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+                                { type: 'mrkdwn', text: 'Duration: {event.properties.duration_seconds}s' },
+                            ],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/data-warehouse/saved-queries/{event.properties.model_id}',
+                                    text: { text: 'View Model', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: '✅ Materialization completed: {event.properties.model_name}',
+                },
+            },
+        },
+    ],
+    'materialization-failed': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['materialization-failed'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on materialization failed',
+            description: 'Send a webhook when a materialization fails',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['materialization-failed'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on materialization failed',
+            description: 'Post to a Slack channel when a materialization fails',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: '❌ Materialization Failed',
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*{event.properties.model_name}* failed to materialize',
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '```{event.properties.error_message}```',
+                            },
+                        },
+                        {
+                            type: 'context',
+                            elements: [
+                                { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
+                                { type: 'mrkdwn', text: 'Job ID: {event.properties.job_id}' },
+                            ],
+                        },
+                        { type: 'divider' },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}/data-warehouse/saved-queries/{event.properties.model_id}',
+                                    text: { text: 'View Model', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                    ],
+                },
+                text: {
+                    value: '❌ Materialization failed: {event.properties.model_name}',
+                },
+            },
+        },
+    ],
 }
 
 export const getSubTemplate = (
@@ -464,6 +594,10 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'insight-alerts'
         case '$activity_log_entry_created':
             return 'activity-log'
+        case '$materialization_completed':
+            return 'data-modeling'
+        case '$materialization_failed':
+            return 'data-modeling'
         default:
             return 'standard'
     }
