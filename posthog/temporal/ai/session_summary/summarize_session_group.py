@@ -3,14 +3,16 @@ import dataclasses
 from datetime import datetime, timedelta
 import hashlib
 import json
-from typing import cast
+from typing import Sequence, cast
 import uuid
+from dagster import Any
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
+from ee.session_recordings.session_summary.input_data import add_context_and_filter_events
 from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
 from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
 from ee.session_recordings.session_summary.summarize_session import (
@@ -22,6 +24,7 @@ from ee.session_recordings.session_summary.summarize_session import (
 )
 from posthog import constants
 from posthog.models.team.team import Team
+from posthog.schema import CachedSessionBatchEventsQueryResponse, SessionEventsItem
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
@@ -91,10 +94,8 @@ async def fetch_session_batch_events_activity(
     )
     # Fetch events for all uncached sessions
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
-    all_session_events = {}  # session_id -> list of events
-    columns = None
-    offset = 0
-    page_size = DEFAULT_TOTAL_EVENTS_PER_QUERY
+    all_session_events: dict[str, list[Sequence[Any]]] = {}  # session_id -> list of events
+    columns, offset, page_size = None, 0, DEFAULT_TOTAL_EVENTS_PER_QUERY
     # Paginate
     while True:
         # Get DB data
@@ -107,16 +108,21 @@ async def fetch_session_batch_events_activity(
         )
         runner = SessionBatchEventsQueryRunner(query=query, team=team)
         response = await database_sync_to_async(runner.run)()
+        if not isinstance(response, CachedSessionBatchEventsQueryResponse):
+            raise ValueError(
+                f"Failed to fetch events for sessions {sessions_to_fetch} in team {inputs.team_id} "
+                f"when fetching batch events for group summary"
+            )
         # Store columns from first response (should be the same for all sessions)
         if columns is None:
-            columns = response.columns
+            columns = cast(list[str], response.columns)
         # Accumulate events for each session
         if response.session_events:
             for session_item in response.session_events:
                 session_id = session_item.session_id
                 if session_id not in all_session_events:
                     all_session_events[session_id] = []
-                all_session_events[session_id].extend(session_item.events)
+                all_session_events[session_id].extend(cast(list[Sequence[Any]], session_item.events))
         # Check if we have more pages
         if not hasattr(response, "hasMore") or not response.hasMore:
             break
@@ -138,6 +144,7 @@ async def fetch_session_batch_events_activity(
             )
             continue
         # Prepare the data to be used by the next activity
+        columns, session_events = add_context_and_filter_events(columns, session_events)
         session_db_data = SessionSummaryDBData(
             session_metadata=session_metadata, session_events_columns=columns, session_events=session_events
         )
@@ -284,7 +291,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             extracted_session_ids = {s.session_id for s in session_inputs}
             exception_message = (
                 f"Too many sessions failed to fetch data, when summarizing {len(inputs.session_ids)} sessions "
-                f"({inputs.session_ids - extracted_session_ids}) "
+                f"({list(set(inputs.session_ids) - extracted_session_ids)}) "
                 f"for user {inputs.user_id} in team {inputs.team_id}"
             )
             temporalio.workflow.logger.exception(exception_message)
