@@ -87,7 +87,7 @@ export const EditorSidebar = ({
                 return editingView ? (
                     <div className="px-4 py-2 text-secondary">Variables are not allowed in views.</div>
                 ) : (
-                    <div className="px-4 py-2">
+                    <div className="px-4 py-2 overflow-y-auto">
                         <QueryVariables />
                     </div>
                 )
