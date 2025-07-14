@@ -211,6 +211,8 @@ def WEB_STATS_INSERT_SQL(
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
 
+    settings_clause = f"SETTINGS {settings}" if settings else ""
+
     query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
@@ -298,7 +300,7 @@ def WEB_STATS_INSERT_SQL(
                 AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY
                 raw_sessions.session_id_v7
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
         (
@@ -309,7 +311,7 @@ def WEB_STATS_INSERT_SQL(
             WHERE {person_team_filter}
             GROUP BY person_distinct_id_overrides.distinct_id
             HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__override ON e.distinct_id = events__override.distinct_id
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
@@ -341,7 +343,7 @@ def WEB_STATS_INSERT_SQL(
             has_gclid,
             has_gad_source_paid_search,
             has_fbclid
-        SETTINGS {settings}
+        {settings_clause}
     )
     GROUP BY
         period_bucket,
@@ -368,7 +370,7 @@ def WEB_STATS_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid
-    {"SETTINGS " + settings if settings and not select_only else ""}
+    {settings_clause}
     """
 
     if select_only:
