@@ -23,6 +23,7 @@ export const StepFunctionWebhook: HogFlowStep<'function_webhook'> = {
                 config: {
                     template_id: 'template-hogflow-send-webhook',
                     inputs: {},
+                    hasCompiledConfigInputs: true,
                 },
             },
         }

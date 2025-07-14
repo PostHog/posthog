@@ -64,22 +64,6 @@ class HogFlow(UUIDModel):
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
-    def save(self, *args, **kwargs):
-        # Iterate through actions to validate and compile inputs for function* types
-        for action in self.actions.values():
-            if action.get("type", "").startswith("function"):
-                from posthog.cdp.validation import generate_template_bytecode
-
-                inputs = action.get("config", {}).get("inputs", {})
-                input_collector: set[str] = set()
-                try:
-                    compiled_inputs = generate_template_bytecode(inputs, input_collector)
-                    action["config"]["inputs"]["bytecode"] = compiled_inputs
-                except Exception as e:
-                    logger.exception("Failed to generate bytecode for hog flow action", error=str(e), inputs=inputs)
-                    raise
-        super().save(*args, **kwargs)
-
 
 @receiver(post_save, sender=HogFlow)
 def hog_flow_saved(sender, instance: HogFlow, created, **kwargs):

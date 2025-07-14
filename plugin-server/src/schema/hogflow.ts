@@ -95,6 +95,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-hogflow-send-email-native'),
             inputs: z.record(CyclotronInputSchema),
+            hasCompiledConfigInputs: z.literal(true),
         }),
     }),
 
@@ -106,6 +107,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
             inputs: z.record(CyclotronInputSchema),
+            hasCompiledConfigInputs: z.literal(true),
         }),
     }),
     z.object({
@@ -115,6 +117,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-hogflow-send-sms-twilio'),
             inputs: z.record(CyclotronInputSchema),
+            hasCompiledConfigInputs: z.literal(true),
         }),
     }),
     z.object({
@@ -124,6 +127,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-hogflow-send-message-slack'),
             inputs: z.record(CyclotronInputSchema),
+            hasCompiledConfigInputs: z.literal(true),
         }),
     }),
     z.object({
@@ -133,6 +137,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-hogflow-send-webhook'),
             inputs: z.record(CyclotronInputSchema),
+            hasCompiledConfigInputs: z.literal(true),
         }),
     }),
 

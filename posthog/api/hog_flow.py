@@ -84,13 +84,35 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
         ]
 
+    def _compile_action_bytecode(self, validated_data: dict):
+        actions = validated_data.get("actions", {})
+        for action_item in actions:
+            if action_item.get("hasCompiledConfigInputs"):
+                from posthog.cdp.validation import generate_template_bytecode
+
+                inputs = action_item.get("config", {}).get("inputs", {})
+                input_collector: set[str] = set()
+                try:
+                    compiled_inputs = generate_template_bytecode(inputs, input_collector)
+                    action_item["config"]["inputs"]["bytecode"] = compiled_inputs
+                except Exception as e:
+                    logger.exception("Failed to generate bytecode for hog flow action", error=str(e), inputs=inputs)
+                    raise
+        return validated_data
+
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
         team_id = self.context["team_id"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = team_id
 
+        validated_data = self._compile_action_bytecode(validated_data)
+
         return super().create(validated_data=validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data = self._compile_action_bytecode(validated_data)
+        return super().update(instance, validated_data)
 
     # TODO: Validation perhaps via the nodejs api?
 
