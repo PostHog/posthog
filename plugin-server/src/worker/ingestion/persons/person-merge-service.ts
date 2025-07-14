@@ -511,4 +511,8 @@ export class PersonMergeService {
     public getUpdateIsIdentified(): boolean {
         return this.context.updateIsIdentified
     }
+
+    getContext(): PersonContext {
+        return this.context
+    }
 }

@@ -121,6 +121,7 @@ export function createCohortFormData(cohort: CohortType): FormData {
                                   groupList.map((g) => ({
                                       ...g,
                                       id: undefined,
+                                      sort_key: undefined,
                                   }))
                           ).filters.properties,
                           id: undefined,
