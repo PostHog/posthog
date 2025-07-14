@@ -325,7 +325,7 @@ class SimBrowserClient(SimClient):
             PROPERTY_GEOIP_CITY: self.person.city,
             PROPERTY_GEOIP_REGION: self.person.region,
             PROPERTY_TIMEZONE: self.person.timezone,
-            PROPERTY_TIMEZONE_OFFSET: self.person.timezone_offset,
+            PROPERTY_TIMEZONE_OFFSET: self.person.timezone_offset_minutes,
             PROPERTY_BROWSER_LANGUAGE: self.person.language,
         }.items():
             combined_properties[key] = value
@@ -413,7 +413,7 @@ class SimPerson(ABC):
     region: str
     city: str
     timezone: str
-    timezone_offset: int  # Offset in seconds from UTC
+    timezone_offset_minutes: int
     language: str
 
     # Exposed state - present
@@ -450,7 +450,7 @@ class SimPerson(ABC):
         self.region = "California"
         self.city = "San Francisco"
         self.timezone = "America/Los_Angeles"
-        self.timezone_offset = 420
+        self.timezone_offset_minutes = 420
         self.all_time_pageview_counts = defaultdict(int)
         self.session_pageview_counts = defaultdict(int)
         self.active_session_intent = None

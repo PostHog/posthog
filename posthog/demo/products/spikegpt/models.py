@@ -1,5 +1,4 @@
 import datetime as dt
-import math
 from enum import auto
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -70,9 +69,8 @@ class SpikeGPTPerson(SimPerson):
 
             try:  # Some tiny regions aren't in pytz - we want to omit those
                 self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
-                self.timezone_offset = math.floor(
-                    ZoneInfo(self.timezone).utcoffset(dt.datetime.now(tz=ZoneInfo(self.timezone))).total_seconds() / 60
-                )
+                utc_offset = ZoneInfo(self.timezone).utcoffset(dt.datetime.now(tz=ZoneInfo(self.timezone)))
+                self.timezone_offset_minutes = utc_offset.total_seconds() / 60 if utc_offset else 0
             except KeyError:
                 continue
             else:
