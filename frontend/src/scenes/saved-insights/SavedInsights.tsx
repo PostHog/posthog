@@ -168,6 +168,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCursor,
         inMenu: true,
     },
+    [NodeKind.SessionBatchEventsQuery]: {
+        name: 'Session Batch Events',
+        description: 'Batch query for events from multiple sessions.',
+        icon: IconCursor,
+        inMenu: false,
+    },
     [NodeKind.PersonsNode]: {
         name: 'Persons',
         description: 'List and explore your persons.',
@@ -268,6 +274,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
         icon: IconHogQL,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsArpuQuery]: {
+        name: 'Revenue Analytics ARPU',
+        description: 'View revenue analytics ARPU data.',
+        icon: IconPiggyBank,
         inMenu: true,
     },
     [NodeKind.RevenueAnalyticsCustomerCountQuery]: {
