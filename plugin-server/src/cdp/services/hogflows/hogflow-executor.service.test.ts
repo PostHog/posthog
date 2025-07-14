@@ -120,6 +120,7 @@ describe('Hogflow Executor', () => {
                                         bytecode: await compileHog(`return f'Mr {event?.properties?.name}'`),
                                     },
                                 },
+                                hasCompiledConfigInputs: true,
                             },
                         },
 
