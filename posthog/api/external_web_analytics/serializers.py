@@ -1,21 +1,22 @@
 from rest_framework import serializers
 
 
+PAGINATION_DEFAULT_LIMIT = 100
+PAGINATION_MAX_LIMIT = 1000
+
+
 class WebAnalyticsRequestOptionsSerializer(serializers.Serializer):
     filter_test_accounts = serializers.BooleanField(default=True, help_text="Filter out test accounts")
-    do_path_cleaning = serializers.BooleanField(default=True, help_text="Apply URL path cleaning")
+    apply_path_cleaning = serializers.BooleanField(default=True, help_text="Apply URL path cleaning")
 
 
 class WebAnalyticsRequestSerializer(serializers.Serializer):
     date_from = serializers.DateField(help_text="Start date for the query")
     date_to = serializers.DateField(help_text="End date for the query")
 
-    filters = serializers.JSONField(
-        required=False,
-        help_text="Array of property filters: [{type: 'event|person|session', key: string, operator: string, value: any}]",
-    )
-
     domain = serializers.CharField(help_text="Domain to filter by")
+
+    # TODO: Add support for filters
 
     options = WebAnalyticsRequestOptionsSerializer(required=False, default=WebAnalyticsRequestOptionsSerializer())
 
@@ -34,10 +35,13 @@ class WebAnalyticsTrendRequestSerializer(WebAnalyticsRequestSerializer):
         help_text="Time interval for data aggregation",
     )
 
+    limit = serializers.IntegerField(
+        default=100, min_value=1, max_value=1000, help_text="Number of data points to return"
+    )
+    offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of data points to skip")
+
 
 class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
-    """Request parameters for breakdown endpoint"""
-
     breakdown_by = serializers.ChoiceField(
         choices=[
             # Page-related
@@ -66,8 +70,6 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
             "city",
             "timezone",
             "language",
-            # Additional
-            "frustration_metrics",
         ],
         help_text="Property to break down by",
     )
@@ -83,7 +85,14 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
         help_text="Metrics to include for each breakdown value",
         default={"visitors", "views", "bounce_rate"},
     )
-    limit = serializers.IntegerField(default=25, min_value=1, max_value=100, help_text="Number of results to return")
+
+    limit = serializers.IntegerField(
+        default=PAGINATION_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=PAGINATION_MAX_LIMIT,
+        help_text="Number of results to return",
+    )
+    offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of results to skip")
 
 
 # Response serializers
@@ -100,14 +109,16 @@ class WebAnalyticsTrendPointSerializer(serializers.Serializer):
     value = serializers.IntegerField(help_text="The metric value for this date")
 
 
-class WebAnalyticsTrendResponseSerializer(serializers.Serializer):
-    metric = serializers.CharField(help_text="The metric being measured")
-    interval = serializers.CharField(help_text="Time interval used")
-    series = WebAnalyticsTrendPointSerializer(many=True, help_text="Time series data")
+class WebAnalyticsListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Total number of items available")
+    next = serializers.URLField(required=False, allow_null=True, help_text="URL for next page of results")
+    previous = serializers.URLField(required=False, allow_null=True, help_text="URL for previous page of results")
+    results = serializers.ListField(help_text="Array of items")
 
 
-class WebAnalyticsBreakdownResponseSerializer(serializers.Serializer):
-    breakdown_by = serializers.CharField(help_text="Property used for breakdown")
-    results = serializers.ListField(help_text="Breakdown results with flexible metrics")
-    has_more = serializers.BooleanField(help_text="Whether there are more results available")
-    total_count = serializers.IntegerField(help_text="Total number of items available", required=False)
+class WebAnalyticsTrendResponseSerializer(WebAnalyticsListResponseSerializer):
+    results = WebAnalyticsTrendPointSerializer(many=True, help_text="Array of data points for the metric")
+
+
+class WebAnalyticsBreakdownResponseSerializer(WebAnalyticsListResponseSerializer):
+    results = serializers.ListField(help_text="Array of breakdown items")

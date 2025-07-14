@@ -1,6 +1,12 @@
 from datetime import datetime, timedelta
 import random
 from typing import Any
+from .serializers import (
+    WebAnalyticsOverviewResponseSerializer,
+    WebAnalyticsTrendResponseSerializer,
+    WebAnalyticsBreakdownResponseSerializer,
+    WebAnalyticsTrendPointSerializer,
+)
 
 
 class WebAnalyticsDataFactory:
@@ -34,7 +40,7 @@ class WebAnalyticsDataFactory:
         bounce_rate = random.uniform(0.3, 0.8)
         session_duration = random.uniform(60, 420)
 
-        return {
+        data = {
             "visitors": base_visitors,
             "views": base_views,
             "sessions": base_sessions,
@@ -42,86 +48,113 @@ class WebAnalyticsDataFactory:
             "session_duration": round(session_duration, 1),
         }
 
+        serializer = WebAnalyticsOverviewResponseSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
+
     def generate_trends_data(self, request_data: dict[str, Any]) -> dict[str, Any]:
         date_from = datetime.strptime(request_data["date_from"], "%Y-%m-%d").date()
         date_to = datetime.strptime(request_data["date_to"], "%Y-%m-%d").date()
         interval = request_data.get("interval", "day")
         metric = request_data["metric"]
+        limit = request_data.get("limit", 100)
+        offset = request_data.get("offset", 0)
 
-        data_points = []
-        comparison_points = []
+        # Generate all data points first
+        all_data_points = []
         current_date = date_from
-
-        # Calculate period length for comparison
-        period_length = (date_to - date_from).days + 1
-        comparison_start = date_from - timedelta(days=period_length)
 
         while current_date <= date_to:
             # Simulate weekly patterns (lower on weekends)
             weekday_factor = 0.7 if current_date.weekday() >= 5 else 1.0
             base_value = self._get_metric_value(metric, weekday_factor)
 
-            data_points.append(
-                {
-                    "date": current_date.isoformat(),
-                    "value": base_value,
-                }
-            )
+            point_data = {
+                "datetime": current_date.isoformat() + "T00:00:00Z",
+                "value": base_value,
+            }
 
-            # Generate comparison data if requested
-            if request_data.get("compare"):
-                comparison_date = comparison_start + (current_date - date_from)
-                comparison_value = self._get_metric_value(metric, weekday_factor * 0.9)
-                comparison_points.append(
-                    {
-                        "date": comparison_date.isoformat(),
-                        "value": comparison_value,
-                    }
-                )
+            # Validate each data point
+            point_serializer = WebAnalyticsTrendPointSerializer(data=point_data)
+            point_serializer.is_valid(raise_exception=True)
+            all_data_points.append(point_serializer.validated_data)
 
             current_date = self._increment_date(current_date, interval)
 
-        result = {
+        # Apply pagination
+        total_count = len(all_data_points)
+        paginated_results = all_data_points[offset : offset + limit]
+
+        # Generate dummy pagination URLs
+        has_next = offset + limit < total_count
+        has_previous = offset > 0
+
+        data = {
             "metric": metric,
             "interval": interval,
-            "data": data_points,
+            "count": total_count,
+            "next": f"/api/projects/{{project_id}}/external_web_analytics/trend/?offset={offset + limit}&limit={limit}"
+            if has_next
+            else None,
+            "previous": f"/api/projects/{{project_id}}/external_web_analytics/trend/?offset={max(0, offset - limit)}&limit={limit}"
+            if has_previous
+            else None,
+            "results": paginated_results,
         }
 
-        if request_data.get("compare"):
-            result["comparison"] = comparison_points
-
-        return result
+        serializer = WebAnalyticsTrendResponseSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
 
     def generate_breakdown_data(self, request_data: dict[str, Any]) -> dict[str, Any]:
         breakdown_by = request_data["breakdown_by"]
-        metrics = request_data.get("metrics") or ["visitors", "views"]
+        metrics = request_data.get("metrics") or ["visitors", "views", "bounce_rate"]
         limit = request_data.get("limit", 25)
+        offset = request_data.get("offset", 0)
 
         # Get breakdown values for the specified property
-        values = self.breakdown_values.get(breakdown_by, [f"{breakdown_by}_{i}" for i in range(1, 21)])
+        values = self.breakdown_values.get(breakdown_by, [f"{breakdown_by}_{i}" for i in range(1, 50)])
 
         # Create weighted distribution (top items get more traffic)
         weights = [1.0 / (i + 1) for i in range(len(values))]
         total_weight = sum(weights)
 
-        results = []
-        for i, value in enumerate(values[:limit]):
+        # Generate all results first
+        all_results = []
+        for i, value in enumerate(values):
             weight = weights[i] / total_weight
 
             # Generate metrics for this breakdown item
-            item = {"breakdown_value": value}
+            item = {"value": value}
 
             for metric in metrics:
                 item[metric] = self._generate_breakdown_metric(metric, weight)
 
-            results.append(item)
+            all_results.append(item)
 
-        return {
+        # Apply pagination
+        total_count = len(all_results)
+        paginated_results = all_results[offset : offset + limit]
+
+        # Generate dummy pagination URLs
+        has_next = offset + limit < total_count
+        has_previous = offset > 0
+
+        data = {
             "breakdown_by": breakdown_by,
-            "results": results,
-            "has_more": len(values) > limit,
-            "total_count": len(values),
+            "count": total_count,
+            "next": f"/api/projects/{{project_id}}/external_web_analytics/breakdown/?offset={offset + limit}&limit={limit}"
+            if has_next
+            else None,
+            "previous": f"/api/projects/{{project_id}}/external_web_analytics/breakdown/?offset={max(0, offset - limit)}&limit={limit}"
+            if has_previous
+            else None,
+            "results": paginated_results,
         }
+
+        serializer = WebAnalyticsBreakdownResponseSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
 
     def _get_metric_value(self, metric: str, weekday_factor: float = 1.0) -> int:
         min_val, max_val = self.metric_ranges.get(metric, (100, 1000))
