@@ -212,13 +212,14 @@ class TaxonomyAgentToolkit:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        if entity not in self._entity_names:
+
+        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
-            )[:max_properties]
+            )
             props = self._enrich_props_with_descriptions("person", qs)
         elif entity == "session":
             # Session properties are not in the DB.
@@ -230,6 +231,7 @@ class TaxonomyAgentToolkit:
                     if prop.get("type") is not None
                 ],
             )
+
         else:
             group_type_index = next(
                 (group.group_type_index for group in self._groups if group.group_type == entity), None
@@ -376,9 +378,10 @@ class TaxonomyAgentToolkit:
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)
-
         if entity == "person":
             query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
+        elif entity == "event":
+            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=50)
         else:
             group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
             if group_index is None:
@@ -391,10 +394,12 @@ class TaxonomyAgentToolkit:
             if query.group_type_index is not None:
                 prop_type = PropertyDefinition.Type.GROUP
                 group_type_index = query.group_type_index
+            elif entity == "event":
+                prop_type = PropertyDefinition.Type.EVENT
+                group_type_index = None
             else:
                 prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
-
             property_definition = PropertyDefinition.objects.get(
                 team=self._team,
                 name=property_name,

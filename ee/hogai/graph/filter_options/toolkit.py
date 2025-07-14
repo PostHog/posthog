@@ -3,6 +3,7 @@ from functools import cached_property
 from typing import Union, Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool, RetrieveEntityPropertiesValuesTool
+from posthog.models.property_definition import PropertyDefinition
 
 
 class EntityType(str, Enum):
@@ -11,6 +12,7 @@ class EntityType(str, Enum):
     PERSON = "person"
     SESSION = "session"
     EVENT = "event"
+    ACTION = "action"
 
     @classmethod
     def values(cls) -> list[str]:
@@ -171,77 +173,27 @@ class FilterOptionsToolkit(TaxonomyAgentToolkit):
         result = {"properties": properties_by_type}
         return yaml.dump(result, default_flow_style=False, sort_keys=True)
 
-    # def retrieve_entity_properties(self, entity: str) -> str:
-    #     """
-    #     Use parent implementation but with custom error messages for better UX.
-    #     """
-    #     if entity not in self._entity_names:
-    #         return f"Entity '{entity}' does not exist. Available entities are: {', '.join(self._entity_names)}. Try one of these other entities."
+    def retrieve_entity_properties(self, entity: str) -> str:
+        """
+        Use parent implementation but with custom error messages for better UX.
+        """
+        MAX_PROPERTIES = 500
+        if entity not in self._entity_names:
+            return f"Entity '{entity}' does not exist. Available entities are: {', '.join(self._entity_names)}. Try one of these other entities."
 
-    #     # Use parent implementation
-    #     result = super().retrieve_entity_properties(entity)
+        if entity == EntityType.EVENT.value or entity == EntityType.ACTION.value:
+            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.EVENT).values_list(
+                "name", "property_type"
+            )[:MAX_PROPERTIES]
+            props = self._enrich_props_with_descriptions("event", qs)
+            if not props:
+                return f"Properties do not exist in the taxonomy for the entity {entity}. Try one of these other entities: {', '.join(self._entity_names)}."
 
-    #     # if "does not exist in the taxonomy" in result and entity in result:
-    #     #     if "Group" in result:
-    #     #         return f"Group {entity} does not exist in the taxonomy. Try one of these other groups: {', '.join([group.group_type for group in self._groups])}."
-    #     #     elif "Properties do not exist" in result:
-    #     #         return f"Properties do not exist in the taxonomy for the entity {entity}. Try one of these other entities: {', '.join(self._entity_names)}."
+            return self._generate_properties_output(props)
+        else:
+            result = super().retrieve_entity_properties(entity)
 
-    #     return result
-
-    # def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-    #     """
-    #     Override parent implementation with different logic for session properties and error messages.
-    #     """
-
-    #     if entity not in self._entity_names:
-    #         return f"The entity {entity} does not exist in the taxonomy. Try one of these entities: {', '.join(self._entity_names)}."
-
-    #     if entity == "person" or entity == "session":
-    #         query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=MAX_PROP_VALUES)
-    #     else:
-    #         group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
-    #         if group_index is None:
-    #             return f"The entity {entity} does not exist in the taxonomy."
-    #         query = ActorsPropertyTaxonomyQuery(
-    #             group_type_index=group_index, property=property_name, maxPropertyValues=MAX_PROP_VALUES
-    #         )
-
-    #     try:
-    #         if query.group_type_index is not None:
-    #             prop_type = PropertyDefinition.Type.GROUP
-    #             group_type_index = query.group_type_index
-    #         elif entity == "person":
-    #             prop_type = PropertyDefinition.Type.PERSON
-    #             group_type_index = None
-    #         elif entity == "session":
-    #             prop_type = PropertyDefinition.Type.SESSION
-    #             group_type_index = None
-
-    #         property_definition = PropertyDefinition.objects.get(
-    #             team=self._team,
-    #             name=property_name,
-    #             type=prop_type,
-    #             group_type_index=group_type_index,
-    #         )
-    #     except PropertyDefinition.DoesNotExist:
-    #         return f"The property {property_name} does not exist in the taxonomy for the entity {entity}. Try another property that is relevant to the user's question."
-
-    #     response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-    #         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-    #     )
-
-    #     if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
-    #         return f"The entity {entity} does not exist in the taxonomy."
-
-    #     if not response.results:
-    #         return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}. Use the value that the user has provided in the query."
-
-    #     return self._format_property_values(
-    #         response.results.sample_values,
-    #         response.results.sample_count,
-    #         format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
-    #     )
+        return result
 
     def handle_incorrect_response(self, response: BaseModel) -> str:
         """

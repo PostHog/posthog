@@ -243,10 +243,13 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ["final_answer", {"result": "filter", "data": {"filter_group": {}}}],
-            ["ask_user_for_help", {"request": "Need clarification"}],
-            ["retrieve_entity_property_values", {"entity": "person", "property_name": "name"}],
-            ["retrieve_entity_properties", {"entity": "person"}],
+            ["final_answer", {"name": "final_answer", "arguments": {"result": "filter", "data": {"filter_group": {}}}}],
+            ["ask_user_for_help", {"name": "ask_user_for_help", "arguments": {"request": "Need clarification"}}],
+            [
+                "retrieve_entity_property_values",
+                {"name": "retrieve_entity_property_values", "arguments": {"entity": "person", "property_name": "name"}},
+            ],
+            ["retrieve_entity_properties", {"name": "retrieve_entity_properties", "arguments": {"entity": "person"}}],
         ]
     )
     @patch("ee.hogai.graph.filter_options.nodes.FilterOptionsToolkit")
@@ -278,12 +281,12 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
         elif tool_name == "retrieve_entity_property_values":
             result = node.run(state, {})
             mock_toolkit.retrieve_entity_property_values.assert_called_once_with(
-                tool_args["entity"], tool_args["property_name"]
+                tool_args["arguments"]["entity"], tool_args["arguments"]["property_name"]
             )
             assert result.intermediate_steps is not None
             self.assertEqual(result.intermediate_steps[0][1], "All the property values")
         elif tool_name == "retrieve_entity_properties":
             result = node.run(state, {})
-            mock_toolkit.retrieve_entity_properties.assert_called_once_with(tool_args["entity"])
+            mock_toolkit.retrieve_entity_properties.assert_called_once_with(tool_args["arguments"]["entity"])
             assert result.intermediate_steps is not None
             self.assertEqual(result.intermediate_steps[0][1], "All the properties")
