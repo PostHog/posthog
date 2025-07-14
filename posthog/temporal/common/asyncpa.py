@@ -48,14 +48,17 @@ class AsyncMessageReader:
 
         await self.read_until(8 + metadata_size)
 
-        metadata_flatbuffer = self._buffer[8:][:metadata_size]
+        with memoryview(self._buffer) as buffer_view:
+            metadata_flatbuffer = buffer_view[8:][:metadata_size]
+            body_size = self.parse_body_size(metadata_flatbuffer)
 
-        body_size = self.parse_body_size(metadata_flatbuffer)
+        del metadata_flatbuffer
 
         total_message_size = 8 + metadata_size + body_size
         await self.read_until(total_message_size)
 
-        msg = pa.ipc.read_message(memoryview(self._buffer)[:total_message_size])
+        with memoryview(self._buffer) as buffer_view:
+            msg = pa.ipc.read_message(buffer_view[:total_message_size])
 
         self._buffer = self._buffer[total_message_size:]
 
@@ -67,7 +70,7 @@ class AsyncMessageReader:
             bytes = await anext(self._bytes)
             self._buffer.extend(bytes)
 
-    def parse_body_size(self, metadata_flatbuffer: bytearray) -> int:
+    def parse_body_size(self, metadata_flatbuffer: bytes | bytearray | memoryview) -> int:
         """Parse body size from metadata flatbuffer.
 
         See: https://github.com/dvidelabs/flatcc/blob/master/doc/binary-format.md#internals.
