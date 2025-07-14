@@ -5,7 +5,7 @@ import { TwilioSetupModal } from './TwilioSetup/TwilioSetupModal'
 
 interface ChannelSetupModalProps {
     isOpen: boolean
-    channelType: string | null
+    channelType: 'email' | 'slack' | 'twilio' | null
     integration: IntegrationType | undefined
     onComplete: () => void
 }
