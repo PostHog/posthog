@@ -42,7 +42,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         icon: <IconTrash />,
                         status: 'danger',
                         disabledReason:
-                            !!notebook?.user_access_level &&
+                            !notebook?.user_access_level ||
                             !accessLevelSatisfied(
                                 AccessControlResourceType.Notebook,
                                 notebook.user_access_level,
