@@ -23,7 +23,7 @@ export class CdpCyclotronWorkerSegment extends CdpCyclotronWorker {
         return await Promise.all(
             loadedInvocations.map((item) =>
                 this.runInstrumented(
-                    'handleEachBatch.executePluginInvocation',
+                    'handleEachBatch.executeSegmentInvocation',
                     async () => await this.segmentPluginExecutor.execute(item)
                 )
             )
