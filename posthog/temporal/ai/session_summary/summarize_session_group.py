@@ -23,6 +23,7 @@ from ee.session_recordings.session_summary.summarize_session import (
 from posthog import constants
 from posthog.models.team.team import Team
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
@@ -55,6 +56,123 @@ logger = structlog.get_logger(__name__)
 
 
 @temporalio.activity.defn
+async def fetch_session_batch_events_activity(
+    inputs: SessionGroupSummaryInputs,
+) -> None:
+    """Fetch batch events for multiple sessions using query runner and store per-session data in Redis"""
+    redis_client = get_async_client()
+    # Check which sessions already have cached data
+    sessions_to_fetch = []
+    for session_id in inputs.session_ids:
+        session_data_key = generate_state_key(
+            key_base=inputs.redis_key_base,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=session_id,
+        )
+        try:
+            # Check if data for this session is already cached
+            await get_data_class_from_redis(
+                redis_client=redis_client,
+                redis_key=session_data_key,
+                label=StateActivitiesEnum.SESSION_DB_DATA,
+                target_class=SingleSessionSummaryLlmInputs,
+            )
+        except ValueError:
+            # Session data not cached, need to fetch
+            sessions_to_fetch.append(session_id)
+    # If all sessions already cached
+    if not sessions_to_fetch:
+        return None
+    # Fetch metadata for all sessions at once
+    # TODO: Decide if we need a query runner for this (as a follow-up)
+    metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata)(
+        session_ids=sessions_to_fetch,
+        team_id=inputs.team_id,
+        recording_start_time=inputs.min_timestamp,
+    )
+    # Fetch events for all uncached sessions
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    all_session_events = {}  # session_id -> list of events
+    columns = None
+    offset = 0
+    page_size = DEFAULT_TOTAL_EVENTS_PER_QUERY
+    # Paginate
+    while True:
+        # Get DB data
+        query = create_session_batch_events_query(
+            session_ids=sessions_to_fetch,
+            after=inputs.min_timestamp.isoformat(),
+            before=inputs.max_timestamp.isoformat(),
+            max_total_events=page_size,
+            offset=offset,
+        )
+        runner = SessionBatchEventsQueryRunner(query=query, team=team)
+        response = await database_sync_to_async(runner.run)()
+        # Store columns from first response (should be the same for all sessions)
+        if columns is None:
+            columns = response.columns
+        # Accumulate events for each session
+        if response.session_events:
+            for session_item in response.session_events:
+                session_id = session_item.session_id
+                if session_id not in all_session_events:
+                    all_session_events[session_id] = []
+                all_session_events[session_id].extend(session_item.events)
+        # Check if we have more pages
+        if not hasattr(response, "hasMore") or not response.hasMore:
+            break
+        offset += page_size
+    # Store all per-session DB data in Redis
+    for session_id in sessions_to_fetch:
+        session_events = all_session_events.get(session_id)
+        if not session_events:
+            temporalio.activity.logger.exception(
+                f"No events found for session {session_id} in team {inputs.team_id} "
+                f"when fetching batch events for group summary"
+            )
+            continue
+        session_metadata = metadata_dict.get(session_id)
+        if not session_metadata:
+            temporalio.activity.logger.exception(
+                f"No metadata found for session {session_id} in team {inputs.team_id} "
+                f"when fetching batch events for group summary"
+            )
+            continue
+        # Prepare the data to be used by the next activity
+        session_db_data = SessionSummaryDBData(
+            session_metadata=session_metadata, session_events_columns=columns, session_events=session_events
+        )
+        summary_data = await prepare_data_for_single_session_summary(
+            session_id=session_id,
+            user_id=inputs.user_id,
+            session_db_data=session_db_data,
+            extra_summary_context=inputs.extra_summary_context,
+        )
+        if summary_data.error_msg is not None:
+            # Skip sessions with errors (no events)
+            continue
+        input_data = prepare_single_session_summary_input(
+            session_id=session_id,
+            user_id=inputs.user_id,
+            summary_data=summary_data,
+        )
+        # Store the input data in Redis
+        session_data_key = generate_state_key(
+            key_base=inputs.redis_key_base,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+            state_id=session_id,
+        )
+        input_data_str = json.dumps(dataclasses.asdict(input_data))
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=session_data_key,
+            data=input_data_str,
+        )
+    # Returning nothing as the data is stored in Redis
+    return None
+
+
+@temporalio.activity.defn
 async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
 ) -> None:
@@ -84,7 +202,6 @@ async def get_llm_single_session_summary_activity(
                 target_class=SingleSessionSummaryLlmInputs,
             ),
         )
-
         # Get summary from LLM
         session_summary_str = await get_llm_single_session_summary(
             session_id=llm_input.session_id,
@@ -106,149 +223,6 @@ async def get_llm_single_session_summary_activity(
         )
         # Store the generated summary in Redis
         await store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=session_summary_str)
-    # Returning nothing as the data is stored in Redis
-    return None
-
-
-@temporalio.activity.defn
-async def fetch_session_batch_events_activity(
-    inputs: SessionGroupSummaryInputs,
-) -> None:
-    """Fetch batch events for multiple sessions using SessionBatchEventsQueryRunner and store per-session in Redis like fetch_session_data_activity"""
-    from posthog.session_recordings.models.metadata import RecordingMetadata
-    
-    redis_client = get_async_client()
-    
-    # Check which sessions already have cached data
-    sessions_to_fetch = []
-    for session_id in inputs.session_ids:
-        session_data_key = generate_state_key(
-            key_base=inputs.redis_key_base,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            state_id=session_id,
-        )
-        try:
-            # Check if data for this session is already cached
-            await get_data_class_from_redis(
-                redis_client=redis_client,
-                redis_key=session_data_key,
-                label=StateActivitiesEnum.SESSION_DB_DATA,
-                target_class=SingleSessionSummaryLlmInputs,
-            )
-        except ValueError:
-            # Session data not cached, need to fetch
-            sessions_to_fetch.append(session_id)
-    
-    if not sessions_to_fetch:
-        # All sessions already cached
-        return None
-    
-    # Fetch events for uncached sessions using pagination
-    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
-    
-    # Collect all events for all sessions through pagination
-    all_session_events = {}  # session_id -> list of events
-    columns = None
-    offset = 0
-    page_size = DEFAULT_TOTAL_EVENTS_PER_QUERY
-    
-    while True:
-        # Create query for current page
-        query = create_session_batch_events_query(
-            session_ids=sessions_to_fetch,
-            after=inputs.min_timestamp.isoformat(),
-            before=inputs.max_timestamp.isoformat(),
-            max_total_events=page_size,
-            offset=offset,
-        )
-        
-        # Execute the query
-        runner = SessionBatchEventsQueryRunner(query=query, team=team)
-        response = await database_sync_to_async(runner.calculate)()
-        
-        # Store columns from first response
-        if columns is None:
-            columns = response.columns
-        
-        # Accumulate events for each session
-        if response.session_events:
-            for session_item in response.session_events:
-                session_id = session_item.session_id
-                if session_id not in all_session_events:
-                    all_session_events[session_id] = []
-                all_session_events[session_id].extend(session_item.events)
-        
-        # Check if we have more pages
-        if not hasattr(response, 'hasMore') or not response.hasMore:
-            break
-        
-        offset += page_size
-    
-    # Process each session's events and store them like fetch_session_data_activity does
-    for session_id in sessions_to_fetch:
-        # Get events for this session
-        session_events = all_session_events.get(session_id, [])
-        
-        # Create mock metadata (we don't have real metadata from batch query)
-        mock_metadata = RecordingMetadata(
-            distinct_id="",
-            start_time=inputs.min_timestamp,
-            end_time=inputs.max_timestamp,
-            duration=int((inputs.max_timestamp - inputs.min_timestamp).total_seconds()),
-            first_url="",
-            click_count=0,
-            keypress_count=0,
-            mouse_activity_count=0,
-            active_seconds=0,
-            console_log_count=0,
-            console_warn_count=0,
-            console_error_count=0,
-            snapshot_source="web",
-            block_first_timestamps=[],
-            block_last_timestamps=[],
-            block_urls=[],
-        )
-        
-        # Create SessionSummaryDBData from batch events
-        session_db_data = SessionSummaryDBData(
-            session_metadata=mock_metadata,
-            session_events_columns=columns,
-            session_events=session_events if session_events else None,
-        )
-        
-        # Use the same functions as fetch_session_data_activity
-        summary_data = await prepare_data_for_single_session_summary(
-            session_id=session_id,
-            user_id=inputs.user_id,
-            session_db_data=session_db_data,
-            extra_summary_context=inputs.extra_summary_context,
-        )
-        
-        if summary_data.error_msg is not None:
-            # Skip sessions with errors (no events)
-            continue
-        
-        # Prepare the LLM input data
-        input_data = prepare_single_session_summary_input(
-            session_id=session_id,
-            user_id=inputs.user_id,
-            summary_data=summary_data,
-        )
-        
-        # Store the input data in Redis (same as fetch_session_data_activity)
-        session_data_key = generate_state_key(
-            key_base=inputs.redis_key_base,
-            label=StateActivitiesEnum.SESSION_DB_DATA,
-            state_id=session_id,
-        )
-        
-        input_data_str = json.dumps(dataclasses.asdict(input_data))
-        await store_data_in_redis(
-            redis_client=redis_client,
-            redis_key=session_data_key,
-            data=input_data_str,
-        )
-    
     # Returning nothing as the data is stored in Redis
     return None
 
