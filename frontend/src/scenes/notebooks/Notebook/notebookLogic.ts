@@ -462,9 +462,9 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.showTableOfContents, s.containerSize],
-            (editingNodeId, showHistory, showTableOfContents, containerSize) => {
-                return showHistory || showTableOfContents || (!!editingNodeId && containerSize !== 'small')
+            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
+            (editingNodeId, showHistory, containerSize) => {
+                return showHistory || (!!editingNodeId && containerSize !== 'small')
             },
         ],
 
