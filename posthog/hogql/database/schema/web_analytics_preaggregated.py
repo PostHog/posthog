@@ -31,7 +31,6 @@ UTM_FIELDS = {
     "referring_domain": StringDatabaseField(name="referring_domain", nullable=True),
 }
 
-# Attribution fields for channel type calculation (minimal set)
 ATTRIBUTION_FIELDS = {
     "has_gclid": BooleanDatabaseField(name="has_gclid", nullable=True),
     "has_gad_source_paid_search": BooleanDatabaseField(name="has_gad_source_paid_search", nullable=True),
