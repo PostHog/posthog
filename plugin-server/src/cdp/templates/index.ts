@@ -1,9 +1,10 @@
 import { DESTINATION_PLUGINS, TRANSFORMATION_PLUGINS } from '../legacy-plugins'
 import { SEGMENT_DESTINATIONS } from '../segment/segment-templates'
-import { HogFunctionTemplate } from '../types'
+import { HogFunctionTemplate, NativeTemplate } from '../types'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as googleAdsTemplate } from './_destinations/google_ads/google.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
+import { template as nativeWebhook } from './_destinations/native-webhook/webhook.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
@@ -20,10 +21,6 @@ import { template as piiHashingTemplate } from './_transformations/pii-hashing/p
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
-import { template as nativeEmailTemplate } from './_workflow_actions/email/native-email.template'
-import { template as slackMessageTemplate } from './_workflow_actions/message/slack-message.template'
-import { template as twilioSmsTemplate } from './_workflow_actions/sms/twilio-sms.template'
-import { template as nativeWebhookTemplate } from './_workflow_actions/webhook/native-webhook.template'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
@@ -50,6 +47,21 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
+export const NATIVE_HOG_FUNCTIONS: NativeTemplate[] = [nativeWebhook].map((plugin) => ({
+    ...plugin,
+    hog: 'return event;',
+    inputs_schema: [
+        ...plugin.inputs_schema,
+        {
+            key: 'debug_mode',
+            label: 'Debug Mode',
+            type: 'boolean',
+            description: 'Will log configuration and request details',
+            default: false,
+        },
+    ],
+}))
+
 export const HOG_FUNCTION_TEMPLATES_SOURCES: HogFunctionTemplate[] = [incomingWebhookTemplate]
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = DESTINATION_PLUGINS.map(
@@ -64,12 +76,10 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     (x) => x.template
 )
 
-export const HOG_FUNCTION_TEMPLATES_HOGFLOW_ACTIONS: HogFunctionTemplate[] = [
-    nativeEmailTemplate,
-    twilioSmsTemplate,
-    slackMessageTemplate,
-    nativeWebhookTemplate,
-]
+export const NATIVE_HOG_FUNCTIONS_BY_ID = NATIVE_HOG_FUNCTIONS.reduce((acc, plugin) => {
+    acc[plugin.id] = plugin
+    return acc
+}, {} as Record<string, NativeTemplate>)
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
@@ -79,5 +89,5 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
-    ...HOG_FUNCTION_TEMPLATES_HOGFLOW_ACTIONS,
+    ...(NATIVE_HOG_FUNCTIONS as unknown as HogFunctionTemplate[]),
 ]

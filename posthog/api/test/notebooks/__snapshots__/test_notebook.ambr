@@ -76,6 +76,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -289,6 +291,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -471,6 +475,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -675,6 +681,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -853,62 +861,6 @@
   '''
 # ---
 # name: TestNotebooks.test_updates_notebook.27
-  '''
-  SELECT "posthog_activitylog"."id",
-         "posthog_activitylog"."team_id",
-         "posthog_activitylog"."organization_id",
-         "posthog_activitylog"."user_id",
-         "posthog_activitylog"."was_impersonated",
-         "posthog_activitylog"."is_system",
-         "posthog_activitylog"."activity",
-         "posthog_activitylog"."item_id",
-         "posthog_activitylog"."scope",
-         "posthog_activitylog"."detail",
-         "posthog_activitylog"."created_at",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
-  FROM "posthog_activitylog"
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_activitylog"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 99999)
-  ORDER BY "posthog_activitylog"."created_at" DESC
-  LIMIT 2
-  '''
-# ---
-# name: TestNotebooks.test_updates_notebook.28
-  '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_activitylog"
-  WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 99999)
-  '''
-# ---
-# name: TestNotebooks.test_updates_notebook.29
   '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
@@ -1179,6 +1131,8 @@
          "posthog_team"."surveys_opt_in",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."flags_persistence_default",
+         "posthog_team"."feature_flag_confirmation_enabled",
+         "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",

@@ -23,7 +23,6 @@ import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { PersonsManagerService } from '../managers/persons-manager.service'
 import { HogFlowExecutorService } from './hogflow-executor.service'
 
 const cleanLogs = (logs: string[]): string[] => {
@@ -51,7 +50,6 @@ describe('Hogflow Executor', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        const personManager = new PersonsManagerService(hub)
         const hogExecutor = new HogExecutorService(hub)
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
 
@@ -94,7 +92,7 @@ describe('Hogflow Executor', () => {
             bytecode: await compileHog(exampleHogMultiFetch),
         })
 
-        executor = new HogFlowExecutorService(hub, personManager, hogExecutor, hogFunctionTemplateManager)
+        executor = new HogFlowExecutorService(hub, hogExecutor, hogFunctionTemplateManager)
     })
 
     describe('general event processing', () => {
@@ -182,6 +180,15 @@ describe('Hogflow Executor', () => {
                     id: expect.any(String),
                     teamId: 1,
                     hogFlow: invocation.hogFlow,
+                    person: {
+                        id: 'person_id',
+                        name: '',
+                        properties: {
+                            name: 'John Doe',
+                        },
+                        url: '',
+                    },
+                    filterGlobals: expect.any(Object),
                     functionId: invocation.hogFlow.id,
                     queue: 'hogflow',
                     queueMetadata: undefined,
@@ -256,24 +263,24 @@ describe('Hogflow Executor', () => {
             const result = await executor.execute(invocation)
 
             expect(result.finished).toEqual(false)
-            expect(result.invocation.state.hogFunctionState).toEqual(expect.any(Object))
+            expect(result.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
-                  "Workflow will pause until 2025-01-01T00:00:00.000+00:00",
+                  "Workflow will pause until 2025-01-01T00:00:00.000Z",
                 ]
             `)
 
             const result2 = await executor.execute(result.invocation)
 
             expect(result2.finished).toEqual(false)
-            expect(result2.invocation.state.hogFunctionState).toEqual(expect.any(Object))
+            expect(result2.invocation.state.currentAction!.hogFunctionState).toEqual(expect.any(Object))
             expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "[Action:function_id_1] Fetch 2, 200",
-                  "Workflow will pause until 2025-01-01T00:00:00.000+00:00",
+                  "Workflow will pause until 2025-01-01T00:00:00.000Z",
                 ]
             `)
 

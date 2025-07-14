@@ -12,14 +12,6 @@ const _commonActionFields = {
     filters: z.any(), // TODO: Correct to the right type
 }
 
-const CyclotronInputSchema = z.object({
-    value: z.any(),
-    templating: z.enum(['hog', 'liquid']).optional(),
-    secret: z.boolean().optional(),
-    bytecode: z.any().optional(),
-    order: z.number().optional(),
-})
-
 const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({

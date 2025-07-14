@@ -1,56 +1,123 @@
+import { DateTime } from 'luxon'
+
+import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { Hub, Person, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+import { UUIDT } from '~/utils/utils'
+
 import { PersonsManagerService } from './persons-manager.service'
 
-describe('PersonsManagerService', () => {
-    let personsManager: PersonsManagerService
-    let mockHub: any
-    let fetchPersonMock: jest.Mock
+describe('PersonsManager', () => {
+    let hub: Hub
+    let manager: PersonsManagerService
+    let team: Team
+    let team2: Team
+    let persons: Person[] = []
 
-    const TEAM_ID = 1
-    const DISTINCT_ID = 'abc123'
-    const PERSON_DATA = { id: DISTINCT_ID, properties: { foo: 'bar' } }
+    beforeEach(async () => {
+        hub = await createHub()
+        await resetTestDatabase()
+        manager = new PersonsManagerService(hub)
+        team = await getFirstTeam(hub)
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        team2 = (await getTeam(hub, team2Id))!
 
-    beforeEach(() => {
-        fetchPersonMock = jest.fn()
-        mockHub = {
-            db: {
-                fetchPerson: fetchPersonMock,
+        const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+        const uuid = new UUIDT().toString()
+        const [person1] = await hub.db.createPerson(TIMESTAMP, { foo: '1' }, {}, {}, team.id, null, true, uuid, [
+            { distinctId: 'distinct_id_A_1' },
+            { distinctId: 'distinct_id_A_2' },
+            { distinctId: 'distinct_id_A_3' },
+        ])
+        const [person2] = await hub.db.createPerson(TIMESTAMP, { foo: '2' }, {}, {}, team.id, null, true, uuid, [
+            { distinctId: 'distinct_id_B_1' },
+        ])
+        const [person3] = await hub.db.createPerson(TIMESTAMP, { foo: '3' }, {}, {}, team2.id, null, true, uuid, [
+            { distinctId: 'distinct_id_A_1' },
+        ])
+
+        persons = [person1, person2, person3]
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
+    })
+
+    it('returns the persons requested', async () => {
+        const res = await Promise.all([
+            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
+            manager.get({ teamId: team.id, distinctId: 'distinct_id_B_1' }),
+        ])
+
+        expect(res).toEqual([
+            {
+                distinct_id: 'distinct_id_A_1',
+                id: persons[0].uuid,
+                properties: {
+                    foo: '1',
+                },
+                team_id: team.id,
             },
-        }
-        personsManager = new PersonsManagerService(mockHub)
+            {
+                distinct_id: 'distinct_id_B_1',
+                id: persons[1].uuid,
+                properties: {
+                    foo: '2',
+                },
+                team_id: team.id,
+            },
+        ])
     })
 
-    it('should load person properties and cache them', async () => {
-        fetchPersonMock.mockResolvedValue(PERSON_DATA)
-        const person = await personsManager.getPerson(TEAM_ID, DISTINCT_ID)
-        expect(person).toEqual(PERSON_DATA)
-        // Should be cached
-        expect(personsManager['personsCache'].get(DISTINCT_ID)).toEqual(PERSON_DATA)
+    it('returns the different persons for different teams', async () => {
+        const res = await Promise.all([
+            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
+            manager.get({ teamId: team2.id, distinctId: 'distinct_id_A_1' }),
+        ])
+
+        expect(res).toEqual([
+            {
+                distinct_id: 'distinct_id_A_1',
+                id: persons[0].uuid,
+                properties: {
+                    foo: '1',
+                },
+                team_id: team.id,
+            },
+            {
+                distinct_id: 'distinct_id_A_1',
+                id: persons[2].uuid,
+                properties: {
+                    foo: '3',
+                },
+                team_id: team2.id,
+            },
+        ])
     })
 
-    it('should return cached properties without querying the database', async () => {
-        personsManager['personsCache'].set(DISTINCT_ID, PERSON_DATA)
-        const person = await personsManager.getPerson(TEAM_ID, DISTINCT_ID)
-        expect(person).toEqual(PERSON_DATA)
-        expect(fetchPersonMock).not.toHaveBeenCalled()
-    })
+    it('returns the same person for different distinct ids', async () => {
+        const res = await Promise.all([
+            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_1' }),
+            manager.get({ teamId: team.id, distinctId: 'distinct_id_A_2' }),
+        ])
 
-    it('fetches person properties if not cached', async () => {
-        fetchPersonMock.mockResolvedValue(PERSON_DATA)
-        const result = await personsManager.getPerson(TEAM_ID, DISTINCT_ID)
-        expect(result).toEqual(PERSON_DATA)
-        expect(fetchPersonMock).toHaveBeenCalledWith(TEAM_ID, DISTINCT_ID)
-    })
-
-    it('throws if person is not found', async () => {
-        fetchPersonMock.mockResolvedValue(null)
-        await expect(personsManager.getPerson(TEAM_ID, DISTINCT_ID)).rejects.toThrow(
-            `Person not found for team ${TEAM_ID} and distinctId ${DISTINCT_ID}`
-        )
-    })
-
-    it('returns empty object if person object has no properties', async () => {
-        fetchPersonMock.mockResolvedValue({ id: DISTINCT_ID })
-        const result = await personsManager.getPerson(TEAM_ID, DISTINCT_ID)
-        expect(result).toEqual({ id: DISTINCT_ID, properties: {} })
+        expect(res).toEqual([
+            {
+                distinct_id: 'distinct_id_A_1',
+                id: persons[0].uuid,
+                properties: {
+                    foo: '1',
+                },
+                team_id: team.id,
+            },
+            {
+                distinct_id: 'distinct_id_A_2',
+                id: persons[0].uuid,
+                properties: {
+                    foo: '1',
+                },
+                team_id: team.id,
+            },
+        ])
     })
 })
