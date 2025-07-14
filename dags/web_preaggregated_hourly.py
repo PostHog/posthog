@@ -11,7 +11,6 @@ from dags.web_preaggregated_utils import (
     WEB_ANALYTICS_CONFIG_SCHEMA,
     web_analytics_retry_policy_def,
 )
-from clickhouse_driver import Client
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
 
@@ -32,20 +31,9 @@ WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
 }
 
 
-def verify_table_empty_on_all_hosts(cluster: ClickhouseCluster, table_name: str) -> None:
-    def check_table_empty(client: Client) -> bool:
-        result = client.execute(f"SELECT count() FROM {table_name}")
-        return result[0][0] == 0
-
-    verification_results = cluster.map_all_hosts(check_table_empty).result()
-    if not all(verification_results.values()):
-        failed_hosts = [host for host, is_empty in verification_results.items() if not is_empty]
-        raise Exception(f"Table {table_name} is not empty on hosts: {failed_hosts}")
-
-
-def truncate_and_verify_table_is_empty(cluster: ClickhouseCluster, table_name: str) -> None:
-    cluster.map_all_hosts(lambda client: client.execute(f"TRUNCATE TABLE {table_name} SYNC")).result()
-    verify_table_empty_on_all_hosts(cluster, table_name)
+def truncate_table(cluster: ClickhouseCluster, table_name: str) -> None:
+    """Truncate table on any host with SYNC and let ClickHouse handle the cluster-wide operation."""
+    cluster.any_host(lambda client: client.execute(f"TRUNCATE TABLE {table_name} SYNC")).result()
 
 
 def pre_aggregate_web_analytics_hourly_data(
@@ -82,7 +70,7 @@ def pre_aggregate_web_analytics_hourly_data(
     )
 
     context.log.info(f"Truncating staging table {staging_table_name}")
-    truncate_and_verify_table_is_empty(cluster, staging_table_name)
+    truncate_table(cluster, staging_table_name)
 
     # We intentionally log the query to make it easier to debug using the UI
     context.log.info(f"Processing hourly data from {date_start} to {date_end}")
@@ -92,7 +80,7 @@ def pre_aggregate_web_analytics_hourly_data(
     sync_execute(insert_query)
 
     context.log.info(f"Truncating main table {table_name}")
-    truncate_and_verify_table_is_empty(cluster, table_name)
+    truncate_table(cluster, table_name)
 
     context.log.info(f"Swapping data from {staging_table_name} to {table_name}")
     sync_execute(f"INSERT INTO {table_name} SELECT * FROM {staging_table_name}")
