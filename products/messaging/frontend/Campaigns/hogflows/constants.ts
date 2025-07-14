@@ -1,5 +1,4 @@
-// Keep in sync with Nodes.tsx -> BaseNode styling
-export const NODE_WIDTH = 100
+export const NODE_WIDTH = 110
 export const NODE_HEIGHT = 34
 
 export const NODE_GAP = 50

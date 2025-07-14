@@ -1,1 +1,1 @@
-0786_add_is_emoji_to_annotation
+0792_alter_proxyrecord_status

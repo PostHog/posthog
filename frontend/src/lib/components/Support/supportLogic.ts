@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -147,6 +146,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'platform_addons',
+                'data-attr': `support-form-target-area-platform_addons`,
+                label: 'Platform addons',
+            },
+            {
                 value: 'sdk',
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
@@ -274,6 +278,7 @@ export type SupportTicketTargetArea =
     | 'data_ingestion'
     | 'batch_exports'
     | 'messaging'
+    | 'platform_addons'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -314,6 +319,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     source: 'data_warehouse',
     sources: 'data_warehouse',
     messaging: 'messaging',
+    billing: 'billing',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -369,6 +375,8 @@ export const supportLogic = kea<supportLogicType>([
             ['hasAvailableFeature'],
             billingLogic,
             ['billing'],
+            organizationLogic,
+            ['isCurrentOrganizationNew'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -513,15 +521,13 @@ export const supportLogic = kea<supportLogicType>([
 
             const billing = billingLogic.values.billing
             const billingPlan = billingLogic.values.billingPlan
-            const currentOrganization = organizationLogic.values.currentOrganization
 
             let planLevelTag = 'plan_free'
 
             const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
             const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
 
-            const orgCreatedAt = currentOrganization?.created_at
-            const isNewOrganization = orgCreatedAt && dayjs().diff(dayjs(orgCreatedAt), 'month') < 3
+            const isNewOrganization = values.isCurrentOrganizationNew
 
             const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
             const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'

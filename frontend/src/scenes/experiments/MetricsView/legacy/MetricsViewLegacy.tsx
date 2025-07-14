@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
 import { EXPERIMENT_MAX_PRIMARY_METRICS, EXPERIMENT_MAX_SECONDARY_METRICS } from '../../constants'
-import { credibleIntervalForVariant } from '../../experimentCalculations'
+import { credibleIntervalForVariant } from '../../legacyExperimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
 import { AddPrimaryMetric, AddSecondaryMetric } from '../shared/AddMetric'
 import { getNiceTickValues } from '../shared/utils'

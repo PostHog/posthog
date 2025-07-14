@@ -7,13 +7,12 @@ import { logger } from '../../utils/logger'
 import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
-import { Response } from '../templates/types'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
 import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
-const pluginExecutionDuration = new Histogram({
+const nativeDestinationExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',
     help: 'Processing time and success status of native plugins',
     // We have a timeout so we don't need to worry about much more than that
@@ -226,7 +225,7 @@ export class NativeDestinationExecutorService {
 
             addLog('info', `Function completed in ${performance.now() - start}ms.`)
 
-            pluginExecutionDuration.observe(performance.now() - start)
+            nativeDestinationExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof FetchError) {
                 if (retriesPossible) {

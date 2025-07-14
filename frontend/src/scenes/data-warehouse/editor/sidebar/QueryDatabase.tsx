@@ -206,8 +206,9 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                 if (item.record?.type === 'column') {
                     if (
                         isJoined(item.record.field) &&
-                        joinsByFieldName[item.record.columnName] &&
-                        joinsByFieldName[item.record.columnName].source_table_name === item.record.table
+                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`] &&
+                        joinsByFieldName[`${item.record.table}.${item.record.columnName}`].source_table_name ===
+                            item.record.table
                     ) {
                         return (
                             <DropdownMenuGroup>
@@ -216,7 +217,9 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         if (item.record?.columnName) {
-                                            toggleEditJoinModal(joinsByFieldName[item.record.columnName])
+                                            toggleEditJoinModal(
+                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
+                                            )
                                         }
                                     }}
                                 >
@@ -227,7 +230,8 @@ export const QueryDatabaseTreeView = (): JSX.Element => {
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         if (item.record?.columnName) {
-                                            const join = joinsByFieldName[item.record.columnName]
+                                            const join =
+                                                joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
                                             void deleteWithUndo({
                                                 endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
                                                 object: {
