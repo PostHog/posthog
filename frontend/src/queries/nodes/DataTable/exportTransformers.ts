@@ -5,7 +5,8 @@ import { isEventsQuery } from '~/queries/utils'
 const PERSON_COLUMN = 'person'
 
 /**
- * Replaces the person column with the email column for performance reasons
+ /**
+ * Replaces the person column with a coalesce expression using personDisplayNameProperties for performance reasons
  */
 export function transformColumnsForExport(columns: string[], personDisplayNameProperties: string[]): string[] {
     const props = personDisplayNameProperties.map((key) => `person.properties.${key}`)
