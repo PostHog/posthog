@@ -10,6 +10,7 @@ from django.conf import settings
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import Product
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
@@ -298,7 +299,8 @@ async def _get_query(
     tags.team_id = team_id
     with suppress(Exception):
         tags.batch_export_id = uuid.UUID(batch_export_id)
-    tags.kind = "batch_export"
+    tags.product = Product.BATCH_EXPORT
+    tags.query_type = "batch_export"
     parameters["log_comment"] = tags.to_json()
 
     parameters = {**parameters, **extra_query_parameters}
