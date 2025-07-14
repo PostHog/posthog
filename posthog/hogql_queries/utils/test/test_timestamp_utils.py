@@ -25,7 +25,6 @@ class TestTimestampUtils(APIBaseTest):
         series = [
             EventsNode(event="$pageview"),
         ]
-
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
 
         self.assertEqual(earliest_timestamp, datetime.datetime(2021, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
