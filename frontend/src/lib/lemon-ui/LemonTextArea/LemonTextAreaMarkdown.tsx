@@ -74,7 +74,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                                     </Tooltip>
                                                 ) : (
                                                     <Tooltip title="Enable object storage to add images by dragging and dropping">
-                                                        <div className="rounded bg-fill-button-tertiary-hover px-1 py-0.5">
+                                                        <div className="rounded px-1 py-0.5">
                                                             {' '}
                                                             <IconUploadFile className="text-xl" />
                                                         </div>
