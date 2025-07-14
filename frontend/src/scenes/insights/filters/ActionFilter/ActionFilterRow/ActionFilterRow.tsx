@@ -723,7 +723,7 @@ function useMathSelectorOptions({
         staticActorsOnlyMathDefinitions,
         calendarHeatmapMathDefinitions,
         aggregationLabel,
-        uniqueGroupsMathDefinitions,
+        groupsMathDefinitions,
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
@@ -737,7 +737,7 @@ function useMathSelectorOptions({
     const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(() => {
         if (math === 'unique_group' && mathGroupTypeIndex !== undefined) {
             const groupKey = `unique_group::${mathGroupTypeIndex}`
-            const groupDef = uniqueGroupsMathDefinitions[groupKey]
+            const groupDef = groupsMathDefinitions[groupKey]
             return groupDef ? groupKey : 'users'
         }
         return 'users'
@@ -759,11 +759,6 @@ function useMathSelectorOptions({
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
                 return !TRAILING_MATH_TYPES.has(mathTypeKey)
-            }
-
-            if (key.startsWith('unique_group::')) {
-                // Remove unique group options, as they're being grouped with DAU
-                return false
             }
 
             if (allowedMathTypes) {
@@ -899,7 +894,7 @@ function useMathSelectorOptions({
                 label: 'users',
                 'data-attr': `math-users-${index}`,
             },
-            ...Object.entries(uniqueGroupsMathDefinitions).map(([key, definition]) => ({
+            ...Object.entries(groupsMathDefinitions).map(([key, definition]) => ({
                 value: key,
                 label: definition.shortName,
                 'data-attr': `math-${key}-${index}`,
@@ -915,7 +910,7 @@ function useMathSelectorOptions({
             const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
             const tooltip = isDau
                 ? options[uniqueUsersIndex].tooltip
-                : uniqueGroupsMathDefinitions[uniqueActorsShown].description
+                : groupsMathDefinitions[uniqueActorsShown].description
             options[uniqueUsersIndex] = {
                 value,
                 label,

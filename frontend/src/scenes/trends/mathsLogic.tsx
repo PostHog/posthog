@@ -469,16 +469,7 @@ export const mathsLogic = kea<mathsLogicType>([
             },
         ],
         // Static means the options do not have nested selectors (like math function)
-        staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
-            (groupsMathDefinitions, needsUpgradeForGroups): Partial<Record<MathType, MathDefinition>> => {
-                const staticMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
-                    ...BASE_MATH_DEFINITIONS,
-                    ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
-                }
-                return staticMathDefinitions
-            },
-        ],
+        staticMathDefinitions: [() => [], (): Partial<Record<MathType, MathDefinition>> => BASE_MATH_DEFINITIONS],
         staticActorsOnlyMathDefinitions: [
             (s) => [s.staticMathDefinitions],
             (staticMathDefinitions): Partial<Record<MathType, MathDefinition>> => {
@@ -489,35 +480,6 @@ export const mathsLogic = kea<mathsLogicType>([
                 ) as Partial<Record<MathType, MathDefinition>>
             },
         ],
-        uniqueGroupsMathDefinitions: [
-            (s) => [s.groupTypes, s.aggregationLabel],
-            (groupTypes, aggregationLabel): Partial<Record<MathType, MathDefinition>> =>
-                Object.fromEntries(
-                    Array.from(groupTypes.values())
-                        .map((groupType) => [
-                            apiValueToMathType('unique_group', groupType.group_type_index),
-                            {
-                                name: `${aggregationLabel(groupType.group_type_index).plural}`,
-                                shortName: `${aggregationLabel(groupType.group_type_index).plural}`,
-                                description: (
-                                    <>
-                                        Number of unique {aggregationLabel(groupType.group_type_index).plural} who
-                                        performed the event in the specified period.
-                                        <br />
-                                        <br />
-                                        <i>
-                                            Example: If 7 users in a single $
-                                            {aggregationLabel(groupType.group_type_index).singular} perform an event 9
-                                            times in the given period, it counts only as 1.
-                                        </i>
-                                    </>
-                                ),
-                                category: MathCategory.ActorCount,
-                            } as MathDefinition,
-                        ])
-                        .filter(Boolean)
-                ),
-        ],
         // Definitions based on group types present in the project
         groupsMathDefinitions: [
             (s) => [s.groupTypes, s.aggregationLabel],
@@ -527,8 +489,8 @@ export const mathsLogic = kea<mathsLogicType>([
                         .map((groupType) => [
                             apiValueToMathType('unique_group', groupType.group_type_index),
                             {
-                                name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
-                                shortName: `unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                                name: `${aggregationLabel(groupType.group_type_index).plural}`,
+                                shortName: `${aggregationLabel(groupType.group_type_index).plural}`,
                                 description: (
                                     <>
                                         Number of unique {aggregationLabel(groupType.group_type_index).plural} who
