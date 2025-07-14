@@ -43,11 +43,11 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
     actions({
         addRule: true,
         startReorderingRules: true,
-        finishReorderingRules: true,
         cancelReorderingRules: true,
         setRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
         unsetRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
         updateLocalRule: (rule: ErrorTrackingRule) => ({ rule }),
+        reorderLocalRules: (rules: ErrorTrackingRule[]) => ({ rules }),
         _setLocalRules: (rules: ErrorTrackingRule[]) => ({ rules }),
     }),
 
@@ -57,8 +57,8 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
             false,
             {
                 startReorderingRules: () => true,
-                finishReorderingRules: () => false,
                 cancelReorderingRules: () => false,
+                finishReorderingRulesSuccess: () => false,
             },
         ],
         initialLoadComplete: [
@@ -98,6 +98,12 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
                     }
                     const newValues = [...values.rules]
                     return newValues.filter((v) => v.id !== id)
+                },
+                finishReorderingRules: async () => {
+                    const rules = values.localRules
+                    const ruleOrders = Object.fromEntries(rules.map((r) => [r.id, r.order_key]))
+                    await api.errorTracking.reorderRules(props.ruleType, ruleOrders)
+                    return rules
                 },
             },
         ],
@@ -140,21 +146,21 @@ export const errorTrackingRulesLogic = kea<errorTrackingRulesLogicType>([
                 actions._setLocalRules(newEditingRules)
             }
         },
+        reorderLocalRules: ({ rules }) => {
+            const reorderedRules = rules.map((r, index) => ({ ...r, order_key: index }))
+            actions._setLocalRules(reorderedRules)
+        },
         startReorderingRules: () => actions._setLocalRules([...values.rules]),
         cancelReorderingRules: () => actions._setLocalRules([]),
-        finishReorderingRules: () => {
-            // TODO: manage save
-
-            actions._setLocalRules([])
-        },
+        finishReorderingRulesSuccess: () => actions._setLocalRules([]),
     })),
 
     selectors({
         allRules: [
             (s) => [s.localRules, s.rules],
             (localRules, rules): ErrorTrackingRule[] => {
-                const sortedRules = [...rules, ...localRules].sort((a, b) => a.order_key - b.order_key)
-                return Array.from(new Map(sortedRules.map((item) => [item.id, item])).values())
+                const uniqueRules = new Map([...rules, ...localRules].map((item) => [item.id, item]))
+                return Array.from(uniqueRules.values()).sort((a, b) => a.order_key - b.order_key)
             },
         ],
         hasNewRule: [(s) => [s.allRules], (allRules): boolean => allRules.some((r) => r.id === 'new')],

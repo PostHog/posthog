@@ -737,6 +737,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
+class RuleReorderingMixin:
+    @action(methods=["PATCH"], detail=False)
+    def reorder(self, request, **kwargs):
+        orders: dict[str, int] = request.data.get("orders", {})
+        rules = self.get_queryset().filter(id__in=orders.keys())
+
+        for rule in rules:
+            rule.order_key = orders[str(rule.id)]
+
+        self.get_queryset().bulk_update(rules, ["order_key"])
+
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
 
@@ -753,7 +767,7 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
     queryset = ErrorTrackingAssignmentRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
@@ -821,7 +835,7 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         return None
 
 
-class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
     queryset = ErrorTrackingGroupingRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingGroupingRuleSerializer
@@ -883,7 +897,7 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSuppressionRule.objects.order_by("order_key").all()
     serializer_class = ErrorTrackingSuppressionRuleSerializer
