@@ -1,4 +1,6 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import posthog, { CaptureResult } from 'posthog-js'
 
 interface WindowWithCypressCaptures extends Window {
@@ -90,6 +92,26 @@ export function loadPostHogJS(): void {
             person_profiles: 'always',
             __preview_remote_config: true,
             __preview_flags_v2: true,
+        })
+
+        posthog.onFeatureFlags((_flags, _variants, context) => {
+            if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
+                return
+            }
+
+            lemonToast.warning(
+                <div className="flex flex-col gap-2">
+                    <span>We couldn't load our feature flags.</span>
+                    <span>
+                        This is likely due to the presence of adblockers running in your browser. This might affect the
+                        platform usability since some features might not be available.
+                    </span>
+                </div>,
+                {
+                    toastId: 'feature-flags-error',
+                    autoClose: false,
+                }
+            )
         })
     } else {
         posthog.init('fake token', {
