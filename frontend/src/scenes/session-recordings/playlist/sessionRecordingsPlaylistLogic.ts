@@ -109,6 +109,22 @@ export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFi
 }
 
 /**
+ * Loads the pinned recordings for a given shortId.
+ * @param shortId - The shortId of the playlist to load.
+ */
+const handleLoadCollectionRecordings = (shortId: string): void => {
+    let logic = sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: shortId })
+    let unmount = null
+    if (!logic) {
+        logic = sessionRecordingsPlaylistSceneLogic({ shortId: shortId })
+        unmount = logic.mount()
+    }
+    logic.actions.loadPinnedRecordings()
+    // Unmount the logic if it was mounted by us
+    unmount?.()
+}
+
+/**
  * Checks if the filters are valid.
  * @param filters - The filters to check.
  * @returns True if the filters are valid, false otherwise.
@@ -672,11 +688,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to show the new recordings
-                        const logic =
-                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
-                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
-                        logic.actions.loadPinnedRecordings()
-                        logic.unmount()
+                        handleLoadCollectionRecordings(short_id)
                     } catch (e) {
                         posthog.captureException(e)
                     }
@@ -707,11 +719,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         actions.setSelectedRecordingsIds([])
 
                         // Reload the playlist to see the recordings without the deleted ones
-                        const logic =
-                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
-                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
-                        logic.actions.loadPinnedRecordings()
-                        logic.unmount()
+                        handleLoadCollectionRecordings(short_id)
                     } catch (e) {
                         posthog.captureException(e)
                     }
@@ -746,11 +754,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                         // If it was a collection then we need to reload it, otherwise we need to reload the recordings
                         if (shortId) {
-                            const logic =
-                                sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: shortId }) ??
-                                sessionRecordingsPlaylistSceneLogic({ shortId: shortId })
-                            logic.actions.loadPinnedRecordings()
-                            logic.unmount()
+                            handleLoadCollectionRecordings(shortId)
                         } else {
                             actions.loadSessionRecordings()
                         }
