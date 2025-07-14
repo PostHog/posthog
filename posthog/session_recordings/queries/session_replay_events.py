@@ -54,11 +54,11 @@ class SessionReplayEvents:
         if not uncached_session_ids:
             return True
         # Check uncached sessions within TTL first
-        found_sessions = self._check_exists_multiple_within_days(ttl_days(team), uncached_session_ids, team)
+        found_sessions = self._check_exists_within_days(ttl_days(team), uncached_session_ids, team)
         # If some sessions not found in TTL, check longer period
         if len(found_sessions) < len(uncached_session_ids):
             missing_sessions = set(uncached_session_ids) - found_sessions
-            additional_found = self._check_exists_multiple_within_days(370, list(missing_sessions), team)
+            additional_found = self._check_exists_within_days(370, list(missing_sessions), team)
             found_sessions.update(additional_found)
         # If some session IDs weren't found - they don't exist
         if len(found_sessions) < len(uncached_session_ids):
@@ -71,7 +71,7 @@ class SessionReplayEvents:
         return True
 
     @staticmethod
-    def _check_exists_multiple_within_days(days: int, session_ids: list[str], team: Team) -> set[str]:
+    def _check_exists_within_days(days: int, session_ids: list[str], team: Team) -> set[str]:
         """
         Check which session IDs exist within the specified number of days.
         Returns a set of session IDs that exist.
