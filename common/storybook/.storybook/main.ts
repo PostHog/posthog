@@ -1,5 +1,6 @@
-import { createEntry } from '../webpack.config'
-import { StorybookConfig } from '@storybook/react-webpack5'
+import { StorybookConfig } from '@storybook/react-vite'
+import { mergeConfig } from 'vite'
+import { resolve } from 'path'
 
 const config: StorybookConfig = {
     stories: [
@@ -8,7 +9,6 @@ const config: StorybookConfig = {
     ],
 
     addons: [
-        '@storybook/addon-docs',
         '@storybook/addon-links',
         '@storybook/addon-essentials',
         '@storybook/addon-storysource',
@@ -17,40 +17,59 @@ const config: StorybookConfig = {
 
     staticDirs: ['public', { from: '../../../frontend/public', to: '/static' }],
 
-    webpackFinal: (config) => {
-        const mainConfig = createEntry('main')
-        return {
-            ...config,
-            cache: {
-                type: 'filesystem',
-            },
+    viteFinal: (config) => {
+        return mergeConfig(config, {
             resolve: {
-                ...config.resolve,
-                extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
-                alias: { ...config.resolve!.alias, ...mainConfig.resolve.alias },
+                alias: {
+                    '~': resolve(__dirname, '../../../frontend/src'),
+                    '@': resolve(__dirname, '../../../frontend/src'),
+                    lib: resolve(__dirname, '../../../frontend/src/lib'),
+                    scenes: resolve(__dirname, '../../../frontend/src/scenes'),
+                    queries: resolve(__dirname, '../../../frontend/src/queries'),
+                    layout: resolve(__dirname, '../../../frontend/src/layout'),
+                    toolbar: resolve(__dirname, '../../../frontend/src/toolbar'),
+                    taxonomy: resolve(__dirname, '../../../frontend/src/taxonomy'),
+                    models: resolve(__dirname, '../../../frontend/src/models'),
+                    mocks: resolve(__dirname, '../../../frontend/src/mocks'),
+                    exporter: resolve(__dirname, '../../../frontend/src/exporter'),
+                    stories: resolve(__dirname, '../../../frontend/src/stories'),
+                    types: resolve(__dirname, '../../../frontend/src/types.ts'),
+                    '@posthog/lemon-ui': resolve(__dirname, '../../../frontend/@posthog/lemon-ui/src/index'),
+                    '@posthog/lemon-ui/': resolve(__dirname, '../../../frontend/@posthog/lemon-ui/src/'),
+                    storybook: resolve(__dirname, '../../../frontend/.storybook'),
+                    '@posthog/ee/exports': resolve(__dirname, '../../../ee/frontend/exports.ts'),
+                    public: resolve(__dirname, '../../../frontend/public'),
+                    products: resolve(__dirname, '../../../products'),
+                    cypress: resolve(__dirname, '../../../cypress'),
+                    buffer: 'buffer',
+                },
             },
-            module: {
-                ...config.module,
-                rules: [
-                    ...mainConfig.module.rules,
-                    ...(config.module?.rules?.filter(
-                        (rule: any) => 'test' in rule && rule.test.toString().includes('.mdx')
-                    ) ?? []),
-                ],
+            define: {
+                global: 'globalThis',
+                'process.env.NODE_ENV': '"development"',
             },
-        }
+            optimizeDeps: {
+                include: ['buffer'],
+            },
+        })
     },
 
     framework: {
-        name: '@storybook/react-webpack5',
-        options: { builder: { useSWC: true } },
+        name: '@storybook/react-vite',
+        options: {},
     },
 
     docs: {
         autodocs: 'tag',
     },
 
-    typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
+    typescript: {
+        reactDocgen: 'react-docgen-typescript',
+        reactDocgenTypescriptOptions: {
+            shouldExtractLiteralValuesFromEnum: true,
+            propFilter: (prop) => (prop.parent ? !/node_modules/.test(prop.parent.fileName) : true),
+        },
+    },
 }
 
 export default config

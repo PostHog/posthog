@@ -23,26 +23,18 @@
         "@storybook/core-events": "^7.6.4",
         "@storybook/csf": "^0.1.2",
         "@storybook/react": "^7.6.4",
-        "@storybook/react-webpack5": "^7.6.4",
+        "@storybook/react-vite": "^7.6.4",
         "@storybook/test-runner": "^0.16.0",
         "@storybook/theming": "^7.6.4",
         "@storybook/types": "^7.6.4",
-        "babel-loader": "^8.0.6",
         "babel-preset-nano-react-app": "^0.1.0",
         "buffer": "^6.0.3",
-        "css-loader": "^3.4.2",
-        "file-loader": "^6.1.0",
-        "html-webpack-harddisk-plugin": "^2.0.0",
-        "html-webpack-plugin": "^5.5.3",
-        "less-loader": "^7.0.2",
-        "postcss-loader": "^4.3.0",
-        "raw-loader": "^4.0.2",
-        "sass-loader": "^10.0.1",
+        "mockdate": "^3.0.5",
+        "history": "^4.10.1",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
         "storybook": "^7.6.4",
-        "storybook-addon-pseudo-states": "2.1.2",
-        "style-loader": "^2.0.0",
-        "webpack": "^5.88.2",
-        "webpack-cli": "^5.1.4"
+        "storybook-addon-pseudo-states": "2.1.2"
     },
     "name": "@posthog/storybook",
     "scripts": {
@@ -56,6 +48,7 @@
         "test:visual:update:docker": "pnpm build:products && NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
     },
     "devDependencies": {
-        "@storybook/testing-library": "^0.2.2"
+        "@storybook/testing-library": "^0.2.2",
+        "vite": "^4.5.0"
     }
 }
