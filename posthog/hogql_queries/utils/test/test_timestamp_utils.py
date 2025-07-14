@@ -50,3 +50,9 @@ class TestTimestampUtils(APIBaseTest):
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
 
         self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+
+        # earliest timestamp is the same for all events regardless of the type
+        earliest_timestamp_pageview = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
+        self.assertEqual(earliest_timestamp, earliest_timestamp_pageview)
+        earliest_timestamp_pageleave = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageleave")])
+        self.assertEqual(earliest_timestamp, earliest_timestamp_pageleave)
