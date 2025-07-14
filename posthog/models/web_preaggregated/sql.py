@@ -324,8 +324,8 @@ def WEB_STATS_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY
                 raw_sessions.session_id_v7
             SETTINGS {settings}
@@ -499,8 +499,8 @@ def WEB_BOUNCES_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY raw_sessions.session_id_v7
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
