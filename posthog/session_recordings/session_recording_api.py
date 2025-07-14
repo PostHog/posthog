@@ -1286,9 +1286,13 @@ def list_recordings_from_query(
     if (all_session_ids and query.session_ids) or not all_session_ids:
         modifiers = safely_read_modifiers_overrides(str(user.distinct_id), team) if user else None
 
-        use_multiple_sub_queries = posthoganalytics.feature_enabled(
-            "use-multiple-sub-queries",
-            str(user.distinct_id),
+        use_multiple_sub_queries = (
+            posthoganalytics.feature_enabled(
+                "use-multiple-sub-queries",
+                str(user.distinct_id),
+            )
+            if user
+            else False
         )
 
         with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
