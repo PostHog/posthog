@@ -1,7 +1,6 @@
-import { actions, connect, kea, key, path, props } from 'kea'
+import { actions, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { LinearTeamType } from '~/types'
 
@@ -11,9 +10,6 @@ export const linearIntegrationLogic = kea<linearIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
     path((key) => ['lib', 'integrations', 'linearIntegrationLogic', key]),
-    connect({
-        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
     actions({
         loadAllLinearTeams: () => ({}),
     }),

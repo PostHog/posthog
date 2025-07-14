@@ -9,19 +9,22 @@ import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consu
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
-import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
+import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
+    private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     private hogFlowManager: HogFlowManagerService
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
@@ -32,9 +35,10 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
@@ -157,11 +161,7 @@ export class CdpApi {
             }
 
             globals = clickhouse_event
-                ? convertToHogFunctionInvocationGlobals(
-                      clickhouse_event,
-                      team,
-                      this.hub.SITE_URL ?? 'http://localhost:8000'
-                  )
+                ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.hub.SITE_URL)
                 : globals
 
             if (!globals || !globals.event) {
@@ -193,7 +193,7 @@ export class CdpApi {
                 project: {
                     id: team.id,
                     name: team.name,
-                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                    url: `${this.hub.SITE_URL}/project/${team.id}`,
                     ...globals.project,
                 },
             }
@@ -368,7 +368,17 @@ export class CdpApi {
                 },
             }
 
-            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration)
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: globals.event,
+                person: globals.person,
+                groups: globals.groups,
+            })
+
+            const invocation = this.hogFlowExecutor.createHogFlowInvocation(
+                triggerGlobals,
+                compoundConfiguration,
+                filterGlobals
+            )
             const response = await this.hogFlowExecutor.executeTest(invocation)
 
             res.json({

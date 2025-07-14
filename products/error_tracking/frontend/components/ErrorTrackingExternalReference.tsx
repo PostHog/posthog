@@ -9,6 +9,7 @@ import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { ICONS } from 'lib/integrations/utils'
+import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
@@ -26,7 +27,7 @@ export const ConnectIssueButton = (): JSX.Element | null => {
 
     const onClickCreateIssue = (integration: IntegrationType): void => {
         if (integration.kind === 'github') {
-            // TODO
+            createGitHubIssueForm(issue, integration, createExternalReference)
         } else if (integration && integration.kind === 'linear') {
             createLinearIssueForm(issue, integration, createExternalReference)
         }
@@ -82,6 +83,44 @@ export const ConnectIssueButton = (): JSX.Element | null => {
             Setup integrations
         </LemonButton>
     )
+}
+
+const createGitHubIssueForm = (
+    issue: ErrorTrackingRelationalIssue,
+    integration: IntegrationType,
+    onSubmit: onSubmitFormType
+): void => {
+    const posthogUrl = window.location.origin + window.location.pathname
+    const body = issue.description + '\n<br/>\n<br/>\n' + `**PostHog issue:** ${posthogUrl}`
+
+    LemonDialog.openForm({
+        title: 'Create GitHub issue',
+        initialValues: {
+            title: issue.name,
+            body: body,
+            integrationId: integration.id,
+            repositories: [],
+        },
+        content: (
+            <div className="flex flex-col gap-y-2">
+                <GitHubRepositorySelectField integrationId={integration.id} />
+                <LemonField name="title" label="Title">
+                    <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
+                </LemonField>
+                <LemonField name="body" label="Body">
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a title' : undefined),
+            repositories: (repositories) =>
+                repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
+        },
+        onSubmit: ({ title, body, repositories }) => {
+            onSubmit(integration.id, { repository: repositories[0], title, body })
+        },
+    })
 }
 
 const createLinearIssueForm = (
