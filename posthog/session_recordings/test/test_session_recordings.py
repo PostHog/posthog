@@ -99,7 +99,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # include `as_query` since we don't want to break while deploying the code that no longer needs it
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?as_query=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         results_ = response_data["results"]
@@ -166,7 +166,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         results_ = response_data["results"]
@@ -258,7 +258,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user", "current_team", base_time)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         assert response_data["results"] == [
@@ -682,13 +682,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             # Fetch playlist
             params_string = urlencode({"session_ids": '["1", "2", "3"]', "version": api_version})
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
 
-            self.assertEqual(len(response_data["results"]), 3)
-            self.assertEqual(response_data["results"][0]["id"], "1")
-            self.assertEqual(response_data["results"][1]["id"], "2")
-            self.assertEqual(response_data["results"][2]["id"], "3")
+            assert len(response_data["results"]) == 3
+            assert response_data["results"][0]["id"] == "1"
+            assert response_data["results"][1]["id"] == "2"
+            assert response_data["results"][2]["id"] == "3"
 
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -704,10 +704,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             # Fetch playlist
             params_string = urlencode({"session_ids": "[]"})
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
 
-            self.assertEqual(len(response_data["results"]), 0)
+            assert len(response_data["results"]) == 0
 
     def test_delete_session_recording(self):
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
@@ -1090,20 +1090,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         # Unallowed routes
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/2?sharing_access_token={token}")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?sharing_access_token={token}")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         response = self.client.get(f"/api/projects/12345/session_recordings?sharing_access_token={token}")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
         response = self.client.get(
             f"/api/projects/{other_team.id}/session_recordings/{session_id}?sharing_access_token={token}"
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/{session_id}?sharing_access_token={token}"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         assert response.json() == {
             "id": session_id,
@@ -1125,7 +1125,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?sharing_access_token={token}&"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
@@ -1730,17 +1730,17 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"session_recording_ids": session_ids},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertEqual(response_data["success"], True)
-        self.assertEqual(response_data["deleted_count"], 3)
-        self.assertEqual(response_data["total_requested"], 3)
+        assert response_data["success"]
+        assert response_data["deleted_count"] == 3
+        assert response_data["total_requested"] == 3
 
         # Verify recordings are marked as deleted
         for session_id in session_ids:
             recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
-            self.assertTrue(recording.deleted)
+            assert recording.deleted
 
     @parameterized.expand(
         [
@@ -1773,8 +1773,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             request_data,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_error_message, response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == expected_error_message
 
     def test_bulk_delete_skips_already_deleted_recordings(self):
         """Test bulk delete skips recordings that are already deleted"""
@@ -1805,12 +1805,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"session_recording_ids": session_ids},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Should only delete the one that wasn't already deleted
-        self.assertEqual(response_data["deleted_count"], 1)
-        self.assertEqual(response_data["total_requested"], 2)
+        assert response_data["deleted_count"] == 1
+        assert response_data["total_requested"] == 2
 
     def test_bulk_delete_nonexistent_recordings(self):
         """Test bulk delete with nonexistent recordings"""
@@ -1821,12 +1821,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"session_recording_ids": session_ids},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Should return 0 deleted since recordings don't exist
-        self.assertEqual(response_data["deleted_count"], 0)
-        self.assertEqual(response_data["total_requested"], 2)
+        assert response_data["deleted_count"] == 0
+        assert response_data["total_requested"] == 2
 
     def test_bulk_delete_mixed_existing_and_nonexistent(self):
         """Test bulk delete with mix of existing and nonexistent recordings"""
@@ -1848,12 +1848,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"session_recording_ids": session_ids},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Should delete only the existing one
-        self.assertEqual(response_data["deleted_count"], 1)
-        self.assertEqual(response_data["total_requested"], 2)
+        assert response_data["deleted_count"] == 1
+        assert response_data["total_requested"] == 2
 
     def test_bulk_delete_creates_postgres_records_for_clickhouse_only_recordings(self):
         """Test that bulk delete creates PostgreSQL records for ClickHouse-only recordings"""
@@ -1870,7 +1870,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.produce_replay_summary("user1", session_id, base_time)
 
         # Verify no PostgreSQL record exists yet
-        self.assertFalse(SessionRecording.objects.filter(team=self.team, session_id=session_id).exists())
+        assert not SessionRecording.objects.filter(team=self.team, session_id=session_id).exists()
 
         # Bulk delete
         response = self.client.post(
@@ -1878,15 +1878,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"session_recording_ids": [session_id]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        self.assertEqual(response_data["deleted_count"], 1)
+        assert response_data["deleted_count"] == 1
 
         # Verify PostgreSQL record was created and marked as deleted
         recording = SessionRecording.objects.get(team=self.team, session_id=session_id)
-        self.assertTrue(recording.deleted)
-        self.assertEqual(recording.distinct_id, "user1")
+        assert recording.deleted
+        assert recording.distinct_id == "user1"
 
     @patch("posthog.session_recordings.session_recording_api.logger")
     def test_bulk_delete_logging(self, mock_logger):
@@ -1908,7 +1908,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"session_recording_ids": session_ids},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify logging was called
         mock_logger.info.assert_called_once_with(
@@ -1939,9 +1939,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             {"session_recording_ids": [session_id]},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
         # Should not delete anything since recording belongs to other team
-        self.assertEqual(response_data["deleted_count"], 0)
-        self.assertEqual(response_data["total_requested"], 1)
+        assert response_data["deleted_count"] == 0
+        assert response_data["total_requested"] == 1
