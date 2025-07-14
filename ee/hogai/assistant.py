@@ -194,7 +194,7 @@ class Assistant:
                 yield AssistantEventType.MESSAGE, self._latest_message
 
             try:
-                last_viz_message = None
+                last_viz_message: Optional[VisualizationMessage] = None
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
