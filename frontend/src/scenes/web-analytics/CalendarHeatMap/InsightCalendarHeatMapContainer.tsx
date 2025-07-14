@@ -23,7 +23,7 @@ export function InsightCalendarHeatMapContainer({ context }: CalendarHeatMapProp
                 className="mb-2"
                 action={{ children: 'Send feedback', id: 'calendar-heatmap-feedback-button' }}
             >
-                Calendar Heatmap insight is in beta. Please let us know what you'd like to see here and/or report any
+                Calendar heatmap insight is in beta. Please let us know what you'd like to see here and/or report any
                 issues directly to us!
             </LemonBanner>
             <WebActiveHoursHeatmap

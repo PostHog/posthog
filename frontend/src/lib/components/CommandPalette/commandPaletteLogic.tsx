@@ -486,7 +486,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconHogQL,
-                        display: 'Create a new Calendar Heatmap insight (BETA)',
+                        display: 'Create a new Calendar heatmap insight (BETA)',
                         executor: () => {
                             push(INSIGHT_TYPE_URLS[InsightType.CALENDAR_HEATMAP])
                         },
