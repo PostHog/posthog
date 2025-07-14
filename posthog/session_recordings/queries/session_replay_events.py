@@ -41,51 +41,83 @@ class SessionReplayEvents:
     def _get_cache_key(self, session_id: str, team: Team) -> str:
         return f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
 
-    def exists(self, session_ids: list[str], team: Team) -> bool:
-        if not session_ids:
-            return False
-        # Check cache for all session IDs
-        uncached_session_ids = []
-        for session_id in session_ids:
-            cached_response = cache.get(self._get_cache_key(session_id, team))
-            # If cached - skip (no need to query again)
-            if isinstance(cached_response, bool) and cached_response:
-                continue
-            else:
-                uncached_session_ids.append(session_id)
-        # If all the sessions are cached - they exist
-        if not uncached_session_ids:
-            return True
-        # Check uncached sessions within TTL first
-        found_sessions = self._check_exists_within_days(ttl_days(team), uncached_session_ids, team)
-        # If some sessions not found in TTL, check longer period
-        if len(found_sessions) < len(uncached_session_ids):
-            missing_sessions = set(uncached_session_ids) - found_sessions
-            additional_found = self._check_exists_within_days(370, list(missing_sessions), team)
-            found_sessions.update(additional_found)
-        # If some session IDs weren't found - they don't exist
-        if len(found_sessions) < len(uncached_session_ids):
-            return False
-        # Cache all the sessions that exist
-        timeout = seconds_until_midnight()
-        for session_id in uncached_session_ids:
-            cache.set(self._get_cache_key(session_id, team), True, timeout=timeout)
-        return True
+    def exists(self, session_id: str, team: Team) -> bool:
+        cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
+        cached_response = cache.get(cache_key)
+        if isinstance(cached_response, bool):
+            return cached_response
+
+        # Once we know that session exists we don't need to check again (until the end of the day since TTL might apply)
+        existence = self._check_exists_within_days(ttl_days(team), session_id, team) or self._check_exists_within_days(
+            370, session_id, team
+        )
+
+        if existence:
+            # let's be cautious and not cache non-existence
+            # in case we manage to check existence just before the first event hits ClickHouse
+            # that should be impossible but cache invalidation is hard etc etc
+            cache.set(cache_key, existence, timeout=seconds_until_midnight())
+        return existence
 
     @staticmethod
-    def _check_exists_within_days(days: int, session_ids: list[str], team: Team) -> set[str]:
+    def _check_exists_within_days(days: int, session_id: str, team: Team) -> bool:
+        result = sync_execute(
+            """
+            SELECT count()
+            FROM session_replay_events
+            PREWHERE team_id = %(team_id)s
+            AND session_id = %(session_id)s
+            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
+            AND min_first_timestamp <= now()
+            """,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "days": days,
+            },
+        )
+        return result[0][0] > 0
+
+    def sessions_found_with_timestamps(
+        self, session_ids: list[str], team: Team
+    ) -> tuple[set[str], Optional[datetime], Optional[datetime]]:
+        """
+        Check if sessions exist and return min/max timestamps for the entire list to optimize follow-up queries to get events for multiple sessions at once.
+        Returns a tuple of (sessions_found, min_timestamp, max_timestamp).
+        Timestamps are for the entire list of sessions, not per session.
+        """
+        if not session_ids:
+            return set(), None, None
+        # Check sessions within TTL
+        found_sessions = self._find_within_days_with_timestamps(ttl_days(team), session_ids, team)
+        # Calculate min/max timestamps for the entire list of sessions and return
+        sessions_found = {session_id for session_id, _, _ in found_sessions}
+        min_timestamp = min(min_timestamp for _, min_timestamp, _ in found_sessions)
+        max_timestamp = max(max_timestamp for _, _, max_timestamp in found_sessions)
+        # Not searching for sessions outside of TTL to simplify logic
+        return sessions_found, min_timestamp, max_timestamp
+
+    @staticmethod
+    def _find_within_days_with_timestamps(
+        days: int, session_ids: list[str], team: Team
+    ) -> list[tuple[str, datetime, datetime]]:
         """
         Check which session IDs exist within the specified number of days.
-        Returns a set of session IDs that exist.
+        Returns a list of tuples of (session_id, min_timestamp, max_timestamp).
+        Timestamps are per session, not for the entire list of sessions.
         """
         result = sync_execute(
             """
-            SELECT DISTINCT session_id
+            SELECT 
+                session_id,
+                min(min_first_timestamp) as min_timestamp,
+                max(max_last_timestamp) as max_timestamp
             FROM session_replay_events
             PREWHERE team_id = %(team_id)s
             AND session_id IN %(session_ids)s
             AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
             AND min_first_timestamp <= now()
+            GROUP BY session_id
             """,
             {
                 "team_id": team.pk,
@@ -93,7 +125,10 @@ class SessionReplayEvents:
                 "days": days,
             },
         )
-        return {row[0] for row in result}
+        if not result:
+            return []
+        sessions_found: list[tuple[str, datetime, datetime]] = [tuple(row) for row in result]
+        return sessions_found
 
     @staticmethod
     def get_metadata_query(
