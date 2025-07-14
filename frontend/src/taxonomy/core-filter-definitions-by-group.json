@@ -3559,6 +3559,18 @@
             "type": "String",
             "virtual": true
         },
+        "$virt_revenue": {
+            "description": "The total revenue for this person.",
+            "label": "Total revenue",
+            "type": "Numeric",
+            "virtual": true
+        },
+        "$virt_revenue_last_30_days": {
+            "description": "The total revenue for this person in the last 30 days.",
+            "label": "Total revenue in the last 30 days",
+            "type": "Numeric",
+            "virtual": true
+        },
         "$web_vitals_CLS_event": {
             "label": "Web vitals CLS measure event details"
         },

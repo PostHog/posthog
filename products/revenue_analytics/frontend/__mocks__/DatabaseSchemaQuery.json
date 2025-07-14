@@ -3511,5 +3511,16 @@
             },
             "type": "managed_view"
         }
-    }
+    },
+    "joins": [
+        {
+            "id": "018ef295-ff0f-0000-41f0-e447488369f6",
+            "source_table_name": "stripe.prod.customer_revenue_view",
+            "source_table_key": "id",
+            "joining_table_name": "persons",
+            "joining_table_key": "pdi.distinct_id",
+            "field_name": "persons",
+            "configuration": null
+        }
+    ]
 }

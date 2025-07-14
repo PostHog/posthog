@@ -146,7 +146,9 @@
                       "created_at",
                       "properties",
                       "$virt_initial_referring_domain_type",
-                      "$virt_initial_channel_type"
+                      "$virt_initial_channel_type",
+                      "$virt_revenue",
+                      "$virt_revenue_last_30_days"
                   ],
                   "hogql_value": "poe",
                   "id": null,
@@ -234,8 +236,11 @@
                       "properties",
                       "is_identified",
                       "pdi",
+                      "revenue_analytics",
                       "$virt_initial_referring_domain_type",
-                      "$virt_initial_channel_type"
+                      "$virt_initial_channel_type",
+                      "$virt_revenue",
+                      "$virt_revenue_last_30_days"
                   ],
                   "hogql_value": "person",
                   "id": "person",
@@ -667,6 +672,20 @@
                   "table": "person_distinct_ids",
                   "type": "lazy_table"
               },
+              "revenue_analytics": {
+                  "chain": null,
+                  "fields": [
+                      "person_id",
+                      "revenue",
+                      "revenue_last_30_days"
+                  ],
+                  "hogql_value": "revenue_analytics",
+                  "id": "revenue_analytics",
+                  "name": "revenue_analytics",
+                  "schema_valid": true,
+                  "table": "raw_persons_revenue_analytics",
+                  "type": "lazy_table"
+              },
               "$virt_initial_referring_domain_type": {
                   "chain": null,
                   "fields": null,
@@ -686,6 +705,32 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
+              },
+              "$virt_revenue": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue`",
+                  "id": null,
+                  "name": "$virt_revenue",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "$virt_revenue_last_30_days": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue_last_30_days"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "id": null,
+                  "name": "$virt_revenue_last_30_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "persons",
@@ -1429,7 +1474,9 @@
                       "created_at",
                       "properties",
                       "$virt_initial_referring_domain_type",
-                      "$virt_initial_channel_type"
+                      "$virt_initial_channel_type",
+                      "$virt_revenue",
+                      "$virt_revenue_last_30_days"
                   ],
                   "hogql_value": "poe",
                   "id": null,
@@ -1918,6 +1965,20 @@
                   "table": "person_distinct_ids",
                   "type": "lazy_table"
               },
+              "revenue_analytics": {
+                  "chain": null,
+                  "fields": [
+                      "person_id",
+                      "revenue",
+                      "revenue_last_30_days"
+                  ],
+                  "hogql_value": "revenue_analytics",
+                  "id": "revenue_analytics",
+                  "name": "revenue_analytics",
+                  "schema_valid": true,
+                  "table": "raw_persons_revenue_analytics",
+                  "type": "lazy_table"
+              },
               "$virt_initial_referring_domain_type": {
                   "chain": null,
                   "fields": null,
@@ -1937,6 +1998,32 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "expression"
+              },
+              "$virt_revenue": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue`",
+                  "id": null,
+                  "name": "$virt_revenue",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
+              },
+              "$virt_revenue_last_30_days": {
+                  "chain": [
+                      "revenue_analytics",
+                      "revenue_last_30_days"
+                  ],
+                  "fields": null,
+                  "hogql_value": "`$virt_revenue_last_30_days`",
+                  "id": null,
+                  "name": "$virt_revenue_last_30_days",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "field_traverser"
               }
           },
           "id": "persons",

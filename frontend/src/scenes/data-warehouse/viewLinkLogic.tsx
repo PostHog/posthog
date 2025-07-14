@@ -10,6 +10,7 @@ import { DataWarehouseViewLink } from '~/types'
 import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
 import type { viewLinkLogicType } from './viewLinkLogicType'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
@@ -21,6 +22,19 @@ const NEW_VIEW_LINK: DataWarehouseViewLink = {
 export interface KeySelectOption {
     value: string
     label: JSX.Element
+    disabledReason?: string
+}
+
+const disabledReasonForColumn = (column: DatabaseSchemaField): string | undefined => {
+    if (column.type === 'lazy_table') {
+        return "Lazy tables can't be joined directly, use SQL expression to join with lazy table fields"
+    }
+
+    if (column.type === 'json') {
+        return "JSON columns can't be joined directly, use SQL expression to join with JSON fields"
+    }
+
+    return undefined
 }
 
 export const viewLinkLogic = kea<viewLinkLogicType>([
@@ -36,7 +50,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         selectJoiningKey: (selectedKey: string) => ({ selectedKey, joiningTable: values.selectedJoiningTable }),
         toggleJoinTableModal: true,
         toggleEditJoinModal: (join: DataWarehouseViewLink) => ({ join }),
-        toggleNewJoinModal: true,
+        toggleNewJoinModal: (join?: Partial<DataWarehouseViewLink>) => ({ join }),
         saveViewLink: (viewLink) => ({ viewLink }),
         deleteViewLink: (table, column) => ({ table, column }),
         setError: (error: string) => ({ error }),
@@ -51,6 +65,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 submitViewLinkSuccess: () => null,
                 clearModalFields: () => null,
+                toggleNewJoinModal: () => null,
                 toggleEditJoinModal: (_, { join }) => join,
             },
         ],
@@ -68,6 +83,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectSourceTable: (_, { selectedTableName }) => selectedTableName,
+                toggleNewJoinModal: (_, { join }) => join?.source_table_name ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_name ?? null,
                 clearModalFields: () => null,
             },
@@ -76,6 +92,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+                toggleNewJoinModal: (_, { join }) => join?.joining_table_name ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_name ?? null,
                 clearModalFields: () => null,
             },
@@ -84,6 +101,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectSourceKey: (_, { selectedKey }) => selectedKey,
+                toggleNewJoinModal: (_, { join }) => join?.source_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
             },
         ],
@@ -91,6 +109,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectJoiningKey: (_, { selectedKey }) => selectedKey,
+                toggleNewJoinModal: (_, { join }) => join?.joining_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
             },
         ],
@@ -99,6 +118,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 setFieldName: (_, { fieldName }) => fieldName,
                 selectJoiningTable: (_, { selectedTableName }) => selectedTableName.replaceAll('.', '_'),
+                toggleNewJoinModal: (_, { join }) => join?.field_name ?? '',
                 toggleEditJoinModal: (_, { join }) => join.field_name ?? '',
                 clearModalFields: () => '',
             },
@@ -107,6 +127,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             false as boolean,
             {
                 setExperimentsOptimized: (_, { experimentsOptimized }) => experimentsOptimized,
+                toggleNewJoinModal: (_, { join }) => join?.configuration?.experiments_optimized ?? false,
                 toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_optimized ?? false,
                 clearModalFields: () => false,
             },
@@ -115,6 +136,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             null as string | null,
             {
                 selectExperimentsTimestampKey: (_, { experimentsTimestampKey }) => experimentsTimestampKey,
+                toggleNewJoinModal: (_, { join }) => join?.configuration?.experiments_timestamp_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_timestamp_key ?? null,
                 clearModalFields: () => null,
             },
@@ -198,6 +220,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         },
     })),
     listeners(({ actions }) => ({
+        toggleNewJoinModal: ({ join }) => {
+            actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
+        },
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)
         },
@@ -260,6 +285,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     .map((column) => ({
                         value: column.name,
                         label: <ViewLinkKeyLabel column={column} />,
+                        disabledReason: disabledReasonForColumn(column),
                     }))
             },
         ],
@@ -274,6 +300,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                     .map((column) => ({
                         value: column.name,
                         label: <ViewLinkKeyLabel column={column} />,
+                        disabledReason: disabledReasonForColumn(column),
                     }))
             },
         ],

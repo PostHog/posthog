@@ -838,6 +838,14 @@ class DataWarehouseEventsModifier(BaseModel):
     timestamp_field: str
 
 
+class DataWarehouseViewLinkConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiments_optimized: Optional[bool] = None
+    experiments_timestamp_key: Optional[str] = None
+
+
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -3123,6 +3131,21 @@ class DataWarehousePropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["data_warehouse"] = "data_warehouse"
     value: Optional[Union[list[Union[str, float]], Union[str, float]]] = None
+
+
+class DataWarehouseViewLink(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    configuration: Optional[DataWarehouseViewLinkConfiguration] = None
+    created_at: Optional[str] = None
+    created_by: Optional[UserBasicType] = None
+    field_name: Optional[str] = None
+    id: str
+    joining_table_key: Optional[str] = None
+    joining_table_name: Optional[str] = None
+    source_table_key: Optional[str] = None
+    source_table_name: Optional[str] = None
 
 
 class DatabaseSchemaField(BaseModel):
@@ -11700,6 +11723,7 @@ class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    joins: list[DataWarehouseViewLink]
     tables: dict[
         str,
         Union[
@@ -11851,6 +11875,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    joins: list[DataWarehouseViewLink]
     tables: dict[
         str,
         Union[

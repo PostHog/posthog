@@ -25,9 +25,9 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 def validate_saved_query_name(value):
-    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", value):
+    if not re.match(r"^[A-Za-z_$][A-Za-z0-9_.$]*$", value):
         raise ValidationError(
-            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', or '$' ",
+            f"{value} is not a valid view name. View names can only contain letters, numbers, '_', '.', or '$' ",
             params={"value": value},
         )
 
