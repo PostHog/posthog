@@ -35,6 +35,6 @@ class TwilioProvider:
             return len(response.get("incoming_phone_numbers", [])) > 0
         except requests.exceptions.HTTPError as e:
             logger.warning(
-                f"Phone number {phone_number} could not be verified in Twilio account {self.account_sid}: {e}"
+                f"Phone number verification failed. Error: {e}"
             )
             return False
