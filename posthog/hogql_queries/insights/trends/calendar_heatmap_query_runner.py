@@ -237,9 +237,26 @@ class CalendarHeatmapQueryRunner(QueryRunner):
             return ast.Constant(value=True)
 
     def _all_properties(self) -> ast.Expr:
+        # Collect all property expressions
+        property_exprs = []
+
+        # Add top-level properties if they exist
         if self.query.properties is not None and self.query.properties != []:
-            return property_to_expr(self.query.properties, team=self.team)
-        return ast.Constant(value=True)
+            property_exprs.append(property_to_expr(self.query.properties, team=self.team))
+
+        # Add series-level properties if they exist (from the first series)
+        if self.query.series and len(self.query.series) > 0:
+            series = self.query.series[0]
+            if hasattr(series, "properties") and series.properties is not None and series.properties != []:
+                property_exprs.append(property_to_expr(series.properties, team=self.team))
+
+        # Combine all property expressions with AND logic
+        if len(property_exprs) == 0:
+            return ast.Constant(value=True)
+        elif len(property_exprs) == 1:
+            return property_exprs[0]
+        else:
+            return ast.Call(name="and", args=property_exprs)
 
     def _current_period_expression(self, field="start_timestamp"):
         return ast.Call(
