@@ -23,6 +23,7 @@ import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
 import { logger } from '../logger'
 import { getObjectStorage } from '../object_storage'
+import { PubSub } from '../pubsub'
 import { TeamManager } from '../team-manager'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -175,7 +176,10 @@ export async function createHub(
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
         cookielessManager,
+        pubSub: new PubSub(serverConfig),
     }
+
+    await hub.pubSub.start()
 
     // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
     await hub.geoipService.get()
