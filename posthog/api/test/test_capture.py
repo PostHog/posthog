@@ -2377,6 +2377,88 @@ class TestCapture(BaseTest):
             with pytest.raises(ObjectStorageError):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
 
+    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.capture.posthoganalytics.feature_enabled", return_value=True)
+    def test_submit_csp_report_to_new_internal_capture(self, _mock_feature_enabled, mock_new_capture) -> None:
+        payload = {
+            "csp-report": {
+                "document-uri": "https://example.com/foo/bar",
+                "referrer": "https://www.google.com/",
+                "violated-directive": "default-src self",
+                "effective-directive": "img-src",
+                "original-policy": "default-src 'self'; img-src 'self' https://img.example.com",
+                "disposition": "enforce",
+                "blocked-uri": "https://evil.com/malicious-image.png",
+                "line-number": 10,
+                "source-file": "https://example.com/foo/bar.html",
+                "status-code": 0,
+                "script-sample": "alert('hello')",
+            }
+        }
+        resp = self.client.post(
+            f"/report/?token={self.team.api_token}", data=json.dumps(payload), content_type="application/csp-report"
+        )
+        assert resp.status_code == status.HTTP_204_NO_CONTENT
+        assert mock_new_capture.call_count == 1
+
+    @patch("posthog.api.capture.new_capture_internal")
+    @patch("posthog.api.capture.posthoganalytics.feature_enabled", return_value=True)
+    def test_submit_csp_report_list_to_new_internal_capture(self, _mock_feature_enabled, mock_new_capture) -> None:
+        multiple_violations = [
+            {
+                "type": "csp-violation",
+                "document-uri": "https://example.com/page",
+                "referrer": "https://example.com/referrer",
+                "violated-directive": "script-src 'self'",
+                "effective-directive": "script-src",
+                "original-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content; report-uri /csp-violation-report-endpoint/",
+                "disposition": "report",
+                "blocked-uri": "https://malicious-site.com/evil-script.js",
+                "line-number": 42,
+                "column-number": 15,
+                "source-file": "https://example.com/page",
+                "status-code": 200,
+                "script-sample": "console.log('test1')",
+            },
+            {
+                "type": "csp-violation",
+                "document-uri": "https://example.com/page2",
+                "referrer": "https://example.com/referrer2",
+                "violated-directive": "script-src 'self'",
+                "effective-directive": "script-src",
+                "original-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content; report-uri /csp-violation-report-endpoint/",
+                "disposition": "report",
+                "blocked-uri": "https://malicious-site.com/evil-script2.js",
+                "line-number": 66,
+                "column-number": 20,
+                "source-file": "https://example.com/page2",
+                "status-code": 200,
+                "script-sample": "console.log('test2')",
+            },
+            {
+                "type": "csp-violation",
+                "document-uri": "https://example.com/page3",
+                "referrer": "https://example.com/referrer3",
+                "violated-directive": "script-src 'self'",
+                "effective-directive": "script-src",
+                "original-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests; block-all-mixed-content; report-uri /csp-violation-report-endpoint/",
+                "disposition": "report",
+                "blocked-uri": "https://malicious-site.com/evil-script3.js",
+                "line-number": 66,
+                "column-number": 20,
+                "source-file": "https://example.com/page3",
+                "status-code": 200,
+                "script-sample": "console.log('test3')",
+            },
+        ]
+        resp = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(multiple_violations),
+            content_type="application/reports+json",
+        )
+        assert resp.status_code == status.HTTP_204_NO_CONTENT
+        assert mock_new_capture.call_count == 3
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_csp_violation(self, kafka_produce):
         csp_report = {
@@ -2510,7 +2592,7 @@ class TestCapture(BaseTest):
 
         assert status.HTTP_400_BAD_REQUEST == response.status_code
         assert response.json()["code"] == "invalid_payload"
-        assert "All events must have the event name field" in response.json()["detail"]
+        assert "Failed to submit CSP report" in response.json()["detail"]
 
     def test_integration_csp_report_with_report_to_format_returns_204(self):
         report_to_format = [
