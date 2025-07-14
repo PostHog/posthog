@@ -238,33 +238,43 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_hog_functions_digest_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        
-        function_metrics = [
-            {
-                "id": "test-hog-function-1",
-                "name": "Test Function 1",
-                "type": "destination",
-                "status": "HEALTHY",
-                "succeeded": 150,
-                "failed": 5,
-                "filtered": 10,
-                "total_runs": 155,
-                "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
-            },
-            {
-                "id": "test-hog-function-2", 
-                "name": "Test Function 2",
-                "type": "transformation",
-                "status": "DEGRADED",
-                "succeeded": 200,
-                "failed": 50,
-                "filtered": 0,
-                "total_runs": 250,
-                "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
-            }
-        ]
 
-        send_hog_functions_digest_email(self.team.id, "2023-01-15", function_metrics)
+        digest_data = {
+            "team_id": self.team.id,
+            "date_str": "2023-01-15",
+            "formatted_date": "January 15, 2023",
+            "functions": [
+                {
+                    "id": "test-hog-function-1",
+                    "name": "Test Function 1",
+                    "type": "destination",
+                    "status": "HEALTHY",
+                    "succeeded": 150,
+                    "failed": 5,
+                    "filtered": 10,
+                    "total_runs": 155,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
+                },
+                {
+                    "id": "test-hog-function-2",
+                    "name": "Test Function 2",
+                    "type": "transformation",
+                    "status": "DEGRADED",
+                    "succeeded": 200,
+                    "failed": 50,
+                    "filtered": 0,
+                    "total_runs": 250,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
+                },
+            ],
+            "total_functions": 2,
+            "total_succeeded": 350,
+            "total_failed": 55,
+            "total_filtered": 10,
+            "total_runs": 405,
+        }
+
+        send_hog_functions_digest_email(digest_data)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
@@ -272,44 +282,75 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_hog_functions_digest_email_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        
+
         self._create_user("test2@posthog.com")
         self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
-        function_metrics = [
-            {
-                "id": "test-hog-function",
-                "name": "Test Function",
-                "type": "destination", 
-                "status": "HEALTHY",
-                "succeeded": 100,
-                "failed": 0,
-                "filtered": 5,
-                "total_runs": 100,
-                "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
-            }
-        ]
+        digest_data = {
+            "team_id": self.team.id,
+            "date_str": "2023-01-15",
+            "formatted_date": "January 15, 2023",
+            "functions": [
+                {
+                    "id": "test-hog-function",
+                    "name": "Test Function",
+                    "type": "destination",
+                    "status": "HEALTHY",
+                    "succeeded": 100,
+                    "failed": 0,
+                    "filtered": 5,
+                    "total_runs": 100,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
+                }
+            ],
+            "total_functions": 1,
+            "total_succeeded": 100,
+            "total_failed": 0,
+            "total_filtered": 5,
+            "total_runs": 100,
+        }
 
-        send_hog_functions_digest_email(self.team.id, "2023-01-15", function_metrics)
+        send_hog_functions_digest_email(digest_data)
 
         # Should only be sent to user2 (user1 has notifications disabled)
         assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
         self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
-        send_hog_functions_digest_email(self.team.id, "2023-01-15", function_metrics)
-        
+        send_hog_functions_digest_email(digest_data)
+
         # Should now be sent to both users
         assert len(mocked_email_messages[1].to) == 2
 
     def test_send_hog_functions_digest_email_team_not_found(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        
-        function_metrics = [{"id": "test", "name": "Test", "type": "destination", "status": "HEALTHY", "succeeded": 1, "failed": 0, "filtered": 0, "total_runs": 1, "url": "test"}]
 
-        # Use non-existent team ID
-        send_hog_functions_digest_email(99999, "2023-01-15", function_metrics)
+        digest_data = {
+            "team_id": 99999,  # Non-existent team ID
+            "date_str": "2023-01-15",
+            "formatted_date": "January 15, 2023",
+            "functions": [
+                {
+                    "id": "test",
+                    "name": "Test",
+                    "type": "destination",
+                    "status": "HEALTHY",
+                    "succeeded": 1,
+                    "failed": 0,
+                    "filtered": 0,
+                    "total_runs": 1,
+                    "url": "test",
+                }
+            ],
+            "total_functions": 1,
+            "total_succeeded": 1,
+            "total_failed": 0,
+            "total_filtered": 0,
+            "total_runs": 1,
+        }
+
+        send_hog_functions_digest_email(digest_data)
 
         # Should not send any emails
         assert len(mocked_email_messages) == 0
@@ -317,50 +358,84 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.clickhouse.client.sync_execute")
     def test_send_hog_functions_daily_digest(self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        
+
         # Create a HogFunction for testing
-        HogFunction.objects.create(
+        hog_function = HogFunction.objects.create(
             team=self.team,
             name="Test Destination Function",
             type="destination",
             enabled=True,
             deleted=False,
-            hog="// test code"
+            hog="// test code",
         )
 
-        # Mock the ClickHouse query response
-        mock_sync_execute.return_value = [
-            ("succeeded", 100),
-            ("failed", 5),
-            ("filtered", 10)
+        # Mock the ClickHouse query responses
+        # First call: get teams with active functions
+        # Second call: get aggregated metrics data
+        mock_sync_execute.side_effect = [
+            [(self.team.id,)],  # Teams query result
+            [  # Metrics query result
+                (
+                    self.team.id,
+                    hog_function.id,
+                    "Test Destination Function",
+                    "destination",
+                    {"state": "HEALTHY"},
+                    "succeeded",
+                    100,
+                ),
+                (
+                    self.team.id,
+                    hog_function.id,
+                    "Test Destination Function",
+                    "destination",
+                    {"state": "HEALTHY"},
+                    "failed",
+                    5,
+                ),
+                (
+                    self.team.id,
+                    hog_function.id,
+                    "Test Destination Function",
+                    "destination",
+                    {"state": "HEALTHY"},
+                    "filtered",
+                    10,
+                ),
+            ],
         ]
 
         send_hog_functions_daily_digest()
 
-        # Should query ClickHouse for metrics
-        assert mock_sync_execute.call_count == 1
-        
+        # Should query ClickHouse twice (teams and metrics)
+        assert mock_sync_execute.call_count == 2
+
         # Should send one digest email
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
     @patch("posthog.clickhouse.client.sync_execute")
-    def test_send_hog_functions_daily_digest_no_functions(self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock) -> None:
+    def test_send_hog_functions_daily_digest_no_functions(
+        self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        
-        # Don't create any HogFunctions
-        
+
+        # Mock empty response for teams query (no active functions)
+        mock_sync_execute.return_value = []
+
         send_hog_functions_daily_digest()
 
-        # Should not query ClickHouse or send emails
-        assert mock_sync_execute.call_count == 0
+        # Should query ClickHouse once for teams but not process metrics
+        assert mock_sync_execute.call_count == 1
         assert len(mocked_email_messages) == 0
 
     @patch("posthog.clickhouse.client.sync_execute")
-    def test_send_hog_functions_daily_digest_disabled_function(self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock) -> None:
+    def test_send_hog_functions_daily_digest_disabled_function(
+        self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        
+
         # Create disabled HogFunction
         HogFunction.objects.create(
             team=self.team,
@@ -368,31 +443,39 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             type="destination",
             enabled=False,  # Disabled
             deleted=False,
-            hog="// test code"
+            hog="// test code",
         )
+
+        # Mock empty response since disabled functions won't be in results
+        mock_sync_execute.return_value = []
 
         send_hog_functions_daily_digest()
 
-        # Should not process disabled functions
-        assert mock_sync_execute.call_count == 0
+        # Should query for teams but find none with active functions
+        assert mock_sync_execute.call_count == 1
         assert len(mocked_email_messages) == 0
 
     @patch("posthog.clickhouse.client.sync_execute")
-    def test_send_hog_functions_daily_digest_deleted_function(self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock) -> None:
+    def test_send_hog_functions_daily_digest_deleted_function(
+        self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
-        
+
         # Create deleted HogFunction
         HogFunction.objects.create(
             team=self.team,
             name="Deleted Function",
-            type="destination", 
+            type="destination",
             enabled=True,
             deleted=True,  # Deleted
-            hog="// test code"
+            hog="// test code",
         )
+
+        # Mock empty response since deleted functions won't be in results
+        mock_sync_execute.return_value = []
 
         send_hog_functions_daily_digest()
 
-        # Should not process deleted functions
-        assert mock_sync_execute.call_count == 0
+        # Should query for teams but find none with active functions
+        assert mock_sync_execute.call_count == 1
         assert len(mocked_email_messages) == 0
