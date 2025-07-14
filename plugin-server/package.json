@@ -32,7 +32,7 @@
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
-        "serve-native-desetination": "DATABASE_URL=something ts-node src/cdp/templates/serve-native-destination.ts"
+        "serve-native-destination": "DATABASE_URL=something ts-node src/cdp/templates/serve-native-destination.ts"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
