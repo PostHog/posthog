@@ -180,6 +180,15 @@ describe('Hogflow Executor', () => {
                     id: expect.any(String),
                     teamId: 1,
                     hogFlow: invocation.hogFlow,
+                    person: {
+                        id: 'person_id',
+                        name: '',
+                        properties: {
+                            name: 'John Doe',
+                        },
+                        url: '',
+                    },
+                    filterGlobals: expect.any(Object),
                     functionId: invocation.hogFlow.id,
                     queue: 'hogflow',
                     queueMetadata: undefined,

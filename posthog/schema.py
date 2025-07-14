@@ -2072,12 +2072,6 @@ class RevenueAnalyticsOverviewItemKey(StrEnum):
     AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
 
 
-class RevenueAnalyticsPersonsJoinModeModifier(StrEnum):
-    ID = "id"
-    EMAIL = "email"
-    CUSTOM = "custom"
-
-
 class RevenueAnalyticsPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3476,8 +3470,6 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: Optional[PersonsJoinMode] = None
     personsOnEventsMode: Optional[PersonsOnEventsMode] = None
     propertyGroupsMode: Optional[PropertyGroupsMode] = None
-    revenueAnalyticsPersonsJoinMode: Optional[RevenueAnalyticsPersonsJoinModeModifier] = None
-    revenueAnalyticsPersonsJoinModeCustom: Optional[str] = None
     s3TableUseInvalidColumns: Optional[bool] = None
     sessionTableVersion: Optional[SessionTableVersion] = None
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None

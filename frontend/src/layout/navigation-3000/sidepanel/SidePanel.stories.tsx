@@ -5,7 +5,7 @@ import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
 import { SidePanelTab } from '~/types'
 
@@ -69,67 +69,6 @@ export const SidePanelNotebooks: StoryFn = () => {
 
 export const SidePanelMax: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Max} />
-}
-
-export const SidePanelFeaturePreviews: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            'https://us.i.posthog.com/api/early_access_features/': {
-                earlyAccessFeatures: [
-                    {
-                        name: 'Feature 1',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-1',
-                    },
-                    {
-                        name: 'Feature 2',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-2',
-                    },
-                    {
-                        name: 'Feature 3',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-3',
-                    },
-                    {
-                        name: 'Feature 4',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-4',
-                    },
-                    {
-                        name: 'Feature 5',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-5',
-                    },
-                    {
-                        name: 'Not enabled',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'not-enabled',
-                    },
-                ],
-            },
-        },
-    })
-    setFeatureFlags(['feature-1', 'feature-2', 'feature-3', 'feature-4', 'feature-5'])
-    return <BaseTemplate panel={SidePanelTab.FeaturePreviews} />
 }
 
 export const SidePanelSupportNoEmail: StoryFn = () => {
