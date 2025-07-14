@@ -10,6 +10,7 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../src/types'
+import { SourcePersonNotFoundError, TargetPersonNotFoundError } from '../../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
@@ -2348,6 +2349,194 @@ describe('PersonState.processEvent()', () => {
                     }),
                 ])
             )
+        })
+
+        it(`retries merge when source person is deleted during merge transaction`, async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            const state: PersonMergeService = personMergeService({}, hub)
+            let attemptCount = 0
+
+            jest.spyOn(hub.db, 'fetchPersonIdsById')
+
+            // Mock moveDistinctIds to throw SourcePersonNotFoundError on first attempt, succeed on retry
+            const originalMoveDistinctIds = hub.db.moveDistinctIds
+            jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(async (...args) => {
+                attemptCount++
+                if (attemptCount === 1) {
+                    throw new SourcePersonNotFoundError('Source person no longer exists')
+                }
+                return originalMoveDistinctIds.call(hub.db, ...args)
+            })
+
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+
+            // Should succeed after retry
+            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            // Verify that fetchPersonIdsById was called during retry
+            expect(hub.db.fetchPersonIdsById).toHaveBeenCalledWith(firstUserDistinctId, teamId)
+
+            // Verify that moveDistinctIds was called twice (initial + retry)
+            expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(2)
+
+            // Verify merge succeeded
+            expect(person).not.toBeUndefined()
+            expect(person?.uuid).toBe(secondUserUuid) // merged into second user
+
+            // Verify correct number of persons remain
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(1)
+            expect(persons[0].uuid).toBe(secondUserUuid)
+        })
+
+        it(`retries merge when target person is deleted during merge transaction`, async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            const state: PersonMergeService = personMergeService({}, hub)
+            let attemptCount = 0
+
+            jest.spyOn(hub.db, 'fetchPersonIdsById')
+
+            // Mock moveDistinctIds to throw TargetPersonNotFoundError on first attempt, succeed on retry
+            const originalMoveDistinctIds = hub.db.moveDistinctIds
+            jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(async (...args) => {
+                attemptCount++
+                if (attemptCount === 1) {
+                    throw new TargetPersonNotFoundError('Target person no longer exists')
+                }
+                return originalMoveDistinctIds.call(hub.db, ...args)
+            })
+
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+
+            // Should succeed after retry
+            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            // Verify that fetchPersonIdsById was called during retry
+            expect(hub.db.fetchPersonIdsById).toHaveBeenCalledWith(secondUserDistinctId, teamId)
+
+            // Verify that moveDistinctIds was called twice (initial + retry)
+            expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(2)
+
+            // Verify merge succeeded
+            expect(person).not.toBeUndefined()
+            expect(person?.uuid).toBe(secondUserUuid) // merged into second user
+
+            // Verify correct number of persons remain
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(1)
+            expect(persons[0].uuid).toBe(secondUserUuid)
+        })
+
+        it(`skips merge when source person no longer exists after retry`, async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            const state: PersonMergeService = personMergeService({}, hub)
+            let attemptCount = 0
+
+            // Mock fetchPersonIdsById to return null on retry (person no longer exists)
+            jest.spyOn(hub.db, 'fetchPersonIdsById').mockImplementation(() => {
+                return Promise.resolve(null) // Person no longer exists
+            })
+
+            // Mock moveDistinctIds to throw SourcePersonNotFoundError on first attempt
+            jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(() => {
+                attemptCount++
+                if (attemptCount === 1) {
+                    throw new SourcePersonNotFoundError('Source person no longer exists')
+                }
+                // Should not reach here since person lookup returns null
+                throw new Error('Should not retry when person no longer exists')
+            })
+
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+
+            // Should return target person without error
+            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            // Verify that fetchPersonIdsById was called during retry
+            expect(hub.db.fetchPersonIdsById).toHaveBeenCalledWith(firstUserDistinctId, teamId)
+
+            // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
+            expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(1)
+
+            // Verify we got the target person back
+            expect(person).not.toBeUndefined()
+            expect(person?.uuid).toBe(secondUserUuid)
+
+            // Verify both persons still exist since merge was skipped
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(2)
+        })
+
+        it(`skips merge when target person no longer exists after retry`, async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            const state: PersonMergeService = personMergeService({}, hub)
+            let attemptCount = 0
+
+            // Mock fetchPersonIdsById to return null on retry (person no longer exists)
+            jest.spyOn(hub.db, 'fetchPersonIdsById').mockImplementation(() => {
+                return Promise.resolve(null) // Person no longer exists
+            })
+
+            // Mock moveDistinctIds to throw TargetPersonNotFoundError on first attempt
+            jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(() => {
+                attemptCount++
+                if (attemptCount === 1) {
+                    throw new TargetPersonNotFoundError('Target person no longer exists')
+                }
+                // Should not reach here since person lookup returns null
+                throw new Error('Should not retry when person no longer exists')
+            })
+
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+
+            // Should return target person without error
+            const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            // Verify that fetchPersonIdsById was called during retry
+            expect(hub.db.fetchPersonIdsById).toHaveBeenCalledWith(secondUserDistinctId, teamId)
+
+            // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
+            expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(1)
+
+            // Verify we got the original target person back (which was the second user)
+            expect(person).not.toBeUndefined()
+            expect(person?.uuid).toBe(secondUserUuid)
+
+            // Verify both persons still exist since merge was skipped
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(2)
         })
     })
 })

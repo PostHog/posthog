@@ -6,6 +6,7 @@ import { NoRowsUpdatedError } from '~/utils/utils'
 
 import { TopicMessage } from '../../../kafka/producer'
 import {
+    DistinctPersonIdentifiers,
     InternalPerson,
     PersonBatchWritingDbWriteMode,
     PropertiesLastOperation,
@@ -40,6 +41,7 @@ import { PersonsStoreForBatch } from './persons-store-for-batch'
 type MethodName =
     | 'fetchForChecking'
     | 'fetchForUpdate'
+    | 'fetchPersonIdsById'
     | 'fetchPerson'
     | 'updatePersonAssertVersion'
     | 'updatePersonNoAssert'
@@ -374,6 +376,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             personFetchForUpdateCacheOperationsCounter.inc({ operation: 'hit' })
         }
         return fetchPromise
+    }
+    async fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
+        this.incrementCount('fetchPersonIdsById', distinctId)
+        this.incrementDatabaseOperation('fetchPersonIdsById', distinctId)
+        const result = await this.db.fetchPersonIdsById(distinctId, teamId)
+        return result
     }
 
     updatePersonForMerge(

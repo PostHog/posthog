@@ -2,7 +2,13 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
+import {
+    DistinctPersonIdentifiers,
+    InternalPerson,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import {
@@ -27,6 +33,7 @@ type MethodName =
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'fetchPersonIdsById'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
@@ -294,6 +301,13 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         const response = await this.db.deletePerson(person, tx)
         observeLatencyByVersion(person, start, 'deletePerson')
         return response
+    }
+
+    async fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
+        this.incrementCount('fetchPersonIdsById', distinctId)
+        this.incrementDatabaseOperation('fetchPersonIdsById', distinctId)
+        const result = await this.db.fetchPersonIdsById(distinctId, teamId)
+        return result
     }
 
     async addDistinctId(

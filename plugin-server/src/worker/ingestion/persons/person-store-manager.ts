@@ -2,7 +2,14 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
-import { Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
+import {
+    DistinctPersonIdentifiers,
+    Hub,
+    InternalPerson,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { BatchWritingPersonsStore, BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
@@ -338,6 +345,11 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         this.updateFinalState(person.team_id, distinctId, person.id, person, false, 'addDistinctId', person.version)
 
         return mainResult
+    }
+
+    async fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
+        const result = await this.mainStore.fetchPersonIdsById(distinctId, teamId)
+        return result
     }
 
     async moveDistinctIds(
