@@ -329,7 +329,7 @@ class SimBrowserClient(SimClient):
             PROPERTY_BROWSER_LANGUAGE: self.person.language,
         }.items():
             combined_properties[key] = value
-            combined_properties["$set"][PROPERTY_GEOIP_COUNTRY_CODE] = value
+            combined_properties["$set"][key] = value
         # Saving
         super()._capture_raw(event, combined_properties, distinct_id=self.active_distinct_id)
 
