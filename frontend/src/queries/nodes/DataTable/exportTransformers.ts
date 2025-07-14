@@ -13,9 +13,13 @@ export function transformColumnsForExport(columns: string[], personDisplayNamePr
     return columns.map((column) => {
         const cleanColumn = removeExpressionComment(column)
 
-        // Replace 'person' with 'person.properties.email' for performance
+        // Replace 'person' with coalesce expression for performance
         if (cleanColumn === PERSON_COLUMN) {
-            return column.replace(/\bperson\b/, expr)
+            const newColumn = column.replace(/\bperson\b/, expr)
+            if (!column.includes('--')) {
+                return `${newColumn} -- Person`
+            }
+            return newColumn
         }
 
         return column
