@@ -29,7 +29,9 @@ class WebAnalyticsTrendRequestSerializer(WebAnalyticsRequestSerializer):
         choices=["visitors", "views", "sessions"], help_text="The metric to show over time"
     )
     interval = serializers.ChoiceField(
-        choices=["hour", "day", "week", "month"], default="day", help_text="Time interval for data aggregation"
+        choices=["minute", "hour", "day", "week", "month"],
+        default="day",
+        help_text="Time interval for data aggregation",
     )
 
 
@@ -40,28 +42,45 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
         choices=[
             # Page-related
             "page",
-            "entry_page",
+            "initial_page",
             "exit_page",
+            "exit_click",
+            "screen_name",
             # Traffic sources
-            "referrer",
-            "utm_source",
-            "utm_campaign",
-            "utm_medium",
+            "initial_channel_type",
+            "initial_referring_domain",
+            "initial_utm_source",
+            "initial_utm_campaign",
+            "initial_utm_medium",
+            "initial_utm_term",
+            "initial_utm_content",
+            "initial_utm_source_medium_campaign",
             # Device & technical
             "browser",
             "os",
-            "device",
+            "viewport",
+            "device_type",
             # Geographic
             "country",
             "region",
             "city",
+            "timezone",
+            "language",
+            # Additional
+            "frustration_metrics",
         ],
         help_text="Property to break down by",
     )
     metrics = serializers.MultipleChoiceField(
-        choices=["visitors", "views", "sessions", "bounce_rate", "session_duration", "conversion_rate"],
+        choices=[
+            "visitors",
+            "views",
+            "clicks",
+            "bounce_rate",
+            "session_duration",
+        ],
         required=False,
-        help_text="Metrics to include (default: ['visitors', 'views'])",
+        help_text="Metrics to include for each breakdown value",
         default={"visitors", "views", "bounce_rate"},
     )
     limit = serializers.IntegerField(default=25, min_value=1, max_value=100, help_text="Number of results to return")
