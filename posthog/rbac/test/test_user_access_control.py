@@ -709,3 +709,362 @@ class TestUserAccessControlAccessSource(BaseUserAccessControlTest):
 
         access_source = fresh_user_access_control.get_access_source_for_object(self.team)
         assert access_source == AccessSource.ORGANIZATION_ADMIN
+
+
+@pytest.mark.ee
+class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
+    """Test the get_user_access_level method"""
+
+    def setUp(self):
+        super().setUp()
+        self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self.other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+
+    def test_specific_access_level_for_object_takes_priority(self):
+        """Test that specific access level (with role/member) takes highest priority"""
+        # Create a specific access control for the user on other_dashboard
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        # Create a resource-level access control that would give higher access
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=None,
+            access_level="editor",
+        )
+
+        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
+        assert access_level == "viewer"  # Specific object access takes priority
+
+    def test_resource_level_access_when_no_specific_object_access(self):
+        """Test that resource-level access is used when no specific object access exists"""
+        # Create only resource-level access control
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=None,
+            access_level="editor",
+        )
+
+        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
+        assert access_level == "editor"
+
+    def test_object_general_access_as_fallback(self):
+        """Test that object general access is used as final fallback"""
+        # No specific or resource-level access controls
+        # Should fall back to object general access (creator gets highest level)
+        access_level = self.user_access_control.get_user_access_level(self.dashboard)
+        assert access_level == "manager"  # Creator gets highest access level
+
+    def test_org_admin_gets_highest_access_level(self):
+        """Test that org admins get highest access level regardless of other controls"""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Create restrictive access controls
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
+        assert access_level == "manager"  # Org admin gets highest level
+
+    def test_creator_gets_highest_access_level(self):
+        """Test that creators get highest access level for their objects"""
+        access_level = self.user_access_control.get_user_access_level(self.dashboard)
+        assert access_level == "manager"  # Creator gets highest level
+
+    def test_no_access_controls_returns_default(self):
+        """Test that when no access controls exist, default access level is returned"""
+        # Disable access controls
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
+        assert access_level == "editor"  # Default access level
+
+    def test_role_based_specific_access(self):
+        """Test that role-based specific access works correctly"""
+        # Create role-based access control
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            role=self.role_a,
+        )
+
+        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
+        assert access_level == "viewer"
+
+    def test_mixed_access_controls_highest_wins(self):
+        """Test that when multiple access controls exist, highest level wins"""
+        # Create multiple access controls with different levels
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        access_level = self.user_access_control.get_user_access_level(self.other_dashboard)
+        assert access_level == "editor"  # Higher level wins
+
+    def test_project_level_access_for_team_objects(self):
+        """Test project-level access for team objects"""
+        # Create project-level access control
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+
+        access_level = self.user_access_control.get_user_access_level(self.team)
+        assert access_level == "admin"
+
+    def test_organization_access_for_organization_objects(self):
+        """Test organization access for organization objects"""
+        uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
+
+        access_level = uac.get_user_access_level(self.organization)
+        assert access_level == "member"  # Default for org members
+
+        # Make user org admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        access_level = uac.get_user_access_level(self.organization)
+        assert access_level == "admin"
+
+    def test_no_organization_membership_returns_none(self):
+        """Test that users without org membership get None access level"""
+        # Create user without org membership
+        user_without_org = User.objects.create_user(
+            email="noorg@example.com", password="password", first_name="No", last_name="Org"
+        )
+        uac = UserAccessControl(user=user_without_org, team=self.team)
+
+        access_level = uac.get_user_access_level(self.dashboard)
+        assert access_level is None
+
+    def test_unsupported_model_returns_none(self):
+        """Test that unsupported models return None"""
+
+        # Create a model that doesn't map to a resource
+        class UnsupportedModel:
+            def __init__(self):
+                self.id = 1
+
+        unsupported_obj = UnsupportedModel()
+        access_level = self.user_access_control.get_user_access_level(unsupported_obj)
+        assert access_level is None
+
+
+@pytest.mark.ee
+class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTest):
+    """Test the specific_access_level_for_object method"""
+
+    def setUp(self):
+        super().setUp()
+        self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        self.other_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+
+    def test_returns_none_when_no_specific_access_controls(self):
+        """Test that returns None when no specific access controls exist"""
+        access_level = self.user_access_control.specific_access_level_for_object(self.dashboard)
+        assert access_level is None
+
+    def test_returns_none_when_no_organization_membership(self):
+        """Test that returns None when user has no organization membership"""
+        # Create user without org membership
+        user_without_org = User.objects.create_user(email="noorg@example.com", password="password")
+        uac = UserAccessControl(user=user_without_org, team=self.team)
+
+        access_level = uac.specific_access_level_for_object(self.dashboard)
+        assert access_level is None
+
+    def test_returns_none_for_unsupported_model(self):
+        """Test that returns None for unsupported models"""
+
+        class UnsupportedModel:
+            def __init__(self):
+                self.id = 1
+
+        unsupported_obj = UnsupportedModel()
+        access_level = self.user_access_control.specific_access_level_for_object(unsupported_obj)
+        assert access_level is None
+
+    def test_member_specific_access_control(self):
+        """Test that member-specific access controls are detected"""
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
+        assert access_level == "viewer"
+
+    def test_role_specific_access_control(self):
+        """Test that role-specific access controls are detected"""
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
+        assert access_level == "editor"
+
+    def test_ignores_global_access_controls(self):
+        """Test that global access controls (no member/role) are ignored"""
+        # Create a global access control
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="manager",
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
+        assert access_level is None  # Global controls are ignored
+
+    def test_highest_level_wins_for_multiple_specific_controls(self):
+        """Test that highest level wins when multiple specific controls exist"""
+        # Create multiple specific access controls
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
+        assert access_level == "editor"  # Higher level wins
+
+    def test_mixed_member_and_role_controls(self):
+        """Test that both member and role controls are considered"""
+        # Create member-specific control
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        # Create role-specific control with higher level
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(self.other_dashboard.id),
+            access_level="manager",
+            role=self.role_a,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(self.other_dashboard)
+        assert access_level == "manager"  # Role control with higher level wins
+
+    def test_project_specific_access_control(self):
+        """Test project-specific access controls"""
+        self._create_access_control(
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(self.team)
+        assert access_level == "admin"
+
+    def test_organization_specific_access_control(self):
+        """Test organization-specific access controls"""
+        uac = UserAccessControl(user=self.user, organization_id=self.organization.id)
+
+        # Organization access is controlled via membership level only
+        # No specific access controls should be found
+        access_level = uac.specific_access_level_for_object(self.organization)
+        assert access_level is None
+
+    def test_plugin_specific_access_control(self):
+        """Test plugin-specific access controls"""
+        # Create a plugin access control
+        self._create_access_control(
+            resource="plugin",
+            resource_id="test_plugin",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+
+        # Create a mock plugin object
+        class MockPlugin:
+            def __init__(self):
+                self.id = "test_plugin"
+
+        plugin_obj = MockPlugin()
+        access_level = self.user_access_control.specific_access_level_for_object(plugin_obj)
+        assert access_level == "editor"
+
+    def test_feature_flag_specific_access_control(self):
+        """Test feature flag-specific access controls"""
+        from posthog.models.feature_flag import FeatureFlag
+
+        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user)
+
+        self._create_access_control(
+            resource="feature_flag",
+            resource_id=str(feature_flag.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(feature_flag)
+        assert access_level == "viewer"
+
+    def test_notebook_specific_access_control(self):
+        """Test notebook-specific access controls"""
+        from posthog.models.notebook import Notebook
+
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(notebook.id),
+            access_level="editor",
+            role=self.role_a,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(notebook)
+        assert access_level == "editor"
+
+    def test_insight_specific_access_control(self):
+        """Test insight-specific access controls"""
+        from posthog.models.insight import Insight
+
+        insight = Insight.objects.create(team=self.team, created_by=self.user)
+
+        self._create_access_control(
+            resource="insight",
+            resource_id=str(insight.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        access_level = self.user_access_control.specific_access_level_for_object(insight)
+        assert access_level == "viewer"
