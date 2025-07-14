@@ -17,9 +17,13 @@
 
 <!-- Engineers are responsible for doing the first pass at documenting their features and/or code.  -->
 
-- [ ] I've [added or updated the docs](https://posthog.com/handbook/engineering/writing-docs)
-- [ ] I've reached out for help from the docs team
-- [ ] No docs needed for this change
+-   [ ] I've [added or updated the docs](https://posthog.com/handbook/engineering/writing-docs)
+-   [ ] I've reached out for help from the docs team
+-   [ ] No docs needed for this change
+
+## How much of this change is AI generated (0-10)?
+
+<!-- Where 0 is no AI was used at all, and 10 is its all written by AI with no human checking -->
 
 ## How did you test this code?
 
