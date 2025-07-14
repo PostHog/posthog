@@ -1,7 +1,9 @@
 import datetime as dt
+import math
 from enum import auto
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlencode, urlparse, urlunparse
+from zoneinfo import ZoneInfo
 
 import pytz
 
@@ -53,8 +55,24 @@ class SpikeGPTPerson(SimPerson):
             self.country_code = (
                 "US" if self.cluster.random.random() < 0.7132 else self.cluster.address_provider.country_code()
             )
+            # mimesis doesn't support choosing cities in a specific country, so these will be pretty odd until they fix this
+            self.region = (
+                "California"
+                if self.country_code == "US" and self.cluster.random.random() < 0.5
+                else self.cluster.address_provider.region()
+            )
+            self.city = (
+                "San Francisco"
+                if self.region == "California" and self.cluster.random.random() < 0.3
+                else self.cluster.address_provider.city()
+            )
+            self.language = "en-GB" if self.country_code == "GB" else "en-US"
+
             try:  # Some tiny regions aren't in pytz - we want to omit those
                 self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
+                self.timezone_offset = math.floor(
+                    ZoneInfo(self.timezone).utcoffset(dt.datetime.now(tz=ZoneInfo(self.timezone))).total_seconds() / 60
+                )
             except KeyError:
                 continue
             else:
