@@ -152,7 +152,7 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
 
         if response.certificate_status != CertificateState_READY:
             return CheckActivityOutput(
-                errors=["DNS Certificate is not ready"],
+                errors=["TLS Certificate is not ready"],
                 warnings=[],
             )
 
