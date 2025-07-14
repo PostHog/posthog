@@ -5,10 +5,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_COMBINED_VIEW_SQL,
 )
 
-# Attribution fields to add (in order)
 ATTRIBUTION_FIELDS = ["has_gclid", "has_gad_source_paid_search", "has_fbclid"]
-
-# Web analytics tables to update
 WEB_ANALYTICS_TABLES = [
     "web_stats_daily",
     "web_bounces_daily",
@@ -19,7 +16,7 @@ WEB_ANALYTICS_TABLES = [
 ]
 
 
-def create_attribution_field_operations():
+def alter_table_add_fields_operations():
     operations = []
 
     for table_name in WEB_ANALYTICS_TABLES:
@@ -37,15 +34,13 @@ def create_attribution_field_operations():
     return operations
 
 
-def create_view_recreation_operations():
+def recreate_view_operations():
     return [
-        # Drop existing views
         run_sql_with_exceptions("DROP VIEW IF EXISTS web_stats_combined SYNC", node_role=NodeRole.ALL),
         run_sql_with_exceptions("DROP VIEW IF EXISTS web_bounces_combined SYNC", node_role=NodeRole.ALL),
-        # Recreate views with new schema
         run_sql_with_exceptions(WEB_STATS_COMBINED_VIEW_SQL(), node_role=NodeRole.ALL),
         run_sql_with_exceptions(WEB_BOUNCES_COMBINED_VIEW_SQL(), node_role=NodeRole.ALL),
     ]
 
 
-operations = create_attribution_field_operations() + create_view_recreation_operations()
+operations = alter_table_add_fields_operations() + recreate_view_operations()

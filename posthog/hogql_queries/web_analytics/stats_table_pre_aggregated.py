@@ -284,6 +284,18 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     ) -> ast.Tuple:
         field_chain: list[str | int] = [table_prefix, state_field] if table_prefix else [state_field]
 
+        previous_expr = (
+            ast.Constant(value=None)
+            if not self.runner.query_compare_to_date_range
+            else ast.Call(
+                name=function_name,
+                args=[
+                    ast.Field(chain=field_chain),
+                    previous_period_filter,
+                ],
+            )
+        )
+
         return ast.Tuple(
             exprs=[
                 ast.Call(
@@ -293,13 +305,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         current_period_filter,
                     ],
                 ),
-                ast.Call(
-                    name=function_name,
-                    args=[
-                        ast.Field(chain=field_chain),
-                        previous_period_filter,
-                    ],
-                ),
+                previous_expr,
             ]
         )
 
@@ -333,9 +339,16 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 ],
             )
 
+        # When there's no comparison period, return None for previous period to match regular approach
+        previous_expr = (
+            ast.Constant(value=None)
+            if not self.runner.query_compare_to_date_range
+            else safe_bounce_rate(previous_period_filter)
+        )
+
         return ast.Tuple(
             exprs=[
                 safe_bounce_rate(current_period_filter),
-                safe_bounce_rate(previous_period_filter),
+                previous_expr,
             ]
         )
