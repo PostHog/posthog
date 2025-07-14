@@ -212,6 +212,8 @@ def WEB_STATS_INSERT_SQL(
     time_bucket_func = params["time_bucket_func"]
     settings_clause = f"SETTINGS {settings}" if settings else ""
 
+    settings_clause = f"SETTINGS {settings}" if settings else ""
+
     query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
@@ -342,7 +344,7 @@ def WEB_STATS_INSERT_SQL(
             has_gclid,
             has_gad_source_paid_search,
             has_fbclid
-        SETTINGS {settings}
+        {settings_clause}
     )
     GROUP BY
         period_bucket,
@@ -369,7 +371,7 @@ def WEB_STATS_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid
-    {"SETTINGS " + settings if settings and not select_only else ""}
+    {settings_clause}
     """
 
     if select_only:
