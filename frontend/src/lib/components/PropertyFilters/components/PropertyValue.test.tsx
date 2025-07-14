@@ -30,7 +30,7 @@ describe('PropertyValue with Flag Dependencies', () => {
         endpoint: 'test',
         eventNames: [],
         addRelativeDateTimeOptions: false,
-        groupTypeIndex: null,
+        groupTypeIndex: undefined,
         editable: true,
         preloadValues: false,
     }
