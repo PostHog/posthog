@@ -71,25 +71,23 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         focus_area = serializer.validated_data.get("focus_area")
         # Check that sessions exist and get min/max timestamps for follow-up queries
         sessions_found, min_timestamp, max_timestamp = self._get_sessions_metadata(session_ids)
-
         # Prepare extra context, if provided
         extra_summary_context = None
         if focus_area:
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
-
         try:
             # Execute the session group summary
             result = execute_summarize_session_group(
                 session_ids=session_ids,
                 user_id=user.pk,
                 team=self.team,
+                min_timestamp=min_timestamp,
+                max_timestamp=max_timestamp,
                 extra_summary_context=extra_summary_context,
                 local_reads_prod=False,
             )
-
             # Return the enriched patterns list
             return Response(result.model_dump(exclude_none=True), status=status.HTTP_200_OK)
-
         except Exception as e:
             logger.exception(
                 "Failed to generate session group summary",

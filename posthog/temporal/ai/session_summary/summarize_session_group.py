@@ -1,5 +1,5 @@
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 import hashlib
 import json
 from typing import cast
@@ -280,6 +280,8 @@ def execute_summarize_session_group(
     session_ids: list[str],
     user_id: int,
     team: Team,
+    min_timestamp: datetime,
+    max_timestamp: datetime,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
 ) -> EnrichedSessionGroupSummaryPatternsList:
@@ -295,6 +297,8 @@ def execute_summarize_session_group(
         user_id=user_id,
         team_id=team.id,
         redis_key_base=redis_key_base,
+        min_timestamp=min_timestamp,
+        max_timestamp=max_timestamp,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )
