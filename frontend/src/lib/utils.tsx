@@ -452,6 +452,10 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
+export function makeDelay(ms: number): () => Promise<void> {
+    return () => delay(ms)
+}
+
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(resolve, ms)
@@ -1145,6 +1149,19 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     return response
 }
 
+export function isValidRelativeOrAbsoluteDate(date: string): boolean {
+    if (isStringDateRegex.test(date)) {
+        return true
+    }
+    if (dayjs(date).isValid()) {
+        return true
+    }
+    if (date === 'all') {
+        return true
+    }
+    return false
+}
+
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
     // use the default mapping if we can
     for (const mapping of dateMapping) {
@@ -1550,6 +1567,17 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
         posthog.captureException(e)
         return null
     }
+}
+
+export function timeZoneLabel(timeZone: string, offset: number): string {
+    const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
+    const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    const hours = Math.floor(Math.abs(offset))
+    const minutes = Math.round((Math.abs(offset) % 1) * 60)
+        .toString()
+        .padStart(2, '0')
+
+    return `${formattedZone} (UTC${sign}${hours}:${minutes})`
 }
 
 export function humanTzOffset(timezone?: string): string {

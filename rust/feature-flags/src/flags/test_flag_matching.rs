@@ -196,7 +196,7 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, Some(overrides), None, None, Uuid::new_v4())
+            .evaluate_all_feature_flags(flags, Some(overrides), None, None, Uuid::new_v4(), None)
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
@@ -273,7 +273,14 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, None, Some(group_overrides), None, Uuid::new_v4())
+            .evaluate_all_feature_flags(
+                flags,
+                None,
+                Some(group_overrides),
+                None,
+                Uuid::new_v4(),
+                None,
+            )
             .await;
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -284,65 +291,11 @@ mod tests {
         );
     }
 
-    pub fn create_test_flag_with_properties(
-        id: i32,
-        team_id: TeamId,
-        key: &str,
-        filters: Vec<PropertyFilter>,
-    ) -> FeatureFlag {
-        create_test_flag(
-            Some(id),
-            Some(team_id),
-            None,
-            Some(key.to_string()),
-            Some(FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(filters),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        )
-    }
-
-    pub fn create_test_flag_with_property(
-        id: i32,
-        team_id: TeamId,
-        key: &str,
-        filter: PropertyFilter,
-    ) -> FeatureFlag {
-        create_test_flag_with_properties(id, team_id, key, vec![filter])
-    }
-
-    pub fn create_test_flag_that_depends_on_flag(
-        id: i32,
-        team_id: TeamId,
-        key: &str,
-        depends_on_flag_id: i32,
-        depends_on_flag_value: FlagValue,
-    ) -> FeatureFlag {
-        create_test_flag_with_property(
-            id,
-            team_id,
-            key,
-            PropertyFilter {
-                key: depends_on_flag_id.to_string(),
-                value: Some(json!(depends_on_flag_value)),
-                operator: Some(OperatorType::Exact),
-                prop_type: PropertyType::Flag,
-                group_type_index: None,
-                negation: None,
-            },
-        )
-    }
+    // Use the shared test utility functions from test_utils.rs
+    use crate::utils::test_utils::{
+        create_test_flag_that_depends_on_flag, create_test_flag_with_properties,
+        create_test_flag_with_property,
+    };
 
     #[tokio::test]
     async fn test_flags_that_depends_on_other_boolean_flag() {
@@ -413,6 +366,7 @@ mod tests {
                     None,
                     None,
                     Uuid::new_v4(),
+                    None,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -436,7 +390,7 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4())
+                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
                 .await;
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
@@ -562,6 +516,7 @@ mod tests {
                     None,
                     None,
                     Uuid::new_v4(),
+                    None,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -583,6 +538,7 @@ mod tests {
                     None,
                     None,
                     Uuid::new_v4(),
+                    None,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -604,6 +560,7 @@ mod tests {
                     None,
                     None,
                     Uuid::new_v4(),
+                    None,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -713,7 +670,7 @@ mod tests {
         reset_fetch_calls_count();
 
         let result = matcher
-            .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4())
+            .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
             .await;
         // Add this assertion to check the call count
         let fetch_calls = get_fetch_calls_count();
@@ -844,6 +801,7 @@ mod tests {
                     None,
                     None,
                     Uuid::new_v4(),
+                    None,
                 )
                 .await;
             assert!(result.errors_while_computing_flags);
@@ -867,7 +825,7 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4())
+                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
                 .await;
             assert!(result.errors_while_computing_flags);
             assert_eq!(
@@ -984,6 +942,7 @@ mod tests {
                     None,
                     None,
                     Uuid::new_v4(),
+                    None,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -1006,6 +965,7 @@ mod tests {
                     None,
                     None,
                     Uuid::new_v4(),
+                    None,
                 )
                 .await;
             assert!(!result.errors_while_computing_flags);
@@ -1021,7 +981,7 @@ mod tests {
         {
             // Leaf flag evaluates to false
             let result = matcher
-                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4())
+                .evaluate_all_feature_flags(flags.clone(), None, None, None, Uuid::new_v4(), None)
                 .await;
             assert!(!result.errors_while_computing_flags);
             assert_eq!(
@@ -1307,6 +1267,7 @@ mod tests {
                 None,
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -3414,6 +3375,7 @@ mod tests {
             None,
             Some("hash_key_continuity".to_string()),
             Uuid::new_v4(),
+            None,
         )
         .await;
 
@@ -3493,7 +3455,7 @@ mod tests {
             Some(group_type_mapping_cache),
             None,
         )
-        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4())
+        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None)
         .await;
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
@@ -3621,6 +3583,7 @@ mod tests {
             None,
             Some("hash_key_mixed".to_string()),
             Uuid::new_v4(),
+            None,
         )
         .await;
 
@@ -4284,6 +4247,7 @@ mod tests {
                 None,
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -4799,6 +4763,7 @@ mod tests {
                 None,
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -4839,6 +4804,7 @@ mod tests {
                 None,
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -4872,6 +4838,7 @@ mod tests {
                 None,
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -4907,6 +4874,7 @@ mod tests {
                 None,
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -5048,6 +5016,7 @@ mod tests {
                 Some(partial_group_overrides),
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -5087,6 +5056,7 @@ mod tests {
                 Some(complete_group_overrides_match),
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -5126,6 +5096,7 @@ mod tests {
                 Some(complete_group_overrides_no_match),
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -5161,6 +5132,7 @@ mod tests {
                 Some(complete_group_overrides_condition1),
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 
@@ -5200,6 +5172,7 @@ mod tests {
                 Some(mixed_group_overrides),
                 None,
                 Uuid::new_v4(),
+                None,
             )
             .await;
 

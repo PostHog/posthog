@@ -72,6 +72,7 @@ import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -1154,7 +1155,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
                                         <span className="font-mono font-bold">
                                             {featureFlag.has_encrypted_payloads
-                                                ? 'getDecryptedFeatureFlagPayload'
+                                                ? 'getRemoteConfigPayload'
                                                 : 'getFeatureFlagPayload'}
                                         </span>
                                         . Using standard SDK methods such as{' '}

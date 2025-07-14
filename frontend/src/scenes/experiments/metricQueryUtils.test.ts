@@ -9,7 +9,13 @@ import type {
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { ChartDisplayType, ExperimentMetricMathType, PropertyMathType } from '~/types'
+import {
+    ChartDisplayType,
+    ExperimentMetricMathType,
+    PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
+} from '~/types'
 
 import { getFilter, getQuery } from './metricQueryUtils'
 
@@ -262,6 +268,63 @@ describe('getQuery', () => {
         expect(query).toBeUndefined()
     })
 
+    it('returns the correct query for a mean metric with properties', () => {
+        const metric: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+                name: '$pageview',
+                math: ExperimentMetricMathType.TotalCount,
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                ],
+            },
+        }
+
+        const query = getQuery({
+            filterTestAccounts: false,
+        })(metric)
+
+        expect(query).toEqual(
+            setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                interval: 'day',
+                dateRange: {
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    explicitDate: true,
+                },
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsLineGraph,
+                },
+                filterTestAccounts: false,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                        math: ExperimentMetricMathType.TotalCount,
+                        properties: [
+                            {
+                                key: '$browser',
+                                value: ['Chrome'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+            })
+        )
+    })
+
     it('returns the correct query for a mean metric with an action source', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
@@ -319,7 +382,14 @@ describe('Data Warehouse Support', () => {
                     data_warehouse_join_key: 'user_id',
                     name: 'user_events',
                     math: 'total',
-                    properties: [{ key: 'event_type', value: ['purchase'], operator: 'exact', type: 'event' }],
+                    properties: [
+                        {
+                            key: 'event_type',
+                            value: ['purchase'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
                 } as ExperimentDataWarehouseNode,
             }
             const filter = getFilter(metric)
@@ -336,7 +406,14 @@ describe('Data Warehouse Support', () => {
                         events_join_key: 'user_id',
                         data_warehouse_join_key: 'user_id',
                         math: 'total',
-                        properties: [{ key: 'event_type', value: ['purchase'], operator: 'exact', type: 'event' }],
+                        properties: [
+                            {
+                                key: 'event_type',
+                                value: ['purchase'],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
                         kind: NodeKind.ExperimentDataWarehouseNode,
                     },
                 ],
@@ -422,11 +499,12 @@ describe('Data Warehouse Support', () => {
                     filterTestAccounts: true,
                     series: [
                         {
-                            kind: NodeKind.ExperimentDataWarehouseNode,
+                            kind: NodeKind.DataWarehouseNode,
                             table_name: 'revenue_table',
                             timestamp_field: 'transaction_date',
-                            events_join_key: 'user_id',
-                            data_warehouse_join_key: 'customer_id',
+                            distinct_id_field: 'user_id',
+                            id_field: 'customer_id',
+                            id: 'revenue_table',
                             name: 'revenue_table',
                             math: PropertyMathType.Sum,
                             math_property: 'revenue_amount',
@@ -529,8 +607,18 @@ describe('Data Warehouse Support', () => {
                     name: 'analytics_events',
                     custom_name: 'Custom Analytics Event',
                     properties: [
-                        { key: 'category', value: ['conversion'], operator: 'exact', type: 'event' },
-                        { key: 'value', value: [100], operator: 'gte', type: 'event' },
+                        {
+                            key: 'category',
+                            value: ['conversion'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                        {
+                            key: 'value',
+                            value: [100],
+                            operator: PropertyOperator.GreaterThanOrEqual,
+                            type: PropertyFilterType.Event,
+                        },
                     ],
                     math: 'total',
                     math_property: 'conversion_value',
@@ -548,8 +636,18 @@ describe('Data Warehouse Support', () => {
                 data_warehouse_join_key: 'user_external_id',
                 custom_name: 'Custom Analytics Event',
                 properties: [
-                    { key: 'category', value: ['conversion'], operator: 'exact', type: 'event' },
-                    { key: 'value', value: [100], operator: 'gte', type: 'event' },
+                    {
+                        key: 'category',
+                        value: ['conversion'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    },
+                    {
+                        key: 'value',
+                        value: [100],
+                        operator: PropertyOperator.GreaterThanOrEqual,
+                        type: PropertyFilterType.Event,
+                    },
                 ],
                 math: 'total',
                 math_property: 'conversion_value',
