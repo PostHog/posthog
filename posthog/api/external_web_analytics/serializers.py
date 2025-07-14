@@ -113,16 +113,15 @@ class WebAnalyticsTrendPointSerializer(serializers.Serializer):
     value = serializers.IntegerField(help_text="The metric value for this date")
 
 
-class WebAnalyticsListResponseSerializer(serializers.Serializer):
+class WebAnalyticsBaseListResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Total number of items available")
     next = serializers.URLField(required=False, allow_null=True, help_text="URL for next page of results")
     previous = serializers.URLField(required=False, allow_null=True, help_text="URL for previous page of results")
-    results = serializers.ListField(help_text="Array of items")
 
 
-class WebAnalyticsTrendResponseSerializer(WebAnalyticsListResponseSerializer):
+class WebAnalyticsTrendResponseSerializer(WebAnalyticsBaseListResponseSerializer):
     results = WebAnalyticsTrendPointSerializer(many=True, help_text="Array of data points for the metric")
 
 
-class WebAnalyticsBreakdownResponseSerializer(WebAnalyticsListResponseSerializer):
+class WebAnalyticsBreakdownResponseSerializer(WebAnalyticsBaseListResponseSerializer):
     results = serializers.ListField(help_text="Array of breakdown items")
