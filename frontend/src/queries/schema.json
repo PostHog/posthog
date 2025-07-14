@@ -572,6 +572,9 @@
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/FlagDependencyPropertyFilter"
                 }
             ]
         },
@@ -11517,6 +11520,53 @@
             "enum": ["AND", "OR"],
             "type": "string"
         },
+        "FlagDependencyPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "flag",
+                    "description": "Feature flag dependency (property type is 'flag')",
+                    "type": "string"
+                },
+                "value": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/PropertyFilterBaseValue"
+                        },
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/PropertyFilterBaseValue"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "FunnelConversionWindowTimeUnit": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
@@ -15583,7 +15633,7 @@
             "type": "object"
         },
         "PropertyFilterBaseValue": {
-            "type": ["string", "number"]
+            "type": ["string", "number", "boolean"]
         },
         "PropertyFilterType": {
             "enum": [
@@ -15593,6 +15643,7 @@
                 "person",
                 "element",
                 "feature",
+                "flag",
                 "session",
                 "cohort",
                 "recording",
