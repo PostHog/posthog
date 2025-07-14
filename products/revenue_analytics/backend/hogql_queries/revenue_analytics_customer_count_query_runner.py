@@ -139,8 +139,12 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
                             ast.And(
                                 exprs=[
-                                    self._period_lteq_expr(ast.Field(chain=["started_at"]), ast.Field(chain=["period_start"])),
-                                    self._period_gteq_expr(ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])),
+                                    self._period_lteq_expr(
+                                        ast.Field(chain=["started_at"]), ast.Field(chain=["period_start"])
+                                    ),
+                                    self._period_gteq_expr(
+                                        ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])
+                                    ),
                                 ]
                             ),
                         ],
@@ -157,8 +161,14 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
                             ast.And(
                                 exprs=[
-                                    self._period_lteq_expr(ast.Field(chain=["started_at"]), self._add_period_expr(ast.Field(chain=["period_start"]), -1)),
-                                    self._period_gteq_expr(ast.Field(chain=["ended_at"]), self._add_period_expr(ast.Field(chain=["period_start"]), -1)),
+                                    self._period_lteq_expr(
+                                        ast.Field(chain=["started_at"]),
+                                        self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                                    ),
+                                    self._period_gteq_expr(
+                                        ast.Field(chain=["ended_at"]),
+                                        self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                                    ),
                                 ]
                             ),
                         ],
@@ -279,7 +289,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                 )
             ],
         )
-    
+
     def _add_period_expr(self, date: ast.Expr, offset: int) -> ast.Expr:
         return ast.Call(
             name="date_add",
