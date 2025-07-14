@@ -296,7 +296,7 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
                 FeatureFlag {
@@ -314,7 +314,7 @@ mod tests {
                     },
                     deleted: false,
                     active: false,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
                 FeatureFlag {
@@ -343,7 +343,7 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
             ],
