@@ -72,4 +72,50 @@
     img {
         max-width: 100%;
     }
+
+    .math-renderer {
+        line-height: 1.5;
+
+        &.math-block {
+            display: block;
+            text-align: center;
+            margin: 1em 0;
+            font-size: 1.1em;
+
+            // Center the MathJax container
+            mjx-container {
+                text-align: center;
+                display: block;
+                margin: 0 auto;
+            }
+        }
+
+        &.math-inline {
+            display: inline;
+            vertical-align: middle;
+
+            mjx-container {
+                display: inline;
+                vertical-align: middle;
+            }
+        }
+
+        mjx-container {
+            font-size: 1em;
+            overflow-x: auto;
+            overflow-y: hidden;
+
+            svg {
+                display: inline-block;
+                vertical-align: middle;
+            }
+        }
+
+        span[style*='color: red'] {
+            background-color: var(--bg-fill-error-tertiary, rgba(220, 38, 38, 0.1));
+            padding: 0.125em 0.25em;
+            border-radius: 0.25em;
+            border: 1px solid var(--border-danger, rgba(220, 38, 38, 0.3));
+        }
+    }
 }
