@@ -1,102 +1,52 @@
 import { Histogram } from 'prom-client'
-import { ReadableStream } from 'stream/web'
 
 import { PluginsServerConfig } from '~/types'
+import { parseJSON } from '~/utils/json-parse'
 
-import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { fetch, FetchOptions, FetchResponse, Response } from '../../utils/request'
+import { fetch, FetchOptions, FetchResponse } from '../../utils/request'
 import { tryCatch } from '../../utils/try-catch'
-import { LegacyPluginLogger } from '../legacy-plugins/types'
-import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
+import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
+import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
-const pluginExecutionDuration = new Histogram({
-    name: 'cdp_segment_execution_duration_ms',
-    help: 'Processing time and success status of plugins',
+const nativeDestinationExecutionDuration = new Histogram({
+    name: 'cdp_native_execution_duration_ms',
+    help: 'Processing time and success status of native plugins',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-class SegmentFetchError extends Error {
+class FetchError extends Error {
     constructor(message?: string) {
         super(message)
     }
 }
 
-export type SegmentPluginMeta = {
-    config: Record<string, any>
-    global: Record<string, any>
-    logger: LegacyPluginLogger
-}
-
-// The module doesn't export this so we redeclare it here
-export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'> {
-    content: string
-    data: unknown extends T ? undefined | unknown : T
-    headers: Headers & {
-        toJSON: () => Record<string, string>
-    }
-}
-
-const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: string): ModifiedResponse<Data> => {
-    const headers = new Headers() as ModifiedResponse['headers']
-    Object.entries(response.headers).forEach(([key, value]) => {
-        headers.set(key, value)
-    })
-
-    headers.toJSON = () => {
-        return Object.fromEntries(headers.entries())
-    }
-
-    let json = undefined as Data
+const convertFetchResponse = (response: FetchResponse, text: string): Response => {
+    let json = undefined
 
     try {
-        json = parseJSON(text) as Data
+        json = parseJSON(text)
     } catch {}
 
-    const modifiedResponse: ModifiedResponse<Data> = {
-        ...response,
+    const modifiedResponse = {
+        status: response.status,
         data: json,
         content: text,
-        ok: response.status >= 200 && response.status < 300,
-        redirected: response.status === 301 || response.status === 302,
-        statusText: 'Status: ' + response.status,
-        type: 'default',
-        url: 'url',
-        headers,
-        body: new ReadableStream({
-            start: (controller) => {
-                controller.enqueue(new TextEncoder().encode(text))
-                controller.close()
-            },
-        }),
-        // NOTE: The majority of items below aren't used but we need to simulate their response type
-        clone: () => modifiedResponse as unknown as Response,
-        bodyUsed: false,
-        arrayBuffer: () => {
-            throw new Error('Not implemented')
-        },
-        blob: () => {
-            throw new Error('Not implemented')
-        },
-        formData: () => {
-            throw new Error('Not implemented')
-        },
-        json: () => response.json(),
+        headers: response.headers,
     }
 
     return modifiedResponse
 }
 
 /**
- * NOTE: This is a consumer to take care of segment plugins.
+ * NOTE: This is a consumer to take care of native plugins.
  */
 
-export class SegmentDestinationExecutorService {
+export class NativeDestinationExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
 
     public async fetch(...args: Parameters<typeof fetch>): Promise<FetchResponse> {
@@ -117,35 +67,28 @@ export class SegmentDestinationExecutorService {
         // Indicates if a retry is possible. Once we have peformed 1 successful non-GET request, we can't retry.
         let retriesPossible = true
 
-        const segmentDestinationId = isSegmentPluginHogFunction(invocation.hogFunction)
+        const nativeDestinationId = isNativeHogFunction(invocation.hogFunction)
             ? invocation.hogFunction.template_id
             : null
 
         try {
-            const segmentDestination = segmentDestinationId ? SEGMENT_DESTINATIONS_BY_ID[segmentDestinationId] : null
+            const nativeDestination = nativeDestinationId ? NATIVE_HOG_FUNCTIONS_BY_ID[nativeDestinationId] : null
 
-            if (!segmentDestination) {
-                throw new Error(`Segment destination ${segmentDestinationId} not found`)
+            if (!nativeDestination) {
+                throw new Error(`Native destination ${nativeDestinationId} not found`)
             }
 
             const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
             const start = performance.now()
 
-            // All segment options are done as inputs
+            // All native plugin options are done as inputs
             const config = invocation.state.globals.inputs
 
             if (config.debug_mode) {
                 addLog('debug', 'config', config)
             }
 
-            const action = segmentDestination.destination.actions[config.internal_partner_action]
-
-            if (!action) {
-                throw new Error(`Action ${config.internal_partner_action} not found`)
-            }
-
-            await action.perform(
-                // @ts-expect-error can't figure out unknown extends Data
+            await nativeDestination.perform(
                 async (endpoint, options) => {
                     if (config.debug_mode) {
                         addLog('debug', 'endpoint', endpoint)
@@ -153,20 +96,10 @@ export class SegmentDestinationExecutorService {
                     if (config.debug_mode) {
                         addLog('debug', 'options', options)
                     }
-                    const requestExtension = segmentDestination.destination.extendRequest?.({
-                        settings: config,
-                        auth: config as any,
-                        payload: config,
-                    })
-                    if (config.debug_mode) {
-                        addLog('debug', 'requestExtension', requestExtension)
-                    }
-                    const headers: Record<string, string> = {
-                        ...options?.headers,
-                        ...requestExtension?.headers,
-                    }
-                    if (config.debug_mode) {
-                        addLog('debug', 'headers', headers)
+
+                    const headers: Record<string, any> = {
+                        'User-Agent': 'PostHog.com/1.0',
+                        ...options.headers,
                     }
 
                     let body: string | undefined = undefined
@@ -187,11 +120,6 @@ export class SegmentDestinationExecutorService {
                             params.append(key, value)
                         )
                     }
-                    if (requestExtension?.searchParams && typeof requestExtension.searchParams === 'object') {
-                        Object.entries(requestExtension.searchParams as Record<string, string>).forEach(
-                            ([key, value]) => params.append(key, value)
-                        )
-                    }
 
                     const method = options?.method?.toUpperCase() ?? 'GET'
 
@@ -208,7 +136,7 @@ export class SegmentDestinationExecutorService {
                             options: fetchOptions,
                         })
 
-                        result.metrics!.push({
+                        result.metrics.push({
                             team_id: invocation.hogFunction.team_id,
                             app_source_id: invocation.hogFunction.id,
                             metric_kind: 'other',
@@ -257,7 +185,7 @@ export class SegmentDestinationExecutorService {
 
                         // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
-                            throw new SegmentFetchError(
+                            throw new FetchError(
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
                                 }: Request failed with status ${fetchResponse?.status} (${
@@ -285,26 +213,25 @@ export class SegmentDestinationExecutorService {
                             convertedResponse.status,
                             convertedResponse.data,
                             convertedResponse.content,
-                            convertedResponse.body
+                            convertedResponse.headers
                         )
                     }
                     return convertedResponse
                 },
                 {
                     payload: config,
-                    settings: config,
                 }
             )
 
             addLog('info', `Function completed in ${performance.now() - start}ms.`)
 
-            pluginExecutionDuration.observe(performance.now() - start)
+            nativeDestinationExecutionDuration.observe(performance.now() - start)
         } catch (e) {
-            if (e instanceof SegmentFetchError) {
+            if (e instanceof FetchError) {
                 if (retriesPossible) {
                     // We have retries left so we can trigger a retry
                     result.finished = false
-                    result.invocation.queue = 'segment'
+                    result.invocation.queue = 'native'
                     result.invocation.queuePriority = metadata.tries
                     result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
                     return result
@@ -313,9 +240,9 @@ export class SegmentDestinationExecutorService {
                 }
             }
 
-            logger.error('💩', 'Segment destination errored', {
+            logger.error('💩', 'Native destination errored', {
                 error: e.message,
-                segmentDestinationId,
+                nativeDestinationId,
                 invocationId: invocation.id,
             })
 
