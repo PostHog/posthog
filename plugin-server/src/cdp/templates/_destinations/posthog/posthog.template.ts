@@ -1,5 +1,5 @@
 import { EXTEND_OBJECT_KEY } from '~/cdp/services/hog-executor.service'
-import { NativeTemplate } from '~/cdp/templates/types'
+import { NativeTemplate } from '~/cdp/types'
 
 export const template: NativeTemplate = {
     free: false,

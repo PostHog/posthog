@@ -244,9 +244,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         {renderAddSQLVariablesButton()}
                     </>
                 )}
-                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_AI_ERROR_FIXER] && (
-                    <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
-                )}
+                <FixErrorButton type="tertiary" size="xsmall" source="action-bar" />
             </div>
             <QueryPane
                 originalValue={originalQueryInput}

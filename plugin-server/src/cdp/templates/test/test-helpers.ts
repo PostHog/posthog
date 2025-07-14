@@ -4,6 +4,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'
+import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
@@ -13,15 +14,16 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInputSchemaType,
-    HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionTemplate,
+    HogFunctionTemplateCompiled,
     HogFunctionType,
+    NativeTemplate,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
 import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
-import { HogFunctionTemplate, HogFunctionTemplateCompiled, NativeTemplate } from '../types'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
@@ -49,13 +51,13 @@ const compileObject = async (obj: any): Promise<any> => {
 const compileInputs = async (
     template: HogFunctionTemplate | NativeTemplate,
     _inputs: Record<string, any>
-): Promise<Record<string, HogFunctionInputType>> => {
+): Promise<Record<string, CyclotronInputType>> => {
     const defaultInputs = template.inputs_schema.reduce((acc, input) => {
         if (typeof input.default !== 'undefined') {
             acc[input.key] = input.default
         }
         return acc
-    }, {} as Record<string, HogFunctionInputType>)
+    }, {} as Record<string, CyclotronInputType>)
 
     const allInputs = { ...defaultInputs, ..._inputs }
 
@@ -76,7 +78,7 @@ const compileInputs = async (
             bytecode: value,
         }
         return acc
-    }, {} as Record<string, HogFunctionInputType>)
+    }, {} as Record<string, CyclotronInputType>)
 }
 
 const createGlobals = (
@@ -238,7 +240,7 @@ export class TemplateTester {
                 bytecode: item.bytecode,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 
@@ -366,7 +368,7 @@ export class DestinationTester {
                 bytecode: item.bytecode,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 

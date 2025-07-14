@@ -97,6 +97,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "inject_web_apps",
                     "extra_settings",
                     "modifiers",
+                    "drop_events_older_than",
                 ],
             },
         ),

@@ -37,12 +37,12 @@ describe(`${template.name} template`, () => {
             [
               {
                 "level": "debug",
-                "message": "config, {"debug_mode":true,"apiKey":"0wayUUN$Z5","url":"0wayUUN$Z5","method":"POST","body":{"event":"test","person":"person-id"},"internal_associated_mapping":"send"}",
+                "message": "config, {"debug_mode":true,"apiKey":"0wayUUN$Z5","url":"http://jaj.mu/iroti","method":"POST","body":{"event":"test","person":"person-id"},"internal_associated_mapping":"send"}",
                 "timestamp": "2025-01-01T00:00:00.000Z",
               },
               {
                 "level": "debug",
-                "message": "endpoint, 0wayUUN$Z5",
+                "message": "endpoint, http://jaj.mu/iroti",
                 "timestamp": "2025-01-01T00:00:00.000Z",
               },
               {

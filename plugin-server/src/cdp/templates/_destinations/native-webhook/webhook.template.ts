@@ -1,4 +1,4 @@
-import { NativeTemplate } from '~/cdp/templates/types'
+import { NativeTemplate } from '~/cdp/types'
 
 export const template: NativeTemplate = {
     free: false,
@@ -42,6 +42,7 @@ export const template: NativeTemplate = {
                     secret: false,
                     required: true,
                     description: 'The URL to send the request to.',
+                    format: 'uri',
                 },
                 {
                     key: 'method',
