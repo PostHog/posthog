@@ -19,6 +19,9 @@ import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
 import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
 import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
+import * as preflightJson from './fixtures/_preflight.json'
+import * as systemStatusJson from './fixtures/_system_status.json'
+import * as instanceStatusJson from './fixtures/_instance_status.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
@@ -155,9 +158,9 @@ export const defaultMocks: Mocks = {
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
-        '/_preflight': require('./fixtures/_preflight.json'),
-        '/_system_status': require('./fixtures/_system_status.json'),
-        '/api/instance_status': require('./fixtures/_instance_status.json'),
+        '/_preflight': preflightJson,
+        '/_system_status': systemStatusJson,
+        '/api/instance_status': instanceStatusJson,
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
         '/api/sentry_stats/': {
             error: 'Error fetching stats from sentry',
