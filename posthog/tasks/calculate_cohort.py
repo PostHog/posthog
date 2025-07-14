@@ -161,8 +161,15 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
-        increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
-        cohort_ids.append(cohort.pk)
+        try:
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
+            cohort_ids.append(cohort.pk)
+        except Exception as e:
+            logger.exception(
+                "enqueued_cohort_calculation_error", cohort_id=cohort.pk, team_id=cohort.team_id, error=str(e)
+            )
+            # Skip this cohort and continue with others
+            continue
     logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids)
 
     backlog = get_cohort_calculation_candidates_queryset().count()
