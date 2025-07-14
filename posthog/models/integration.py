@@ -68,6 +68,7 @@ class Integration(models.Model):
         LINEAR = "linear"
         GITHUB = "github"
         META_ADS = "meta-ads"
+        TWILIO = "twilio"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
