@@ -159,6 +159,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ],
     },
     flags_persistence_default: false,
+    feature_flag_confirmation_enabled: false,
+    feature_flag_confirmation_message: '',
     has_completed_onboarding_for: {
         product_analytics: true,
     },

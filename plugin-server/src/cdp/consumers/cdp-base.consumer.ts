@@ -9,6 +9,7 @@ import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.serv
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
+import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
@@ -25,6 +26,7 @@ export abstract class CdpConsumerBase {
     hogFlowExecutor: HogFlowExecutorService
     hogWatcher: HogWatcherService
     hogMasker: HogMaskerService
+    personsManager: PersonsManagerService
     groupsManager: GroupsManagerService
     isStopping = false
     hogFunctionMonitoringService: HogFunctionMonitoringService
@@ -50,6 +52,7 @@ export abstract class CdpConsumerBase {
             this.hogFunctionManager,
             this.hogFunctionTemplateManager
         )
+        this.personsManager = new PersonsManagerService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
     }
