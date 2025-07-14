@@ -79,12 +79,6 @@ class Command(BaseCommand):
             default=False,
             help="Create a staff user",
         )
-        parser.add_argument(
-            "--backfill-preaggregates",
-            action="store_true",
-            default=False,
-            help="Use dagster to backfill pre-aggregates for the generated data",
-        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -163,9 +157,8 @@ class Command(BaseCommand):
             print("Materializing common columns...")
             self.materialize_common_columns(options["days_past"])
 
-            if options["backfill_preaggregates"]:
-                print("Running dagster materializations...")
-                self.initialize_dagster_materialization(options["days_past"])
+            print("Running dagster materializations...")
+            self.initialize_dagster_materialization(options["days_past"])
         else:
             print("Dry run - not saving results.")
 
@@ -292,7 +285,7 @@ class Command(BaseCommand):
 
     def initialize_dagster_materialization(self, backfill_days: int):
         # Use GraphQL to connect to dagster development server.
-        # I tried a=some other approaches, i.e. CLI and python client, but these were both extremely slow and spun
+        # I tried some other approaches, i.e. CLI and python client, but these were both extremely slow and spun
         # up a new instance of the Dagster code server for each request, which is not what we want. This API returns
         # immediately and is non-blocking.
         client = DagsterGraphQLClient(DAGSTER_UI_HOST, port_number=DAGSTER_UI_PORT)
@@ -304,18 +297,69 @@ class Command(BaseCommand):
             repository_name="__repository__",
         )
 
-        # Submit partitioned runs for daily job.
-        # Sadly there isn't a way to express a range, but iterating over the dates is good enough for demo data
+        # Submit partitioned runs for daily jobs.
+        # DagsterGraphQLClient doesn't provide a nice way to do this, so we have to use the raw GraphQL mutation.
         end_date = dt.datetime.now()
-        start_date = end_date - dt.timedelta(days=backfill_days)
+        partition_list = [
+            (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
+        ]
 
-        current_date = start_date
-        while current_date <= end_date:
-            partition_key = current_date.strftime("%Y-%m-%d")
-            client.submit_job_execution(
-                job_name="web_analytics_daily_job",
-                repository_location_name="dags.locations.web_analytics",
-                repository_name="__repository__",
-                tags={"dagster/partition": partition_key},
-            )
-            current_date += dt.timedelta(days=1)
+        daily_asset_names = ["web_analytics_stats_table_daily", "web_analytics_bounces_daily"]
+        result = client._execute(
+            self.backfill_mutation_gql(),
+            {
+                "backfillParams": {
+                    "tags": [{"key": "generate_demo_data", "value": "true"}],
+                    "assetSelection": [{"path": [asset_name]} for asset_name in daily_asset_names],
+                    "partitionNames": partition_list,
+                    "fromFailure": False,
+                }
+            },
+        )
+
+        backfill_result = result["launchPartitionBackfill"]
+        if backfill_result["__typename"] != "LaunchBackfillSuccess":
+            raise Exception(backfill_result)
+
+    def backfill_mutation_gql(self):
+        # this comes straight out of the network tab, sadly not supported by the client SDK
+        return """
+            mutation LaunchPartitionBackfill($backfillParams: LaunchBackfillParams!) {
+                launchPartitionBackfill(backfillParams: $backfillParams) {
+                    ... on LaunchBackfillSuccess {
+                        backfillId
+                        __typename
+                    }
+                    ... on PartitionSetNotFoundError {
+                        message
+                        __typename
+                    }
+                    ... on PartitionKeysNotFoundError {
+                        message
+                        __typename
+                    }
+                    ...PythonErrorFragment
+                    __typename
+                }
+            }
+
+            fragment PythonErrorFragment on PythonError {
+                message
+                stack
+                errorChain {
+                    ...PythonErrorChain
+                    __typename
+                }
+                __typename
+            }
+
+            fragment PythonErrorChain on ErrorChainLink {
+                isExplicitLink
+                error {
+                    message
+                    stack
+                    __typename
+                }
+                __typename
+            }
+    """
