@@ -27,6 +27,7 @@ import {
     HogQLMathType,
     InsightShortId,
     InsightType,
+    IntegrationType,
     IntervalType,
     LifecycleFilterType,
     LifecycleToggle,
@@ -87,6 +88,7 @@ export enum NodeKind {
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
     LogsQuery = 'LogsQuery',
+    SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -329,8 +331,6 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
-    revenueAnalyticsPersonsJoinMode?: RevenueAnalyticsPersonsJoinModeModifier
-    revenueAnalyticsPersonsJoinModeCustom?: string | null
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
@@ -347,12 +347,6 @@ export interface DataWarehouseEventsModifier {
     timestamp_field: string
     distinct_id_field: string
     id_field: string
-}
-
-export enum RevenueAnalyticsPersonsJoinModeModifier {
-    ID = 'id',
-    EMAIL = 'email',
-    CUSTOM = 'custom',
 }
 
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase<T> {
@@ -2032,6 +2026,14 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     offset?: integer
 }
 
+export interface ErrorTrackingSceneToolOutput
+    extends Pick<ErrorTrackingQuery, 'orderBy' | 'orderDirection' | 'status' | 'searchQuery'> {
+    newFilters?: AnyPropertyFilter[]
+    removedFilterIndexes?: integer[]
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
+}
+
 export interface ErrorTrackingIssueAssignee {
     type: 'user' | 'role'
     id: integer | string
@@ -2044,6 +2046,14 @@ export interface ErrorTrackingIssueAggregations {
     volumeRange: number[]
 }
 
+export type ErrorTrackingExternalReferenceIntegration = Pick<IntegrationType, 'id' | 'kind' | 'display_name'>
+
+export interface ErrorTrackingExternalReference {
+    id: string
+    external_url: string
+    integration: ErrorTrackingExternalReferenceIntegration
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2052,6 +2062,7 @@ export interface ErrorTrackingRelationalIssue {
     status: 'archived' | 'active' | 'resolved' | 'pending_release' | 'suppressed'
     /**  @format date-time */
     first_seen: string
+    external_issues?: ErrorTrackingExternalReference[]
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -2093,6 +2104,48 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
     limit?: integer
     offset?: integer
     columns?: string[]
+}
+
+export interface SessionEventsItem {
+    /** Session ID these events belong to */
+    session_id: string
+    /** List of events for this session, each event is a list of field values matching the query columns */
+    events: [][]
+}
+
+export interface SessionBatchEventsQuery
+    extends Omit<EventsQuery, 'kind' | 'response'>,
+        DataNode<SessionBatchEventsQueryResponse> {
+    kind: NodeKind.SessionBatchEventsQuery
+    /** Whether to group results by session_id in the response */
+    group_by_session?: boolean
+    /** List of session IDs to fetch events for. Will be translated to $session_id IN filter. */
+    session_ids: string[]
+    response?: SessionBatchEventsQueryResponse
+}
+
+export interface SessionBatchEventsQueryResponse extends EventsQueryResponse {
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
+    results: any[][]
+    /** Events grouped by session ID. Only populated when group_by_session=True. */
+    session_events?: SessionEventsItem[]
+    /** List of session IDs that had no matching events */
+    sessions_with_no_events?: string[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
+}
+
+export type CachedSessionBatchEventsQueryResponse = CachedEventsQueryResponse & {
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatus
+    results: any[][]
+    /** Events grouped by session ID. Only populated when group_by_session=True. */
+    session_events?: SessionEventsItem[]
+    /** List of session IDs that had no matching events */
+    sessions_with_no_events?: string[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTiming[]
 }
 export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
@@ -3390,3 +3443,89 @@ export enum MarketingAnalyticsHelperForColumnNames {
     Goal = 'Goal',
     CostPer = 'Cost per',
 }
+export interface SourceFieldOauthConfig {
+    type: 'oauth'
+    name: string
+    label: string
+    required: boolean
+    kind: string
+}
+
+export interface SourceFieldInputConfig {
+    type: 'text' | 'email' | 'search' | 'url' | 'password' | 'time' | 'number' | 'textarea'
+    name: string
+    label: string
+    required: boolean
+    placeholder: string
+}
+
+export interface SourceFieldSelectConfig {
+    type: 'select'
+    name: string
+    label: string
+    required: boolean
+    defaultValue: string
+    options: { label: string; value: string; fields?: SourceFieldConfig[] }[]
+}
+
+export interface SourceFieldSwitchGroupConfig {
+    type: 'switch-group'
+    name: string
+    label: string
+    default: string | number | boolean
+    fields: SourceFieldConfig[]
+    caption?: string
+}
+
+export interface SourceFieldFileUploadConfig {
+    type: 'file-upload'
+    name: string
+    label: string
+    fileFormat: string
+    required: boolean
+}
+
+export type SourceFieldConfig =
+    | SourceFieldInputConfig
+    | SourceFieldSwitchGroupConfig
+    | SourceFieldSelectConfig
+    | SourceFieldOauthConfig
+    | SourceFieldFileUploadConfig
+
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    label?: string
+    caption: string | any
+    fields: SourceFieldConfig[]
+    disabledReason?: string | null
+    existingSource?: boolean
+    unreleasedSource?: boolean
+    betaSource?: boolean
+}
+
+export const externalDataSources = [
+    'Stripe',
+    'Hubspot',
+    'Postgres',
+    'MySQL',
+    'MSSQL',
+    'Zendesk',
+    'Snowflake',
+    'Salesforce',
+    'Vitally',
+    'BigQuery',
+    'Chargebee',
+    'GoogleAds',
+    'MetaAds',
+    'Klaviyo',
+    'Mailchimp',
+    'Braze',
+    'Mailjet',
+    'Redshift',
+    'GoogleSheets',
+    'MongoDB',
+    'TemporalIO',
+    'DoIt',
+] as const
+
+export type ExternalDataSourceType = (typeof externalDataSources)[number]

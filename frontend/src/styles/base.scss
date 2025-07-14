@@ -1611,7 +1611,6 @@
         gap: 1px;
         min-width: 8rem;
         max-width: 200px;
-        max-height: calc(90vh - 100px);
         overflow: hidden;
         color: var(--text-primary);
         background-color: var(--bg-surface-primary);
@@ -1624,7 +1623,6 @@
         display: flex;
         flex-direction: column;
         gap: 1px;
-        max-height: calc(90vh - 100px);
         padding: var(--spacing);
     }
 

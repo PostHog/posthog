@@ -31370,7 +31370,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "Type of the [event](https://segment.com/docs/connections/spec/). For example: identify, track, page, screen or group",
+          "description": "Type of the event. For example: identify, track, page, screen or group",
           "key": "type",
           "label": "Event Type",
           "required": true,
@@ -31467,7 +31467,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "Type of the [event](https://segment.com/docs/connections/spec/). For example: identify, track, page, screen or group",
+          "description": "Type of the event. For example: identify, track, page, screen or group",
           "key": "type",
           "label": "Event Type",
           "required": true,
@@ -31564,7 +31564,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "Type of the [event](https://segment.com/docs/connections/spec/). For example: identify, track, page, screen or group",
+          "description": "Type of the event. For example: identify, track, page, screen or group",
           "key": "type",
           "label": "Event Type",
           "required": true,
@@ -31704,7 +31704,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "Type of the [event](https://segment.com/docs/connections/spec/). For example: identify, track, page, screen or group",
+          "description": "Type of the event. For example: identify, track, page, screen or group",
           "key": "type",
           "label": "Event Type",
           "required": true,
@@ -31778,7 +31778,7 @@ exports[`segment templates template segment-voucherify-actions matches expected 
         },
         {
           "default": "{event.event == '$pageview' ? 'page' : event.event == '$screen' ? 'screen' : event.event == '$groupidentify' ? 'group' : event.event in ('$identify', '$set') ? 'identify' : event.event == '$alias' ? 'alias' : 'track'}",
-          "description": "Type of the [event](https://segment.com/docs/connections/spec/). For example: identify, track, page, screen or group.",
+          "description": "Type of the event. For example: identify, track, page, screen or group.",
           "key": "type",
           "label": "Event Type",
           "required": true,

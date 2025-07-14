@@ -2,7 +2,7 @@ use crate::{
     api::errors::FlagError,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
 
@@ -83,10 +83,7 @@ impl Team {
         Ok(())
     }
 
-    pub async fn from_pg(
-        client: Arc<dyn DatabaseClient + Send + Sync>,
-        token: &str,
-    ) -> Result<Team, FlagError> {
+    pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
         let mut conn = client.get_connection().await?;
 
         let query = "SELECT 
