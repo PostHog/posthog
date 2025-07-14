@@ -3,6 +3,7 @@ from ee.hogai.utils.types import AssistantNodeName
 from .nodes import FilterOptionsNode, FilterOptionsToolsNode
 from ee.hogai.graph.graph import BaseAssistantGraph
 from typing import Optional
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 
 
 class FilterOptionsGraph(BaseAssistantGraph):
@@ -39,6 +40,6 @@ class FilterOptionsGraph(BaseAssistantGraph):
 
         return self
 
-    def compile_full_graph(self):
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         """Compile a complete filter options graph."""
-        return self.add_filter_options_generator().compile()
+        return self.add_filter_options_generator().compile(checkpointer=checkpointer)
