@@ -15,7 +15,6 @@ describe('IntegrationManager', () => {
     let integrations: IntegrationType[]
 
     let teamId1: number
-    let teamId2: number
 
     beforeEach(async () => {
         hub = await createHub()
@@ -25,7 +24,6 @@ describe('IntegrationManager', () => {
         const team = await getTeam(hub, 2)
 
         teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
 
         integrations = []
 
