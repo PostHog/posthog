@@ -146,3 +146,56 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             recording_start_time=self.base_time + relativedelta(days=2),
         )
         assert metadata is None
+
+    def test_get_group_metadata(self) -> None:
+        metadata_dict = SessionReplayEvents().get_group_metadata(
+            session_ids=["1", "2"],
+            team_id=self.team.id,
+        )
+        assert len(metadata_dict) == 2
+        assert metadata_dict["1"] == {
+            "active_seconds": 25.0,
+            "block_first_timestamps": [],
+            "block_last_timestamps": [],
+            "block_urls": [],
+            "click_count": 2,
+            "console_error_count": 0,
+            "console_log_count": 0,
+            "console_warn_count": 0,
+            "distinct_id": "u1",
+            "duration": 0,
+            "end_time": self.base_time,
+            "first_url": "https://example.io/home",
+            "keypress_count": 2,
+            "mouse_activity_count": 2,
+            "start_time": self.base_time,
+            "snapshot_source": "web",
+        }
+        assert metadata_dict["2"] == {
+            "active_seconds": 1.234,
+            "start_time": self.base_time,
+            "end_time": self.base_time + relativedelta(seconds=2),
+            "block_first_timestamps": [self.base_time],
+            "block_last_timestamps": [self.base_time + relativedelta(seconds=2)],
+            "block_urls": ["s3://block-1"],
+            "click_count": 100,
+            "console_error_count": 0,
+            "console_log_count": 0,
+            "console_warn_count": 0,
+            "distinct_id": "u2",
+            "duration": 2,
+            "first_url": "https://example.io/home",
+            "keypress_count": 200,
+            "mouse_activity_count": 300,
+            "snapshot_source": "web",
+        }
+
+    def test_get_group_metadata_handles_nonexistent_sessions(self) -> None:
+        metadata_dict = SessionReplayEvents().get_group_metadata(
+            session_ids=["1", "nonexistent", "3"],
+            team_id=self.team.id,
+        )
+        assert len(metadata_dict) == 3
+        assert metadata_dict["1"] is not None
+        assert metadata_dict["nonexistent"] is None
+        assert metadata_dict["3"] is not None

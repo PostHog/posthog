@@ -249,6 +249,70 @@ class SessionReplayEvents:
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
         return recording_metadata
 
+    def get_group_metadata(
+        self,
+        session_ids: list[str],
+        team_id: int,
+        recording_start_time: Optional[datetime] = None,
+    ) -> dict[str, Optional[RecordingMetadata]]:
+        """
+        Get metadata for a group of sessions in one call.
+        """
+        if not session_ids:
+            return {}
+        optional_timestamp_clause = (
+            "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
+        )
+        # Get data from DB
+        query = f"""
+            SELECT
+                session_id,
+                any(distinct_id),
+                min(min_first_timestamp) as start_time,
+                max(max_last_timestamp) as end_time,
+                dateDiff('SECOND', start_time, end_time) as duration,
+                argMinMerge(first_url) as first_url,
+                sum(click_count),
+                sum(keypress_count),
+                sum(mouse_activity_count),
+                sum(active_milliseconds)/1000 as active_seconds,
+                sum(console_log_count) as console_log_count,
+                sum(console_warn_count) as console_warn_count,
+                sum(console_error_count) as console_error_count,
+                argMinMerge(snapshot_source) as snapshot_source,
+                groupArrayArray(block_first_timestamps) as block_first_timestamps,
+                groupArrayArray(block_last_timestamps) as block_last_timestamps,
+                groupArrayArray(block_urls) as block_urls
+            FROM
+                session_replay_events
+            PREWHERE
+                team_id = %(team_id)s
+                AND session_id IN %(session_ids)s
+                AND min_first_timestamp <= %(python_now)s
+                {optional_timestamp_clause}
+            GROUP BY
+                session_id
+        """
+        replay_response: list[tuple] = sync_execute(
+            query,
+            {
+                "team_id": team_id,
+                "session_ids": session_ids,
+                "recording_start_time": recording_start_time,
+                "python_now": datetime.now(pytz.timezone("UTC")),
+            },
+        )
+        # Build metadata for each session
+        result: dict[str, Optional[RecordingMetadata]] = {session_id: None for session_id in session_ids}
+        for row in replay_response:
+            # Match build_recording_metadata's expected format
+            session_id = row[0]
+            session_data = [row[1:]]
+            metadata = self.build_recording_metadata(session_id, session_data)
+            if metadata:
+                result[session_id] = metadata
+        return result
+
     @staticmethod
     def build_recording_block_listing(session_id: str, replay_response: list[tuple]) -> Optional[RecordingBlockListing]:
         if len(replay_response) == 0:
