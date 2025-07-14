@@ -281,9 +281,7 @@ export const personsLogic = kea<personsLogicType>([
         exceptionsQuery: [
             null as DataTableNode | null,
             {
-                setExceptionsQuery: (_, { exceptionsQuery }) => {
-                    return exceptionsQuery
-                },
+                setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
             },
         ],
     })),
