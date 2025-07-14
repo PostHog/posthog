@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import posthog from 'posthog-js'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
@@ -25,6 +26,7 @@ import {
     NotebookTarget,
     NotebookType,
     SidePanelTab,
+    AccessControlResourceType,
 } from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
@@ -474,7 +476,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 mode === 'canvas' ||
                 (shouldBeEditable &&
                     !previewContent &&
-                    (notebook?.user_access_level === 'editor' || notebook?.user_access_level === 'manager')),
+                    notebook?.user_access_level &&
+                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -548,7 +551,11 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
-            if (values.mode !== 'canvas' && !['editor', 'manager'].includes(values.notebook?.user_access_level || '')) {
+            if (
+                values.mode !== 'canvas' &&
+                values.notebook?.user_access_level &&
+                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+            ) {
                 actions.clearLocalContent()
                 return
             }
