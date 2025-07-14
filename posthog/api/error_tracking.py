@@ -83,7 +83,7 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
             return f"https://linear.app/{url_key}/issue/{reference.external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(reference.integration).organization()
-            return f"https://github.com/{org}/{reference.external_context['repo']}/issues/{reference.external_context['id']}"
+            return f"https://github.com/{org}/{reference.external_context['repository']}/issues/{reference.external_context['number']}"
 
     def validate(self, data):
         issue = data["issue"]
