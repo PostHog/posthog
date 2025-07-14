@@ -10,7 +10,7 @@ describe('groupsListLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        localStorage.clear()
+        // localStorage.clear()
         window.POSTHOG_APP_CONTEXT = { current_team: { id: 123 } } as AppContext
     })
 
@@ -96,21 +96,18 @@ describe('groupsListLogic', () => {
         expect(logic.values.groupFilters).toEqual(mockFilters)
     })
 
-    it('should clear localStorage when filters are removed', async () => {
+    it('should clear groupFilters when filters are removed', async () => {
         logic = groupsListLogic({ groupTypeIndex: 0 })
         logic.mount()
 
-        // Set filters first
         const mockFilters = [{ key: 'name', value: 'test', operator: 'exact', type: PropertyFilterType.Group }]
         logic.actions.setQuery({
             ...logic.values.query,
             source: { ...logic.values.query.source, properties: mockFilters } as GroupsQuery,
         })
 
-        // Verify stored
         expect(logic.values.groupFilters).toEqual(mockFilters)
 
-        // Clear filters
         logic.actions.setQuery({
             ...logic.values.query,
             source: { ...logic.values.query.source, properties: [] } as GroupsQuery,

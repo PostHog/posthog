@@ -10,6 +10,7 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 import { GroupPropertyFilter, GroupTypeIndex } from '~/types'
 
 import type { groupsListLogicType } from './groupsListLogicType'
+import posthog from 'posthog-js'
 
 export interface GroupsListLogicProps {
     groupTypeIndex: GroupTypeIndex
@@ -117,7 +118,9 @@ export const groupsListLogic = kea<groupsListLogicType>([
                             },
                         })
                     }
-                } catch {}
+                } catch (error: any) {
+                    posthog.captureException('Failed to parse properties', error)
+                }
             } else if (!properties && values.query.source.kind === NodeKind.GroupsQuery) {
                 if (values.query.source.properties?.length) {
                     actions.setQuery({
