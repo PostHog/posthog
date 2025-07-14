@@ -42,6 +42,9 @@ def pre_aggregate_web_analytics_hourly_data(
 
     # Merge hourly settings with any extra settings
     clickhouse_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS_HOURLY, extra_settings)
+    swap_settings = {
+        "distributed_ddl_task_timeout": "600",
+    }
 
     # Process the last N hours to handle any late-arriving data
     # Align with hour boundaries to match toStartOfHour() used in SQL, where we convert this to UTC,
@@ -64,8 +67,10 @@ def pre_aggregate_web_analytics_hourly_data(
         granularity="hourly",
     )
 
-    # First, make sure the staging table is empty
-    sync_execute(f"TRUNCATE TABLE {staging_table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)} SYNC")
+    sync_execute(
+        f"TRUNCATE TABLE {staging_table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)} SYNC",
+        settings=swap_settings,
+    )
 
     # We intentionally log the query to make it easier to debug using the UI
     context.log.info(f"Processing hourly data from {date_start} to {date_end}")
@@ -76,7 +81,7 @@ def pre_aggregate_web_analytics_hourly_data(
 
     # Truncate main table and insert from staging
     context.log.info(f"Swapping data from {staging_table_name} to {table_name}")
-    sync_execute(f"TRUNCATE TABLE {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)} SYNC")
+    sync_execute(f"TRUNCATE TABLE {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)} SYNC", settings=swap_settings)
     sync_execute(f"INSERT INTO {table_name} SELECT * FROM {staging_table_name}")
 
 
