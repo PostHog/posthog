@@ -27,7 +27,7 @@ function getMaterializationStatusMessage(rowsMaterialized: number, progressPerce
         case rowsMaterialized === 0:
             return 'Spinning up spikes — starting materialization job...'
         case progressPercentage < 10:
-            return 'Digging into HogQL... executing your query now.'
+            return 'Digging into SQL... executing your query now.'
         case progressPercentage < 25:
             return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away...`
         case progressPercentage < 50:
