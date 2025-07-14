@@ -109,7 +109,7 @@ export function loadPostHogJS(): void {
                 <div className="flex flex-col gap-2">
                     <span>We couldn't load our feature flags.</span>
                     <span>
-                        This is likely due to the presence of adblockers running in your browser. This might affect the
+                        This could be due to the presence of adblockers running in your browser. This might affect the
                         platform usability since some features might not be available.
                     </span>
                 </div>,
