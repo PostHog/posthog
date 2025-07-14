@@ -55,14 +55,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             campaign=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_campaign"]))),
             medium=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_medium"]))),
             source=_wrap_with_lower(_wrap_with_null_if_empty(ast.Field(chain=["utm_source"]))),
-            referring_domain=ast.Field(chain=["referring_domain"]),
+            referring_domain=_wrap_with_null_if_empty(ast.Field(chain=["referring_domain"])),
             url=ast.Constant(value=None),  # URL not available in pre-aggregated tables
             hostname=ast.Field(chain=["host"]),
             pathname=ast.Field(chain=["entry_pathname"]),
             has_gclid=ast.Field(chain=["has_gclid"]),
             has_fbclid=ast.Field(chain=["has_fbclid"]),
-            # For gad_source, we need to return '1' when the boolean is true, null otherwise
-            # This matches the original logic that checks gad_source = '1'
+            # To keep this compatible with the non-pre-aggregated version, we need to return '1' when the boolean is true, null otherwise
             gad_source=ast.Call(
                 name="if",
                 args=[
