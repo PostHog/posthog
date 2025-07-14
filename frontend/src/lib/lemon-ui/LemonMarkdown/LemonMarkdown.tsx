@@ -6,6 +6,7 @@ import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 import { Link } from '../Link'
+import { MathRenderer } from './MathRenderer'
 
 interface LemonMarkdownContainerProps {
     children: React.ReactNode
@@ -26,12 +27,82 @@ export interface LemonMarkdownProps {
     wrapCode?: boolean
 }
 
+// Pre-process text to handle math expressions
+function preprocessMathContent(content: string): string {
+    // Replace display math ($$...$$) with a special marker
+    content = content.replace(/\$\$([^$]+?)\$\$/g, (match, math) => {
+        return `__DISPLAY_MATH_${btoa(math)}_DISPLAY_MATH__`
+    })
+
+    // Replace inline math ($...$) with a special marker
+    content = content.replace(/\$([^$\n]+?)\$/g, (match, math) => {
+        return `__INLINE_MATH_${btoa(math)}_INLINE_MATH__`
+    })
+
+    return content
+}
+
+// Custom text renderer that handles math markers
+function renderTextWithMath(text: string): React.ReactNode {
+    const parts: React.ReactNode[] = []
+    let remaining = text
+    let key = 0
+
+    while (remaining.length > 0) {
+        // Look for display math markers
+        const displayMathMatch = remaining.match(/__DISPLAY_MATH_([A-Za-z0-9+/=]+)_DISPLAY_MATH__/)
+        if (displayMathMatch) {
+            const beforeMath = remaining.substring(0, displayMathMatch.index!)
+            if (beforeMath) {
+                parts.push(beforeMath)
+            }
+
+            const mathContent = atob(displayMathMatch[1])
+            parts.push(
+                <MathRenderer key={key++} block={true}>
+                    {mathContent}
+                </MathRenderer>
+            )
+
+            remaining = remaining.substring(displayMathMatch.index! + displayMathMatch[0].length)
+            continue
+        }
+
+        // Look for inline math markers
+        const inlineMathMatch = remaining.match(/__INLINE_MATH_([A-Za-z0-9+/=]+)_INLINE_MATH__/)
+        if (inlineMathMatch) {
+            const beforeMath = remaining.substring(0, inlineMathMatch.index!)
+            if (beforeMath) {
+                parts.push(beforeMath)
+            }
+
+            const mathContent = atob(inlineMathMatch[1])
+            parts.push(
+                <MathRenderer key={key++} block={false}>
+                    {mathContent}
+                </MathRenderer>
+            )
+
+            remaining = remaining.substring(inlineMathMatch.index! + inlineMathMatch[0].length)
+            continue
+        }
+
+        // No more math markers found
+        parts.push(remaining)
+        break
+    }
+
+    return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>
+}
+
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
     disableDocsRedirect = false,
     wrapCode = false,
 }: LemonMarkdownProps): JSX.Element {
+    const preprocessedContent = useMemo(() => preprocessMathContent(children), [children])
+
     const renderers = useMemo<{ [nodeType: string]: React.ElementType }>(
         () => ({
             link: ({ href, children }: any): JSX.Element => (
@@ -44,6 +115,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     {value}
                 </CodeSnippet>
             ),
+            text: ({ value }: any): JSX.Element => <>{renderTextWithMath(value)}</>,
             ...(lowKeyHeadings
                 ? {
                       heading: 'strong',
@@ -59,7 +131,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             renderers={renderers}
             disallowedTypes={['html']} // Don't want to deal with the security considerations of HTML
         >
-            {children}
+            {preprocessedContent}
         </ReactMarkdown>
     )
 })
