@@ -49,10 +49,8 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
         summary_data = await prepare_data_for_single_session_summary(
             session_id=inputs.session_id,
             user_id=inputs.user_id,
-            team_id=inputs.team_id,
             session_db_data=session_db_data,
             extra_summary_context=inputs.extra_summary_context,
-            local_reads_prod=inputs.local_reads_prod,
         )
         if summary_data.error_msg is not None:
             # If we weren't able to collect the required data - retry

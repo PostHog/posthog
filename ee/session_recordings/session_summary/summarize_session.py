@@ -185,10 +185,8 @@ def generate_single_session_summary_prompt(
 async def prepare_data_for_single_session_summary(
     session_id: str,
     user_id: int,
-    team_id: int,
     session_db_data: SessionSummaryDBData,
     extra_summary_context: ExtraSummaryContext | None,
-    local_reads_prod: bool = False,
 ) -> SingleSessionSummaryData:
     if not session_db_data.session_events or not session_db_data.session_events_columns:
         # Real-time replays could have no events yet, so we need to handle that case and show users a meaningful message
