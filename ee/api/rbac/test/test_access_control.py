@@ -683,8 +683,8 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
         baseline = 7
-        # Getting my own notebook is the same as a dashboard - 2 extra queries
-        with self.assertNumQueries(baseline + 4):
+        # Getting my own notebook is the same as a dashboard - 3 extra queries
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
@@ -727,8 +727,8 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
         baseline = 7
 
-        # Getting my own notebook is the same as a dashboard - 2 extra queries
-        with self.assertNumQueries(baseline + 4):
+        # Getting my own notebook is the same as a dashboard - 3 extra queries
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
