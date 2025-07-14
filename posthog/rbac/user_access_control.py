@@ -652,8 +652,6 @@ class UserAccessControl:
         if specific_access_level_for_object:
             return specific_access_level_for_object
 
-        # Should we return specific_access_level_for_object or max(specific_access_level_for_object, access_level_for_resource)
-
         # Check resource access levels
         if resource and self.has_access_levels_for_resource(resource):
             access_level_for_resource = self.access_level_for_resource(resource)
