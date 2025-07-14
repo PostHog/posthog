@@ -111,7 +111,7 @@ describe('eachBatchX', () => {
 
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
-            const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer)
+            const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer.pubSub)
             const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,

@@ -128,9 +128,9 @@ export async function createHub(
     const teamManager = new TeamManager(postgres)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const pubSub = new PubSub(serverConfig)
     const rustyHook = new RustyHook(serverConfig)
-
-    const actionManager = new ActionManager(postgres, serverConfig)
+    const actionManager = new ActionManager(postgres, pubSub)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
@@ -176,7 +176,7 @@ export async function createHub(
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
         cookielessManager,
-        pubSub: new PubSub(serverConfig),
+        pubSub,
     }
 
     await hub.pubSub.start()

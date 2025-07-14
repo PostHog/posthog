@@ -1,8 +1,7 @@
 import * as schedule from 'node-schedule'
 
-import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
+import { Action, Hook, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
 
@@ -13,24 +12,12 @@ export class ActionManager {
     private started: boolean
     private ready: boolean
     private actionCache: ActionCache
-    private pubSub: PubSub
     private refreshJob?: schedule.Job
 
-    constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
+    constructor(private postgres: PostgresRouter, private pubSub: PubSub) {
         this.started = false
         this.ready = false
         this.actionCache = {}
-
-        this.pubSub = new PubSub(this.serverConfig, {
-            'reload-action': async (message) => {
-                const { actionId, teamId } = parseJSON(message)
-                await this.reloadAction(teamId, actionId)
-            },
-            'drop-action': (message) => {
-                const { actionId, teamId } = parseJSON(message)
-                this.dropAction(teamId, actionId)
-            },
-        })
     }
 
     public async start(): Promise<void> {
@@ -39,7 +26,17 @@ export class ActionManager {
             return
         }
         this.started = true
-        await this.pubSub.start()
+
+        await this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>(
+            'reload-action',
+            async ({ actionId, teamId }) => {
+                await this.reloadAction(teamId, actionId)
+            }
+        )
+        await this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>('drop-action', ({ actionId, teamId }) => {
+            this.dropAction(teamId, actionId)
+        })
+
         await this.reloadAllActions()
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
