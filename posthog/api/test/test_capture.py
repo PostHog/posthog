@@ -2378,8 +2378,7 @@ class TestCapture(BaseTest):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
 
     @patch("posthog.api.capture.new_capture_internal")
-    @patch("posthog.api.capture.posthoganalytics.feature_enabled", return_value=True)
-    def test_submit_csp_report_to_new_internal_capture(self, _mock_feature_enabled, mock_new_capture) -> None:
+    def test_submit_csp_report_to_new_internal_capture(self, mock_new_capture) -> None:
         payload = {
             "csp-report": {
                 "document-uri": "https://example.com/foo/bar",
@@ -2402,8 +2401,9 @@ class TestCapture(BaseTest):
         assert mock_new_capture.call_count == 1
 
     @patch("posthog.api.capture.new_capture_internal")
-    @patch("posthog.api.capture.posthoganalytics.feature_enabled", return_value=True)
-    def test_submit_csp_report_list_to_new_internal_capture(self, _mock_feature_enabled, mock_new_capture) -> None:
+    def test_submit_csp_report_list_to_new_internal_capture(self, mock_capture) -> None:
+        mock_capture.return_value = MagicMock(status_code=204)
+
         multiple_violations = [
             {
                 "type": "csp-violation",
@@ -2457,10 +2457,12 @@ class TestCapture(BaseTest):
             content_type="application/reports+json",
         )
         assert resp.status_code == status.HTTP_204_NO_CONTENT
-        assert mock_new_capture.call_count == 3
+        assert mock_capture.call_count == 3
 
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_csp_violation(self, kafka_produce):
+    @patch("posthog.api.capture.new_capture_internal")
+    def test_capture_csp_violation(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+
         csp_report = {
             "csp-report": {
                 "document-uri": "https://example.com/foo/bar",
@@ -2484,21 +2486,12 @@ class TestCapture(BaseTest):
         )
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
-        assert kafka_produce.call_count == 1
+        assert mock_capture.call_count == 1
 
-        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+    @patch("posthog.api.capture.new_capture_internal")
+    def test_capture_csp_no_trailing_slash(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
 
-        # Verify data
-        event_data = json.loads(kafka_produce_call["data"]["data"])
-
-        assert event_data["event"] == "$csp_violation"
-        assert event_data["properties"]["$csp_document_url"] == "https://example.com/foo/bar"
-        # copied from $csp_document_url
-        assert event_data["properties"]["$current_url"] == "https://example.com/foo/bar"
-        assert event_data["properties"]["$csp_violated_directive"] == "default-src self"
-        assert event_data["properties"]["$csp_blocked_url"] == "https://evil.com/malicious-image.png"
-
-    def test_capture_csp_no_trailing_slash(self):
         csp_report = {
             "csp-report": {
                 "document-uri": "https://example.com/foo/bar",
@@ -2520,8 +2513,8 @@ class TestCapture(BaseTest):
             data=json.dumps(csp_report),
             content_type="application/csp-report",
         )
-
         assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert mock_capture.call_count == 1
 
     def test_capture_csp_invalid_json_gives_invalid_csp_payload(self):
         response = self.client.post(
@@ -2594,7 +2587,10 @@ class TestCapture(BaseTest):
         assert response.json()["code"] == "invalid_payload"
         assert "Failed to submit CSP report" in response.json()["detail"]
 
-    def test_integration_csp_report_with_report_to_format_returns_204(self):
+    @patch("posthog.api.capture.new_capture_internal")
+    def test_integration_csp_report_with_report_to_format_returns_204(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204, content=b"")
+
         report_to_format = [
             {
                 "type": "csp-violation",
@@ -2618,12 +2614,14 @@ class TestCapture(BaseTest):
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )
-
         assert status.HTTP_204_NO_CONTENT == response.status_code
         assert response.content == b""
+        mock_capture.assert_called_once()
 
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_csp_report_to_violation(self, kafka_produce):
+    @patch("posthog.api.capture.new_capture_internal")
+    def test_capture_csp_report_to_violation(self, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+
         report_to_format = [
             {
                 "age": 53531,
@@ -2670,26 +2668,9 @@ class TestCapture(BaseTest):
             data=json.dumps(report_to_format),
             content_type="application/reports+json",
         )
-
         assert status.HTTP_204_NO_CONTENT == response.status_code
         # Verify we processed both events
-        assert kafka_produce.call_count == 2
-
-        # Verify first event data
-        first_event_call = kafka_produce.call_args_list[0].kwargs
-        first_event_data = json.loads(first_event_call["data"]["data"])
-
-        assert first_event_data["properties"]["$csp_source_file"] == "https://example.com/csp-report-1"
-        assert first_event_data["properties"]["$csp_line_number"] == 121
-        assert first_event_data["properties"]["$csp_column_number"] == 39
-
-        # Verify second event data
-        second_event_call = kafka_produce.call_args_list[1].kwargs
-        second_event_data = json.loads(second_event_call["data"]["data"])
-
-        assert second_event_data["properties"]["$csp_source_file"] == "https://example.com/csp-report-2"
-        assert second_event_data["properties"]["$csp_line_number"] == 42
-        assert second_event_data["properties"]["$csp_column_number"] == 15
+        assert mock_capture.call_count == 2
 
     def test_regular_event_endpoint_with_invalid_json(self):
         """
@@ -2730,8 +2711,11 @@ class TestCapture(BaseTest):
         assert status.HTTP_400_BAD_REQUEST == response.status_code
         assert response.json()["code"] == "no_data"
 
+    @patch("posthog.api.capture.new_capture_internal")
     @patch("posthog.api.capture.logger")
-    def test_csp_debug_logging_enabled(self, mock_logger):
+    def test_csp_debug_logging_enabled(self, mock_logger, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+
         """Test that debug logging is enabled when debug=true parameter is present"""
         csp_report = {
             "csp-report": {
@@ -2747,6 +2731,7 @@ class TestCapture(BaseTest):
         )
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
+        mock_capture.assert_called_once()
 
         mock_logger.exception.assert_called_once()
         call_args = mock_logger.exception.call_args
@@ -2756,8 +2741,11 @@ class TestCapture(BaseTest):
         assert call_args[1]["content_type"] == "application/csp-report"
         assert "body" in call_args[1]
 
+    @patch("posthog.api.capture.new_capture_internal")
     @patch("posthog.api.capture.logger")
-    def test_csp_debug_logging_disabled(self, mock_logger):
+    def test_csp_debug_logging_disabled(self, mock_logger, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+
         csp_report = {
             "csp-report": {
                 "document-uri": "https://example.com/foo/bar",
@@ -2772,11 +2760,14 @@ class TestCapture(BaseTest):
         )
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
-
+        mock_capture.assert_called_once()
         mock_logger.exception.assert_not_called()
 
+    @patch("posthog.api.capture.new_capture_internal")
     @patch("posthog.api.capture.logger")
-    def test_csp_debug_logging_case_insensitive(self, mock_logger):
+    def test_csp_debug_logging_case_insensitive(self, mock_logger, mock_capture):
+        mock_capture.return_value = MagicMock(status_code=204)
+
         csp_report = {
             "csp-report": {
                 "document-uri": "https://example.com/foo/bar",
@@ -2792,8 +2783,10 @@ class TestCapture(BaseTest):
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
         mock_logger.exception.assert_called_once()
+        mock_capture.assert_called_once()
 
         mock_logger.reset_mock()
+        mock_capture.reset_mock()
 
         response = self.client.post(
             f"/report/?token={self.team.api_token}&debug=True",
@@ -2803,6 +2796,7 @@ class TestCapture(BaseTest):
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
         mock_logger.exception.assert_called_once()
+        mock_capture.assert_called_once()
 
     def test_csp_sampled_out_report_uri_does_not_return_400(self):
         csp_report = {

@@ -191,7 +191,7 @@ mod tests {
         assert!(flag.filters.payloads.is_some());
         assert!(!flag.deleted);
         assert!(flag.active);
-        assert!(!flag.ensure_experience_continuity);
+        assert!(!flag.ensure_experience_continuity.unwrap_or(false));
     }
 
     // TODO: Add more tests to validate deserialization of flags.
@@ -222,7 +222,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -256,7 +256,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -304,7 +304,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -348,7 +348,7 @@ mod tests {
             },
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: None,
         };
 
@@ -458,7 +458,7 @@ mod tests {
                 filters: multivariate_flag["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -558,7 +558,7 @@ mod tests {
                 filters: multivariate_flag_with_payloads["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -692,7 +692,7 @@ mod tests {
                 filters: flag_with_super_groups["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -789,7 +789,7 @@ mod tests {
                 filters: flag_with_different_properties["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -876,7 +876,7 @@ mod tests {
                 filters: deleted_flag["filters"].clone(),
                 deleted: true,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -894,7 +894,7 @@ mod tests {
                 filters: inactive_flag["filters"].clone(),
                 deleted: false,
                 active: false,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -990,7 +990,7 @@ mod tests {
                 filters: flag["filters"].clone(),
                 deleted: false,
                 active: true,
-                ensure_experience_continuity: false,
+                ensure_experience_continuity: Some(false),
                 version: Some(1),
             }),
         )
@@ -1070,7 +1070,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
@@ -1161,7 +1161,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
@@ -1247,7 +1247,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
@@ -1361,7 +1361,7 @@ mod tests {
                     filters: flag["filters"].clone(),
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 }),
             )
