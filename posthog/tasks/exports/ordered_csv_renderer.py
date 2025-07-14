@@ -55,9 +55,15 @@ class OrderedCsvRenderer(
         if labels:
             yield [labels.get(x, x) for x in field_headers]
         else:
-            yield field_headers
+            yield [extract_expression_comment(key) for key in field_headers]
 
         # Create a row for each dictionary, filling in columns for which the
         # item has no data with None values.
         for item in data:
             yield [item.get(key, None) for key in field_headers]
+
+
+def extract_expression_comment(query: str) -> str:
+    if "--" in query:
+        return query.split("--")[-1].strip() or query
+    return query
