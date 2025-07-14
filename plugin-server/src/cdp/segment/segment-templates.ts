@@ -1,9 +1,8 @@
 import { DestinationDefinition, destinations } from '@segment/action-destinations'
 
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/cdp/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType, HogFunctionTemplate } from '~/cdp/types'
 
 import { EXTEND_OBJECT_KEY } from '../services/hog-executor.service'
-import { HogFunctionTemplate } from '../templates/types'
 
 export type SegmentDestination = {
     template: HogFunctionTemplate

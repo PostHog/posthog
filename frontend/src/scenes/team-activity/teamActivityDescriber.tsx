@@ -376,6 +376,10 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         return { description: descriptions }
     },
 
+    // Feature flag confirmation config
+    feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),
+    feature_flag_confirmation_message: createSimpleValueHandler('feature flag confirmation message'),
+
     // Autocapture
     autocapture_exceptions_errors_to_ignore: createArrayChangeHandler('autocapture exceptions errors to ignore'),
     autocapture_exceptions_opt_in: createBooleanToggleHandler('exception autocapture'),
