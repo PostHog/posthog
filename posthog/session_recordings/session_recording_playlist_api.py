@@ -335,23 +335,13 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
             .values_list("recording_id", flat=True)
         )
 
-        # this is slightly misleading... we don't pass the filters here,
-        # so this only loads the pinned recordings metadata
         data_dict = query_as_params_to_dict(request.GET.dict())
         query = RecordingsQuery.model_validate(data_dict)
 
-        # For collections, ignore date filters - we want ALL recordings in the playlist
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
+            # For collections, override the date filter to get ALL recordings
             query.date_from = None
             query.date_to = None
-            query.events = None
-            query.actions = None
-            query.properties = None
-            query.person_uuid = None
-            query.distinct_ids = None
-            query.filter_test_accounts = None
-            query.console_log_filters = None
-            query.having_predicates = None
 
         query.session_ids = playlist_items
 
