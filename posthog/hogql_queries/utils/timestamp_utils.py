@@ -11,6 +11,8 @@ from posthog.models import Team
 from posthog.schema import DataWarehouseNode, ActionsNode, EventsNode
 from posthog.utils import get_safe_cache
 
+EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
+
 
 def _get_data_warehouse_earliest_timestamp_query(node: DataWarehouseNode) -> SelectQuery:
     """
@@ -75,7 +77,7 @@ def get_earliest_timestamp_from_node(team: Team, node: Union[EventsNode, Actions
     if result and len(result.results) > 0 and len(result.results[0]) > 0:
         earliest_timestamp = result.results[0][0]
 
-    cache.set(cache_key, earliest_timestamp, timeout=24 * 60 * 60)
+    cache.set(cache_key, earliest_timestamp, timeout=EARLIEST_TIMESTAMP_CACHE_TTL)
 
     return earliest_timestamp
 
