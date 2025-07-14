@@ -9,14 +9,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
+import { PipelineStage, ProductKey } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { CustomerCountTile, OverviewTile, RevenueTile, RevenueGrowthRateTile, TopCustomersTile } from './tiles'
+import { CustomerCountTile, OverviewTile, RevenueGrowthRateTile, RevenueTile, TopCustomersTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -32,7 +31,6 @@ const PRODUCT_THING_NAME = 'revenue'
 export function RevenueAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
         return (
@@ -51,7 +49,7 @@ export function RevenueAnalyticsScene(): JSX.Element {
                         type="primary"
                         icon={<IconPlus />}
                         onClick={() => {
-                            openSidePanel(SidePanelTab.FeaturePreviews, FEATURE_FLAGS.REVENUE_ANALYTICS)
+                            router.actions.push(urls.settings('user-feature-previews'))
                         }}
                         data-attr="activate-revenue-analytics"
                     >

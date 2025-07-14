@@ -9,7 +9,7 @@ import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consu
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
-import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
@@ -21,6 +21,7 @@ import { SegmentDestinationExecutorService } from './services/segment-destinatio
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -380,7 +381,17 @@ export class CdpApi {
                 },
             }
 
-            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration)
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: globals.event,
+                person: globals.person,
+                groups: globals.groups,
+            })
+
+            const invocation = this.hogFlowExecutor.createHogFlowInvocation(
+                triggerGlobals,
+                compoundConfiguration,
+                filterGlobals
+            )
             const response = await this.hogFlowExecutor.executeTest(invocation)
 
             res.json({
