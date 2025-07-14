@@ -165,7 +165,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
             increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
             cohort_ids.append(cohort.pk)
         except Exception as e:
-            logger.warning("enqueued_cohort_calculation_error", cohort_id=cohort.pk, error=str(e))
+            logger.exception("enqueued_cohort_calculation_error", cohort_id=cohort.pk, error=str(e))
             # Skip this cohort and continue with others
             continue
     logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids)
