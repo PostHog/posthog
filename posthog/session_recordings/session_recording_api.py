@@ -74,7 +74,6 @@ from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from ..models.product_intent.product_intent import ProductIntent
-from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
 
@@ -662,9 +661,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         recording.deleted = True
         recording.save()
 
-        # We should also delete it from playlists
-        SessionRecordingPlaylistItem.objects.filter(playlist__team=self.team, recording=recording).delete()
-
         return Response({"success": True}, status=204)
 
     @extend_schema(exclude=True)
@@ -684,27 +680,43 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         query = RecordingsQuery(session_ids=session_recording_ids)
         recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
 
-        # Create/update all recordings to deleted=True
-        deleted_count = 0
-        for recording in recordings:
-            if recording.deleted:
-                continue
+        # Filter out recordings that are already deleted
+        non_deleted_recordings = [recording for recording in recordings if not recording.deleted]
 
-            db_recording, created = SessionRecording.objects.get_or_create(
+        # First, bulk create any missing records
+        session_recordings_to_create = [
+            SessionRecording(
                 team=self.team,
                 session_id=recording.session_id,
-                defaults={"distinct_id": recording.distinct_id, "deleted": True},
+                distinct_id=recording.distinct_id,
+                deleted=True,
             )
-            if not created:
-                db_recording.deleted = True
-                db_recording.save()
+            for recording in non_deleted_recordings
+        ]
 
-            deleted_count += 1
+        created_records = []
+        if session_recordings_to_create:
+            created_records = SessionRecording.objects.bulk_create(session_recordings_to_create, ignore_conflicts=True)
 
-        # Delete from playlists
-        SessionRecordingPlaylistItem.objects.filter(
-            playlist__team=self.team, recording__in=session_recording_ids
-        ).delete()
+        # Then, bulk update all relevant records to set deleted=True
+        session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
+        updated_count = 0
+        if session_ids_to_delete:
+            updated_count = SessionRecording.objects.filter(
+                team=self.team,
+                session_id__in=session_ids_to_delete,
+                deleted=False,
+            ).update(deleted=True)
+
+        deleted_count = len(created_records) + updated_count
+
+        # Report user action with count
+        report_user_action(
+            user=cast(User, request.user),
+            event="session recordings bulk deleted",
+            properties={"count": deleted_count, "total_requested": len(session_recording_ids)},
+            team=self.team,
+        )
 
         logger.info(
             "bulk_recordings_deleted",

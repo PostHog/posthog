@@ -136,8 +136,7 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                     />
                 </div>
                 <div className="bg-warning-highlight border border-warning rounded p-2 text-sm">
-                    This action cannot be undone. Deleting recordings won't affect your billing since we charge for
-                    ingestion, not storage.
+                    This action cannot be undone. Deleting recordings doesn't affect your billing.
                 </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
