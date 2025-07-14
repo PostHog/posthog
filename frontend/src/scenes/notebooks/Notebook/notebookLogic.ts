@@ -460,7 +460,10 @@ export const notebookLogic = kea<notebookLogicType>([
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (shouldBeEditable, previewContent, notebook, mode) =>
-                mode === 'canvas' || (shouldBeEditable && !previewContent && notebook?.user_access_level === 'editor'),
+                mode === 'canvas' ||
+                (shouldBeEditable &&
+                    !previewContent &&
+                    (notebook?.user_access_level === 'editor' || notebook?.user_access_level === 'manager')),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -534,7 +537,7 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
-            if (values.mode !== 'canvas' && values.notebook?.user_access_level !== 'editor') {
+            if (values.mode !== 'canvas' && !['editor', 'manager'].includes(values.notebook?.user_access_level || '')) {
                 actions.clearLocalContent()
                 return
             }
