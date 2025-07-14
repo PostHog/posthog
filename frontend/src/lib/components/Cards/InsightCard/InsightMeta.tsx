@@ -23,6 +23,7 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { isDataVisualizationNode } from '~/queries/utils'
 import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
@@ -119,9 +120,21 @@ export function InsightMeta({
                 <>
                     {/* Insight related */}
                     {editable && (
-                        <LemonButton onClick={rename} fullWidth>
-                            Rename
-                        </LemonButton>
+                        <>
+                            <LemonButton
+                                to={
+                                    isDataVisualizationNode(insight.query)
+                                        ? urls.sqlEditor(undefined, undefined, short_id)
+                                        : urls.insightEdit(short_id)
+                                }
+                                fullWidth
+                            >
+                                Edit
+                            </LemonButton>
+                            <LemonButton onClick={rename} fullWidth>
+                                Rename
+                            </LemonButton>
+                        </>
                     )}
                     <LemonButton
                         onClick={duplicate}
