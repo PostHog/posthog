@@ -1630,7 +1630,7 @@ class TestUserTwoFactor(APIBaseTest):
     def test_two_factor_start_setup(self, mock_totp_form):
         response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.json(), {"success": True, "secret": ANY})
 
         # Verify session contains required keys
         self.assertIn("django_two_factor-hex", self.client.session)
