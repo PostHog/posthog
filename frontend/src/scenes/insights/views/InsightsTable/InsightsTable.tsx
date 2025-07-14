@@ -202,7 +202,11 @@ export function InsightsTable({
                 )
 
             columns.push({
-                title: <MultipleBreakdownColumnTitle>{extractExpressionComment(breakdown.property?.toString())}</MultipleBreakdownColumnTitle>,
+                title: (
+                    <MultipleBreakdownColumnTitle>
+                        {extractExpressionComment(breakdown.property?.toString())}
+                    </MultipleBreakdownColumnTitle>
+                ),
                 render: (_, item) => {
                     return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
                 },
