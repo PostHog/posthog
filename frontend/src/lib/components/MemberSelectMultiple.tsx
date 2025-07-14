@@ -25,7 +25,7 @@ export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMul
     const options = filteredMembers.map((member) => ({
         key: member.user[idKey].toString(),
         label: fullName(member.user),
-        value: member.user[idKey],
+        value: member.user[idKey].toString(),
     }))
 
     return (

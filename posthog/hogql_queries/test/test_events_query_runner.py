@@ -663,3 +663,36 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         display_names = [row[1]["display_name"] for row in response.results]
         assert set(display_names) == {"Test User With Spaces"}
+
+    def test_virtual_property(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_spaced"],
+            properties={
+                "email": "user@email.com",
+                "Property With Spaces": "Test User With Spaces",
+                "$initial_utm_source": "facebook",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_spaced",
+            properties={"utm_source": "facebook"},
+        )
+        flush_persons_and_events()
+
+        # Configure the team to use the property with spaces as display name
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person", "person.properties.$virt_initial_channel_type"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert response.results[0][2] == "Organic Social"

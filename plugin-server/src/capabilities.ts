@@ -22,6 +22,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
                 cdpCyclotronWorkerSegment: true,
+                cdpCyclotronWorkerNative: true,
                 cdpCyclotronWorkerHogFlow: true,
                 cdpApi: true,
             }

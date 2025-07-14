@@ -392,7 +392,6 @@ posthog/temporal/tests/data_imports/test_compaction_job.py:0: error: Dict entry 
 posthog/temporal/tests/data_imports/test_compaction_job.py:0: error: Dict entry 3 has incompatible type "str": "str | None"; expected "str": "str"  [dict-item]
 posthog/temporal/tests/data_imports/test_end_to_end.py:0: error: Incompatible types in assignment (expression has type "ExternalDataJob | None", variable has type "ExternalDataJob")  [assignment]
 posthog/temporal/tests/data_imports/test_end_to_end.py:0: error: Incompatible types in assignment (expression has type "ExternalDataJob | None", variable has type "ExternalDataJob")  [assignment]
-posthog/temporal/tests/data_imports/test_end_to_end.py:0: error: Incompatible types in assignment (expression has type "ExternalDataJob | None", variable has type "ExternalDataJob")  [assignment]
 posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Invalid index type "str" for "dict[Type, Sequence[str]]"; expected type "Type"  [index]
 posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Invalid index type "str" for "dict[Type, Sequence[str]]"; expected type "Type"  [index]
 posthog/temporal/tests/external_data/test_external_data_job.py:0: error: Invalid index type "str" for "dict[Type, Sequence[str]]"; expected type "Type"  [index]

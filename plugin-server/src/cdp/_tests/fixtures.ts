@@ -17,6 +17,25 @@ import {
     IntegrationType,
 } from '../types'
 
+export const SAMPLE_GLOBALS = {
+    event: {
+        uuid: 'uuid',
+        event: 'test',
+        distinct_id: 'distinct_id',
+        properties: {
+            email: 'test@posthog.com',
+        },
+        elements_chain: '',
+        timestamp: '',
+        url: '',
+    },
+    project: {
+        id: 1,
+        name: 'test',
+        url: 'http://localhost:8000/projects/1',
+    },
+}
+
 export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     const item: HogFunctionType = {
         id: randomUUID(),

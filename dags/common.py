@@ -122,7 +122,9 @@ def dagster_tags(
     return tags
 
 
-def settings_with_log_comment(context: dagster.OpExecutionContext | dagster.AssetExecutionContext) -> dict[str, str]:
+def settings_with_log_comment(
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext | dagster.AssetCheckExecutionContext,
+) -> dict[str, str]:
     qt = query_tagging.get_query_tags()
     qt.with_dagster(dagster_tags(context))
     return {"log_comment": qt.to_json()}

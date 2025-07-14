@@ -51,6 +51,9 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
               if: needs.changes.outputs.frontend == 'true'
@@ -110,6 +113,9 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
             - name: Install pnpm
@@ -342,6 +348,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 

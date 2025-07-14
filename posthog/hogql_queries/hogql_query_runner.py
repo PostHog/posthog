@@ -81,8 +81,8 @@ class HogQLQueryRunner(QueryRunner):
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
         ):
             assert self.settings is not None
-            # p95 threads is 102
-            self.settings.max_threads = 80
+            # p95 threads is 102, limiting to 60 (below global max_threads of 64)
+            self.settings.max_threads = 60
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 

@@ -12,7 +12,7 @@ from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
+from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr, map_virtual_properties
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
@@ -83,7 +83,9 @@ class EventsQueryRunner(QueryRunner):
                 select_input.append(expr)
             else:
                 select_input.append(col)
-        return select_input, [parse_expr(column, timings=self.timings) for column in select_input]
+        return select_input, [
+            map_virtual_properties(parse_expr(column, timings=self.timings)) for column in select_input
+        ]
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.

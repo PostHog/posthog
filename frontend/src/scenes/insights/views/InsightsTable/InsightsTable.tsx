@@ -15,6 +15,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { ChartDisplayType, ItemMode } from '~/types'
 
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -201,7 +202,11 @@ export function InsightsTable({
                 )
 
             columns.push({
-                title: <MultipleBreakdownColumnTitle>{breakdown.property?.toString()}</MultipleBreakdownColumnTitle>,
+                title: (
+                    <MultipleBreakdownColumnTitle>
+                        {extractExpressionComment(breakdown.property?.toString())}
+                    </MultipleBreakdownColumnTitle>
+                ),
                 render: (_, item) => {
                     return <BreakdownColumnItem item={item} formatItemBreakdownLabel={formatItemBreakdownLabel} />
                 },

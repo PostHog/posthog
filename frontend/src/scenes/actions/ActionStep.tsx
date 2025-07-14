@@ -5,10 +5,9 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { useState } from 'react'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
@@ -121,25 +120,6 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     )
 }
 
-/**
- * There are several issues with how autocapture actions are matched. See https://github.com/PostHog/posthog/issues/7333
- *
- * Until they are fixed this validator can be used to guide users to working solutions
- */
-const validateSelector = (val: string, selectorPrompts: (s: JSX.Element | null) => void): void => {
-    if (val.includes('#')) {
-        selectorPrompts(
-            <>
-                PostHog actions don't support the <code>#example</code> syntax.
-                <br />
-                Use the equivalent <code>[id="example"]</code> instead.
-            </>
-        )
-    } else {
-        selectorPrompts(null)
-    }
-}
-
 function Option({
     step,
     sendStep,
@@ -157,12 +137,7 @@ function Option({
     placeholder?: string
     caption?: JSX.Element | string
 }): JSX.Element {
-    const [selectorPrompt, setSelectorPrompt] = useState(null as JSX.Element | null)
-
     const onOptionChange = (val: string): void => {
-        if (item === 'selector') {
-            validateSelector(val, setSelectorPrompt)
-        }
         sendStep({
             ...step,
             [item]: val || null, // "" is a valid filter, we don't want it
@@ -183,7 +158,6 @@ function Option({
                 value={step[item] || ''}
                 placeholder={placeholder}
             />
-            {item === 'selector' && selectorPrompt && <LemonBanner type="warning">{selectorPrompt}</LemonBanner>}
         </div>
     )
 }

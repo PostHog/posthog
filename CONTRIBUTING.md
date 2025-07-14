@@ -24,8 +24,8 @@ Raise an issue for these and tag it as an Enhancement. We love every idea. Pleas
 
 # Features
 
-We don't, yet, have a prescriptive roadmap laid out.
+We strive to keep our [roadmap](https://posthog.com/roadmap) up-to-date, while our [WIP page](https://posthog.com/wip) lists the features we're actively working on. We aren't generally expecting contributions towards these fronts since we've already decided who's going to be working on it and have allocated enough resources towards it.
 
-As a rule of thumb - if it fits with helping developers understand product usage, we'll generally like it.
+As a rule of thumb - if you wanna work on a specific feature that fits with helping developers understand product usage and/or extending PostHog to ingest more of their customer's data, we'll generally like it.
 
-If you are at all unsure, just raise it as an enhancement issue first, and we'll very quickly respond.
+If you are at all unsure, just raise it as an enhancement issue first, and we'll attempt to respond very quickly.
