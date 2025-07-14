@@ -949,7 +949,7 @@ export class DB {
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
                     WHERE person_id = $2
                       AND team_id = $3
-                    ORDER BY person_id;
+                    ORDER BY person_id
                     RETURNING *
                 `,
                 [target.id, source.id, target.team_id],
