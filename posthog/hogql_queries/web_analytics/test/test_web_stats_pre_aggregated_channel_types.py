@@ -7,224 +7,297 @@ from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 from posthog.schema import WebStatsTableQuery, DateRange, HogQLQueryModifiers, WebStatsBreakdown
+from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 
 class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self):
         with freeze_time("2024-01-01T09:00:00Z"):
-            # Create persons for each channel type test
-            for i in range(15):  # Increased for more test cases
+            sessions = [str(uuid7("2024-01-01")) for _ in range(20)]
+
+            for i in range(20):
                 _create_person(team_id=self.team.pk, distinct_ids=[f"user_{i}"])
 
-        # Generate unique session IDs
-        sessions = [str(uuid7("2024-01-01")) for _ in range(15)]
+            # 1. Cross Network (requires utm_campaign="cross-network")
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_0",
+                timestamp="2024-01-01T09:00:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/?utm_campaign=cross-network",
+                    "utm_campaign": "cross-network",
+                },
+            )
 
-        # 1. Cross Network
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_0",
-            timestamp="2024-01-01T10:00:00Z",
-            properties={
-                "$session_id": sessions[0],
-                "$current_url": "https://example.com/?utm_campaign=cross-network",
-                "utm_campaign": "cross-network",
-                "utm_source": "google",
-                "utm_medium": "cpc",
-            },
-        )
+            # 2. Paid Search (gclid)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_1",
+                timestamp="2024-01-01T09:05:00Z",
+                properties={
+                    "$session_id": sessions[1],
+                    "$current_url": "https://example.com/?gclid=123",
+                    "gclid": "123",
+                },
+            )
 
-        # 2. Paid Search (gclid)
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_1",
-            timestamp="2024-01-01T10:05:00Z",
-            properties={
-                "$session_id": sessions[1],
-                "$current_url": "https://example.com/?gclid=abc123",
-                "gclid": "abc123",
-                "$referring_domain": "google.com",
-            },
-        )
+            # 3. Paid Search (gad_source=1 - Google Ads)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_2",
+                timestamp="2024-01-01T09:10:00Z",
+                properties={
+                    "$session_id": sessions[2],
+                    "$current_url": "https://example.com/?gad_source=1",
+                    "gad_source": "1",
+                },
+            )
 
-        # 3. Paid Search (gad_source=1)
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_2",
-            timestamp="2024-01-01T10:10:00Z",
-            properties={
-                "$session_id": sessions[2],
-                "$current_url": "https://example.com/?gad_source=1",
-                "gad_source": "1",
-                "$referring_domain": "google.com",
-            },
-        )
+            # 4. Paid Shopping (shopping source)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_3",
+                timestamp="2024-01-01T09:15:00Z",
+                properties={
+                    "$session_id": sessions[3],
+                    "$current_url": "https://example.com/?utm_source=shopping&utm_medium=cpc&utm_campaign=product_ads",
+                    "utm_source": "shopping",
+                    "utm_medium": "cpc",
+                    "utm_campaign": "product_ads",
+                },
+            )
 
-        # 4. Paid Shopping
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_3",
-            timestamp="2024-01-01T10:15:00Z",
-            properties={
-                "$session_id": sessions[3],
-                "$current_url": "https://example.com/?utm_source=shopping.google.com&utm_medium=cpc",
-                "utm_source": "shopping.google.com",
-                "utm_medium": "cpc",
-            },
-        )
+            # 5. Paid Video
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_4",
+                timestamp="2024-01-01T09:20:00Z",
+                properties={
+                    "$session_id": sessions[4],
+                    "$current_url": "https://example.com/?utm_source=youtube&utm_medium=cpc&utm_campaign=video_ads",
+                    "utm_source": "youtube",
+                    "utm_medium": "cpc",
+                    "utm_campaign": "video_ads",
+                    "$referring_domain": "youtube.com",
+                },
+            )
 
-        # 5. Paid Video
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_4",
-            timestamp="2024-01-01T10:20:00Z",
-            properties={
-                "$session_id": sessions[4],
-                "$current_url": "https://example.com/?utm_source=youtube&utm_medium=cpc",
-                "utm_source": "youtube",
-                "utm_medium": "cpc",
-            },
-        )
+            # 6. Paid Social (facebook cpc)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_5",
+                timestamp="2024-01-01T09:25:00Z",
+                properties={
+                    "$session_id": sessions[5],
+                    "$current_url": "https://example.com/?utm_source=facebook&utm_medium=cpc",
+                    "utm_source": "facebook",
+                    "utm_medium": "cpc",
+                    "$referring_domain": "facebook.com",
+                },
+            )
 
-        # 6. Paid Social (fbclid + paid medium)
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_5",
-            timestamp="2024-01-01T10:25:00Z",
-            properties={
-                "$session_id": sessions[5],
-                "$current_url": "https://example.com/?fbclid=xyz789&utm_medium=paid",
-                "fbclid": "xyz789",
-                "utm_medium": "paid",
-                "$referring_domain": "facebook.com",
-            },
-        )
+            # 7. Paid Unknown (paid medium but no specific classification)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_6",
+                timestamp="2024-01-01T10:30:00Z",
+                properties={
+                    "$session_id": sessions[6],
+                    "$current_url": "https://example.com/?utm_source=unknown_source&utm_medium=cpc",
+                    "utm_source": "unknown_source",
+                    "utm_medium": "cpc",
+                },
+            )
 
-        # 7. Paid Unknown (paid medium but no specific classification)
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_6",
-            timestamp="2024-01-01T10:30:00Z",
-            properties={
-                "$session_id": sessions[6],
-                "$current_url": "https://example.com/?utm_source=unknown_source&utm_medium=cpc",
-                "utm_source": "unknown_source",
-                "utm_medium": "cpc",
-            },
-        )
+            # 8. Direct
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_7",
+                timestamp="2024-01-01T10:35:00Z",
+                properties={
+                    "$session_id": sessions[7],
+                    "$current_url": "https://example.com/",
+                    "$referring_domain": "$direct",
+                },
+            )
 
-        # 8. Direct
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_7",
-            timestamp="2024-01-01T10:35:00Z",
-            properties={
-                "$session_id": sessions[7],
-                "$current_url": "https://example.com/",
-                "$referring_domain": "$direct",
-            },
-        )
+            # 9. Organic Search
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_8",
+                timestamp="2024-01-01T10:40:00Z",
+                properties={
+                    "$session_id": sessions[8],
+                    "$current_url": "https://example.com/",
+                    "$referring_domain": "google.com",
+                },
+            )
 
-        # 9. Organic Search
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_8",
-            timestamp="2024-01-01T10:40:00Z",
-            properties={
-                "$session_id": sessions[8],
-                "$current_url": "https://example.com/",
-                "$referring_domain": "google.com",
-            },
-        )
+            # 10. Organic Shopping
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_9",
+                timestamp="2024-01-01T10:45:00Z",
+                properties={
+                    "$session_id": sessions[9],
+                    "$current_url": "https://example.com/?utm_campaign=shopping_campaign",
+                    "utm_campaign": "shopping_campaign",
+                    "$referring_domain": "shopping.google.com",
+                },
+            )
 
-        # 10. Organic Shopping
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_9",
-            timestamp="2024-01-01T10:45:00Z",
-            properties={
-                "$session_id": sessions[9],
-                "$current_url": "https://example.com/?utm_campaign=shopping_campaign",
-                "utm_campaign": "shopping_campaign",
-                "$referring_domain": "shopping.google.com",
-            },
-        )
+            # 11. Organic Video
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_10",
+                timestamp="2024-01-01T10:50:00Z",
+                properties={
+                    "$session_id": sessions[10],
+                    "$current_url": "https://example.com/?utm_campaign=video_content",
+                    "utm_campaign": "video_content",
+                    "$referring_domain": "youtube.com",
+                },
+            )
 
-        # 11. Organic Video
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_10",
-            timestamp="2024-01-01T10:50:00Z",
-            properties={
-                "$session_id": sessions[10],
-                "$current_url": "https://example.com/?utm_campaign=video_content",
-                "utm_campaign": "video_content",
-                "$referring_domain": "youtube.com",
-            },
-        )
+            # 12. Organic Social (fbclid without paid medium)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_11",
+                timestamp="2024-01-01T10:55:00Z",
+                properties={
+                    "$session_id": sessions[11],
+                    "$current_url": "https://example.com/?fbclid=organic123",
+                    "fbclid": "organic123",
+                    "$referring_domain": "facebook.com",
+                },
+            )
 
-        # 12. Organic Social (fbclid without paid medium)
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_11",
-            timestamp="2024-01-01T10:55:00Z",
-            properties={
-                "$session_id": sessions[11],
-                "$current_url": "https://example.com/?fbclid=organic123",
-                "fbclid": "organic123",
-                "$referring_domain": "facebook.com",
-            },
-        )
+            # 13. Push
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_12",
+                timestamp="2024-01-01T11:00:00Z",
+                properties={
+                    "$session_id": sessions[12],
+                    "$current_url": "https://example.com/?utm_medium=push",
+                    "utm_medium": "push",
+                    "utm_source": "notification_service",
+                },
+            )
 
-        # 13. Push
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_12",
-            timestamp="2024-01-01T11:00:00Z",
-            properties={
-                "$session_id": sessions[12],
-                "$current_url": "https://example.com/?utm_medium=push",
-                "utm_medium": "push",
-                "utm_source": "notification_service",
-            },
-        )
+            # 14. Referral
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_13",
+                timestamp="2024-01-01T11:05:00Z",
+                properties={
+                    "$session_id": sessions[13],
+                    "$current_url": "https://example.com/",
+                    "$referring_domain": "techcrunch.com",
+                },
+            )
 
-        # 14. Referral
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_13",
-            timestamp="2024-01-01T11:05:00Z",
-            properties={
-                "$session_id": sessions[13],
-                "$current_url": "https://example.com/",
-                "$referring_domain": "techcrunch.com",
-            },
-        )
+            # 15. Unknown (no attribution data)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_14",
+                timestamp="2024-01-01T11:10:00Z",
+                properties={
+                    "$session_id": sessions[14],
+                    "$current_url": "https://example.com/",
+                },
+            )
 
-        # 15. Unknown (no attribution data)
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="user_14",
-            timestamp="2024-01-01T11:10:00Z",
-            properties={
-                "$session_id": sessions[14],
-                "$current_url": "https://example.com/",
-            },
-        )
+            # 16. Email
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_15",
+                timestamp="2024-01-01T11:15:00Z",
+                properties={
+                    "$session_id": sessions[15],
+                    "$current_url": "https://example.com/?utm_medium=email&utm_campaign=newsletter",
+                    "utm_medium": "email",
+                    "utm_campaign": "newsletter",
+                    "utm_source": "mailchimp",
+                },
+            )
+
+            # 17. SMS (sms source)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_16",
+                timestamp="2024-01-01T11:20:00Z",
+                properties={
+                    "$session_id": sessions[16],
+                    "$current_url": "https://example.com/?utm_source=sms&utm_campaign=promo",
+                    "utm_source": "sms",
+                    "utm_campaign": "promo",
+                },
+            )
+
+            # 18. Audio
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_17",
+                timestamp="2024-01-01T11:25:00Z",
+                properties={
+                    "$session_id": sessions[17],
+                    "$current_url": "https://example.com/?utm_medium=audio&utm_campaign=podcast",
+                    "utm_medium": "audio",
+                    "utm_campaign": "podcast",
+                    "utm_source": "spotify",
+                },
+            )
+
+            # 19. Affiliate
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_18",
+                timestamp="2024-01-01T11:30:00Z",
+                properties={
+                    "$session_id": sessions[18],
+                    "$current_url": "https://example.com/?utm_medium=affiliate&utm_campaign=partner",
+                    "utm_medium": "affiliate",
+                    "utm_campaign": "partner",
+                    "utm_source": "partner_site",
+                    "$referring_domain": "partner.com",
+                },
+            )
+
+            # 20. Another Paid Social (fbclid + paid medium)
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_19",
+                timestamp="2024-01-01T11:35:00Z",
+                properties={
+                    "$session_id": sessions[19],
+                    "$current_url": "https://example.com/?fbclid=paid123&utm_medium=paid",
+                    "fbclid": "paid123",
+                    "utm_medium": "paid",
+                    "$referring_domain": "facebook.com",
+                },
+            )
 
         flush_persons_and_events()
         self._populate_web_stats_tables()
@@ -240,7 +313,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         insert_sql = f"INSERT INTO web_stats_daily\n{select_sql}"
         sync_execute(insert_sql)
 
-    def test_channel_type_breakdown_with_stats_table_runner(self):
+    def _calculate_channel_type_query(self, use_preagg: bool):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
             properties=[],
@@ -249,25 +322,34 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         )
 
         modifiers = HogQLQueryModifiers(
-            useWebAnalyticsPreAggregatedTables=True,
+            useWebAnalyticsPreAggregatedTables=use_preagg,
         )
         runner = WebStatsTableQueryRunner(query=query, team=self.team, modifiers=modifiers)
-        response = runner.calculate()
+        return runner.calculate()
 
+    def test_channel_type_breakdown_with_stats_table_runner(self):
+        response = self._calculate_channel_type_query(use_preagg=True)
+
+        # Assert direct expected results - format: [channel_name, (sessions, persons), (pageviews, views), '']
         expected_results = [
-            ["Cross Network", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Direct", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Organic Search", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Organic Shopping", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Organic Social", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Organic Video", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Paid Search", (3.0, 3.0), (3.0, 3.0), ""],  # gclid + gad_source=1 + shopping.google.com
-            ["Paid Social", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Paid Unknown", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Paid Video", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Push", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Referral", (1.0, 1.0), (1.0, 1.0), ""],
-            ["Unknown", (1.0, 1.0), (1.0, 1.0), ""],
+            ["Affiliate", (1.0, None), (1.0, None), ""],
+            ["Audio", (1.0, None), (1.0, None), ""],
+            ["Cross Network", (1.0, None), (1.0, None), ""],
+            ["Direct", (1.0, None), (1.0, None), ""],
+            ["Email", (1.0, None), (1.0, None), ""],
+            ["Organic Search", (1.0, None), (1.0, None), ""],
+            ["Organic Shopping", (1.0, None), (1.0, None), ""],
+            ["Organic Social", (1.0, None), (1.0, None), ""],
+            ["Organic Video", (1.0, None), (1.0, None), ""],
+            ["Paid Search", (1.0, None), (1.0, None), ""],  # gad_source=1
+            ["Paid Shopping", (1.0, None), (1.0, None), ""],  # shopping source with cpc medium
+            ["Paid Social", (2.0, None), (2.0, None), ""],  # facebook cpc + fbclid with paid medium
+            ["Paid Unknown", (2.0, None), (2.0, None), ""],  # gclid + unknown_source cpc
+            ["Paid Video", (1.0, None), (1.0, None), ""],
+            ["Push", (1.0, None), (1.0, None), ""],
+            ["Referral", (1.0, None), (1.0, None), ""],
+            ["SMS", (1.0, None), (1.0, None), ""],
+            ["Unknown", (1.0, None), (1.0, None), ""],
         ]
 
         actual_sorted = sorted(response.results, key=lambda x: x[0])
@@ -276,29 +358,23 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
         assert actual_sorted == expected_sorted
 
     def test_channel_type_consistency_preagg_vs_regular(self):
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
-            properties=[],
-            breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
-            limit=100,
-        )
+        preagg_response = self._calculate_channel_type_query(use_preagg=True)
+        regular_response = self._calculate_channel_type_query(use_preagg=False)
 
-        preagg_modifiers = HogQLQueryModifiers(
-            useWebAnalyticsPreAggregatedTables=True,
-        )
-        preagg_runner = WebStatsTableQueryRunner(query=query, team=self.team, modifiers=preagg_modifiers)
-        preagg_response = preagg_runner.calculate()
-
-        regular_modifiers = HogQLQueryModifiers(
-            useWebAnalyticsPreAggregatedTables=False,
-        )
-        regular_runner = WebStatsTableQueryRunner(query=query, team=self.team, modifiers=regular_modifiers)
-        regular_response = regular_runner.calculate()
-
-        # Verify both queries used their respective table types
+        # Verify both queries used their respective query engines
         assert preagg_response.usedPreAggregatedTables
         assert not regular_response.usedPreAggregatedTables
 
-        preagg_sorted = sorted(preagg_response.results, key=lambda x: x[0])
-        regular_sorted = sorted(regular_response.results, key=lambda x: x[0])
-        assert preagg_sorted == regular_sorted
+        actual_sorted = sorted(preagg_response.results, key=lambda x: x[0])
+        expected_sorted = sorted(regular_response.results, key=lambda x: x[0])
+
+        assert actual_sorted == expected_sorted
+
+    def test_covers_all_default_channel_types(self):
+        """Smoke test just to make sure we're covering all the default channel types"""
+        response = self._calculate_channel_type_query(use_preagg=True)
+
+        actual_channels = {result[0] for result in response.results}
+        expected_channels = set(DEFAULT_CHANNEL_TYPES)
+
+        assert expected_channels.issubset(actual_channels)
