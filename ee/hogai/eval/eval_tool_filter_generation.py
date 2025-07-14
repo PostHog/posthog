@@ -25,7 +25,7 @@ from products.replay.backend.max_tools import (
 
 logger = logging.getLogger(__name__)
 
-current_filters = {
+DUMMY_CURRENT_FILTERS = {
     "date_from": "-7d",
     "date_to": None,
     "duration": [
@@ -57,7 +57,7 @@ def call_search_session_recordings(demo_org_team_user):
         graph_input = {
             "change": change,
             "generated_filter_options": None,
-            "current_filters": current_filters,
+            "current_filters": DUMMY_CURRENT_FILTERS,
         }
 
         result = await graph.ainvoke(graph_input, config={"configurable": {"thread_id": conversation.id}})
@@ -228,14 +228,14 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
             # Test date range filtering
             EvalCase(
                 input="Show recordings from the last 24 hours",
-                expected=MaxRecordingUniversalFilters(**{**current_filters, "date_from": "-1d"}),
+                expected=MaxRecordingUniversalFilters(**{**DUMMY_CURRENT_FILTERS, "date_from": "-1d"}),
             ),
             # Test location filtering
             EvalCase(
                 input="Show recordings for users located in the US",
                 expected=MaxRecordingUniversalFilters(
                     **{
-                        **current_filters,
+                        **DUMMY_CURRENT_FILTERS,
                         "filter_group": {
                             "type": "AND",
                             "values": [
@@ -260,7 +260,7 @@ async def eval_tool_search_session_recordings(call_search_session_recordings):
                 input="Show recordings from Chrome users",
                 expected=MaxRecordingUniversalFilters(
                     **{
-                        **current_filters,
+                        **DUMMY_CURRENT_FILTERS,
                         "filter_group": {
                             "type": "AND",
                             "values": [
