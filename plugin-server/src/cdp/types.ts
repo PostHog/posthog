@@ -1,6 +1,8 @@
 import { VMState } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 
+import { CyclotronInputType } from '~/schema/cyclotron'
+
 import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
@@ -252,30 +254,37 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     execResult?: unknown
 }
 
+export type CyclotronJobInvocationHogFunctionContext = {
+    globals: HogFunctionInvocationGlobalsWithInputs
+    vmState?: VMState
+    timings: HogFunctionTiming[]
+    attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+}
+
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
-    state: {
-        globals: HogFunctionInvocationGlobalsWithInputs
-        vmState?: VMState
-        timings: HogFunctionTiming[]
-        attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
-    }
+    state: CyclotronJobInvocationHogFunctionContext
     hogFunction: HogFunctionType
 }
 
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
+
+    // Add lazy getters for person and filter globals
+    // getFilterGlobals: () => Promise<HogFunctionFilterGlobals>
+    // getPerson: () => Promise<Person>
 }
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
+    actionStepCount: number
+    // variables: Record<string, any> // NOTE: not used yet but
     personId?: string
-    variables?: Record<string, any>
     currentAction?: {
         id: string
         startedAtTimestamp: number
+        hogFunctionState?: CyclotronJobInvocationHogFunctionContext
     }
-    actionStepCount?: number
 }
 
 // Mostly copied from frontend types
@@ -311,7 +320,7 @@ export type HogFunctionTypeType = 'destination' | 'transformation' | 'internal_d
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType> | null
+    inputs?: Record<string, CyclotronInputType> | null
     filters?: HogFunctionFilters | null
 }
 
@@ -325,8 +334,8 @@ export type HogFunctionType = {
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType | null>
-    encrypted_inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, CyclotronInputType | null>
+    encrypted_inputs?: Record<string, CyclotronInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
@@ -338,12 +347,41 @@ export type HogFunctionType = {
     updated_at: string
 }
 
-export type HogFunctionInputType = {
-    value: any
-    templating?: 'hog' | 'liquid'
-    secret?: boolean
-    bytecode?: HogBytecode | object
-    order?: number
+export type HogFunctionMappingTemplate = HogFunctionMappingType & {
+    name: string
+    include_by_default?: boolean
+}
+
+export type HogFunctionTemplate = {
+    status: 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
+    free: boolean
+    type: HogFunctionTypeType
+    id: string
+    name: string
+    description: string
+    hog: string
+    inputs_schema: HogFunctionInputSchemaType[]
+    category: string[]
+    filters?: HogFunctionFilters
+    mappings?: HogFunctionMappingType[]
+    mapping_templates?: HogFunctionMappingTemplate[]
+    masking?: HogFunctionMasking
+    icon_url?: string
+}
+
+export type HogFunctionTemplateCompiled = HogFunctionTemplate & {
+    bytecode: HogBytecode
+}
+
+// Slightly different model from the DB
+export type DBHogFunctionTemplate = {
+    id: string
+    template_id: string
+    sha: string
+    name: string
+    inputs_schema: HogFunctionInputSchemaType[]
+    bytecode: HogBytecode
+    type: HogFunctionTypeType
 }
 
 export type IntegrationType = {
@@ -365,4 +403,36 @@ export type HogFunctionCapturedEvent = {
     distinct_id: string
     timestamp: string
     properties: Record<string, any>
+}
+
+export type Response = {
+    status: number
+    data: any
+    content: string
+    headers: Record<string, any>
+}
+
+export type NativeTemplate = Omit<HogFunctionTemplate, 'hog' | 'mapping_templates'> & {
+    actions: Record<
+        string,
+        {
+            perform: (
+                request: (
+                    url: string,
+                    options: {
+                        method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
+                        headers: Record<string, any>
+                        json?: any
+                        body?: string | URLSearchParams
+                        throwHttpErrors?: boolean
+                        searchParams?: Record<string, any>
+                    }
+                ) => Promise<Response>,
+                inputs: Record<string, any>
+            ) => Promise<any> | any
+        }
+    >
+    mapping_templates: (HogFunctionMappingTemplate & {
+        associated_action: string
+    })[]
 }

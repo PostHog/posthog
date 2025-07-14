@@ -595,22 +595,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["ph_abcdefg"],
             "ignored_in_assistant": True,
         },
-        "$sentry_exception": {
-            "label": "Sentry exception",
-            "description": "Raw Sentry exception data.",
-            "system": True,
-        },
-        "$sentry_exception_message": {
-            "label": "Sentry exception message",
-        },
-        "$sentry_exception_type": {
-            "label": "Sentry exception type",
-            "description": "Class name of the exception object.",
-        },
-        "$sentry_tags": {
-            "label": "Sentry tags",
-            "description": "Tags sent to Sentry along with the exception.",
-        },
         "$exception_types": {
             "label": "Exception type",
             "description": "The type of the exception.",

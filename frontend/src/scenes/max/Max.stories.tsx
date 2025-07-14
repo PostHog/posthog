@@ -27,6 +27,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import type { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const meta: Meta = {
     title: 'Scenes-App/Max AI',
@@ -62,7 +63,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: ['artificial-hog', 'floating-artificial-hog'],
+        featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG, FEATURE_FLAGS.FLOATING_ARTIFICIAL_HOG],
     },
 }
 export default meta
@@ -490,8 +491,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
         },
     })
 
-    const { addOrUpdateContextInsight, enableCurrentPageContext, addOrUpdateActiveInsight } =
-        useActions(maxContextLogic)
+    const { addOrUpdateContextInsight } = useActions(maxContextLogic)
 
     useEffect(() => {
         // Add multiple context insights
@@ -514,24 +514,7 @@ export const ThreadWithMultipleContextObjects: StoryFn = () => {
                 series: [{ event: 'sign up' }, { event: 'first action' }],
             } as FunnelsQuery,
         })
-
-        // Add active insights for current page context
-        addOrUpdateActiveInsight(
-            {
-                short_id: 'active-insight-1' as InsightShortId,
-                name: 'Current Page Metrics',
-                description: 'Metrics for the current page',
-                query: {
-                    kind: 'TrendsQuery',
-                    series: [{ event: '$pageview' }],
-                } as TrendsQuery,
-            },
-            false
-        )
-
-        // Enable current page context to show active insights/dashboard
-        enableCurrentPageContext()
-    }, [addOrUpdateActiveInsight, addOrUpdateContextInsight, enableCurrentPageContext])
+    }, [addOrUpdateContextInsight])
 
     return <Template sidePanel />
 }

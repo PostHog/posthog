@@ -4,6 +4,7 @@ import { DateTime, Settings } from 'luxon'
 
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { defaultConfig } from '~/config/config'
+import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIp, GeoIPService } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
@@ -13,15 +14,15 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInputSchemaType,
-    HogFunctionInputType,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionTemplate,
+    HogFunctionTemplateCompiled,
     HogFunctionType,
 } from '../../types'
 import { cloneInvocation } from '../../utils/invocation-utils'
 import { createInvocation } from '../../utils/invocation-utils'
 import { compileHog } from '../compiler'
-import { HogFunctionTemplate, HogFunctionTemplateCompiled, NativeTemplate } from '../types'
 
 export type DeepPartialHogFunctionInvocationGlobals = {
     event?: Partial<HogFunctionInvocationGlobals['event']>
@@ -238,7 +239,7 @@ export class TemplateTester {
                 bytecode: item.bytecode,
             }
             return acc
-        }, {} as Record<string, HogFunctionInputType>)
+        }, {} as Record<string, CyclotronInputType>)
 
         compiledMappingInputs.inputs = inputsObj
 

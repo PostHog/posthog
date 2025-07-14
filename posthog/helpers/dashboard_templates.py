@@ -526,6 +526,7 @@ def _create_tile_for_insight(
     layouts: dict,
     color: Optional[str],
     query: Optional[dict] = None,
+    user=None,
 ) -> None:
     insight = Insight.objects.create(
         team=dashboard.team,
@@ -533,6 +534,8 @@ def _create_tile_for_insight(
         description=description,
         is_sample=True,
         query=query,
+        created_by=user,
+        last_modified_by=user,
     )
     DashboardTile.objects.create(
         insight=insight,
@@ -561,7 +564,7 @@ FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
 FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
 
 
-def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
+def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
         tag, _ = Tag.objects.get_or_create(
@@ -627,6 +630,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
             },
         },
         color="blue",
+        user=user,
     )
 
     _create_tile_for_insight(
@@ -690,6 +694,7 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
             },
         },
         color="green",
+        user=user,
     )
 
 

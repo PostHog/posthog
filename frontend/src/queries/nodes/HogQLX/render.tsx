@@ -3,7 +3,7 @@ import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
 import { Sparkline } from 'lib/components/Sparkline'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -72,15 +72,11 @@ export function renderHogQLX(value: any): JSX.Element {
                     <ViewRecordingButton
                         inModal
                         sessionId={sessionId}
+                        recordingStatus={recordingStatus}
                         type="primary"
                         size="xsmall"
                         data-attr="hog-ql-view-recording-button"
                         className="inline-block"
-                        disabledReason={
-                            mightHaveRecording({ $session_id: sessionId, $recording_status: recordingStatus })
-                                ? undefined
-                                : 'Replay was not active when capturing this event'
-                        }
                     />
                 </ErrorBoundary>
             )
