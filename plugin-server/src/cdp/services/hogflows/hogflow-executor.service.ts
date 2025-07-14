@@ -7,6 +7,7 @@ import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
+    HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
     LogEntryLevel,
@@ -17,7 +18,6 @@ import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '..
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
-import { PersonsManagerService } from '../managers/persons-manager.service'
 import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
@@ -25,7 +25,6 @@ import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
-import { HogFlowMetricsService } from './hogflow-metrics.service'
 import { findContinueAction } from './hogflow-utils'
 import { ensureCurrentAction, shouldSkipAction } from './hogflow-utils'
 
@@ -33,48 +32,57 @@ export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Map<string, ActionHandler>
-    private readonly metricsService: HogFlowMetricsService
 
     constructor(
         private hub: Hub,
-        private personsManager: PersonsManagerService,
         private hogFunctionExecutor: HogExecutorService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {
-        this.metricsService = new HogFlowMetricsService()
         this.actionHandlers = this.initializeActionHandlers()
     }
 
-    private initializeActionHandlers(): Map<string, ActionHandler> {
-        const handlers = new Map<string, ActionHandler>()
-        handlers.set('conditional_branch', new ConditionalBranchHandler())
-        handlers.set('wait_until_condition', new ConditionalBranchHandler())
-        handlers.set('delay', new DelayHandler())
-        handlers.set('wait_until_time_window', new WaitUntilTimeWindowHandler())
-        handlers.set('random_cohort_branch', new RandomCohortBranchHandler())
-        handlers.set(
-            'function',
-            new HogFunctionHandler(this.hub, this.hogFunctionExecutor, this.hogFunctionTemplateManager)
-        )
-        handlers.set('exit', new ExitHandler())
-        return handlers
-    }
-
-    createHogFlowInvocation(globals: HogFunctionInvocationGlobals, hogFlow: HogFlow): CyclotronJobInvocationHogFlow {
+    public createHogFlowInvocation(
+        globals: HogFunctionInvocationGlobals,
+        hogFlow: HogFlow,
+        filterGlobals: HogFunctionFilterGlobals
+    ): CyclotronJobInvocationHogFlow {
         return {
             id: new UUIDT().toString(),
             state: {
-                personId: globals.person?.id ?? '',
                 event: globals.event,
                 actionStepCount: 0,
             },
             teamId: hogFlow.team_id,
             functionId: hogFlow.id, // TODO: Include version?
             hogFlow,
+            person: globals.person, // This is outside of state as we don't persist it
+            filterGlobals,
             queue: 'hogflow',
             queuePriority: 1,
-            getPerson: () => this.personsManager.getPerson(hogFlow.team_id, globals.event.distinct_id),
         }
+    }
+
+    private initializeActionHandlers(): Map<HogFlowAction['type'], ActionHandler> {
+        const handlers = new Map<HogFlowAction['type'], ActionHandler>()
+        handlers.set('conditional_branch', new ConditionalBranchHandler())
+        handlers.set('wait_until_condition', new ConditionalBranchHandler())
+        handlers.set('delay', new DelayHandler())
+        handlers.set('wait_until_time_window', new WaitUntilTimeWindowHandler())
+        handlers.set('random_cohort_branch', new RandomCohortBranchHandler())
+
+        const hogFunctionHandler = new HogFunctionHandler(
+            this.hub,
+            this.hogFunctionExecutor,
+            this.hogFunctionTemplateManager
+        )
+        handlers.set('function', hogFunctionHandler)
+        handlers.set('function_sms', hogFunctionHandler)
+        handlers.set('function_slack', hogFunctionHandler)
+        handlers.set('function_email', hogFunctionHandler)
+        handlers.set('function_webhook', hogFunctionHandler)
+
+        handlers.set('exit', new ExitHandler())
+        return handlers
     }
 
     async buildHogFlowInvocations(
@@ -111,7 +119,7 @@ export class HogFlowExecutorService {
                 continue
             }
 
-            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow)
+            const invocation = this.createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
             invocations.push(invocation)
         }
 
@@ -232,7 +240,7 @@ export class HogFlowExecutorService {
                 if (handlerResult.finished) {
                     result.finished = true
                     // Special case for exit - we just track a success metric
-                    this.metricsService.trackActionMetric(result, currentAction, 'succeeded')
+                    this.trackActionMetric(result, currentAction, 'succeeded')
                 }
 
                 if (handlerResult.scheduledAt) {
@@ -245,7 +253,7 @@ export class HogFlowExecutorService {
             } catch (err) {
                 // Add logs and metric specifically for this action
                 this.logAction(result, currentAction, 'error', `Errored: ${String(err)}`) // TODO: Is this enough detail?
-                this.metricsService.trackActionMetric(result, currentAction, 'failed')
+                this.trackActionMetric(result, currentAction, 'failed')
 
                 throw err
             }
@@ -284,7 +292,7 @@ export class HogFlowExecutorService {
             message: `Workflow moved to action '${nextAction.name} (${nextAction.id})'`,
         })
 
-        this.metricsService.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
+        this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
 
         return result
     }
@@ -302,7 +310,7 @@ export class HogFlowExecutorService {
         result.logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `Workflow will pause until ${scheduledAt.toISO()}`,
+            message: `Workflow will pause until ${scheduledAt.toUTC().toISO()}`,
         })
 
         return result
@@ -326,6 +334,21 @@ export class HogFlowExecutorService {
             level,
             timestamp: DateTime.now(),
             message,
+        })
+    }
+
+    private trackActionMetric(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        action: HogFlowAction,
+        metricName: 'failed' | 'succeeded' | 'filtered'
+    ): void {
+        result.metrics.push({
+            team_id: result.invocation.hogFlow.team_id,
+            app_source_id: result.invocation.hogFlow.id,
+            instance_id: action.id,
+            metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
+            metric_name: metricName,
+            count: 1,
         })
     }
 }

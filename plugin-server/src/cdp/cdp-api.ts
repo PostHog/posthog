@@ -13,13 +13,13 @@ import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.ser
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
-import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -39,13 +39,7 @@ export class CdpApi {
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-        this.personsManager = new PersonsManagerService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(
-            hub,
-            this.personsManager,
-            this.hogExecutor,
-            this.hogFunctionTemplateManager
-        )
+        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
@@ -375,7 +369,17 @@ export class CdpApi {
                 },
             }
 
-            const invocation = this.hogFlowExecutor.createHogFlowInvocation(triggerGlobals, compoundConfiguration)
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: globals.event,
+                person: globals.person,
+                groups: globals.groups,
+            })
+
+            const invocation = this.hogFlowExecutor.createHogFlowInvocation(
+                triggerGlobals,
+                compoundConfiguration,
+                filterGlobals
+            )
             const response = await this.hogFlowExecutor.executeTest(invocation)
 
             res.json({

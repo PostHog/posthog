@@ -323,14 +323,33 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
+        assert self.user_access_control.access_level_for_object(self.dashboard) == "manager"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
-        assert self.user_access_control.access_level_for_resource("dashboard") == "editor"
+        assert self.user_access_control.access_level_for_resource("dashboard") == "manager"
         assert self.other_user_access_control.access_level_for_resource("dashboard") == "editor"
 
     def test_ac_object_default_response(self):
         assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
+
+    def test_setting_explicit_manager_access(self):
+        """
+        Test that the new 'manager' access level works correctly and is above 'editor' in the hierarchy.
+        """
+        # Test that creators have "manager" access to their files by default:
+        # - User is creator of dashboard -> has "manager" access
+        # Create an AccessControl entry giving other_user "editor" access to the dashboard
+        # to verify they can edit but not manage it
+
+        self._create_access_control(
+            resource_id=self.dashboard.id,
+            access_level="editor",
+            resource="dashboard",
+            organization_member=self.other_user.organization_memberships.first(),
+        )
+
+        assert self.other_user_access_control.check_access_level_for_object(self.dashboard, "editor") is True
+        assert self.other_user_access_control.check_access_level_for_object(self.dashboard, "manager") is False
 
 
 @pytest.mark.ee
@@ -537,6 +556,12 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
         # No access controls at all
         serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
         assert serializer.get_user_access_level(self.dashboard) == "editor"  # falls to default_access_level
+
+    def test_manager_access_level_serializer(self):
+        # Test that the new 'manager' level works in serializers
+        self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="manager")
+        serializer = self.Serializer(self.dashboard, context={"user_access_control": self.user_access_control})
+        assert serializer.get_user_access_level(self.dashboard) == "manager"
 
 
 class TestUserAccessControlAccessSource(BaseUserAccessControlTest):
