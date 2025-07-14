@@ -5247,64 +5247,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "stale_multivariate"
         assert response["results"][0]["status"] == "STALE"
 
-    def test_get_flags_with_stale_filter_super_groups(self):
-        # Create a stale flag with super groups
-        with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
-                team=self.team,
-                created_by=self.user,
-                key="stale_super_group",
-                active=True,
-                filters={"super_groups": [{"rollout_percentage": 100, "properties": []}]},
-            )
-
-        # Create a non-stale flag with super groups (has properties)
-        with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
-                team=self.team,
-                created_by=self.user,
-                key="non_stale_super_group",
-                active=True,
-                filters={"super_groups": [{"rollout_percentage": 50, "properties": []}]},
-            )
-
-        # Test filtering by stale status
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
-        response = filtered_flags_list.json()
-
-        assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "stale_super_group"
-        assert response["results"][0]["status"] == "STALE"
-
-    def test_get_flags_with_stale_filter_holdout_groups(self):
-        # Create a stale flag with holdout groups
-        with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
-                team=self.team,
-                created_by=self.user,
-                key="stale_holdout_group",
-                active=True,
-                filters={"holdout_groups": [{"rollout_percentage": 100, "properties": []}]},
-            )
-
-        # Create a non-stale flag with holdout groups (not 100% rollout)
-        with freeze_time("2024-01-01"):
-            FeatureFlag.objects.create(
-                team=self.team,
-                created_by=self.user,
-                key="non_stale_holdout_group",
-                active=True,
-                filters={"holdout_groups": [{"rollout_percentage": 50, "properties": []}]},
-            )
-
-        # Test filtering by stale status
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?active=STALE")
-        response = filtered_flags_list.json()
-
-        assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "stale_holdout_group"
-        assert response["results"][0]["status"] == "STALE"
-
     def test_flag_is_cached_on_create_and_update(self):
         # Ensure empty feature flag list
         FeatureFlag.objects.all().delete()

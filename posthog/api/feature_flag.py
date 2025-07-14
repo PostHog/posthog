@@ -752,24 +752,6 @@ class FeatureFlagViewSet(
                                         AND (elem->'properties')::text = '[]'::text
                                     )
                                 )
-                                OR
-                                (
-                                    filters->'super_groups' IS NOT NULL
-                                    AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'super_groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                )
-                                OR
-                                (
-                                    filters->'holdout_groups' IS NOT NULL
-                                    AND EXISTS (
-                                        SELECT 1 FROM jsonb_array_elements(filters->'holdout_groups') AS elem
-                                        WHERE elem->>'rollout_percentage' = '100'
-                                        AND (elem->'properties')::text = '[]'::text
-                                    )
-                                )
                             )
                             """
                         ]
