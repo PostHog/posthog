@@ -249,7 +249,6 @@ class CalendarHeatmapQueryRunner(QueryRunner):
             if hasattr(series, "properties") and series.properties is not None and series.properties != []:
                 property_exprs.append(property_to_expr(series.properties, team=self.team))
 
-        # Combine all property expressions with AND logic
         if len(property_exprs) == 0:
             return ast.Constant(value=True)
         elif len(property_exprs) == 1:
