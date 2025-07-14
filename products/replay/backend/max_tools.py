@@ -30,7 +30,7 @@ class SearchSessionRecordingsTool(MaxTool):
     description: str = (
         "Update session recordings filters on this page, in order to search for session recordings by any criteria."
     )
-    thinking_message: str = "Coming up with session recordings filters..."
+    thinking_message: str = "Coming up with session recordings filters"
     root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
