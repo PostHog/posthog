@@ -1,10 +1,10 @@
 from rest_framework import serializers
-from drf_spectacular.utils import extend_schema_field
-from drf_spectacular.types import OpenApiTypes
 
 
-PAGINATION_DEFAULT_LIMIT = 100
-PAGINATION_MAX_LIMIT = 1000
+EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT = 100
+EXTERNAL_WEB_ANALYTICS_PAGINATION_MAX_LIMIT = 1000
+
+EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS = ["visitors", "views", "sessions", "bounce_rate", "session_duration"]
 
 
 class WebAnalyticsRequestSerializer(serializers.Serializer):
@@ -22,7 +22,7 @@ class WebAnalyticsOverviewRequestSerializer(WebAnalyticsRequestSerializer):
 
 class WebAnalyticsTrendRequestSerializer(WebAnalyticsRequestSerializer):
     metric = serializers.ChoiceField(
-        choices=["visitors", "views", "sessions"], help_text="The metric to show over time"
+        choices=EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS, help_text="The metric to show over time"
     )
     interval = serializers.ChoiceField(
         choices=["day", "week", "month"], default="day", help_text="Time interval for data aggregation", required=False
@@ -66,24 +66,16 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
         help_text="Property to break down by",
     )
 
-    @extend_schema_field(OpenApiTypes.STR)
-    def get_metrics_field(self):
-        return serializers.CharField(
-            default="visitors,views,bounce_rate",
-            help_text="Comma-separated list of metrics to include (available: visitors, views, clicks, bounce_rate, session_duration)",
-            required=False,
-        )
-
     metrics = serializers.CharField(
-        default="visitors,views,bounce_rate",
-        help_text="Comma-separated list of metrics to include (available: visitors, views, clicks, bounce_rate, session_duration)",
+        default=",".join(EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS),
+        help_text="Comma-separated list of metrics to include",
         required=False,
     )
 
     limit = serializers.IntegerField(
-        default=PAGINATION_DEFAULT_LIMIT,
+        default=EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
         min_value=1,
-        max_value=PAGINATION_MAX_LIMIT,
+        max_value=EXTERNAL_WEB_ANALYTICS_PAGINATION_MAX_LIMIT,
         help_text="Number of results to return",
         required=False,
     )
@@ -91,14 +83,7 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
     offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of results to skip", required=False)
 
     def validate_metrics(self, value):
-        """Convert comma-separated string to list and validate choices"""
-        valid_choices = [
-            "visitors",
-            "views",
-            "clicks",
-            "bounce_rate",
-            "session_duration",
-        ]
+        valid_choices = EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS
 
         if isinstance(value, str):
             metrics = [m.strip() for m in value.split(",")]
@@ -119,7 +104,7 @@ class WebAnalyticsOverviewResponseSerializer(serializers.Serializer):
     visitors = serializers.IntegerField(help_text="Unique visitors")
     views = serializers.IntegerField(help_text="Total page views")
     sessions = serializers.IntegerField(help_text="Total sessions")
-    bounce_rate = serializers.FloatField(help_text="Bounce rate (0-1)")
+    bounce_rate = serializers.FloatField(help_text="Bounce rate", min_value=0, max_value=1)
     session_duration = serializers.FloatField(help_text="Average session duration in seconds")
 
 

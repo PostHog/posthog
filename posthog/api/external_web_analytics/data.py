@@ -5,7 +5,8 @@ from typing import Any
 from rest_framework.request import Request
 
 from .serializers import (
-    PAGINATION_DEFAULT_LIMIT,
+    EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT,
+    EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS,
     WebAnalyticsOverviewResponseSerializer,
     WebAnalyticsTrendResponseSerializer,
     WebAnalyticsBreakdownResponseSerializer,
@@ -87,7 +88,7 @@ class WebAnalyticsDataFactory:
 
         interval = request_data.get("interval", "day")
         metric = request_data["metric"]
-        limit = request_data.get("limit", PAGINATION_DEFAULT_LIMIT)
+        limit = request_data.get("limit", EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT)
         offset = request_data.get("offset", 0)
 
         # Generate all data points first
@@ -156,8 +157,8 @@ class WebAnalyticsDataFactory:
         date_from = request_data["date_from"]
         date_to = request_data["date_to"]
         breakdown_by = request_data["breakdown_by"]
-        metrics = request_data.get("metrics") or ["visitors", "views", "bounce_rate"]
-        limit = request_data.get("limit", PAGINATION_DEFAULT_LIMIT)
+        metrics = request_data.get("metrics", ",".join(EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS))
+        limit = request_data.get("limit", EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT)
         offset = request_data.get("offset", 0)
         domain = request_data["domain"]
 
@@ -259,7 +260,5 @@ class WebAnalyticsDataFactory:
             return round(random.uniform(0.25, 0.85), 3)
         elif metric == "session_duration":
             return round(random.uniform(30, 500), 1)
-        elif metric == "conversion_rate":
-            return round(random.uniform(0.005, 0.12), 4)
         else:
             return int(random.randint(10, 1000) * weight * 5)
