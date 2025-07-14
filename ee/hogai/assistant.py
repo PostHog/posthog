@@ -193,13 +193,16 @@ class Assistant:
                 # Send the last message with the initialized id.
                 yield AssistantEventType.MESSAGE, self._latest_message
 
+            last_ai_message: AssistantMessage | None = None
+            last_viz_message: VisualizationMessage | None = None
             try:
-                last_viz_message = None
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
                             if isinstance(message, VisualizationMessage):
                                 last_viz_message = message
+                            if isinstance(message, AssistantMessage):
+                                last_ai_message = message
                             if hasattr(message, "id"):
                                 if update[1] == "custom":
                                     # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
@@ -230,8 +233,6 @@ class Assistant:
                             graph_status="interrupted",
                         ),
                     )
-                else:
-                    await self._report_conversation_state(last_viz_message)
             except GraphRecursionError:
                 yield (
                     AssistantEventType.MESSAGE,
@@ -254,6 +255,10 @@ class Assistant:
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
                         yield AssistantEventType.MESSAGE, FailureMessage()
+            finally:
+                await self._report_conversation_state(
+                    last_assistant_message=last_ai_message, last_visualization_message=last_viz_message
+                )
 
     @property
     def _initial_state(self) -> AssistantState:
@@ -467,32 +472,39 @@ class Assistant:
             return reasoning_message
         return None
 
-    async def _report_conversation_state(self, message: Optional[VisualizationMessage]):
-        if not (self._user and message):
+    async def _report_conversation_state(
+        self,
+        last_assistant_message: AssistantMessage | None = None,
+        last_visualization_message: VisualizationMessage | None = None,
+    ):
+        if not self._user:
             return
-
-        response = message.model_dump_json(exclude_none=True)
+        visualization_response = (
+            last_visualization_message.model_dump_json(exclude_none=True) if last_visualization_message else None
+        )
+        output = last_assistant_message.content if isinstance(last_assistant_message, AssistantMessage) else None
 
         if self._mode == AssistantMode.ASSISTANT:
-            if self._latest_message:
-                await database_sync_to_async(report_user_action)(
-                    self._user,
-                    "chat with ai",
-                    {"prompt": self._latest_message.content, "response": response},
-                )
-            return
-
-        if self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
+            await database_sync_to_async(report_user_action)(
+                self._user,
+                "chat with ai",
+                {
+                    "prompt": self._latest_message.content if self._latest_message else None,
+                    "output": output,
+                    "response": visualization_response,
+                },
+            )
+        elif self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
             await database_sync_to_async(report_user_action)(
                 self._user,
                 "standalone ai tool call",
                 {
                     "prompt": self._tool_call_partial_state.root_tool_insight_plan,
-                    "response": response,
+                    "output": output,
+                    "response": visualization_response,
                     "tool_name": "create_and_query_insight",
                 },
             )
-            return
 
     @asynccontextmanager
     async def _lock_conversation(self):
