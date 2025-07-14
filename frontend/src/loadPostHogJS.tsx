@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { getISOWeekString, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import posthog, { CaptureResult } from 'posthog-js'
 
 interface WindowWithCypressCaptures extends Window {
@@ -99,6 +99,12 @@ export function loadPostHogJS(): void {
                 return
             }
 
+            // Show this toast once per week by using YYYY-WW format for the ID
+            const toastId = `toast-feature-flags-error-${getISOWeekString()}`
+            if (window.localStorage.getItem(toastId)) {
+                return
+            }
+
             lemonToast.warning(
                 <div className="flex flex-col gap-2">
                     <span>We couldn't load our feature flags.</span>
@@ -108,7 +114,8 @@ export function loadPostHogJS(): void {
                     </span>
                 </div>,
                 {
-                    toastId: 'feature-flags-error',
+                    toastId: toastId,
+                    onClose: () => window.localStorage.setItem(toastId, 'true'),
                     autoClose: false,
                 }
             )
