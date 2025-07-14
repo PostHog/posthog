@@ -452,6 +452,7 @@ class SimPerson(ABC):
         self.region = "California"
         self.city = "San Francisco"
         self.timezone = "America/Los_Angeles"
+        self.language = "en-US"
         self.all_time_pageview_counts = defaultdict(int)
         self.session_pageview_counts = defaultdict(int)
         self.active_session_intent = None
