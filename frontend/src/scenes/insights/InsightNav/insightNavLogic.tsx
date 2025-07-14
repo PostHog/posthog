@@ -200,7 +200,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
                         ? [
                               {
-                                  label: 'Calendar Heatmap',
+                                  label: 'Calendar Heatmap (BETA)',
                                   type: InsightType.CALENDAR_HEATMAP,
                                   dataAttr: 'insight-calendar-heatmap-tab',
                               },

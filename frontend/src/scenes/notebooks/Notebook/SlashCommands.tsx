@@ -269,7 +269,7 @@ order by count() desc
             ),
     },
     {
-        title: 'Calendar Heatmap',
+        title: 'Calendar Heatmap (BETA)',
         search: 'calendar heatmap insight',
         icon: <IconRetentionHeatmap />,
         command: (chain, pos) =>

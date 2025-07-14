@@ -123,7 +123,7 @@ export const manifest: ProductManifest = {
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
         },
         {
-            path: `Insight/Calendar heatmap`,
+            path: `Insight/Calendar heatmap (BETA)`,
             type: 'insight',
             href: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
             iconType: 'insightCalendarHeatmap',
