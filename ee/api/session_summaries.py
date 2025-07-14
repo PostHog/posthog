@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 from typing import cast
 
@@ -18,6 +19,7 @@ from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.cloud_utils import is_cloud
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
 logger = structlog.get_logger(__name__)
@@ -67,8 +69,8 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer.is_valid(raise_exception=True)
         session_ids = serializer.validated_data["session_ids"]
         focus_area = serializer.validated_data.get("focus_area")
-        # Validate that all session IDs belong to the team and exist
-        self._validate_sessions_exist(session_ids)
+        # Check that sessions exist and get min/max timestamps for follow-up queries
+        sessions_found, min_timestamp, max_timestamp = self._get_sessions_metadata(session_ids)
 
         # Prepare extra context, if provided
         extra_summary_context = None
@@ -98,13 +100,60 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
             raise exceptions.APIException("Failed to generate session summaries. Please try again later.")
 
-    def _validate_sessions_exist(self, session_ids: list[str]) -> None:
-        """Validate that all session IDs exist and belong to the team"""
-        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-
-        # Use the updated exists method that checks all sessions at once
+    def _get_sessions_metadata(self, session_ids: list[str]) -> tuple[set[str], datetime, datetime]:
+        """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
         replay_events = SessionReplayEvents()
-        all_exist = replay_events.exists(session_ids, self.team)
+        sessions_found, min_timestamp, max_timestamp = replay_events.sessions_found_with_timestamps(
+            session_ids, self.team
+        )
+        # Check for missing sessions
+        if len(sessions_found) != len(session_ids):
+            missing_sessions = set(session_ids) - sessions_found
+            raise exceptions.ValidationError(
+                f"Sessions not found or do not belong to this team: {', '.join(missing_sessions)}"
+            )
+        # Check for missing timestamps
+        if min_timestamp is None or max_timestamp is None:
+            raise exceptions.ValidationError(
+                f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
+            )
+        return sessions_found, min_timestamp, max_timestamp
 
-        if not all_exist:
-            raise exceptions.ValidationError(f"One or more sessions not found or do not belong to this team")
+
+#   from posthog.models.notebook.notebook import Notebook
+#   from posthog.models.team import Team
+#   from posthog.models.user import User
+
+#   # Create notebook content
+#   notebook_content = {
+#       "type": "doc",
+#       "content": [
+#           {
+#               "type": "heading",
+#               "attrs": {"level": 1},
+#               "content": [{"type": "text", "text": "My Notebook Title"}]
+#           },
+#           {
+#               "type": "ph-image",
+#               "attrs": {
+#                   "height": 300,
+#                   "title": "Example Image",
+#                   "nodeId": "unique-image-id",
+#                   "src": "https://example.com/image.jpg",
+#                   "file": None
+#               }
+#           },
+#           {
+#               "type": "paragraph",
+#               "content": [
+#                   {"type": "text", "text": "Check out "},
+#                   {
+#                       "type": "text",
+#                       "marks": [{"type": "link", "attrs": {"href": "https://posthog.com", "target": "_blank"}}],
+#                       "text": "PostHog"
+#                   },
+#                   {"type": "text", "text": " for more information!"}
+#               ]
+#           }
+#       ]
+#   }
