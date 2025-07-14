@@ -32,7 +32,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         series = [
             EventsNode(event="$pageview"),
         ]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
 
         self.assertEqual(earliest_timestamp, datetime.datetime(2021, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
@@ -55,7 +55,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             EventsNode(event="$pageview"),
             EventsNode(event="$pageleave"),
         ]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
 
         self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 
@@ -83,7 +83,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         series = [
             EventsNode(event="$pageview"),
         ]
-        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
 
         # create an earlier event to test caching
         _create_event(
@@ -95,6 +95,6 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         flush_persons_and_events()
 
         # should still return the earliest timestamp from the first query
-        cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
+        cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
 
         self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
