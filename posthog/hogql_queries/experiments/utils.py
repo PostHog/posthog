@@ -1,4 +1,9 @@
 from typing import TypeVar
+from posthog.clickhouse.client.escape import substitute_params
+from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import HogQLQueryExecutor
+from posthog.models import Team
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -20,6 +25,23 @@ from products.experiments.stats.bayesian.method import BayesianMethod, BayesianC
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+
+
+def get_experiment_query_sql(experiment_query_ast: ast.SelectQuery, team: Team) -> str:
+    """
+    Generate raw SQL for debugging from experiment query AST
+    """
+    executor = HogQLQueryExecutor(
+        query=experiment_query_ast,
+        team=team,
+        modifiers=create_default_modifiers_for_team(team),
+    )
+    clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
+
+    # Substitute the parameters to get the final executable query
+    raw_sql = substitute_params(clickhouse_sql_with_params, clickhouse_context_with_values.values)
+    # Clean up newlines so it can be used right away in the SQL console
+    return " ".join(raw_sql.split())
 
 
 def split_baseline_and_test_variants(
@@ -174,6 +196,7 @@ def get_frequentist_experiment_result_new_format(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
+    clickhouse_sql: str | None = None,
 ) -> ExperimentQueryResponse:
     config = FrequentistConfig(alpha=0.05, test_type=TestType.TWO_SIDED, difference_type=DifferenceType.RELATIVE)
     method = FrequentistMethod(config)
@@ -200,6 +223,7 @@ def get_frequentist_experiment_result_new_format(
     return ExperimentQueryResponse(
         baseline=control_variant,
         variant_results=variants,
+        clickhouse_sql=clickhouse_sql,
     )
 
 
@@ -207,6 +231,7 @@ def get_bayesian_experiment_result_new_format(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
+    clickhouse_sql: str | None = None,
 ) -> ExperimentQueryResponse:
     """
     Get experiment results using the new Bayesian method with the new format
@@ -247,4 +272,5 @@ def get_bayesian_experiment_result_new_format(
     return ExperimentQueryResponse(
         baseline=control_variant,
         variant_results=variants,
+        clickhouse_sql=clickhouse_sql,
     )

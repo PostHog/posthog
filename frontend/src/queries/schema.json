@@ -3219,6 +3219,9 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -10773,6 +10776,9 @@
                 "baseline": {
                     "$ref": "#/definitions/ExperimentStatsBase"
                 },
+                "clickhouse_sql": {
+                    "type": "string"
+                },
                 "credible_intervals": {
                     "additionalProperties": {
                         "items": {
@@ -16397,6 +16403,9 @@
                     "properties": {
                         "baseline": {
                             "$ref": "#/definitions/ExperimentStatsBase"
+                        },
+                        "clickhouse_sql": {
+                            "type": "string"
                         },
                         "credible_intervals": {
                             "additionalProperties": {

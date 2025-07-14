@@ -10838,6 +10838,7 @@ class ExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBase] = None
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -11333,6 +11334,7 @@ class QueryResponseAlternative16(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBase] = None
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -11482,6 +11484,7 @@ class CachedExperimentQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    clickhouse_sql: Optional[str] = None
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     is_cached: bool

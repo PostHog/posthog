@@ -56,6 +56,7 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     calculate_probabilities_v2_count,
 )
 from posthog.hogql_queries.experiments.utils import (
+    get_experiment_query_sql,
     get_bayesian_experiment_result_new_format,
     get_frequentist_experiment_result_new_format,
     get_legacy_funnels_variant_results,
@@ -582,9 +583,12 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
+        experiment_query_ast = self._get_experiment_query()
+        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
-            query=self._get_experiment_query(),
+            query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
@@ -618,6 +622,7 @@ class ExperimentQueryRunner(QueryRunner):
                     metric=self.metric,
                     control_variant=control_variant,
                     test_variants=test_variants,
+                    clickhouse_sql=self.clickhouse_sql,
                 )
 
             elif self.stats_method == "frequentist":
@@ -631,6 +636,7 @@ class ExperimentQueryRunner(QueryRunner):
                     metric=self.metric,
                     control_variant=control_variant,
                     test_variants=test_variants,
+                    clickhouse_sql=self.clickhouse_sql,
                 )
 
             # Legacy stats methods
@@ -718,6 +724,7 @@ class ExperimentQueryRunner(QueryRunner):
                 stats_version=2,
                 p_value=p_value,
                 credible_intervals=credible_intervals,
+                clickhouse_sql=self.clickhouse_sql,
             )
         except Exception as e:
             capture_exception(

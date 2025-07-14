@@ -2419,6 +2419,7 @@ export interface ExperimentQueryResponse {
     stats_version?: integer
     p_value?: number
     credible_intervals?: Record<string, [number, number]>
+    clickhouse_sql?: string
 
     // New fields
     baseline?: ExperimentStatsBase
