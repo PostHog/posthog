@@ -37,54 +37,38 @@ def seconds_until_midnight():
 
 
 class SessionReplayEvents:
-    def exists(self, session_id: str, team: Team) -> bool:
-        cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
-        cached_response = cache.get(cache_key)
-        if isinstance(cached_response, bool):
-            return cached_response
-
-        # Once we know that session exists we don't need to check again (until the end of the day since TTL might apply)
-        existence = self._check_exists_within_days(ttl_days(team), session_id, team) or self._check_exists_within_days(
-            370, session_id, team
-        )
-
-        if existence:
-            # let's be cautious and not cache non-existence
-            # in case we manage to check existence just before the first event hits ClickHouse
-            # that should be impossible but cache invalidation is hard etc etc
-            cache.set(cache_key, existence, timeout=seconds_until_midnight())
-        return existence
-
-    @staticmethod
-    def _check_exists_within_days(days: int, session_id: str, team: Team) -> bool:
-        result = sync_execute(
-            """
-            SELECT count()
-            FROM session_replay_events
-            PREWHERE team_id = %(team_id)s
-            AND session_id = %(session_id)s
-            AND min_first_timestamp >= now() - INTERVAL %(days)s DAY
-            AND min_first_timestamp <= now()
-            """,
-            {
-                "team_id": team.pk,
-                "session_id": session_id,
-                "days": days,
-            },
-        )
-        return result[0][0] > 0
-
-    def exists_multiple(self, session_ids: list[str], team: Team) -> set[str]:
-        """
-        Check which session IDs exist for the given team within TTL.
-        Returns a set of session IDs that exist.
-        """
+    def exists(self, session_ids: list[str], team: Team) -> bool:
         if not session_ids:
-            return set()
-
-        # Only check within TTL days (no need to check older sessions for summaries)
-        ttl = ttl_days(team)
-        return self._check_exists_multiple_within_days(ttl, session_ids, team)
+            return False
+        # Check cache for all session IDs
+        uncached_session_ids = []
+        for session_id in session_ids:
+            cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
+            cached_response = cache.get(cache_key)
+            # If cached - skip (no need to query again)
+            if isinstance(cached_response, bool) and cached_response:
+                continue
+            else:
+                uncached_session_ids.append(session_id)
+        # If all the sessions are cached - they exist
+        if not uncached_session_ids:
+            return True
+        # Check uncached sessions within TTL first
+        found_sessions = self._check_exists_multiple_within_days(ttl_days(team), uncached_session_ids, team)
+        # If some sessions not found in TTL, check longer period
+        if len(found_sessions) < len(uncached_session_ids):
+            missing_sessions = set(uncached_session_ids) - found_sessions
+            additional_found = self._check_exists_multiple_within_days(370, list(missing_sessions), team)
+            found_sessions.update(additional_found)
+        # If some session IDs weren't found - they don't exist
+        if len(found_sessions) < len(uncached_session_ids):
+            return False
+        # Cache all the sessions that exist
+        timeout = seconds_until_midnight()
+        for session_id in uncached_session_ids:
+            cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
+            cache.set(cache_key, True, timeout=timeout)
+        return True
 
     @staticmethod
     def _check_exists_multiple_within_days(days: int, session_ids: list[str], team: Team) -> set[str]:

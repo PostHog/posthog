@@ -102,12 +102,9 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         """Validate that all session IDs exist and belong to the team"""
         from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
-        # Use the optimized exists_multiple method that only checks within TTL
+        # Use the updated exists method that checks all sessions at once
         replay_events = SessionReplayEvents()
-        found_sessions = replay_events.exists_multiple(session_ids, self.team)
+        all_exist = replay_events.exists(session_ids, self.team)
 
-        # Check for missing sessions
-        missing_sessions = set(session_ids) - found_sessions
-        if missing_sessions:
-            missing_list = ", ".join(sorted(missing_sessions))
-            raise exceptions.ValidationError(f"Sessions not found or do not belong to this team: {missing_list}")
+        if not all_exist:
+            raise exceptions.ValidationError(f"One or more sessions not found or do not belong to this team")
