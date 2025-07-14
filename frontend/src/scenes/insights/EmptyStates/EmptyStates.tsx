@@ -129,6 +129,36 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
     )
 }
 
+const RetryButton = ({ query }: { query: Node }): JSX.Element => {
+    const { insightProps } = useValues(insightLogic)
+    const { loadData } = useActions(insightDataLogic(insightProps))
+
+    return (
+        <LemonButton
+            size="small"
+            type="primary"
+            onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+            sideAction={{
+                dropdown: {
+                    overlay: (
+                        <LemonMenuOverlay
+                            items={[
+                                {
+                                    label: 'Open in query debugger',
+                                    to: urls.debugQuery(query),
+                                },
+                            ]}
+                        />
+                    ),
+                    placement: 'bottom-end',
+                },
+            }}
+        >
+            Try again
+        </LemonButton>
+    )
+}
+
 export const LOADING_MESSAGES = [
     'Crunching through hogloads of data…',
     'Teaching hedgehogs to count…',
@@ -541,8 +571,6 @@ export function InsightErrorState({
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-    const { insightProps } = useValues(insightLogic)
-    const { loadData } = useActions(insightDataLogic(insightProps))
 
     if (!preflight?.cloud) {
         excludeDetail = true // We don't provide support for self-hosted instances
@@ -589,32 +617,7 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                {query && (
-                    <LemonButton
-                        size="small"
-                        type="primary"
-                        onClick={() =>
-                            loadData(query.kind && shouldQueryBeAsync(query as Node) ? 'force_async' : 'force_blocking')
-                        }
-                        sideAction={{
-                            dropdown: {
-                                overlay: (
-                                    <LemonMenuOverlay
-                                        items={[
-                                            {
-                                                label: 'Open in query debugger',
-                                                to: urls.debugQuery(query),
-                                            },
-                                        ]}
-                                    />
-                                ),
-                                placement: 'bottom-end',
-                            },
-                        }}
-                    >
-                        Try again
-                    </LemonButton>
-                )}
+                {query && <RetryButton query={query as Node} />}
                 {fixWithAIComponent ?? null}
             </div>
             <QueryIdDisplay queryId={queryId} />
