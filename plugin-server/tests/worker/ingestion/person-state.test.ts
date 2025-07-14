@@ -1,18 +1,13 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { createPerson } from '~/tests/helpers/sql'
+
 import { TopicMessage } from '../../../src/kafka/producer'
-import {
-    Database,
-    Hub,
-    InternalPerson,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-} from '../../../src/types'
+import { Database, Hub, InternalPerson, Team } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
+import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
@@ -29,35 +24,6 @@ jest.setTimeout(30000)
 const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
 const timestampch = '2020-01-01 12:00:05.000'
-
-async function createPerson(
-    hub: Hub,
-    createdAt: DateTime,
-    properties: Properties,
-    propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-    propertiesLastOperation: PropertiesLastOperation,
-    teamId: number,
-    isUserId: number | null,
-    isIdentified: boolean,
-    uuid: string,
-    distinctIds?: { distinctId: string; version?: number }[],
-    tx?: TransactionClient
-): Promise<InternalPerson> {
-    const [person, kafkaMessages] = await hub.db.createPerson(
-        createdAt,
-        properties,
-        propertiesLastUpdatedAt,
-        propertiesLastOperation,
-        teamId,
-        isUserId,
-        isIdentified,
-        uuid,
-        distinctIds,
-        tx
-    )
-    await hub.db.kafkaProducer.queueMessages(kafkaMessages)
-    return person
-}
 
 describe('PersonState.processEvent()', () => {
     let hub: Hub

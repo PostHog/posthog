@@ -84,10 +84,12 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
      */
     moveDistinctIds(
         source: InternalPerson,
+        sourceDistinctId: string,
         target: InternalPerson,
+        targetDistinctId: string,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]>
+    ): Promise<[TopicMessage[], boolean]>
 
     /**
      * Updates cohorts and feature flags for merged persons

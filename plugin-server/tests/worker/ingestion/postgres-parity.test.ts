@@ -364,7 +364,14 @@ describe('postgres parity', () => {
 
         // move distinct ids from person to to anotherPerson
 
-        const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
+        const [kafkaMessages, _] = await hub.db.moveDistinctIds(
+            person.id,
+            'distinct1',
+            anotherPerson.id,
+            anotherPerson.team_id,
+            anotherPerson.uuid,
+            'another_distinct_id'
+        )
         await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 

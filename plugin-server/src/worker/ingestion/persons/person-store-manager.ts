@@ -342,11 +342,20 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
 
     async moveDistinctIds(
         source: InternalPerson,
+        sourceDistinctId: string,
         target: InternalPerson,
+        targetDistinctId: string,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
-        const mainResult = await this.mainStore.moveDistinctIds(source, target, distinctId, tx)
+    ): Promise<[TopicMessage[], boolean]> {
+        const mainResult = await this.mainStore.moveDistinctIds(
+            source,
+            sourceDistinctId,
+            target,
+            targetDistinctId,
+            distinctId,
+            tx
+        )
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
         this.secondaryStore.clearPersonCacheForPersonId(source.team_id, source.id)

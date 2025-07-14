@@ -942,7 +942,13 @@ describe('BatchWritingPersonStore', () => {
             expect(cacheAfterMerge?.is_identified).toBe(true)
 
             // Step 3: moveDistinctIds - this should preserve the merged cache
-            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+            await personStoreForBatch.moveDistinctIds(
+                sourcePerson,
+                'source-distinct',
+                targetPerson,
+                'target-distinct',
+                'target-distinct'
+            )
 
             // Step 4: Verify that cached merged properties are preserved
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -991,7 +997,13 @@ describe('BatchWritingPersonStore', () => {
             expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, targetPerson.id)).toBeUndefined()
 
             // Move distinct IDs
-            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+            await personStoreForBatch.moveDistinctIds(
+                sourcePerson,
+                'source-distinct',
+                targetPerson,
+                'target-distinct',
+                'target-distinct'
+            )
 
             // Should create fresh cache from target person
             const cacheAfterMove = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -1030,7 +1042,13 @@ describe('BatchWritingPersonStore', () => {
             expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeDefined()
 
             // Move distinct IDs
-            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+            await personStoreForBatch.moveDistinctIds(
+                sourcePerson,
+                'source-distinct',
+                targetPerson,
+                'target-distinct',
+                'target-distinct'
+            )
 
             // Verify source cache is cleared
             expect(personStoreForBatch.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeUndefined()
@@ -1095,7 +1113,13 @@ describe('BatchWritingPersonStore', () => {
             )
 
             // Step 3: moveDistinctIds
-            await personStoreForBatch.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+            await personStoreForBatch.moveDistinctIds(
+                sourcePerson,
+                'source-distinct',
+                targetPerson,
+                'target-distinct',
+                'target-distinct'
+            )
 
             // Step 4: Verify all merged properties are preserved
             const finalCache = personStoreForBatch.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')

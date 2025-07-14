@@ -2,6 +2,8 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { TopicMessage } from '~/kafka/producer'
+
 import { InternalPerson } from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { timeoutGuard } from '../../../utils/db/utils'
@@ -386,7 +388,9 @@ export class PersonMergeService {
 
         const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
             mergeInto,
+            mergeIntoDistinctId,
             otherPerson,
+            otherPersonDistinctId,
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
@@ -402,7 +406,9 @@ export class PersonMergeService {
 
     private async handleMergeTransaction(
         mergeInto: InternalPerson,
+        mergeIntoDistinctId: string,
         otherPerson: InternalPerson,
+        otherPersonDistinctId: string,
         createdAt: DateTime,
         properties: Properties
     ): Promise<[InternalPerson, Promise<void>]> {
@@ -455,18 +461,23 @@ export class PersonMergeService {
                     tx
                 )
 
-                const distinctIdMessages = await this.context.personStore.moveDistinctIds(
+                const [distinctIdMessages, sourcePersonDeleted] = await this.context.personStore.moveDistinctIds(
                     otherPerson,
+                    otherPersonDistinctId,
                     mergeInto,
+                    mergeIntoDistinctId,
                     this.context.distinctId,
                     tx
                 )
 
-                const deletePersonMessages = await this.context.personStore.deletePerson(
-                    otherPerson,
-                    this.context.distinctId,
-                    tx
-                )
+                let deletePersonMessages: TopicMessage[] = []
+                if (!sourcePersonDeleted) {
+                    deletePersonMessages = await this.context.personStore.deletePerson(
+                        otherPerson,
+                        this.context.distinctId,
+                        tx
+                    )
+                }
 
                 return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
             }

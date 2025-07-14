@@ -1,3 +1,4 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
@@ -10,6 +11,8 @@ import {
     PluginConfig,
     PluginsServerConfig,
     ProjectId,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
     PropertyOperator,
     RawAction,
     RawOrganization,
@@ -17,7 +20,7 @@ import {
     Team,
 } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
-import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
+import { PostgresRouter, PostgresUse, TransactionClient } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import {
     commonOrganizationId,
@@ -340,6 +343,35 @@ export async function createUserTeamAndOrganization(
     await insertRow(db, 'posthog_team', teamData)
 }
 
+export async function createPerson(
+    hub: Hub,
+    createdAt: DateTime,
+    properties: Properties,
+    propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+    propertiesLastOperation: PropertiesLastOperation,
+    teamId: number,
+    isUserId: number | null,
+    isIdentified: boolean,
+    uuid: string,
+    distinctIds?: { distinctId: string; version?: number }[],
+    tx?: TransactionClient
+): Promise<InternalPerson> {
+    const [person, kafkaMessages] = await hub.db.createPerson(
+        createdAt,
+        properties,
+        propertiesLastUpdatedAt,
+        propertiesLastOperation,
+        teamId,
+        isUserId,
+        isIdentified,
+        uuid,
+        distinctIds,
+        tx
+    )
+    await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+    return person
+}
+
 export async function getTeams(hub: Hub): Promise<Team[]> {
     const selectResult = await hub.postgres.query<Team>(
         PostgresUse.COMMON_READ,
@@ -528,5 +560,12 @@ export async function fetchPostgresPersons(db: DB, teamId: number) {
                 created_at: DateTime.fromISO(rawPerson.created_at).toUTC(),
                 version: Number(rawPerson.version || 0),
             } as InternalPerson)
+    )
+}
+
+export async function fetchPersonDistinctIds(db: DB, teamId: number, personId: string) {
+    const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} AND team_id = ${teamId} ORDER BY id`
+    return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'personDistinctIds')).rows.map(
+        (row: { distinct_id: string }) => row.distinct_id
     )
 }

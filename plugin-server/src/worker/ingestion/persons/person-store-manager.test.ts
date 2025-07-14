@@ -902,7 +902,13 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(batchUpdateCache.get(`${teamId}:${createdPerson.id}`)).toBeDefined()
 
             // Step 2: Move distinct IDs (simulate merge)
-            await shadowManager.moveDistinctIds(createdPerson, targetPerson, distinctId)
+            await shadowManager.moveDistinctIds(
+                createdPerson,
+                'source-distinct',
+                targetPerson,
+                'target-distinct',
+                distinctId
+            )
 
             // Verify batch cache is populated after moveDistinctIds
             expect(batchUpdateCache.get(`${teamId}:${createdPerson.id}`)).toBeUndefined()
@@ -989,7 +995,13 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
             expect(mergedPerson.is_identified).toBe(true)
 
             // Step 3: moveDistinctIds - simulate moving distinct IDs to target person
-            await shadowManager.moveDistinctIds(sourcePerson, targetPerson, 'test-distinct')
+            await shadowManager.moveDistinctIds(
+                sourcePerson,
+                'source-distinct',
+                targetPerson,
+                'target-distinct',
+                'test-distinct'
+            )
 
             // Step 4: Flush and check final states
             await shadowManager.flush()
@@ -1080,7 +1092,13 @@ describe('PersonStoreManagerForBatch (Shadow Mode)', () => {
 
             // Step 3: moveDistinctIds - simulate moving distinct IDs FROM source TO target
             // After this, the target should receive all the data and properties
-            await shadowManager.moveDistinctIds(sourcePerson, targetPerson, 'target-distinct')
+            await shadowManager.moveDistinctIds(
+                sourcePerson,
+                'source-distinct',
+                targetPerson,
+                'target-distinct',
+                'target-distinct'
+            )
 
             // Step 4: Flush and check final states
             await shadowManager.flush()

@@ -59,6 +59,20 @@ import {
     UUID,
     UUIDT,
 } from '../utils'
+
+export class SourcePersonNotFoundError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'SourcePersonNotFoundError'
+    }
+}
+
+export class TargetPersonNotFoundError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'TargetPersonNotFoundError'
+    }
+}
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
 import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
@@ -576,6 +590,24 @@ export class DB {
         }
     }
 
+    public async fetchPersonIdsById(
+        distinctId: string,
+        teamId: number
+    ): Promise<{ id: string; uuid: string; team_id: number; distinct_id: string }[]> {
+        const queryString = `SELECT posthog_person.id, posthog_person.uuid, posthog_person.team_id, posthog_persondistinctid.distinct_id
+            FROM posthog_person JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE posthog_persondistinctid.team_id = $1 AND posthog_persondistinctid.distinct_id = $2`
+
+        const { rows } = await this.postgres.query<{ id: string; uuid: string; team_id: number; distinct_id: string }>(
+            PostgresUse.PERSONS_WRITE,
+            queryString,
+            [teamId, distinctId],
+            'fetchPersonIdsById'
+        )
+
+        return rows
+    }
+
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -935,11 +967,13 @@ export class DB {
         return messages
     }
 
-    public async moveDistinctIds(
-        source: InternalPerson,
-        target: InternalPerson,
+    public async _moveDistinctIdsInner(
+        sourcePersonId: string,
+        targetPersonId: string,
+        teamId: number,
+        targetUuid: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<[TopicMessage[]]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -951,7 +985,7 @@ export class DB {
                       AND team_id = $3
                     RETURNING *
                 `,
-                [target.id, source.id, target.team_id],
+                [targetPersonId, sourcePersonId, teamId],
                 'updateDistinctIdPerson'
             )
         } catch (error) {
@@ -960,22 +994,14 @@ export class DB {
                     'insert or update on table "posthog_persondistinctid" violates foreign key constraint'
                 )
             ) {
-                // this is caused by a race condition where the _target_ person was deleted after fetching but
-                // before the update query ran and will trigger a retry with updated persons
-                throw new RaceConditionError(
-                    'Failed trying to move distinct IDs because target person no longer exists.'
-                )
+                throw new TargetPersonNotFoundError('Target person no longer exists')
             }
-
             throw error
         }
 
-        // this is caused by a race condition where the _source_ person was deleted after fetching but
-        // before the update query ran and will trigger a retry with updated persons
+        // No rows updated means source person doesn't exist
         if (movedDistinctIdResult.rows.length === 0) {
-            throw new RaceConditionError(
-                `Failed trying to move distinct IDs because the source person no longer exists.`
-            )
+            throw new SourcePersonNotFoundError('Source person no longer exists')
         }
 
         const kafkaMessages = []
@@ -986,12 +1012,98 @@ export class DB {
                 topic: KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
-                        value: JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 }),
+                        value: JSON.stringify({ ...usefulColumns, version, person_id: targetUuid, is_deleted: 0 }),
                     },
                 ],
             })
         }
-        return kafkaMessages
+        return [kafkaMessages]
+    }
+
+    /**
+     * Merges the distinct ids from the source person into the target person.
+     *
+     *
+     * @param sourcePersonId
+     * @param sourceDistinctId
+     * @param targetPersonId
+     * @param teamId
+     * @param targetUuid
+     * @param targetDistinctId
+     * @param tx
+     * @param maxRetries
+     * @param retryInterval
+     * @returns [kafkaMessages, sourcePersonDeleted]
+     *
+     * sourcePersonDeleted is true if the source person was deleted during the merge.
+     * This is used to determine if the source person should be deleted after the merge.
+     */
+    public async moveDistinctIds(
+        sourcePersonId: string,
+        sourceDistinctId: string,
+        targetPersonId: string,
+        teamId: number,
+        targetUuid: string,
+        targetDistinctId: string,
+        tx?: TransactionClient,
+        maxRetries: number = 3,
+        retryInterval: number = 50
+    ): Promise<[TopicMessage[], boolean]> {
+        let currentSourcePersonId = sourcePersonId
+        let currentTargetPersonId = targetPersonId
+        let currentTargetUuid = targetUuid
+        let sourcePersonDeleted = false
+
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const [kafkaMessages] = await this._moveDistinctIdsInner(
+                    currentSourcePersonId,
+                    currentTargetPersonId,
+                    teamId,
+                    currentTargetUuid,
+                    tx
+                )
+                return [kafkaMessages, sourcePersonDeleted]
+            } catch (error) {
+                if (error instanceof SourcePersonNotFoundError && attempt < maxRetries) {
+                    const persons = await this.fetchPersonIdsById(sourceDistinctId, teamId)
+                    const sourceExists = persons.find((p) => p.distinct_id === sourceDistinctId)
+                    sourcePersonDeleted = true
+                    if (!sourceExists) {
+                        logger.info('Source person no longer exists, skipping moveDistinctIds', {
+                            sourcePersonId: currentSourcePersonId,
+                            targetPersonId: currentTargetPersonId,
+                            teamId,
+                            attempt,
+                        })
+                        return [[], sourcePersonDeleted]
+                    }
+                    currentSourcePersonId = sourceExists.id
+                    await new Promise((resolve) => setTimeout(resolve, retryInterval))
+                    continue
+                } else if (error instanceof TargetPersonNotFoundError && attempt < maxRetries) {
+                    const persons = await this.fetchPersonIdsById(targetDistinctId, teamId)
+                    const targetExists = persons.find((p) => p.distinct_id === targetDistinctId)
+                    if (!targetExists) {
+                        logger.info('Target person no longer exists, skipping moveDistinctIds', {
+                            sourcePersonId: currentSourcePersonId,
+                            targetPersonId: currentTargetPersonId,
+                            teamId,
+                            attempt,
+                        })
+                        return [[], sourcePersonDeleted]
+                    }
+                    currentTargetPersonId = targetExists.id
+                    currentTargetUuid = targetExists.uuid
+                    await new Promise((resolve) => setTimeout(resolve, retryInterval))
+                    continue
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        throw new Error(`Failed to move distinct IDs after ${maxRetries + 1} attempts`)
     }
 
     // Cohort & CohortPeople

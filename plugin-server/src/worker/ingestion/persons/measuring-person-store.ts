@@ -313,15 +313,25 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
 
     async moveDistinctIds(
         source: InternalPerson,
+        sourceDistinctId: string,
         target: InternalPerson,
+        targetDistinctId: string,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<[TopicMessage[], boolean]> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.clearCache()
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
-        const response = await this.db.moveDistinctIds(source, target, tx)
+        const response = await this.db.moveDistinctIds(
+            source.id,
+            sourceDistinctId,
+            target.id,
+            target.team_id,
+            target.uuid,
+            targetDistinctId,
+            tx
+        )
         observeLatencyByVersion(target, start, 'moveDistinctIds')
         return response
     }

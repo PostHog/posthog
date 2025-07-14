@@ -436,14 +436,24 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
     async moveDistinctIds(
         source: InternalPerson,
+        sourceDistinctId: string,
         target: InternalPerson,
+        targetDistinctId: string,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<[TopicMessage[], boolean]> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
-        const response = await this.db.moveDistinctIds(source, target, tx)
+        const response = await this.db.moveDistinctIds(
+            source.id,
+            sourceDistinctId,
+            target.id,
+            target.team_id,
+            target.uuid,
+            targetDistinctId,
+            tx
+        )
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
