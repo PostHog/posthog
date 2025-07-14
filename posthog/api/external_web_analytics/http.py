@@ -95,7 +95,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsTrendRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        mock_data = self.factory.generate_trends_data(serializer.validated_data)
+        mock_data = self.factory.generate_trends_data(serializer.validated_data, self.team_id)
         return Response(mock_data)
 
     @extend_schema(
@@ -110,5 +110,5 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         serializer = WebAnalyticsBreakdownRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        mock_data = self.factory.generate_breakdown_data(serializer.validated_data)
+        mock_data = self.factory.generate_breakdown_data(serializer.validated_data, self.team_id)
         return Response(mock_data)

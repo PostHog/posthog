@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 import random
 from typing import Any
+
+from posthog.cloud_utils import get_api_host
 from .serializers import (
     WebAnalyticsOverviewResponseSerializer,
     WebAnalyticsTrendResponseSerializer,
@@ -33,6 +35,9 @@ class WebAnalyticsDataFactory:
             "city": ["San Francisco", "New York", "London", "Toronto", "Berlin"],
         }
 
+    def _get_api_url(self, project_id: int, path: str) -> str:
+        return f"{get_api_host()}/api/projects/{project_id}/external_web_analytics/{path}"
+
     def generate_overview_data(self, request_data: dict[str, Any]) -> dict[str, Any]:
         base_visitors = random.randint(5000, 50000)
         base_views = int(base_visitors * random.uniform(1.2, 4.0))
@@ -52,9 +57,15 @@ class WebAnalyticsDataFactory:
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
-    def generate_trends_data(self, request_data: dict[str, Any]) -> dict[str, Any]:
-        date_from = datetime.strptime(request_data["date_from"], "%Y-%m-%d").date()
-        date_to = datetime.strptime(request_data["date_to"], "%Y-%m-%d").date()
+    def generate_trends_data(self, request_data: dict[str, Any], team_id: int) -> dict[str, Any]:
+        date_from = request_data["date_from"]
+        date_to = request_data["date_to"]
+
+        if isinstance(date_from, str):
+            date_from = datetime.strptime(date_from, "%Y-%m-%d").date()
+        if isinstance(date_to, str):
+            date_to = datetime.strptime(date_to, "%Y-%m-%d").date()
+
         interval = request_data.get("interval", "day")
         metric = request_data["metric"]
         limit = request_data.get("limit", 100)
@@ -93,10 +104,8 @@ class WebAnalyticsDataFactory:
             "metric": metric,
             "interval": interval,
             "count": total_count,
-            "next": f"/api/projects/{{project_id}}/external_web_analytics/trend/?offset={offset + limit}&limit={limit}"
-            if has_next
-            else None,
-            "previous": f"/api/projects/{{project_id}}/external_web_analytics/trend/?offset={max(0, offset - limit)}&limit={limit}"
+            "next": self._get_api_url(team_id, f"trend/?offset={offset + limit}&limit={limit}") if has_next else None,
+            "previous": self._get_api_url(team_id, f"trend/?offset={max(0, offset - limit)}&limit={limit}")
             if has_previous
             else None,
             "results": paginated_results,
@@ -106,7 +115,7 @@ class WebAnalyticsDataFactory:
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
-    def generate_breakdown_data(self, request_data: dict[str, Any]) -> dict[str, Any]:
+    def generate_breakdown_data(self, request_data: dict[str, Any], team_id: int) -> dict[str, Any]:
         breakdown_by = request_data["breakdown_by"]
         metrics = request_data.get("metrics") or ["visitors", "views", "bounce_rate"]
         limit = request_data.get("limit", 25)
@@ -143,10 +152,10 @@ class WebAnalyticsDataFactory:
         data = {
             "breakdown_by": breakdown_by,
             "count": total_count,
-            "next": f"/api/projects/{{project_id}}/external_web_analytics/breakdown/?offset={offset + limit}&limit={limit}"
+            "next": self._get_api_url(team_id, f"breakdown/?offset={offset + limit}&limit={limit}")
             if has_next
             else None,
-            "previous": f"/api/projects/{{project_id}}/external_web_analytics/breakdown/?offset={max(0, offset - limit)}&limit={limit}"
+            "previous": self._get_api_url(team_id, f"breakdown/?offset={max(0, offset - limit)}&limit={limit}")
             if has_previous
             else None,
             "results": paginated_results,
