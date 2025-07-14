@@ -114,8 +114,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated_data = self._compile_action_bytecode(validated_data)
         return super().update(instance, validated_data)
 
-    # TODO: Validation perhaps via the nodejs api?
-
 
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
