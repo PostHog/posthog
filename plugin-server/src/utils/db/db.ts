@@ -790,7 +790,6 @@ export class DB {
                     team_id: person.team_id,
                     person_id: person.id,
                 })
-                return []
             }
             throw error
         }
