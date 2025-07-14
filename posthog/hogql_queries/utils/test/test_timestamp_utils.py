@@ -1,10 +1,7 @@
 import datetime
 from django.test import override_settings
 
-from posthog.hogql_queries.utils.timestamp_utils import (
-    get_earliest_timestamp_from_node,
-    get_earliest_timestamp_from_series,
-)
+from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_from_series
 from posthog.schema import EventsNode
 from posthog.test.base import APIBaseTest, _create_event
 
@@ -25,8 +22,11 @@ class TestTimestampUtils(APIBaseTest):
             timestamp="2022-01-01T12:00:00Z",
         )
 
-        events_node = EventsNode(event="$pageview")
-        earliest_timestamp = get_earliest_timestamp_from_node(self.team, events_node)
+        series = [
+            EventsNode(event="$pageview"),
+        ]
+
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)
 
         self.assertEqual(earliest_timestamp, datetime.datetime(2021, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
 

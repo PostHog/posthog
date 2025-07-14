@@ -54,7 +54,7 @@ def _get_earliest_timestamp_cache_key(team: Team, node: Union[EventsNode, Action
         raise ValueError(f"Unsupported node type: {type(node)}")
 
 
-def get_earliest_timestamp_from_node(team: Team, node: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> datetime:
+def _get_earliest_timestamp_from_node(team: Team, node: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> datetime:
     """
     Get the earliest timestamp from a single series node
 
@@ -94,16 +94,13 @@ def get_earliest_timestamp_from_series(
     :return: The earliest timestamp as a datetime object.
     """
 
-    def run(node: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> datetime:
-        return get_earliest_timestamp_from_node(team, node)
-
     timestamps = []
     if len(series) == 1 or settings.IN_UNIT_TESTING:
-        timestamps = [run(node) for node in series]
+        timestamps = [_get_earliest_timestamp_from_node(team, node) for node in series]
 
     else:
         with ThreadPoolExecutor(max_workers=min(len(series), 4)) as executor:
-            futures = [executor.submit(get_earliest_timestamp_from_node, team, node) for node in series]
+            futures = [executor.submit(_get_earliest_timestamp_from_node, team, node) for node in series]
             timestamps = [future.result() for future in futures]
 
     return min(timestamps)
