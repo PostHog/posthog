@@ -37,14 +37,17 @@ def seconds_until_midnight():
 
 
 class SessionReplayEvents:
+    @staticmethod
+    def _get_cache_key(self, session_id: str, team: Team) -> str:
+        return f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
+
     def exists(self, session_ids: list[str], team: Team) -> bool:
         if not session_ids:
             return False
         # Check cache for all session IDs
         uncached_session_ids = []
         for session_id in session_ids:
-            cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
-            cached_response = cache.get(cache_key)
+            cached_response = cache.get(self._get_cache_key(session_id, team))
             # If cached - skip (no need to query again)
             if isinstance(cached_response, bool) and cached_response:
                 continue
@@ -66,8 +69,7 @@ class SessionReplayEvents:
         # Cache all the sessions that exist
         timeout = seconds_until_midnight()
         for session_id in uncached_session_ids:
-            cache_key = f"summarize_recording_existence_team_{team.pk}_id_{session_id}"
-            cache.set(cache_key, True, timeout=timeout)
+            cache.set(self._get_cache_key(session_id, team), True, timeout=timeout)
         return True
 
     @staticmethod
