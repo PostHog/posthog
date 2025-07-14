@@ -265,6 +265,9 @@ def WEB_STATS_INSERT_SQL(
             events__session.end_pathname AS end_pathname,
             events__session.referring_domain AS referring_domain,
             events__session.region_name AS region_name,
+            events__session.has_gclid AS has_gclid,
+            events__session.has_gad_source_paid_search AS has_gad_source_paid_search,
+            events__session.has_fbclid AS has_fbclid,
             countIf(e.event IN ('$pageview', '$screen')) AS pageview_count,
             e.team_id AS team_id,
             min(events__session.start_timestamp) AS start_timestamp
@@ -366,7 +369,7 @@ def WEB_STATS_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid
-    SETTINGS {settings}
+    {"SETTINGS " + settings if settings and not select_only else ""}
     """
 
     if select_only:
@@ -447,6 +450,9 @@ def WEB_BOUNCES_INSERT_SQL(
             any(e.mat_$os) AS os,
             accurateCastOrNull(any(e.mat_$viewport_width), 'Int64') AS viewport_width,
             accurateCastOrNull(any(e.mat_$viewport_height), 'Int64') AS viewport_height,
+            any(events__session.has_gclid) AS has_gclid,
+            any(events__session.has_gad_source_paid_search) AS has_gad_source_paid_search,
+            any(events__session.has_fbclid) AS has_fbclid,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -529,8 +535,11 @@ def WEB_BOUNCES_INSERT_SQL(
         browser,
         os,
         viewport_width,
-        viewport_height
-    {settings_clause}
+        viewport_height,
+        has_gclid,
+        has_gad_source_paid_search,
+        has_fbclid
+    {"SETTINGS " + settings if settings and not select_only else ""}
     """
 
     if select_only:
