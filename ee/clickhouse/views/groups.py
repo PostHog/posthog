@@ -1,13 +1,14 @@
 from collections import defaultdict
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from requests import HTTPError
 from typing import cast
 
 from django.db.models import Q
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets, status
-from posthog.api.capture import capture_internal
+from posthog.api.capture import new_capture_internal
 from posthog.api.utils import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -203,7 +204,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         ]
     )
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
-    def update_property(self, request: request.Request, **kw) -> response.Response:
+    def update_property(self, request: request.Request, **_kw) -> response.Response:
         try:
             group = self.get_object()
             for key in ["value", "key"]:
@@ -235,24 +236,44 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 created_at=group.created_at,
                 timestamp=timezone.now(),
             )
-            capture_internal(
-                distinct_id=str(self.team.uuid),
-                ip=None,
-                site_url=None,
-                token=self.team.api_token,
-                now=timezone.now(),
-                sent_at=None,
-                event={
-                    "event": "$groupidentify",
-                    "properties": {
-                        "$group_type": group_type_mapping.group_type,
-                        "$group_key": group.group_key,
-                        "$group_set": {request.data["key"]: request.data["value"]},
+
+            # another internal event submission where we best-effort and don't handle failures...
+            team_uuid_as_distinct_id = str(self.team.uuid)
+            try:
+                resp = new_capture_internal(
+                    self.team.api_token,
+                    team_uuid_as_distinct_id,
+                    {
+                        "event": "$groupidentify",
+                        "properties": {
+                            "$group_type": group_type_mapping.group_type,
+                            "$group_key": group.group_key,
+                            "$group_set": {request.data["key"]: request.data["value"]},
+                        },
+                        "timestamp": timezone.now().isoformat(),
                     },
-                    "distinct_id": str(self.team.uuid),
-                    "timestamp": timezone.now().isoformat(),
-                },
-            )
+                    False,  # don't process person profile
+                )
+                resp.raise_for_status()
+            except HTTPError as e:
+                return response.Response(
+                    {
+                        "code": "Failed to submit group property update event.",
+                        "detail": "capture_http_error",
+                        "type": "capture_http_error",
+                    },
+                    status=e.response.status_code,
+                )
+            except Exception:
+                return response.Response(
+                    {
+                        "code": "Failed to submit group property update event.",
+                        "detail": "capture_error",
+                        "type": "capture_error",
+                    },
+                    status=400,
+                )
+
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -294,7 +315,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         ]
     )
     @action(methods=["POST"], detail=False, required_scopes=["group:write"])
-    def delete_property(self, request: request.Request, **kw) -> response.Response:
+    def delete_property(self, request: request.Request, **_kw) -> response.Response:
         try:
             group = self.get_object()
             for key in ["$unset"]:
@@ -326,24 +347,46 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 created_at=group.created_at,
                 timestamp=timezone.now(),
             )
-            capture_internal(
-                distinct_id=str(self.team.uuid),
-                ip=None,
-                site_url=None,
-                token=self.team.api_token,
-                now=timezone.now(),
-                sent_at=None,
-                event={
-                    "event": "$delete_group_property",
-                    "properties": {
-                        "$group_type": group_type_mapping.group_type,
-                        "$group_key": group.group_key,
-                        "$group_unset": [request.data["$unset"]],
+
+            # another internal event submission where we best-effort and don't handle failures...
+            team_uuid_as_distinct_id = str(self.team.uuid)
+            try:
+                resp = new_capture_internal(
+                    self.team.api_token,
+                    team_uuid_as_distinct_id,
+                    {
+                        "event": "$delete_group_property",
+                        "properties": {
+                            "$group_type": group_type_mapping.group_type,
+                            "$group_key": group.group_key,
+                            "$group_unset": [request.data["$unset"]],
+                        },
+                        "timestamp": timezone.now().isoformat(),
                     },
-                    "distinct_id": str(self.team.uuid),
-                    "timestamp": timezone.now().isoformat(),
-                },
-            )
+                    False,  # don't process person profile
+                )
+                resp.raise_for_status()
+            except HTTPError as e:
+                return response.Response(
+                    {
+                        "attr": key,
+                        "code": "Failed to submit group property deletion event.",
+                        "detail": "capture_http_error",
+                        "type": "capture_http_error",
+                    },
+                    status=e.response.status_code,
+                )
+            except Exception:
+                return response.Response(
+                    {
+                        "attr": key,
+                        "code": "Failed to submit group property deletion event.",
+                        "detail": "capture_error",
+                        "type": "capture_error",
+                    },
+                    status=400,
+                )
+
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
