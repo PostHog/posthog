@@ -151,7 +151,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     })
                 }
                 // Project
-                if (sceneConfig.projectBased && !featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
+                if (sceneConfig.projectBased) {
                     if (!currentProject || !currentTeam) {
                         return breadcrumbs
                     }

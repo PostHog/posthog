@@ -106,7 +106,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
             <div
                 className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
-                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] ': scenePanelActive,
+                    // Ensure the grid only exists when the panel is active and not overlayed
+                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] ': scenePanelActive && !scenePanelIsOverlay,
                 })}
             >
                 {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}

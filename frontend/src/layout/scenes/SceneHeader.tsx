@@ -16,6 +16,8 @@ import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectT
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
+import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 
 export function SceneHeader({ className }: { className?: string }): JSX.Element | null {
     const { mobileLayout } = useValues(navigationLogic)
@@ -31,7 +33,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
         <>
             <div
                 className={cn(
-                    'flex items-center gap-2 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
+                    'flex items-center gap-1 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
                     className,
                     {
                         'pr-2': scenePanelActive,
@@ -46,9 +48,14 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         className="-ml-2"
                     />
                 )}
-                <div className="grid grid-cols-[1fr_auto] gap-2 justify-between w-full items-center">
+                <div className="flex gap-2 justify-between w-full items-center overflow-x-hidden py-1">
                     {breadcrumbs.length > 0 && (
-                        <div className="flex gap-0 flex-1 items-center">
+                        <ScrollableShadows
+                            direction="horizontal"
+                            styledScrollbars
+                            className="h-[var(--scene-layout-header-height)] pr-2"
+                            innerClassName="flex gap-0 flex-1 items-center overflow-x-auto show-scrollbar-on-hover h-full"
+                        >
                             {breadcrumbs.map((breadcrumb, index) => (
                                 <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
                                     <Breadcrumb breadcrumb={breadcrumb} here={index === breadcrumbs.length - 1} />
@@ -59,9 +66,9 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                                     )}
                                 </React.Fragment>
                             ))}
-                        </div>
+                        </ScrollableShadows>
                     )}
-                    <div className="flex gap-2 items-center">
+                    <div className="flex gap-2 items-center shrink-0">
                         <div className="flex gap-2 items-center justify-end" ref={setActionsContainer} />
 
                         <div className="flex gap-1 items-center">
@@ -104,12 +111,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         nameElement = breadcrumb.symbol
     } else {
         nameElement = (
-            <span
-                className={cn('flex items-center gap-1.5 inline-block', {
-                    truncate: here,
-                    'whitespace-nowrap': !here,
-                })}
-            >
+            <span className={cn('flex items-center gap-1.5 inline-block whitespace-nowrap')}>
                 {breadcrumbName === '' ? <em>Unnamed</em> : breadcrumbName}
                 {'tag' in breadcrumb && breadcrumb.tag && <LemonTag size="small">{breadcrumb.tag}</LemonTag>}
             </span>
@@ -141,6 +143,17 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             {breadcrumb.popover && !breadcrumb.symbol && <IconChevronDown />}
         </Component>
     )
+
+    if (breadcrumb.isPopoverProject) {
+        return (
+            <ProjectDropdownMenu
+                buttonProps={{
+                    size: 'xxs',
+                    className: '-mr-1 text-primary font-normal p-0 hover:text-primary gap-1 min-w-[40px]',
+                }}
+            />
+        )
+    }
 
     return <ErrorBoundary>{breadcrumbContent}</ErrorBoundary>
 }
