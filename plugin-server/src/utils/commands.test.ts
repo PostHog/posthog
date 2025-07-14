@@ -28,7 +28,6 @@ describe('Commands API', () => {
 
     afterEach(async () => {
         await closeHub(hub)
-        await service.stop()
     })
 
     afterAll(() => {
@@ -47,19 +46,18 @@ describe('Commands API', () => {
 
     describe('command triggers', () => {
         beforeEach(() => {
-            for (const command of Object.keys(service.messageMap)) {
-                jest.spyOn(service.messageMap, command)
-            }
+            jest.spyOn(service as any, 'reloadPlugins')
+            jest.spyOn(service as any, 'populatePluginCapabilities')
         })
 
         it.each([
-            ['reload-plugins', {}],
-            ['populate-plugin-capabilities', { pluginId: '123' }],
-        ])('triggers the appropriate pubsub message', async (command, message) => {
+            ['reload-plugins', 'reloadPlugins', {}],
+            ['populate-plugin-capabilities', 'populatePluginCapabilities', { pluginId: '123' }],
+        ])('triggers the appropriate pubsub message', async (command, method, message) => {
             await supertest(app).post(`/api/commands`).send({ command, message })
             // Slight delay as it is received via the pubsub
             await waitForExpect(() => {
-                expect(service.messageMap[command]).toHaveBeenCalledWith(JSON.stringify(message))
+                expect((service as any)[method]).toHaveBeenCalledWith(message)
             }, 100)
         })
     })

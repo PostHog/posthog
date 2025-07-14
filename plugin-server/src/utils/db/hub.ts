@@ -193,6 +193,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
         await hub.appMetrics?.flush()
     }
     logger.info('💤', 'Closing kafka, redis, postgres...')
+    await hub.pubSub.stop()
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
     logger.info('💤', 'Closing cookieless manager...')

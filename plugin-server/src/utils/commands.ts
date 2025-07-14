@@ -18,26 +18,31 @@ export class ServerCommands {
     public get service(): PluginServerService {
         return {
             id: 'server-commands',
-            onShutdown: async () => await this.stop(),
+            onShutdown: async () => {},
             healthcheck: () => true,
         }
     }
 
-    async start(): Promise<void> {
-        await this.hub.pubSub.on('reload-plugins', async () => {
-            logger.info('⚡', '[PubSub] Reloading plugins!')
-            await reloadPlugins(this.hub)
-        })
-
-        await this.hub.pubSub.on<{ pluginId: string }>('populate-plugin-capabilities', async ({ pluginId }) => {
-            logger.info('⚡', '[PubSub] Populating plugin capabilities!', { pluginId })
-            if (this.hub?.capabilities.appManagementSingleton) {
-                await populatePluginCapabilities(this.hub, Number(pluginId))
-            }
-        })
+    // oxlint-disable-next-line no-unused-vars
+    private reloadPlugins = async (_message: any): Promise<void> => {
+        logger.info('⚡', '[PubSub] Reloading plugins!')
+        await reloadPlugins(this.hub)
     }
 
-    async stop(): Promise<void> {}
+    private populatePluginCapabilities = async ({ pluginId }: { pluginId: string }): Promise<void> => {
+        logger.info('⚡', '[PubSub] Populating plugin capabilities!', { pluginId })
+        if (this.hub?.capabilities.appManagementSingleton) {
+            await populatePluginCapabilities(this.hub, Number(pluginId))
+        }
+    }
+
+    async start(): Promise<void> {
+        await this.hub.pubSub.on('reload-plugins', async (message) => await this.reloadPlugins(message))
+        await this.hub.pubSub.on<{ pluginId: string }>(
+            'populate-plugin-capabilities',
+            async (message) => await this.populatePluginCapabilities(message)
+        )
+    }
 
     public router(): express.Router {
         const router = express.Router()
