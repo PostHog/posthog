@@ -121,7 +121,7 @@ async function main() {
         }
 
         const inputs = convertInputs(configuration.inputs)
-        const mappingInputs = convertInputs(configuration.mappings[0].inputs)
+        const mappingInputs = convertInputs(mapping.inputs ?? {})
 
         const result = await tester.invokeMapping(mapping.name, globals, inputs, mappingInputs)
 
