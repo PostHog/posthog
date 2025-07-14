@@ -1,24 +1,19 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.types import OpenApiTypes
 
 
 PAGINATION_DEFAULT_LIMIT = 100
 PAGINATION_MAX_LIMIT = 1000
 
 
-class WebAnalyticsRequestOptionsSerializer(serializers.Serializer):
-    filter_test_accounts = serializers.BooleanField(default=True, help_text="Filter out test accounts")
-    apply_path_cleaning = serializers.BooleanField(default=True, help_text="Apply URL path cleaning")
-
-
 class WebAnalyticsRequestSerializer(serializers.Serializer):
     date_from = serializers.DateField(help_text="Start date for the query")
     date_to = serializers.DateField(help_text="End date for the query")
-
     domain = serializers.CharField(help_text="Domain to filter by")
 
-    # TODO: Add support for filters
-
-    options = WebAnalyticsRequestOptionsSerializer(required=False, default=WebAnalyticsRequestOptionsSerializer())
+    filter_test_accounts = serializers.BooleanField(default=True, help_text="Filter out test accounts", required=False)
+    do_path_cleaning = serializers.BooleanField(default=True, help_text="Apply URL path cleaning", required=False)
 
 
 class WebAnalyticsOverviewRequestSerializer(WebAnalyticsRequestSerializer):
@@ -30,15 +25,12 @@ class WebAnalyticsTrendRequestSerializer(WebAnalyticsRequestSerializer):
         choices=["visitors", "views", "sessions"], help_text="The metric to show over time"
     )
     interval = serializers.ChoiceField(
-        choices=["minute", "hour", "day", "week", "month"],
-        default="day",
-        help_text="Time interval for data aggregation",
+        choices=["day", "week", "month"], default="day", help_text="Time interval for data aggregation", required=False
     )
-
     limit = serializers.IntegerField(
-        default=100, min_value=1, max_value=1000, help_text="Number of data points to return"
+        default=100, min_value=1, max_value=1000, help_text="Number of data points to return", required=False
     )
-    offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of data points to skip")
+    offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of data points to skip", required=False)
 
 
 class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
@@ -73,17 +65,19 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
         ],
         help_text="Property to break down by",
     )
-    metrics = serializers.MultipleChoiceField(
-        choices=[
-            "visitors",
-            "views",
-            "clicks",
-            "bounce_rate",
-            "session_duration",
-        ],
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_metrics_field(self):
+        return serializers.CharField(
+            default="visitors,views,bounce_rate",
+            help_text="Comma-separated list of metrics to include (available: visitors, views, clicks, bounce_rate, session_duration)",
+            required=False,
+        )
+
+    metrics = serializers.CharField(
+        default="visitors,views,bounce_rate",
+        help_text="Comma-separated list of metrics to include (available: visitors, views, clicks, bounce_rate, session_duration)",
         required=False,
-        help_text="Metrics to include for each breakdown value",
-        default={"visitors", "views", "bounce_rate"},
     )
 
     limit = serializers.IntegerField(
@@ -91,8 +85,33 @@ class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
         min_value=1,
         max_value=PAGINATION_MAX_LIMIT,
         help_text="Number of results to return",
+        required=False,
     )
-    offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of results to skip")
+
+    offset = serializers.IntegerField(default=0, min_value=0, help_text="Number of results to skip", required=False)
+
+    def validate_metrics(self, value):
+        """Convert comma-separated string to list and validate choices"""
+        valid_choices = [
+            "visitors",
+            "views",
+            "clicks",
+            "bounce_rate",
+            "session_duration",
+        ]
+
+        if isinstance(value, str):
+            metrics = [m.strip() for m in value.split(",")]
+        else:
+            metrics = value
+
+        for metric in metrics:
+            if metric not in valid_choices:
+                raise serializers.ValidationError(
+                    f"Invalid metric: {metric}. Valid choices: {', '.join(valid_choices)}"
+                )
+
+        return metrics
 
 
 # Response serializers
@@ -105,7 +124,7 @@ class WebAnalyticsOverviewResponseSerializer(serializers.Serializer):
 
 
 class WebAnalyticsTrendPointSerializer(serializers.Serializer):
-    datetime = serializers.DateTimeField(help_text="Datetime for this data point")
+    time = serializers.DateTimeField(help_text="Datetime for this data point")
     value = serializers.IntegerField(help_text="The metric value for this date")
 
 

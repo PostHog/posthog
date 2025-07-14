@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -28,6 +29,8 @@ from posthog.schema import (
 )
 from .data import WebAnalyticsDataFactory
 
+TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS = [2]
+
 
 class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "query"
@@ -40,7 +43,7 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         self.factory = WebAnalyticsDataFactory()
 
     def _can_use_external_web_analytics(self) -> None:
-        available = self.team_id in [1, 2]
+        available = True if settings.DEBUG else self.team_id in TEAM_IDS_WITH_EXTERNAL_WEB_ANALYTICS
 
         if not available:
             raise PermissionDenied("External web analytics is not enabled for this team.")
@@ -69,46 +72,48 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
         return Response(result.model_dump())
 
     @extend_schema(
-        request=WebAnalyticsOverviewRequestSerializer,
+        parameters=[WebAnalyticsOverviewRequestSerializer],
         responses={200: WebAnalyticsOverviewResponseSerializer},
         description="Get simple overview metrics: visitors, views, sessions, bounce rate, session duration",
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["GET"], detail=False)
     def overview(self, request: Request, **kwargs) -> Response:
         self._can_use_external_web_analytics()
 
-        serializer = WebAnalyticsOverviewRequestSerializer(data=request.data)
+        serializer = WebAnalyticsOverviewRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
         mock_data = self.factory.generate_overview_data(serializer.validated_data)
         return Response(mock_data)
 
     @extend_schema(
-        request=WebAnalyticsTrendRequestSerializer,
+        parameters=[WebAnalyticsTrendRequestSerializer],
         responses={200: WebAnalyticsTrendResponseSerializer},
         description="Get trends for visitors, views, or sessions.",
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["GET"], detail=False)
     def trend(self, request: Request, **kwargs) -> Response:
         self._can_use_external_web_analytics()
 
-        serializer = WebAnalyticsTrendRequestSerializer(data=request.data)
+        serializer = WebAnalyticsTrendRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        mock_data = self.factory.generate_trends_data(serializer.validated_data, self.team_id)
+        mock_data = self.factory.generate_trends_data(serializer.validated_data, request=request, team_id=self.team_id)
         return Response(mock_data)
 
     @extend_schema(
-        request=WebAnalyticsBreakdownRequestSerializer,
+        parameters=[WebAnalyticsBreakdownRequestSerializer],
         responses={200: WebAnalyticsBreakdownResponseSerializer},
         description="Get a breakdown of web analytics data by supported properties.",
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["GET"], detail=False)
     def breakdown(self, request: Request, **kwargs) -> Response:
         self._can_use_external_web_analytics()
 
-        serializer = WebAnalyticsBreakdownRequestSerializer(data=request.data)
+        serializer = WebAnalyticsBreakdownRequestSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
 
-        mock_data = self.factory.generate_breakdown_data(serializer.validated_data, self.team_id)
+        mock_data = self.factory.generate_breakdown_data(
+            serializer.validated_data, request=request, team_id=self.team_id
+        )
         return Response(mock_data)

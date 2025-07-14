@@ -2,8 +2,10 @@ from datetime import datetime, timedelta
 import random
 from typing import Any
 
-from posthog.cloud_utils import get_api_host
+from rest_framework.request import Request
+
 from .serializers import (
+    PAGINATION_DEFAULT_LIMIT,
     WebAnalyticsOverviewResponseSerializer,
     WebAnalyticsTrendResponseSerializer,
     WebAnalyticsBreakdownResponseSerializer,
@@ -35,8 +37,22 @@ class WebAnalyticsDataFactory:
             "city": ["San Francisco", "New York", "London", "Toronto", "Berlin"],
         }
 
-    def _get_api_url(self, project_id: int, path: str) -> str:
-        return f"{get_api_host()}/api/projects/{project_id}/external_web_analytics/{path}"
+    def _get_api_url(self, request: Request, team_id: int, endpoint: str, params: dict) -> str:
+        """Build the full API URL for pagination links with all parameters"""
+        base_url = request.build_absolute_uri("/")[:-1]  # Remove trailing slash
+
+        # Filter out None values and convert booleans to lowercase strings
+        clean_params = {}
+        for k, v in params.items():
+            if v is not None:
+                if isinstance(v, bool):
+                    clean_params[k] = str(v).lower()
+                else:
+                    clean_params[k] = str(v)
+
+        query_string = "&".join([f"{k}={v}" for k, v in clean_params.items()])
+
+        return f"{base_url}/api/projects/{team_id}/external_web_analytics/{endpoint}/?{query_string}"
 
     def generate_overview_data(self, request_data: dict[str, Any]) -> dict[str, Any]:
         base_visitors = random.randint(5000, 50000)
@@ -57,7 +73,7 @@ class WebAnalyticsDataFactory:
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
-    def generate_trends_data(self, request_data: dict[str, Any], team_id: int) -> dict[str, Any]:
+    def generate_trends_data(self, request_data: dict[str, Any], request: Request, team_id: int) -> dict[str, Any]:
         date_from = request_data["date_from"]
         date_to = request_data["date_to"]
 
@@ -68,7 +84,7 @@ class WebAnalyticsDataFactory:
 
         interval = request_data.get("interval", "day")
         metric = request_data["metric"]
-        limit = request_data.get("limit", 100)
+        limit = request_data.get("limit", PAGINATION_DEFAULT_LIMIT)
         offset = request_data.get("offset", 0)
 
         # Generate all data points first
@@ -81,7 +97,7 @@ class WebAnalyticsDataFactory:
             base_value = self._get_metric_value(metric, weekday_factor)
 
             point_data = {
-                "datetime": current_date.isoformat() + "T00:00:00Z",
+                "time": current_date.isoformat() + "T00:00:00Z",
                 "value": base_value,
             }
 
@@ -100,14 +116,31 @@ class WebAnalyticsDataFactory:
         has_next = offset + limit < total_count
         has_previous = offset > 0
 
+        base_params = {
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "interval": interval,
+            "metric": metric,
+            "limit": limit,
+            "offset": offset,
+        }
+
+        if has_next:
+            next_params = {**base_params, "offset": offset + limit}
+            next_url = self._get_api_url(request, team_id, "trend", next_params)
+
+        if has_previous:
+            prev_params = {**base_params, "offset": max(0, offset - limit)}
+            previous_url = self._get_api_url(request, team_id, "trend", prev_params)
+        else:
+            previous_url = None
+
         data = {
             "metric": metric,
             "interval": interval,
             "count": total_count,
-            "next": self._get_api_url(team_id, f"trend/?offset={offset + limit}&limit={limit}") if has_next else None,
-            "previous": self._get_api_url(team_id, f"trend/?offset={max(0, offset - limit)}&limit={limit}")
-            if has_previous
-            else None,
+            "next": next_url,
+            "previous": previous_url,
             "results": paginated_results,
         }
 
@@ -115,10 +148,10 @@ class WebAnalyticsDataFactory:
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
 
-    def generate_breakdown_data(self, request_data: dict[str, Any], team_id: int) -> dict[str, Any]:
+    def generate_breakdown_data(self, request_data: dict[str, Any], request: Request, team_id: int) -> dict[str, Any]:
         breakdown_by = request_data["breakdown_by"]
         metrics = request_data.get("metrics") or ["visitors", "views", "bounce_rate"]
-        limit = request_data.get("limit", 25)
+        limit = request_data.get("limit", PAGINATION_DEFAULT_LIMIT)
         offset = request_data.get("offset", 0)
 
         # Get breakdown values for the specified property
@@ -149,15 +182,30 @@ class WebAnalyticsDataFactory:
         has_next = offset + limit < total_count
         has_previous = offset > 0
 
+        base_params = {
+            "breakdown_by": breakdown_by,
+            "metrics": metrics,
+            "limit": limit,
+            "offset": offset,
+        }
+
+        if has_next:
+            next_params = {**base_params, "offset": offset + limit}
+            next_url = self._get_api_url(request, team_id, "breakdown", next_params)
+        else:
+            next_url = None
+
+        if has_previous:
+            prev_params = {**base_params, "offset": max(0, offset - limit)}
+            previous_url = self._get_api_url(request, team_id, "breakdown", prev_params)
+        else:
+            previous_url = None
+
         data = {
             "breakdown_by": breakdown_by,
             "count": total_count,
-            "next": self._get_api_url(team_id, f"breakdown/?offset={offset + limit}&limit={limit}")
-            if has_next
-            else None,
-            "previous": self._get_api_url(team_id, f"breakdown/?offset={max(0, offset - limit)}&limit={limit}")
-            if has_previous
-            else None,
+            "next": next_url,
+            "previous": previous_url,
             "results": paginated_results,
         }
 
@@ -171,7 +219,9 @@ class WebAnalyticsDataFactory:
         return int(value)
 
     def _increment_date(self, date, interval: str):
-        if interval == "hour":
+        if interval == "minute":
+            return date + timedelta(minutes=1)
+        elif interval == "hour":
             return date + timedelta(hours=1)
         elif interval == "day":
             return date + timedelta(days=1)
