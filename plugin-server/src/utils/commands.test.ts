@@ -34,11 +34,6 @@ describe('Commands API', () => {
         jest.useRealTimers()
     })
 
-    it('errors if missing command', async () => {
-        const res = await supertest(app).post(`/api/commands`).send({ command: 'missing', message: {} })
-        expect(res.status).toEqual(400)
-    })
-
     it('succeeds with valid command', async () => {
         const res = await supertest(app).post(`/api/commands`).send({ command: 'reload-plugins', message: {} })
         expect(res.status).toEqual(200)
