@@ -84,15 +84,22 @@ export const groupsListLogic = kea<groupsListLogicType>([
     })),
     actionToUrl(({ values, props }) => ({
         setQuery: () => {
-            if (router.values.location.pathname.includes(`/groups/${props.groupTypeIndex}`)) {
-                const searchParams: Record<string, string> = {}
+            const searchParams: Record<string, string> = {}
 
-                if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.properties?.length) {
-                    searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.properties)
-                }
-
-                return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+            if (values.query.source.kind === NodeKind.GroupsQuery && values.query.source.properties?.length) {
+                searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.query.source.properties)
             }
+
+            return [router.values.location.pathname, searchParams, undefined, { replace: true }]
+        },
+        setGroupFilters: () => {
+            const searchParams: Record<string, string> = {}
+
+            if (values.groupFilters?.length) {
+                searchParams[`properties_${props.groupTypeIndex}`] = JSON.stringify(values.groupFilters)
+            }
+
+            return [router.values.location.pathname, searchParams, undefined, { replace: true }]
         },
     })),
     urlToAction(({ actions, values, props }) => ({
