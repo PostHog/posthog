@@ -29,18 +29,18 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         flag_id = request.GET.get("key")
 
         if not flag_id:
-            return response.Response({"error": "Missing flag key parameter"}, status=400)
+            return response.Response({"error": "Missing flag ID parameter"}, status=400)
 
         try:
             # Convert flag_id to integer if it's a string
             flag_id_int = int(flag_id)
         except (ValueError, TypeError):
-            return response.Response({"error": "Invalid flag key - must be a valid integer"}, status=400)
+            return response.Response({"error": "Invalid flag ID - must be a valid integer"}, status=400)
 
         try:
-            flag = FeatureFlag.objects.get(team=self.team, id=flag_id_int)
+            flag = FeatureFlag.objects.get(team=self.team, id=flag_id_int, deleted=False)
         except FeatureFlag.DoesNotExist:
-            return response.Response([], status=200)
+            return response.Response({"error": "Feature flag not found"}, status=404)
 
         # Always include true and false for any flag
         values = [{"name": True}, {"name": False}]

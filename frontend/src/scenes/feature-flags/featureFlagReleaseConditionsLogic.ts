@@ -371,7 +371,19 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setFlagKeysLoading(true)
 
             try {
-                const response = await api.featureFlags.bulkKeys(uncachedIds.map((id: string) => parseInt(id)))
+                const validIds = uncachedIds
+                    .map((id: string) => {
+                        const parsed = parseInt(id, 10)
+                        return !isNaN(parsed) ? parsed : null
+                    })
+                    .filter((id): id is number => id !== null)
+
+                if (validIds.length === 0) {
+                    actions.setFlagKeysLoading(false)
+                    return
+                }
+
+                const response = await api.featureFlags.bulkKeys(validIds)
                 const keys = response.keys
 
                 // Create a mapping with all returned keys
