@@ -114,6 +114,8 @@ export function ExternalDataSourceConfiguration({
                                             type="secondary"
                                             size="small"
                                             onClick={() =>
+                                                // This is all very hardcoded, but it's the exact kind of join we want to add
+                                                // and that we're expecting in the backend.
                                                 toggleNewJoinModal({
                                                     source_table_name: joinName,
                                                     source_table_key: 'id',

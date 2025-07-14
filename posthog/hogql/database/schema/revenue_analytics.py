@@ -18,8 +18,6 @@ def join_with_persons_revenue_analytics_table(
     context: HogQLContext,
     node: ast.SelectQuery,
 ):
-    from posthog.hogql import ast
-
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from revenue_analytics")
 
