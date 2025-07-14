@@ -54,6 +54,14 @@ export const storiesMap: storyGroup[] = [
         title: 'Changelog',
         stories: [
             {
+                id: 'changelog-55-cdp-destinations',
+                title: 'Changelog',
+                description: '55 new CDP destinations',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_cdp_destinations_fffb239171.mp4',
+                type: StoryType.Video,
+            },
+            {
                 id: 'changelog-hog-templating',
                 title: 'Changelog',
                 description: 'In-app Hog templating',
@@ -234,6 +242,33 @@ export const storiesMap: storyGroup[] = [
                 seeMoreOptions: {
                     backgroundColor: 'black',
                     text: 'Say hi',
+                },
+            },
+        ],
+    },
+    {
+        id: 'feature-flags',
+        title: 'Feature flags',
+        stories: [
+            {
+                id: 'feature-flags-overview',
+                title: 'Feature flags',
+                description: 'Roll out changes',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/feature_flags_overview_a1ee3b6dcc.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'feature-flags-cta',
+                title: 'Feature flags',
+                description: 'Try feature flags',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_image_3c1f74f6ed.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://posthog.com/docs/feature-flags',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Learn more',
                 },
             },
         ],

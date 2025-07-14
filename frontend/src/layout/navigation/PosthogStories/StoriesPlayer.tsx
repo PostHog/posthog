@@ -308,14 +308,14 @@ export const StoriesPlayer = ({
                         }}
                         className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 cursor-pointer ${
                             currentStory.seeMoreOptions?.textColor === 'black'
-                                ? 'text-black/70 hover:text-black'
-                                : 'text-white/70 hover:text-white'
+                                ? 'text-black/80 hover:text-black'
+                                : 'text-white/80 hover:text-white'
                         } ${
                             currentStory.seeMoreOptions?.backgroundColor === 'black'
-                                ? 'bg-black/20 hover:bg-black/30'
+                                ? 'bg-black/35 hover:bg-black/45'
                                 : currentStory.seeMoreOptions?.backgroundColor === 'white'
-                                ? 'bg-white/20 hover:bg-white/30'
-                                : 'hover:bg-white/20'
+                                ? 'bg-white/35 hover:bg-white/45'
+                                : 'bg-white/25 hover:bg-white/30'
                         }`}
                         role="button"
                         aria-label="See more about this story - swipe up for more"
