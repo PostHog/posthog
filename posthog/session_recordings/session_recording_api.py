@@ -679,7 +679,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("Cannot process more than 20 recordings at once")
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
-        query = RecordingsQuery(session_ids=session_recording_ids)
+        # Create minimal query with only session_ids
+        query_data = {
+            "session_ids": session_recording_ids,
+            "date_from": None,
+            "date_to": None,
+            "kind": "RecordingsQuery",
+        }
+        query = RecordingsQuery.model_validate(query_data)
         recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
 
         # Filter out recordings that are already deleted
@@ -700,7 +707,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if session_recordings_to_create:
             created_records = SessionRecording.objects.bulk_create(session_recordings_to_create, ignore_conflicts=True)
 
-        # Then, bulk update all relevant records to set deleted=True
+        # Then, bulk update existing records that aren't already deleted
         session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
         updated_count = 0
         if session_ids_to_delete:
