@@ -29,7 +29,6 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     assign_events_to_patterns_activity,
     extract_session_group_patterns_activity,
 )
-from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
     create_session_batch_events_query,
@@ -236,15 +235,14 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return SessionGroupSummaryInputs(**loaded)
 
     @staticmethod
-    async def _fetch_session_data(inputs: SingleSessionSummaryInputs) -> None | Exception:
+    async def _fetch_session_batch_data(inputs: SessionGroupSummaryInputs) -> None | Exception:
         """
-        Fetch and handle the session data for a single session to avoid one activity failing the whole group.
+        Fetch and handle the session data for all sessions in batch to avoid one activity failing the whole group.
         The data is stored in Redis to avoid hitting Temporal memory limits, so activity returns nothing if successful.
         """
         try:
-            # TODO: Instead of getting session data from DB one by one, we can optimize it by getting multiple sessions in one call
             await temporalio.workflow.execute_activity(
-                fetch_session_data_activity,
+                fetch_session_batch_events_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=10),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -255,44 +253,41 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             return err
 
     async def _fetch_session_group_data(self, inputs: SessionGroupSummaryInputs) -> list[SingleSessionSummaryInputs]:
-        """Fetch DB data for each session and return successful inputs."""
+        """Fetch DB data for all sessions in batch and return successful inputs."""
         if not inputs.session_ids:
             raise ApplicationError(f"No sessions to fetch data for group summary: {inputs}")
-        # Fetch data for each session and store in Redis
-        tasks = {}
-        async with asyncio.TaskGroup() as tg:
-            for session_id in inputs.session_ids:
-                single_session_input = SingleSessionSummaryInputs(
-                    session_id=session_id,
-                    user_id=inputs.user_id,
-                    team_id=inputs.team_id,
-                    redis_key_base=inputs.redis_key_base,
-                    extra_summary_context=inputs.extra_summary_context,
-                    local_reads_prod=inputs.local_reads_prod,
-                )
-                tasks[single_session_input.session_id] = (
-                    tg.create_task(self._fetch_session_data(single_session_input)),
-                    single_session_input,
-                )
-        session_inputs: list[SingleSessionSummaryInputs] = []
-        # Check fetch results
-        for session_id, (task, single_session_input) in tasks.items():
-            res = task.result()
-            if isinstance(res, Exception):
-                temporalio.workflow.logger.warning(
-                    f"Session data fetch failed for group summary for session {session_id} "
-                    f"in team {inputs.team_id} for user {inputs.user_id}: {res}"
-                )
-            else:
-                # Store only successful fetches
-                session_inputs.append(single_session_input)
-        # Fail the workflow if too many sessions failed to fetch
-        if len(session_inputs) < len(inputs.session_ids) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
-            exception_message = (
-                f"Too many sessions failed to fetch data from DB, when summarizing {len(inputs.session_ids)} "
+        # Fetch data for all sessions in a single batch
+        fetch_result = await self._fetch_session_batch_data(inputs)
+        if isinstance(fetch_result, Exception):
+            temporalio.workflow.logger.error(
+                f"Session batch data fetch failed for group summary for sessions {inputs.session_ids} "
+                f"in team {inputs.team_id} for user {inputs.user_id}: {fetch_result}"
+            )
+            raise ApplicationError(
+                f"Failed to fetch batch data from DB, when summarizing {len(inputs.session_ids)} "
                 f"sessions ({inputs.session_ids}) for user {inputs.user_id} in team {inputs.team_id}"
             )
-            temporalio.workflow.logger.error(exception_message)
+        # Create SingleSessionSummaryInputs for each session
+        session_inputs: list[SingleSessionSummaryInputs] = []
+        for session_id in inputs.session_ids:
+            single_session_input = SingleSessionSummaryInputs(
+                session_id=session_id,
+                user_id=inputs.user_id,
+                team_id=inputs.team_id,
+                redis_key_base=inputs.redis_key_base,
+                extra_summary_context=inputs.extra_summary_context,
+                local_reads_prod=inputs.local_reads_prod,
+            )
+            session_inputs.append(single_session_input)
+        # Fail the workflow if too many sessions failed to fetch
+        if len(session_inputs) < len(inputs.session_ids) * FAILED_SESSION_SUMMARIES_MIN_RATIO:
+            extracted_session_ids = {s.session_id for s in session_inputs}
+            exception_message = (
+                f"Too many sessions failed to fetch data, when summarizing {len(inputs.session_ids)} sessions "
+                f"({inputs.session_ids - extracted_session_ids}) "
+                f"for user {inputs.user_id} in team {inputs.team_id}"
+            )
+            temporalio.workflow.logger.exception(exception_message)
             raise ApplicationError(exception_message)
         return session_inputs
 
