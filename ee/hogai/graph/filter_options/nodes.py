@@ -45,7 +45,6 @@ from .prompts import (
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
 )
 from posthog.schema import AssistantToolCallMessage, AssistantMessage
-from uuid import uuid4
 from ee.hogai.llm import MaxChatOpenAI
 
 
@@ -183,7 +182,7 @@ class FilterOptionsNode(AssistantNode):
             raise ValueError("No tool calls found in the output message.")
 
         tool_call = output_message.tool_calls[0]
-        result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
+        result = AgentAction(tool_call["name"], tool_call["args"].get("arguments", {}), tool_call["id"])
 
         intermediate_steps = state.intermediate_steps or []
         return PartialAssistantState(
@@ -204,7 +203,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         tool_progress_messages: list[AssistantMessage] = []
 
         try:
-            input = FilterOptionsTool.model_validate(action.tool_input).root
+            input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
             output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
@@ -249,27 +248,11 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
             # Generate progress message before executing tool
 
             if input.name == "retrieve_entity_property_values":
-                entity = getattr(input.arguments, "entity", "unknown")
-                property_name = getattr(input.arguments, "property_name", "unknown")
-                tool_progress_messages.append(
-                    AssistantMessage(
-                        content=f"🔍 Fetching values for {entity} property '{property_name}'...", id=str(uuid4())
-                    )
-                )
                 output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
             elif input.name == "retrieve_entity_properties":
-                entity = getattr(input.arguments, "entity", "unknown")
-                tool_progress_messages.append(
-                    AssistantMessage(content=f"📋 Loading {entity} properties...", id=str(uuid4()))
-                )
                 output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
             else:
                 output = toolkit.handle_incorrect_response(input)
-
-            # Add success message after tool execution
-            if input.name in ["retrieve_entity_property_values", "retrieve_entity_properties"] and output:
-                if "does not exist" not in output and "not found" not in output:
-                    tool_progress_messages.append(AssistantMessage(content=f"✅ Found relevant data", id=str(uuid4())))
 
         return PartialAssistantState(
             messages=tool_progress_messages,

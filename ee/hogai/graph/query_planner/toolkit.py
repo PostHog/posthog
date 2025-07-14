@@ -4,11 +4,7 @@ from collections.abc import Iterable
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
-<<<<<<< HEAD:ee/hogai/graph/query_planner/toolkit.py
 from pydantic import BaseModel, Field, field_validator
-=======
-from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
->>>>>>> b9cee6ede8 (employ inheritance to reuse some of the codebase):ee/hogai/graph/taxonomy_agent/toolkit.py
 
 from ee.hogai.tool import MaxSupportedQueryKind
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES

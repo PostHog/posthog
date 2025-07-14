@@ -34,7 +34,9 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
 
     def test_run_successful_execution(self):
         """Test successful run execution with proper tool call creation."""
-        tool_calls = [{"name": "retrieve_entity_properties", "args": {"entity": "person"}, "id": "call_123"}]
+        tool_calls = [
+            {"name": "retrieve_entity_properties", "args": {"arguments": {"entity": "person"}}, "id": "call_123"}
+        ]
 
         # Create a message with the expected tool calls
         message = LangchainAIMessage(content="", tool_calls=tool_calls)
@@ -59,7 +61,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             # Verify AgentAction creation
             action, output = result.intermediate_steps[0]
             self.assertEqual(action.tool, tool_calls[0]["name"])
-            self.assertEqual(action.tool_input, tool_calls[0]["args"])
+            self.assertEqual(action.tool_input, tool_calls[0]["args"]["arguments"])
             self.assertEqual(action.log, tool_calls[0]["id"])
             self.assertIsNone(output)
 
@@ -124,7 +126,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
 
     def test_run_preserves_existing_intermediate_steps(self):
         """Test that run preserves existing intermediate steps and adds new ones."""
-        tool_calls = [{"name": "new_tool", "args": {"param": "value"}, "id": "new_id"}]
+        tool_calls = [{"name": "new_tool", "args": {"arguments": {"param": "value"}}, "id": "new_id"}]
 
         # Create a message with the expected tool calls
         message = LangchainAIMessage(content="", tool_calls=tool_calls)
@@ -156,7 +158,7 @@ class TestFilterOptionsNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(new_action.log, "new_id")
 
     def test_injected_prompts_through_public_run_interface(self):
-        tool_calls = [{"name": "test_tool", "args": {}, "id": "test_id"}]
+        tool_calls = [{"name": "test_tool", "args": {"arguments": {}}, "id": "test_id"}]
 
         # Create a message with the expected tool calls
         message = LangchainAIMessage(content="", tool_calls=tool_calls)
@@ -263,7 +265,7 @@ class TestFilterOptionsToolsNode(ClickhouseTestMixin, BaseTest):
         mock_toolkit_class.return_value = mock_toolkit
 
         node = FilterOptionsToolsNode(self.team, self.user)
-        action = AgentAction(tool=tool_name, tool_input=tool_args, log="test")
+        action = AgentAction(tool=tool_name, tool_input=tool_args["arguments"], log="test")
         state = AssistantState(messages=[], intermediate_steps=[(action, None)])
 
         if tool_name == "final_answer":

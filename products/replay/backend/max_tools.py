@@ -1,3 +1,4 @@
+import logging
 from pydantic import BaseModel, Field
 
 from ee.hogai.tool import MaxTool
@@ -10,6 +11,9 @@ from .prompts import (
     SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
 )
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class SearchSessionRecordingsArgs(BaseModel):
