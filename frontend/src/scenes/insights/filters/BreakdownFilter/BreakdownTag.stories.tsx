@@ -20,6 +20,8 @@ export const BreakdownTag: Story = {
             <BreakdownTagComponent breakdownType="cohort" breakdown={1} />
             <div className="mt-1" />
             <BreakdownTagComponent breakdownType="cohort" breakdown="coalesce(null, 1, 2) -- some sql" />
+            <div className="mt-1" />
+            <BreakdownTagComponent breakdownType="event" breakdown="$browser" size="small" />
         </>
     ),
 }
