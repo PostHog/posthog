@@ -233,9 +233,10 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = []
         aggregation_group_type_index = None
-        if validated_data["parameters"]:
-            variants = validated_data["parameters"].get("feature_flag_variants", [])
-            aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
+        if "parameters" in validated_data:
+            if validated_data["parameters"] is not None:
+                variants = validated_data["parameters"].get("feature_flag_variants", [])
+                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
