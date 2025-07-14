@@ -174,8 +174,8 @@ export const getQueryBasedDashboard = (
     }
 }
 
-export const extractValidationError = (error: Error | null | undefined): string | null => {
-    if (error instanceof ApiError) {
+export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         // We use 512 for query timeouts
         // Async queries put the error message on data.error_message, while synchronous ones use detail
         return error?.status === 400 || error?.status === 512
