@@ -15,6 +15,7 @@ class InvoiceListWithAllLines:
         invoices = self.client.invoices.list(params=self.params)
 
         total_line_calls = 0
+        invoice_count = 0
         for invoice in invoices.auto_paging_iter():
             all_lines = []
             if invoice.id:
@@ -33,6 +34,11 @@ class InvoiceListWithAllLines:
             invoice.lines.has_more = False
             # type is string but stripe api error message says None is the right way to set this
             invoice.lines.url = None  # type: ignore
+
+            # status update every 10000 invoices
+            invoice_count += 1
+            if invoice_count % 10000 == 0:
+                self.logger.info(f"Stripe: processed {invoice_count} invoices")
 
             yield invoice
 
