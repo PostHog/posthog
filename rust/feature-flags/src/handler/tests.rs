@@ -161,7 +161,7 @@ async fn test_evaluate_feature_flags() {
             super_groups: None,
             holdout_groups: None,
         },
-        ensure_experience_continuity: false,
+        ensure_experience_continuity: Some(false),
         version: Some(1),
     };
 
@@ -244,7 +244,7 @@ async fn test_evaluate_feature_flags_with_errors() {
             super_groups: None,
             holdout_groups: None,
         },
-        ensure_experience_continuity: false,
+        ensure_experience_continuity: Some(false),
         version: Some(1),
     }];
 
@@ -615,7 +615,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                 super_groups: None,
                 holdout_groups: None,
             },
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
         FeatureFlag {
@@ -637,7 +637,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                 super_groups: None,
                 holdout_groups: None,
             },
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
     ];
@@ -708,7 +708,7 @@ async fn test_evaluate_feature_flags_details() {
                 super_groups: None,
                 holdout_groups: None,
             },
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
         FeatureFlag {
@@ -730,7 +730,7 @@ async fn test_evaluate_feature_flags_details() {
                 super_groups: None,
                 holdout_groups: None,
             },
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
     ];
@@ -868,7 +868,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
             super_groups: None,
             holdout_groups: None,
         },
-        ensure_experience_continuity: false,
+        ensure_experience_continuity: Some(false),
         version: Some(1),
     };
     let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -957,7 +957,7 @@ async fn test_long_distinct_id() {
             super_groups: None,
             holdout_groups: None,
         },
-        ensure_experience_continuity: false,
+        ensure_experience_continuity: Some(false),
         version: Some(1),
     };
 
@@ -1120,7 +1120,7 @@ async fn test_fetch_and_filter_flags() {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters::default(),
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
         FeatureFlag {
@@ -1131,7 +1131,7 @@ async fn test_fetch_and_filter_flags() {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters::default(),
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
         FeatureFlag {
@@ -1142,7 +1142,7 @@ async fn test_fetch_and_filter_flags() {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters::default(),
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
         FeatureFlag {
@@ -1153,7 +1153,7 @@ async fn test_fetch_and_filter_flags() {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters::default(),
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         },
     ];

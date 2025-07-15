@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    RevenueAnalyticsArpuQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
@@ -66,6 +67,7 @@ class RevenueSubqueries:
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
+        RevenueAnalyticsArpuQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
@@ -329,6 +331,57 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
                     left=ast.Field(chain=chain),
                     right=date_to,
                     op=ast.CompareOperationOp.LtEq,
+                ),
+            ],
+        )
+
+    def _dates_expr(self) -> ast.Expr:
+        return ast.Call(
+            name=f"toStartOf{self.query_date_range.interval_name.title()}",
+            args=[
+                ast.Call(
+                    name="toDateTime",
+                    args=[
+                        ast.Call(
+                            name="arrayJoin",
+                            args=[ast.Constant(value=self.query_date_range.all_values())],
+                        )
+                    ],
+                )
+            ],
+        )
+
+    def _period_lteq_expr(self, left: ast.Expr, right: ast.Expr) -> ast.Expr:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                args=[left],
+            ),
+            right=right,
+        )
+
+    def _period_eq_expr(self, left: ast.Expr, right: ast.Expr) -> ast.Expr:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(
+                name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                args=[left],
+            ),
+            right=right,
+        )
+
+    def _period_gteq_expr(self, left: ast.Expr, right: ast.Expr) -> ast.Expr:
+        return ast.Or(
+            exprs=[
+                ast.Call(name="isNull", args=[left]),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Call(
+                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
+                        args=[left],
+                    ),
+                    right=right,
                 ),
             ],
         )
