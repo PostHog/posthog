@@ -10,7 +10,7 @@ EXTERNAL_WEB_ANALYTICS_SUPPORTED_METRICS = ["visitors", "views", "sessions", "bo
 class WebAnalyticsRequestSerializer(serializers.Serializer):
     date_from = serializers.DateField(help_text="Start date for the query")
     date_to = serializers.DateField(help_text="End date for the query")
-    domain = serializers.CharField(help_text="Domain to filter by")
+    domain = serializers.CharField(help_text="Domain to filter by", required=False, allow_null=True)
 
     filter_test_accounts = serializers.BooleanField(default=True, help_text="Filter out test accounts", required=False)
     do_path_cleaning = serializers.BooleanField(default=True, help_text="Apply URL path cleaning", required=False)
