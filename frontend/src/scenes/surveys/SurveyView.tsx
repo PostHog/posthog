@@ -30,6 +30,8 @@ import {
     SurveyType,
 } from '~/types'
 
+import { organizationLogic } from 'scenes/organizationLogic'
+import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveysDisabledBanner } from './SurveySettings'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
@@ -37,6 +39,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, duplicateSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+
+    const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
     const { showSurveysDisabledBanner } = useValues(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
@@ -72,13 +77,18 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 >
                                                     Edit
                                                 </LemonButton>
-                                                <LemonButton
-                                                    data-attr="duplicate-survey"
-                                                    fullWidth
-                                                    onClick={duplicateSurvey}
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
+                                                {!hasMultipleProjects ? (
+                                                    <LemonButton
+                                                        data-attr="duplicate-survey"
+                                                        fullWidth
+                                                        onClick={duplicateSurvey}
+                                                    >
+                                                        Duplicate
+                                                    </LemonButton>
+                                                ) : (
+                                                    <DuplicateToProjectTrigger />
+                                                )}
+
                                                 <LemonDivider />
                                             </>
                                             {survey.end_date && !survey.archived && (
@@ -315,6 +325,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             },
                         ]}
                     />
+                    {hasMultipleProjects && <DuplicateToProjectModal />}
                 </>
             )}
         </div>

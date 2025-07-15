@@ -545,7 +545,14 @@ class UserViewSet(
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
         self.request.session["django_two_factor-qr_secret_key"] = b32key
-        return Response({"success": True})
+
+        # Return the secret key so the frontend can generate QR code and show it for manual entry
+        return Response(
+            {
+                "success": True,
+                "secret": b32key,
+            }
+        )
 
     # Deprecated - use two_factor_validate instead
     @action(methods=["POST"], detail=True)
