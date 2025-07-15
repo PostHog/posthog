@@ -14,6 +14,7 @@ export interface Story {
     url: string
     type: StoryType
     duration?: number // Duration in milliseconds
+    aspectRatio?: '4:3' | '16:9' | 'auto'
     header?: {
         heading: string
         subheading: string
@@ -193,11 +194,16 @@ export const StoriesPlayer = ({
         return <div>No story to display</div>
     }
 
+    // Use dimensions calculated by StoriesModal
+    const getContainerStyle = (): React.CSSProperties => {
+        return { width, height }
+    }
+
     return (
         <div
             ref={containerRef}
             className="relative rounded overflow-hidden select-none"
-            style={{ width, height }} // eslint-disable-line react/forbid-dom-props
+            style={getContainerStyle()} // eslint-disable-line react/forbid-dom-props
         >
             {/* header wrapper with gradient */}
             <div className="absolute top-0 left-0 right-0 z-10 pt-3 px-3 pb-4 bg-gradient-to-b from-black/25 to-transparent">

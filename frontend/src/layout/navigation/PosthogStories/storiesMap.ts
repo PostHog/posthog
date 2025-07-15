@@ -34,6 +34,7 @@ export interface story {
     mediaUrl?: string
     type: StoryType
     durationMs?: number
+    aspectRatio?: '4:3' | '16:9' | 'auto'
     seeMoreLink?: string
     seeMoreOverlay?: (closeOverlay: (action?: CloseOverlayAction) => void) => JSX.Element
     seeMoreOptions?: SeeMoreOptions
