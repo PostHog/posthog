@@ -3,7 +3,7 @@ import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'

@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import {
     getDisplayNameFromEntityFilter,
@@ -17,8 +16,15 @@ import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { Breakdown, BreakdownFilter, InsightQueryNode, MultipleBreakdownType, Node } from '~/queries/schema'
 import {
+    Breakdown,
+    BreakdownFilter,
+    InsightQueryNode,
+    MultipleBreakdownType,
+    Node,
+} from '~/queries/schema/schema-general'
+import {
+    isCalendarHeatmapQuery,
     isDataTableNode,
     isEventsQuery,
     isFunnelsQuery,
@@ -31,9 +37,11 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
-function summarizeSinglularBreakdown(
+function summarizeSingularBreakdown(
     breakdown: BreakdownKeyType | undefined,
     breakdownType: BreakdownType | MultipleBreakdownType | null | undefined,
     groupTypeIndex: number | null | undefined,
@@ -49,8 +57,8 @@ function summarizeSinglularBreakdown(
         breakdownType &&
         breakdownType in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
             ? getCoreFilterDefinition(breakdown, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType])
-                  ?.label || breakdown
-            : breakdown
+                  ?.label || extractExpressionComment(breakdown)
+            : extractExpressionComment(breakdown as string)
     return `${noun}'s ${propertyLabel}`
 }
 
@@ -63,7 +71,7 @@ function summarizeMultipleBreakdown(
     if (breakdowns && breakdowns.length > 0) {
         return (breakdowns as Breakdown[])
             .map((breakdown) =>
-                summarizeSinglularBreakdown(breakdown.property, breakdown.type, breakdown.group_type_index, context)
+                summarizeSingularBreakdown(breakdown.property, breakdown.type, breakdown.group_type_index, context)
             )
             .filter((label): label is string => !!label)
             .join(', ')
@@ -92,7 +100,7 @@ function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, cont
 
     return (
         summarizeMultipleBreakdown(filters, context) ||
-        summarizeSinglularBreakdown(breakdown, breakdown_type, breakdown_group_type_index, context)
+        summarizeSingularBreakdown(breakdown, breakdown_type, breakdown_group_type_index, context)
     )
 }
 
@@ -205,6 +213,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         return `${capitalizeFirstLetter(
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+    } else if (isCalendarHeatmapQuery(query)) {
+        return `Calendar Heatmap of ${getDisplayNameFromEntityNode(query.series[0])}`
     }
     return ''
 }

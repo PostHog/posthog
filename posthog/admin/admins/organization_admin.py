@@ -4,16 +4,18 @@ from django.core.management import call_command
 from django.utils.html import format_html
 from django.urls import reverse
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
+from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
+from django.utils import timezone
+from datetime import timedelta
 
 from posthog.models.organization import Organization
 from django.urls import path
 from django.shortcuts import render, redirect
 from django.contrib import messages
 from django import forms
-from django.utils import timezone
 
 
 class UsageReportForm(forms.Form):
@@ -21,8 +23,8 @@ class UsageReportForm(forms.Form):
 
     def clean_report_date(self):
         report_date = self.cleaned_data["report_date"]
-        if report_date > timezone.now().date():
-            raise forms.ValidationError("The date cannot be in the future.")
+        if report_date > (timezone.now().date() + timedelta(days=1)):
+            raise forms.ValidationError("The date cannot be more than one day in the future.")
         return report_date
 
 
@@ -40,8 +42,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage",
         "customer_trust_scores",
         "is_hipaa",
+        "is_platform",
+        "members_can_invite",
     ]
-    inlines = [ProjectInline, TeamInline, OrganizationMemberInline]
+    inlines = [ProjectInline, TeamInline, OrganizationMemberInline, OrganizationInviteInline]
     readonly_fields = [
         "id",
         "created_at",
@@ -72,7 +76,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def first_member(self, organization: Organization):
         user = organization.members.order_by("id").first()
         return (
-            format_html(f'<a href="/admin/posthog/user/{user.pk}/change/">{user.email}</a>')
+            format_html('<a href="{}">{}</a>', reverse("admin:posthog_user_change", args=[user.pk]), user.email)
             if user is not None
             else "None"
         )
@@ -117,3 +121,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         extra_context["show_usage_report_button"] = True
         return super().changelist_view(request, extra_context=extra_context)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)

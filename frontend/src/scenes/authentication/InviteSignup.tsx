@@ -135,7 +135,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
             message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
             footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
         >
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
                     You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
@@ -215,7 +215,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </>
             }
             leftContainerContent={
-                <div className="mb-8 text-muted">
+                <div className="mb-8 text-secondary">
                     <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
                         <span>You've been invited to join</span>
                         <span className="text-4xl font-bold border-b border-dashed pb-2">
@@ -228,7 +228,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             footer={<SupportModalButton name={invite.first_name} email={invite.target_email} />}
         >
             <h2 className="text-center">Create your PostHog account</h2>
-            <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
+            <Form logic={inviteSignupLogic} formKey="signup" className="deprecated-space-y-4" enableFormOnSubmit>
                 <LemonField.Pure label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />
                 </LemonField.Pure>
@@ -306,10 +306,10 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     />
                 )}
             </Form>
-            <div className="mt-4 text-center text-muted">
+            <div className="mt-4 text-center text-secondary">
                 Already have an account? <Link to="/login">Log in</Link>
             </div>
-            <div className="mt-4 text-center text-muted">
+            <div className="mt-4 text-center text-secondary">
                 By clicking continue you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service

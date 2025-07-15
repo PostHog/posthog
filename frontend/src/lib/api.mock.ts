@@ -1,8 +1,13 @@
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    ActivationTaskStatus,
     CohortType,
+    DataColorThemeModel,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -42,6 +47,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
+    secret_api_token: 'phs_default-team-secret-api-token',
+    secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
     app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
@@ -76,6 +83,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_minimum_duration_milliseconds: null,
     session_recording_linked_flag: null,
     session_recording_network_payload_capture_config: { recordHeaders: true, recordBody: true },
+    session_recording_masking_config: {
+        maskAllInputs: true,
+    },
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -84,13 +94,84 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
+    user_access_level: AccessControlLevel.Admin,
     access_control: true,
+    group_types: [
+        {
+            group_type: 'organization',
+            group_type_index: 0,
+            name_singular: null,
+            name_plural: 'organizations',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'instance',
+            group_type_index: 1,
+            name_singular: null,
+            name_plural: 'instances',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'project',
+            group_type_index: 2,
+            name_singular: null,
+            name_plural: 'projects',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+    ],
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
     live_events_token: '123',
     capture_dead_clicks: false,
+    human_friendly_comparison_periods: false,
+    revenue_analytics_config: {
+        events: [
+            {
+                eventName: 'purchase',
+                revenueProperty: 'value',
+                revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                currencyAwareDecimal: false,
+            },
+            {
+                eventName: 'subscription_created',
+                revenueProperty: 'subscription_value',
+                revenueCurrencyProperty: { property: 'currency' },
+                currencyAwareDecimal: true,
+            },
+        ],
+        filter_test_accounts: false,
+        goals: [
+            {
+                due_date: '2020-12-31',
+                name: '2020 Q4',
+                goal: 1_000_000,
+            },
+            {
+                due_date: '2035-12-31', // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+                name: '2035 Q4',
+                goal: 1_500_000,
+            },
+        ],
+    },
+    flags_persistence_default: false,
+    feature_flag_confirmation_enabled: false,
+    feature_flag_confirmation_message: '',
+    has_completed_onboarding_for: {
+        product_analytics: true,
+    },
+    onboarding_tasks: {
+        ingest_first_event: ActivationTaskStatus.COMPLETED,
+        setup_session_recordings: ActivationTaskStatus.COMPLETED,
+    },
+    marketing_analytics_config: {
+        sources_map: {},
+    },
+    base_currency: CurrencyCode.USD,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -98,7 +179,6 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
-    product_description: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -114,10 +194,12 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     teams: [MOCK_DEFAULT_TEAM],
     projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
+    members_can_use_personal_api_keys: true,
     metadata: {},
     available_product_features: [],
     member_count: 2,
     logo_media_id: null,
+    default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -134,7 +216,11 @@ export const MOCK_DEFAULT_USER: UserType = {
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,
     email: MOCK_DEFAULT_BASIC_USER.email,
-    notification_settings: { plugin_disabled: false },
+    notification_settings: {
+        plugin_disabled: false,
+        project_weekly_digest_disabled: {},
+        all_weekly_digest_disabled: false,
+    },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
@@ -147,13 +233,16 @@ export const MOCK_DEFAULT_USER: UserType = {
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
-    organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
-        id,
-        name,
-        slug,
-        membership_level,
-        logo_media_id: null,
-    })),
+    organizations: [MOCK_DEFAULT_ORGANIZATION].map(
+        ({ id, name, slug, membership_level, members_can_use_personal_api_keys }) => ({
+            id,
+            name,
+            slug,
+            membership_level,
+            members_can_use_personal_api_keys,
+            logo_media_id: null,
+        })
+    ),
     events_column_config: {
         active: 'DEFAULT',
     },
@@ -275,3 +364,34 @@ export const MOCK_DEFAULT_PLUGIN_CONFIG: PluginConfigWithPluginInfo = {
     created_at: '2020-12-01T14:00:00.000Z',
     plugin_info: MOCK_DEFAULT_PLUGIN,
 }
+
+export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
+    {
+        id: 1,
+        name: 'Default Theme',
+        colors: [
+            '#1d4aff',
+            '#621da6',
+            '#42827e',
+            '#ce0e74',
+            '#f14f58',
+            '#7c440e',
+            '#529a0a',
+            '#0476fb',
+            '#fe729e',
+            '#35416b',
+            '#41cbc4',
+            '#b64b02',
+            '#e4a604',
+            '#a56eff',
+            '#30d5c8',
+        ],
+        is_global: true,
+    },
+    {
+        id: 2,
+        name: 'Custom Theme',
+        colors: ['#00ffff', '#ff00ff', '#ffff00'],
+        is_global: false,
+    },
+]

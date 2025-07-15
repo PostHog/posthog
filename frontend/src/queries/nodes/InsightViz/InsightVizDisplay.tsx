@@ -2,7 +2,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -24,14 +26,17 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
+import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { InsightCalendarHeatMapContainer } from 'scenes/web-analytics/CalendarHeatMap/InsightCalendarHeatMapContainer'
 
 import { QueryContext } from '~/queries/types'
 import { ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 export function InsightVizDisplay({
     disableHeader,
@@ -55,19 +60,20 @@ export function InsightVizDisplay({
     context?: QueryContext
     embedded: boolean
     inSharedMode?: boolean
-}): JSX.Element {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+}): JSX.Element | null {
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
-    const { isFunnelWithEnoughSteps, validationError } = useValues(insightVizDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
         isPaths,
         hasDetailedResultsTable,
         showLegend,
-        trendsFilter,
+        hasFormula,
         funnelsFilter,
         supportsDisplay,
         samplingFactor,
@@ -83,9 +89,12 @@ export function InsightVizDisplay({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <div className="flex flex-col flex-1 justify-center items-center p-2">
-                    <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
-                </div>
+                <InsightLoadingState
+                    queryId={queryId}
+                    key={queryId}
+                    insightProps={insightProps}
+                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                />
             )
         }
 
@@ -143,6 +152,11 @@ export function InsightVizDisplay({
                         inSharedMode={inSharedMode}
                     />
                 )
+            case InsightType.CALENDAR_HEATMAP:
+                if (featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]) {
+                    return <InsightCalendarHeatMapContainer context={context} />
+                }
+                return null
             case InsightType.FUNNELS:
                 return <Funnel inCardView={embedded} inSharedMode={inSharedMode} showPersonsModal={!inSharedMode} />
             case InsightType.RETENTION:
@@ -155,7 +169,7 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.PATHS:
-                return <Paths />
+                return isUsingPathsV2 ? <PathsV2 /> : <Paths />
             default:
                 return null
         }
@@ -206,7 +220,12 @@ export function InsightVizDisplay({
                     <InsightsTable
                         isLegend
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
-                        canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
+                        canEditSeriesNameInline={!hasFormula && insightMode === ItemMode.Edit}
+                        seriesNameTooltip={
+                            hasFormula && insightMode === ItemMode.Edit
+                                ? 'Formula series names are not editable'
+                                : undefined
+                        }
                         canCheckUncheckSeries={canEditInsight}
                     />
                 </>
@@ -218,13 +237,17 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
+    if (!theme) {
+        return null
+    }
+
     return (
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <div
                 className={clsx(
-                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
-                    !embedded && 'border rounded bg-bg-light'
+                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
+                    !embedded && 'border rounded bg-surface-primary'
                 )}
                 data-attr="insights-graph"
             >
@@ -243,7 +266,7 @@ export function InsightVizDisplay({
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {isPaths && <PathCanvasLabel />}
+                                    {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
                                     {isFunnels && <FunnelCanvasLabel />}
                                 </div>
                             </div>
@@ -265,12 +288,13 @@ export function InsightVizDisplay({
                                     </div>
                                 </>
                             ) : (
-                                renderActiveView()
+                                <>{renderActiveView()}</>
                             )}
                         </div>
                     </>
                 )}
             </div>
+            <ResultCustomizationsModal />
             {renderTable()}
             {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>

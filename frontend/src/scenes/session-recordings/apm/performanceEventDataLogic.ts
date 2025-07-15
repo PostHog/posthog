@@ -4,19 +4,18 @@ import {
     initiatorToAssetTypeMapping,
     itemSizeInfo,
 } from 'scenes/session-recordings/apm/performance-event-utils'
-import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemBase } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
     sessionRecordingDataLogic,
     SessionRecordingDataLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-import { PerformanceEvent, RecordingEventType, SessionRecordingPlayerTab } from '~/types'
+import { PerformanceEvent, RecordingEventType } from '~/types'
 
 import type { performanceEventDataLogicType } from './performanceEventDataLogicType'
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.NETWORK
+    type: 'network'
     data: PerformanceEvent
 }
 
@@ -74,7 +73,7 @@ function matchWebVitalsEvents(
     for (const event of sortPerformanceEvents(performanceEvents)) {
         if (event.entry_type === 'navigation') {
             lastNavigationEvent = event
-            nextTimestamp = navigationTimestamps.find((t) => t > event.timestamp) ?? null
+            nextTimestamp = navigationTimestamps.find((t) => t > (event.timestamp as number)) ?? null
         } else {
             if (!lastNavigationEvent) {
                 continue
@@ -86,7 +85,7 @@ function matchWebVitalsEvents(
                 }
 
                 const webVitalUnixTimestamp = new Date(webVital.timestamp).valueOf()
-                const isAfterLastNavigation = webVitalUnixTimestamp > lastNavigationEvent.timestamp
+                const isAfterLastNavigation = webVitalUnixTimestamp > (lastNavigationEvent.timestamp as number)
                 const isBeforeNextNavigation = webVitalUnixTimestamp < (nextTimestamp ?? Infinity)
                 if (isAfterLastNavigation && isBeforeNextNavigation) {
                     lastNavigationEvent.web_vitals = lastNavigationEvent.web_vitals || new Set()
@@ -105,12 +104,7 @@ export const performanceEventDataLogic = kea<performanceEventDataLogicType>([
     key((props: PerformanceEventDataLogicProps) => `${props.key}-${props.sessionRecordingId}`),
     connect((props: PerformanceEventDataLogicProps) => ({
         actions: [],
-        values: [
-            miniFiltersLogic,
-            ['showOnlyMatching', 'tab', 'miniFiltersByKey', 'searchQuery'],
-            sessionRecordingDataLogic(props),
-            ['sessionPlayerData', 'webVitalsEvents'],
-        ],
+        values: [sessionRecordingDataLogic(props), ['sessionPlayerData', 'webVitalsEvents']],
     })),
     selectors(() => ({
         allPerformanceEvents: [

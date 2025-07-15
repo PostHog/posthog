@@ -2,16 +2,16 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { urls } from 'scenes/urls'
 
-import { SDKInstructionsMap, SDKKey } from '~/types'
+import { SDKInstructionsMap, SDKKey, OnboardingStepKey } from '~/types'
 
 import {
     AndroidInstructions,
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
+    FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
     iOSInstructions,
@@ -20,11 +20,11 @@ import {
     NuxtJSInstructions,
     ReactInstructions,
     RemixInstructions,
+    RNInstructions,
     SvelteInstructions,
     VueInstructions,
     WebflowInstructions,
 } from '.'
-import { RNInstructions } from './react-native'
 
 export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
@@ -43,6 +43,7 @@ export const SessionReplaySDKInstructions: SDKInstructionsMap = {
     [SDKKey.IOS]: iOSInstructions,
     [SDKKey.ANDROID]: AndroidInstructions,
     [SDKKey.REACT_NATIVE]: RNInstructions,
+    [SDKKey.FLUTTER]: FlutterInstructions,
 }
 
 export function AdvertiseMobileReplay({

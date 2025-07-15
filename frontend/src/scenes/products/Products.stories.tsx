@@ -1,23 +1,24 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-Other/Products',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        pageUrl: urls.products(),
     },
     decorators: [
         mswDecorator({
             get: {
+                '/api/billing/': { ...billingJson },
                 '/_preflight': {
                     ...preflightJson,
                     cloud: true,
@@ -28,17 +29,26 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const _Products = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/api/billing/': {
-                ...billingJson,
+
+type Story = StoryObj<typeof meta>
+export const DesktopView: Story = {
+    parameters: {
+        testOptions: {
+            viewport: {
+                width: 2048,
+                height: 1024,
             },
         },
-    })
+    },
+}
 
-    useEffect(() => {
-        router.actions.push(urls.products())
-    }, [])
-    return <App />
+export const MobileView: Story = {
+    parameters: {
+        testOptions: {
+            viewport: {
+                width: 568,
+                height: 1024,
+            },
+        },
+    },
 }

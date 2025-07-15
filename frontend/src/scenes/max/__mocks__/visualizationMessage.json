@@ -1,16 +1,7 @@
 {
     "type": "ai/viz",
     "plan": "Test plan",
-    "reasoning_steps": [
-        "The user's query is to identify the most popular pages.",
-        "To determine the most popular pages, we should analyze the '$pageview' event as it tracks when a user loads or reloads a page.",
-        "We need to use the '$current_url' property from the event properties to identify different pages.",
-        "Since the user didn't specify a date range, a reasonable default would be the last 30 days to get recent insights.",
-        "We should use a breakdown on the '$current_url' to see the popularity of each page URL.",
-        "A bar chart would be suitable for visualizing the most popular pages as it's categorical data.",
-        "Filter out internal and test users by default unless specified otherwise."
-    ],
-    "answer": {
+    "query": {
         "aggregation_group_type_index": null,
         "breakdownFilter": {
             "breakdown_hide_other_aggregation": null,
@@ -65,5 +56,5 @@
             "yAxisScaleType": null
         }
     },
-    "done": true
+    "id": "test-visualization-message"
 }

@@ -1,23 +1,26 @@
-import json
 import os
+import tempfile
+import time
 import uuid
 from datetime import timedelta
 from typing import Literal, Optional
 
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
+import posthoganalytics
 from django.conf import settings
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.wait import WebDriverWait
-from sentry_sdk import capture_exception, configure_scope, push_scope
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.api.services.query import process_query_dict
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.exported_asset import (
     ExportedAsset,
@@ -44,16 +47,32 @@ CSSSelector = Literal[".InsightCard", ".ExportedInsight"]
 # window permanently around which is unnecessary
 def get_driver() -> webdriver.Chrome:
     options = Options()
-    options.headless = True
+    options.add_argument("--headless=new")  # Hint: Try removing this line when debugging
     options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
     options.add_argument("--use-gl=swiftshader")
     options.add_argument("--disable-software-rasterizer")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-automation"]
+    )  # Removes the "Chrome is being controlled by automated test software" bar
+
+    # Create a unique prefix for the temporary directory
+    pid = os.getpid()
+    timestamp = int(time.time() * 1000)
+    unique_prefix = f"chrome-profile-{pid}-{timestamp}-{uuid.uuid4()}"
+
+    # Use TemporaryDirectory which will automatically clean up when the context manager exits
+    temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
+    options.add_argument(f"--user-data-dir={temp_dir.name}")
+
+    # Necessary to let the nobody user run chromium
+    os.environ["HOME"] = temp_dir.name
 
     if os.environ.get("CHROMEDRIVER_BIN"):
-        return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
+        service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
+        return webdriver.Chrome(service=service, options=options)
 
     return webdriver.Chrome(
         service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
@@ -121,6 +140,12 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
         raise
 
 
+# Newer versions of selenium seem to include the search bar in the height calculation.
+# This is a manually determined offset to ensure the screenshot is the correct height.
+# See https://github.com/SeleniumHQ/selenium/issues/14660.
+HEIGHT_OFFSET = 85
+
+
 def _screenshot_asset(
     image_path: str,
     url_to_render: str,
@@ -130,12 +155,13 @@ def _screenshot_asset(
     driver: Optional[webdriver.Chrome] = None
     try:
         driver = get_driver()
-        driver.set_window_size(screenshot_width, screenshot_width * 0.5)
+        # Set initial window size with a more reasonable height to prevent initial rendering issues
+        driver.set_window_size(screenshot_width, 600)
         driver.get(url_to_render)
-        WebDriverWait(driver, 20).until(lambda x: x.find_element_by_css_selector(wait_for_css_selector))
+        WebDriverWait(driver, 20).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
         # Also wait until nothing is loading
         try:
-            WebDriverWait(driver, 20).until_not(lambda x: x.find_element_by_class_name("Spinner"))
+            WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
         except TimeoutException:
             logger.exception(
                 "image_exporter.timeout",
@@ -143,45 +169,71 @@ def _screenshot_asset(
                 wait_for_css_selector=wait_for_css_selector,
                 image_path=image_path,
             )
-            with push_scope() as scope:
-                scope.set_extra("url_to_render", url_to_render)
+            with posthoganalytics.new_context():
+                posthoganalytics.tag("url_to_render", url_to_render)
                 try:
                     driver.save_screenshot(image_path)
-                    scope.add_attachment(None, None, image_path)
+                    posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
                 capture_exception()
+
+        # Get the height of the visualization container specifically
+        height = driver.execute_script(
+            """
+            const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
+            if (element) {
+                const rect = element.getBoundingClientRect();
+                return Math.max(rect.height, document.body.scrollHeight);
+            }
+            return document.body.scrollHeight;
+        """
+        )
+
         # For example funnels use a table that can get very wide, so try to get its width
-        width = driver.execute_script("""
+        width = driver.execute_script(
+            """
             tableElement = document.querySelector('table');
             if (tableElement) {
                 return tableElement.offsetWidth * 1.5;
             }
-        """)
-        height = driver.execute_script("return document.body.scrollHeight")
+        """
+        )
         if isinstance(width, int):
             width = max(int(screenshot_width), min(1800, width or screenshot_width))
         else:
             width = screenshot_width
-        driver.set_window_size(width, height)
-        # The needed height might have changed when setting width, so we need to get it again
-        height = driver.execute_script("return document.body.scrollHeight")
-        driver.set_window_size(width, height)
+
+        # Set window size with the calculated dimensions
+        driver.set_window_size(width, height + HEIGHT_OFFSET)
+
+        # Allow a moment for any dynamic resizing
+        driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
+
+        # Get the final height after any dynamic adjustments
+        final_height = driver.execute_script(
+            """
+            const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
+            if (element) {
+                const rect = element.getBoundingClientRect();
+                return Math.max(rect.height, document.body.scrollHeight);
+            }
+            return document.body.scrollHeight;
+        """
+        )
+
+        # Set final window size
+        driver.set_window_size(width, final_height + HEIGHT_OFFSET)
         driver.save_screenshot(image_path)
     except Exception as e:
         # To help with debugging, add a screenshot and any chrome logs
-        with configure_scope() as scope:
-            scope.set_extra("url_to_render", url_to_render)
+        with posthoganalytics.new_context():
+            posthoganalytics.tag("url_to_render", url_to_render)
             if driver:
                 # If we encounter issues getting extra info we should silently fail rather than creating a new exception
                 try:
-                    all_logs = list(driver.get_log("browser"))
-                    scope.add_attachment(json.dumps(all_logs).encode("utf-8"), "logs.txt")
-                except Exception:
-                    pass
-                try:
                     driver.save_screenshot(image_path)
-                    scope.add_attachment(None, None, image_path)
+                    posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
         capture_exception(e)
@@ -193,15 +245,15 @@ def _screenshot_asset(
 
 
 def export_image(exported_asset: ExportedAsset) -> None:
-    with push_scope() as scope:
-        scope.set_tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
-        scope.set_tag("asset_id", exported_asset.id if exported_asset else "unknown")
+    with posthoganalytics.new_context():
+        posthoganalytics.tag("team_id", exported_asset.team.pk if exported_asset else "unknown")
+        posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
 
         try:
             if exported_asset.insight:
                 # NOTE: Dashboards are regularly updated but insights are not
                 # so, we need to trigger a manual update to ensure the results are good
-                with conversion_to_query_based(exported_asset.insight):
+                with upgrade_query(exported_asset.insight):
                     process_query_dict(
                         exported_asset.team,
                         exported_asset.insight.query,
@@ -221,15 +273,8 @@ def export_image(exported_asset: ExportedAsset) -> None:
                     f"Export to format {exported_asset.export_format} is not supported for insights"
                 )
         except Exception as e:
-            if exported_asset:
-                team_id = str(exported_asset.team.id)
-            else:
-                team_id = "unknown"
-
-            with push_scope() as scope:
-                scope.set_tag("celery_task", "image_export")
-                scope.set_tag("team_id", team_id)
-                capture_exception(e)
+            team_id = str(exported_asset.team.id) if exported_asset else "unknown"
+            capture_exception(e, additional_properties={"celery_task": "image_export", "team_id": team_id})
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             EXPORT_FAILED_COUNTER.labels(type="image").inc()

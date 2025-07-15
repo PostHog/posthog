@@ -1,11 +1,11 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, PopoverReferenceContext } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
-import { PathsFilter } from '~/queries/schema'
+import { PathsFilter } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
 import { pathsDataLogicType } from './pathsDataLogicType'
@@ -45,7 +45,7 @@ export function PathNodeCardButton({
         viewPathToFunnel(node)
     }
     const copyName = (): void => {
-        void copyToClipboard(nodeName).then(captureException)
+        void copyToClipboard(nodeName).catch((e) => posthog.captureException(e))
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 
@@ -54,7 +54,7 @@ export function PathNodeCardButton({
     return (
         <div className="flex justify-between items-center w-full">
             <div className="font-semibold overflow-hidden max-h-16">
-                <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
+                <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
                 <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}

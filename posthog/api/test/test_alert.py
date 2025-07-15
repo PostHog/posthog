@@ -64,6 +64,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "last_checked_at": None,
             "next_check_at": None,
             "snoozed_until": None,
+            "skip_weekend": False,
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
@@ -130,7 +131,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(list_for_another_insight.json()["results"]) == 0
 
     def test_alert_limit(self) -> None:
-        with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_PER_TEAM") as alert_limit:
+        with mock.patch("posthog.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER") as alert_limit:
             alert_limit.__get__ = mock.Mock(return_value=1)
 
             creation_request = {

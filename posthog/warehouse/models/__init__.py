@@ -6,3 +6,5 @@ from .external_data_source import *
 from .join import *
 from .modeling import *
 from .table import *
+from .query_tab_state import *
+from .data_modeling_job import *

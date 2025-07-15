@@ -18,7 +18,7 @@ export enum ConfigMode {
     Saving = 'saving',
 }
 
-export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
+export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users'
 
 /**
  * We allow the specific instance settings that can be edited via the /instance/status page.
@@ -48,7 +48,6 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
     'SENTRY_AUTH_TOKEN',
     'SENTRY_ORGANIZATION',
-    'HEATMAP_SAMPLE_N',
 ]
 
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!
@@ -196,8 +195,7 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
-            const currentTab =
-                tab && ['metrics', 'settings', 'staff_users', 'kafka_inspector'].includes(tab) ? tab : 'overview'
+            const currentTab = tab && ['metrics', 'settings', 'staff_users'].includes(tab) ? tab : 'overview'
             if (currentTab !== values.tab) {
                 actions.setTab(currentTab)
             }

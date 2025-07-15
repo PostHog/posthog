@@ -1,8 +1,9 @@
-import * as Sentry from '@sentry/react'
 import { objectCleanWithEmpty } from 'lib/utils'
+import posthog from 'posthog-js'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
+    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -15,6 +16,7 @@ import {
     ActionsNode,
     AnalyticsQueryResponseBase,
     BreakdownFilter,
+    CalendarHeatmapFilter,
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
@@ -33,8 +35,9 @@ import {
     RetentionFilter,
     StickinessFilter,
     TrendsFilter,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
+    isCalendarHeatmapQuery,
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithCompare,
@@ -44,10 +47,13 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    setLatestVersionsOnQuery,
 } from '~/queries/utils'
 import {
     ActionFilter,
     BaseMathType,
+    CalendarHeatmapFilterType,
+    CalendarHeatmapMathType,
     DataWarehouseFilter,
     FilterType,
     FunnelExclusionLegacy,
@@ -75,6 +81,7 @@ const insightTypeToNodeKind: Record<
     [InsightType.PATHS]: NodeKind.PathsQuery,
     [InsightType.STICKINESS]: NodeKind.StickinessQuery,
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
+    [InsightType.CALENDAR_HEATMAP]: NodeKind.CalendarHeatmapQuery,
 }
 
 const actorsOnlyMathTypes = [
@@ -87,7 +94,9 @@ const actorsOnlyMathTypes = [
 
 const funnelsMathTypes = [FunnelMathType.FirstTimeForUser, FunnelMathType.FirstTimeForUserWithFilters]
 
-type FilterTypeActionsAndEvents = {
+const calendarHeatmapMathTypes = [CalendarHeatmapMathType.TotalCount, CalendarHeatmapMathType.UniqueUsers]
+
+export type FilterTypeActionsAndEvents = {
     events?: ActionFilter[]
     actions?: ActionFilter[]
     data_warehouse?: DataWarehouseFilter[]
@@ -133,6 +142,13 @@ export const legacyEntityToNode = (
                     math: entity.math as MathType,
                 }
             }
+        } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
+            if (calendarHeatmapMathTypes.includes(entity.math as any)) {
+                shared = {
+                    ...shared,
+                    math: entity.math as MathType,
+                }
+            }
         } else {
             shared = {
                 ...shared,
@@ -146,23 +162,29 @@ export const legacyEntityToNode = (
     }
 
     if (entity.type === 'actions') {
-        return objectCleanWithEmpty({
-            kind: NodeKind.ActionsNode,
-            id: entity.id,
-            ...shared,
-        }) as any
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.ActionsNode,
+                id: entity.id,
+                ...shared,
+            })
+        ) as any
     } else if (entity.type === 'data_warehouse') {
-        return objectCleanWithEmpty({
-            kind: NodeKind.DataWarehouseNode,
-            id: entity.id,
-            ...shared,
-        }) as any
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.DataWarehouseNode,
+                id: entity.id,
+                ...shared,
+            })
+        ) as any
     }
-    return objectCleanWithEmpty({
-        kind: NodeKind.EventsNode,
-        event: entity.id,
-        ...shared,
-    }) as any
+    return setLatestVersionsOnQuery(
+        objectCleanWithEmpty({
+            kind: NodeKind.EventsNode,
+            event: entity.id,
+            ...shared,
+        })
+    ) as any
 }
 
 export const exlusionEntityToNode = (
@@ -261,10 +283,7 @@ const strToBool = (value: any): boolean | undefined => {
 
 export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
     const captureException = (message: string): void => {
-        Sentry.captureException(new Error(message), {
-            tags: { DataExploration: true },
-            extra: { filters },
-        })
+        posthog.captureException(new Error(message), { filters, DataExploration: true })
     }
 
     if (!filters.insight) {
@@ -359,6 +378,11 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         query.trendsFilter = trendsFilterToQuery(filters)
     }
 
+    // calendar heatmap filter
+    if (isCalendarHeatmapFilter(filters) && isCalendarHeatmapQuery(query)) {
+        query.calendarHeatmapFilter = calendarHeatmapFilterToQuery(filters)
+    }
+
     // funnels filter
     if (isFunnelsFilter(filters) && isFunnelsQuery(query)) {
         query.funnelsFilter = funnelsFilterToQuery(filters)
@@ -405,6 +429,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         showPercentStackView: filters.show_percent_stack_view,
         showLabelsOnSeries: filters.show_labels_on_series,
         yAxisScaleType: filters.y_axis_scale_type,
+        showMultipleYAxes: filters.show_multiple_y_axes,
     })
 }
 
@@ -438,7 +463,7 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         returningEntity: sanitizeRetentionEntity(filters.returning_entity),
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
-        showMean: filters.show_mean,
+        meanRetentionCalculation: filters.mean_retention_calculation || 'simple',
         cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
@@ -473,12 +498,20 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
     }
 }
 
+export const calendarHeatmapFilterToQuery = (filters: Partial<CalendarHeatmapFilterType>): CalendarHeatmapFilter => {
+    // Reserved for future filter properties
+    return {
+        dummy: filters?.dummy,
+    }
+}
+
 export const stickinessFilterToQuery = (filters: Record<string, any>): StickinessFilter => {
     return objectCleanWithEmpty({
         display: filters.display,
         showLegend: filters.show_legend,
         hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
+        computedAs: filters.computed_as,
     })
 }
 

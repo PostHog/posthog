@@ -1,32 +1,33 @@
 import { DateTime } from 'luxon'
 
-import { startPluginsServer } from '../../../src/main/pluginsServer'
+import { PluginServer } from '../../../src/server'
 import {
     Database,
     Hub,
     LogLevel,
+    PluginServerMode,
     PluginsServerConfig,
     PropertyUpdateOperation,
     TimestampFormat,
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
-jest.setTimeout(60000) // 60 sec timeout
+jest.mock('../../../src/utils/logger')
+jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    WORKER_CONCURRENCY: 2,
-    LOG_LEVEL: LogLevel.Log,
+    LOG_LEVEL: LogLevel.Info,
 }
 
 describe('postgres parity', () => {
+    jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
     let hub: Hub
-    let stopServer: () => Promise<void>
+    let server: PluginServer
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
@@ -35,6 +36,7 @@ describe('postgres parity', () => {
     })
 
     beforeEach(async () => {
+        jest.spyOn(process, 'exit').mockImplementation()
         console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
@@ -45,9 +47,11 @@ describe('postgres parity', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         console.log('[TEST] Starting plugins server')
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestion: true })
-        hub = startResponse.hub
-        stopServer = startResponse.stop
+        server = new PluginServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+        })
+        await server.start()
+        hub = server.hub!
         teamId++
         console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
@@ -63,13 +67,13 @@ describe('postgres parity', () => {
 
     afterEach(async () => {
         console.log('[TEST] Stopping server')
-        await stopServer()
+        await server.stop()
     })
 
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
         const ts = DateTime.now().toString()
-        const person = await hub.db.createPerson(
+        const [person, kafkaMessages] = await hub.db.createPerson(
             DateTime.utc(),
             { userPropOnce: 'propOnceValue', userProp: 'propValue' },
             { userProp: ts, userPropOnce: ts },
@@ -80,13 +84,15 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
         await delayUntilEventIngested(() => hub.db.fetchDistinctIds(person, Database.ClickHouse), 2)
 
         const clickHousePersons = (await hub.db.fetchPersons(Database.ClickHouse)).map((row) => ({
             ...row,
-            properties: JSON.parse(row.properties), // avoids depending on key sort order
+            properties: parseJSON(row.properties), // avoids depending on key sort order
         }))
         expect(clickHousePersons).toEqual([
             {
@@ -106,7 +112,7 @@ describe('postgres parity', () => {
         const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
         expect(postgresPersons).toEqual([
             {
-                id: expect.any(Number),
+                id: expect.any(String),
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',
@@ -159,9 +165,9 @@ describe('postgres parity', () => {
         expect(person).toEqual(postgresPersons[0])
     })
 
-    test('updatePersonDeprecated', async () => {
+    test('updatePerson', async () => {
         const uuid = new UUIDT().toString()
-        const person = await hub.db.createPerson(
+        const [person, kafkaMessages] = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -172,19 +178,17 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
 
         // update properties and set is_identified to true
-        const [_p, kafkaMessages] = await hub.db.updatePersonDeprecated(person, {
+        const [_p, kafkaMessagesUpdate] = await hub.db.updatePerson(person, {
             properties: { replacedUserProp: 'propValue' },
             is_identified: true,
         })
-
-        await hub.db.kafkaProducer.queueMessages({
-            kafkaMessages,
-            waitForAck: true,
-        })
+        await hub.db.kafkaProducer.queueMessages(kafkaMessagesUpdate)
 
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
@@ -207,15 +211,12 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const [updatedPerson, kafkaMessages2] = await hub.db.updatePersonDeprecated(person, {
+        const [updatedPerson, kafkaMessages2] = await hub.db.updatePerson(person, {
             created_at: randomDate,
             is_identified: false,
         })
 
-        await hub.db.kafkaProducer.queueMessages({
-            kafkaMessages: kafkaMessages2,
-            waitForAck: true,
-        })
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages2)
 
         expect(updatedPerson.version).toEqual(2)
 
@@ -242,7 +243,7 @@ describe('postgres parity', () => {
     test('addDistinctId', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await hub.db.createPerson(
+        const [person, personKafkaMessages] = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -253,7 +254,9 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }]
         )
-        const anotherPerson = await hub.db.createPerson(
+        await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
+
+        const [anotherPerson, anotherPersonKafkaMessages] = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -264,6 +267,8 @@ describe('postgres parity', () => {
             uuid2,
             [{ distinctId: 'another_distinct_id' }]
         )
+        await hub.db.kafkaProducer.queueMessages(anotherPersonKafkaMessages)
+
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
 
@@ -303,7 +308,8 @@ describe('postgres parity', () => {
 
         // add 'anotherOne' to person
 
-        await hub.db.addDistinctId(postgresPerson, 'anotherOne', 0)
+        const kafkaMessagesAddDistinctId = await hub.db.addDistinctId(postgresPerson, 'anotherOne', 0)
+        await hub.db.kafkaProducer.queueMessages(kafkaMessagesAddDistinctId)
 
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 2)
 
@@ -325,7 +331,7 @@ describe('postgres parity', () => {
     test('moveDistinctIds & deletePerson', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await hub.db.createPerson(
+        const [person, kafkaMessagesPerson] = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -336,7 +342,9 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }]
         )
-        const anotherPerson = await hub.db.createPerson(
+        await hub.db.kafkaProducer.queueMessages(kafkaMessagesPerson)
+
+        const [anotherPerson, kafkaMessagesAnotherPerson] = await hub.db.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -347,6 +355,8 @@ describe('postgres parity', () => {
             uuid2,
             [{ distinctId: 'another_distinct_id' }]
         )
+        await hub.db.kafkaProducer.queueMessages(kafkaMessagesAnotherPerson)
+
         await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
         const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
 
@@ -354,8 +364,12 @@ describe('postgres parity', () => {
 
         // move distinct ids from person to to anotherPerson
 
-        const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
-        await hub.db!.kafkaProducer!.queueMessages({ kafkaMessages, waitForAck: true })
+        const moveDistinctIdsResult = await hub.db.moveDistinctIds(person, anotherPerson)
+        expect(moveDistinctIdsResult.success).toEqual(true)
+
+        if (moveDistinctIdsResult.success) {
+            await hub.db!.kafkaProducer!.queueMessages(moveDistinctIdsResult.messages)
+        }
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
@@ -409,9 +423,9 @@ describe('postgres parity', () => {
         expect(newClickHouseDistinctIdRemoved).toEqual([])
 
         // delete person
-        await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
+        await hub.db.postgres.transaction(PostgresUse.PERSONS_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
-            await hub.db!.kafkaProducer!.queueMessage({ kafkaMessage: deletePersonMessage[0], waitForAck: true })
+            await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })
 
         await delayUntilEventIngested(async () =>

@@ -40,9 +40,9 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['hasAvailableFeature']],
-    }),
+    })),
     actions(({ values }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
@@ -134,9 +134,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         }
 
                         if (!('distinct_id_field' in item)) {
-                            const idField = Object.values(warehouseItem.fields).find((n) => n.name === 'id')
-                            if (idField) {
-                                warehouseItem['distinct_id_field'] = idField.name
+                            const distinctIdField =
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'distinct_id') ??
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                            if (distinctIdField) {
+                                warehouseItem['distinct_id_field'] = distinctIdField.name
                             }
                         }
 
@@ -225,12 +227,19 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.NumericalEventProperties,
                     TaxonomicFilterGroupType.Metadata,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                    TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
+        isVirtual: [
+            (s) => [s.definition],
+            (definition) => {
+                return 'virtual' in definition && definition.virtual
+            },
+        ],
         hasSentAs: [
-            (s) => [s.type, s.isProperty, s.isEvent],
-            (type, isProperty, isEvent) =>
-                isEvent || (isProperty && type !== TaxonomicFilterGroupType.SessionProperties),
+            (s) => [s.type, s.isProperty, s.isEvent, s.isVirtual],
+            (type, isProperty, isEvent, isVirtual) =>
+                isEvent || (isProperty && !isVirtual && type !== TaxonomicFilterGroupType.SessionProperties),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isDataWarehouse: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.DataWarehouse],

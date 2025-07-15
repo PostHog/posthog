@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import Enum, auto
 from typing import Any, Optional, Union, overload
 
@@ -99,6 +99,7 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         query_type="get_earliest_timestamp",
         team_id=team_id,
     )
+
     if len(results) > 0:
         return results[0][0]
     else:
@@ -161,7 +162,7 @@ def deep_dump_object(params: dict[str, Any]) -> dict[str, Any]:
 
 def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
-        date_obj = date_obj.replace(tzinfo=timezone.utc)
+        date_obj = date_obj.replace(tzinfo=UTC)
     return date_obj
 
 

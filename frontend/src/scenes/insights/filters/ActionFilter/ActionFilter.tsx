@@ -6,7 +6,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { IconPlusSmall } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
@@ -75,7 +75,7 @@ export interface ActionFilterProps {
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
-    hideDeleteBtn?: boolean
+    hideDeleteBtn?: boolean | ((filter: LocalFilter, index: number) => boolean)
     readOnly?: boolean
     renderRow?: ({
         seriesIndicator,
@@ -86,6 +86,14 @@ export interface ActionFilterProps {
         deleteButton,
         orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: readonly string[]
+    /** Data warehouse popover fields */
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /** Whether to add left padding to the filters div to align with indented content */
+    filtersLeftPadding?: boolean
+    /** Doc link to show in the tooltip of the New Filter button */
+    addFilterDocLink?: string
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -96,7 +104,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         addFilterDefaultOptions = {},
         mathAvailability = MathAvailability.All,
         buttonCopy = '',
-        buttonProps = { fullWidth: true },
+        buttonProps = {},
         disabled = false,
         sortable = false,
         showSeriesIndicator = false,
@@ -116,6 +124,10 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         buttonType = 'tertiary',
         readOnly = false,
         bordered = false,
+        allowedMathTypes,
+        dataWarehousePopoverFields,
+        filtersLeftPadding,
+        addFilterDocLink,
     },
     ref
 ): JSX.Element {
@@ -126,6 +138,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filters,
         typeKey,
         addFilterDefaultOptions,
+        dataWarehousePopoverFields,
     })
     const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
@@ -165,7 +178,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
         propertyFiltersPopover,
-        hideDeleteBtn,
         disabled,
         readOnly,
         renderRow,
@@ -174,6 +186,10 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         onRenameClick: showModal,
         sortable,
         showNumericalPropsOnly,
+        allowedMathTypes,
+        dataWarehousePopoverFields,
+        filtersLeftPadding,
+        addFilterDocLink,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
@@ -220,6 +236,11 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                     showNestedArrow={showNestedArrow}
                                     singleFilter={singleFilter}
                                     hideFilter={hideFilter || readOnly}
+                                    hideDeleteBtn={
+                                        typeof hideDeleteBtn === 'function'
+                                            ? hideDeleteBtn(filter, index)
+                                            : hideDeleteBtn
+                                    }
                                     {...commonProps}
                                 />
                             ))}
@@ -235,6 +256,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                             onClick={() => addFilter()}
                             data-attr="add-action-event-button"
                             icon={<IconPlusSmall />}
+                            size="small"
                             disabled={reachedLimit || disabled || readOnly}
                             {...buttonProps}
                         >

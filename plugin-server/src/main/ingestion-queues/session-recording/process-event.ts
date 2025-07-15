@@ -1,10 +1,13 @@
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 
 import { ClickHouseTimestamp, RRWebEvent, TimestampFormat } from '../../../types'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { activeMilliseconds } from './snapshot-segmenter'
+
+// some properties are technically user submitted data so we'll do a little mild validation ahead of kafka
+const MAX_PROPERTY_LENGTH = 1000
 
 function sanitizeForUTF8(input: string): string {
     // the JS console truncates some logs...
@@ -32,6 +35,7 @@ export interface SummarizedSessionRecordingEvent {
     distinct_id: string
     session_id: string
     first_url: string | null
+    urls: string[]
     click_count: number
     keypress_count: number
     mouse_activity_count: number
@@ -43,6 +47,7 @@ export interface SummarizedSessionRecordingEvent {
     event_count: number
     message_count: number
     snapshot_source: string | null
+    snapshot_library: string | null
 }
 
 // this is of course way more complicated than you'd expect
@@ -71,9 +76,9 @@ const browserLogLevels = [
 type BrowserLogLevel = (typeof browserLogLevels)[number]
 // we don't want that many log levels
 const logLevels = ['info', 'warn', 'error'] as const
-export type LogLevel = (typeof logLevels)[number]
+export type ConsoleLogLevel = (typeof logLevels)[number]
 
-const levelMapping: Record<BrowserLogLevel, LogLevel> = {
+const levelMapping: Record<BrowserLogLevel, ConsoleLogLevel> = {
     info: 'info',
     count: 'info',
     timeEnd: 'info',
@@ -94,7 +99,7 @@ const levelMapping: Record<BrowserLogLevel, LogLevel> = {
 
 // level is effectively user provided input, so we don't want to fire it into kafka to head to CH
 // without ensuring it only has known/expected values
-function safeLevel(level: unknown): LogLevel {
+function safeLevel(level: unknown): ConsoleLogLevel {
     const needle = typeof level === 'string' ? level : 'info'
     return levelMapping[needle as BrowserLogLevel] || 'info'
 }
@@ -102,7 +107,7 @@ function safeLevel(level: unknown): LogLevel {
 export type ConsoleLogEntry = {
     team_id: number
     message: string
-    level: LogLevel
+    level: ConsoleLogLevel
     log_source: 'session_replay'
     // the session_id
     log_source_id: string
@@ -254,21 +259,20 @@ export const createSessionReplayEvent = (
     distinct_id: string,
     session_id: string,
     events: RRWebEvent[],
-    snapshot_source: string | null
-): { event: SummarizedSessionRecordingEvent; warnings: string[] } => {
+    snapshot_source: string | null,
+    snapshot_library: string | null
+): { event: SummarizedSessionRecordingEvent } => {
     const timestamps = getTimestampsFrom(events)
 
     // but every event where chunk index = 0 must have an eventsSummary
     if (events.length === 0 || timestamps.length === 0) {
-        status.warn('🙈', 'ignoring an empty session recording event', {
+        logger.warn('🙈', 'ignoring an empty session recording event', {
             session_id,
             events,
         })
-        // it is safe to throw here as it caught a level up so that we can see this happening in Sentry
+        // it is safe to throw here as it caught a level up so that we can see this happening in error tracking
         throw new Error('ignoring an empty session recording event')
     }
-
-    const warnings: string[] = []
 
     let clickCount = 0
     let keypressCount = 0
@@ -276,7 +280,8 @@ export const createSessionReplayEvent = (
     let consoleLogCount = 0
     let consoleWarnCount = 0
     let consoleErrorCount = 0
-    let url: string | null = null
+    const urls: Set<string> = new Set()
+
     events.forEach((event) => {
         if (event.type === RRWebEventType.IncrementalSnapshot) {
             if (isClick(event)) {
@@ -291,8 +296,8 @@ export const createSessionReplayEvent = (
         }
 
         const eventUrl: string | undefined = hrefFrom(event)
-        if (url === null && eventUrl) {
-            url = eventUrl
+        if (eventUrl) {
+            urls.add(eventUrl)
         }
 
         if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
@@ -305,13 +310,19 @@ export const createSessionReplayEvent = (
                 consoleErrorCount += 1
             }
         }
-
-        if (event.type === RRWebEventType.Custom && event.data?.tag === 'Message too large') {
-            warnings.push('replay_message_too_large')
-        }
     })
 
     const activeTime = activeMilliseconds(events)
+    const urlArray = Array.from(urls)
+
+    // do some simple validation to avoid unexpected values
+    let validSnapshotLibrary = snapshot_library
+    if (snapshot_library?.trim() === '') {
+        validSnapshotLibrary = null
+    }
+    if (validSnapshotLibrary && validSnapshotLibrary.length > MAX_PROPERTY_LENGTH) {
+        validSnapshotLibrary = validSnapshotLibrary.substring(0, MAX_PROPERTY_LENGTH)
+    }
 
     // NB forces types to be correct e.g. by truncating or rounding
     // to ensure we don't send floats when we should send an integer
@@ -325,7 +336,8 @@ export const createSessionReplayEvent = (
         click_count: Math.trunc(clickCount),
         keypress_count: Math.trunc(keypressCount),
         mouse_activity_count: Math.trunc(mouseActivity),
-        first_url: url,
+        first_url: urlArray.length ? urlArray[0] : null,
+        urls: urlArray,
         active_milliseconds: Math.round(activeTime),
         console_log_count: Math.trunc(consoleLogCount),
         console_warn_count: Math.trunc(consoleWarnCount),
@@ -334,7 +346,10 @@ export const createSessionReplayEvent = (
         event_count: Math.trunc(events.length),
         message_count: 1,
         snapshot_source: snapshot_source || 'web',
+        // we can't default this one, since we now have multiple libs in production
+        // so `null` means unexpected data
+        snapshot_library: validSnapshotLibrary,
     }
 
-    return { event: data, warnings }
+    return { event: data }
 }

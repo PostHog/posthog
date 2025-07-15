@@ -93,11 +93,11 @@ export function VariantScreenshot({
     const widthClass = getThumbnailWidth()
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex gap-4 items-start">
                 {mediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">
-                        <div className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
+                        <div className="text-secondary inline-flex flow-row items-center gap-1 cursor-pointer">
                             <div onClick={() => setSelectedImageIndex(index)} className="cursor-zoom-in relative">
                                 <div
                                     className={`relative flex overflow-hidden select-none ${widthClass} h-16 rounded before:absolute before:inset-0 before:border before:rounded`}
@@ -138,8 +138,8 @@ export function VariantScreenshot({
                             loading={uploading}
                             value={filesToUpload}
                             callToAction={
-                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-[var(--primary)]">
-                                    <span className="text-2xl text-muted">+</span>
+                                <div className="flex items-center justify-center w-full h-16 border border-dashed rounded cursor-pointer hover:border-accent">
+                                    <span className="text-2xl text-secondary">+</span>
                                 </div>
                             }
                         />
@@ -156,7 +156,7 @@ export function VariantScreenshot({
                         <LemonDivider className="my-0 mx-1" vertical />
                         <VariantTag experimentId={experiment.id} variantKey={variantKey} />
                         {rolloutPercentage !== undefined && (
-                            <span className="text-muted text-sm">({rolloutPercentage}% rollout)</span>
+                            <span className="text-secondary text-sm">({rolloutPercentage}% rollout)</span>
                         )}
                     </div>
                 }

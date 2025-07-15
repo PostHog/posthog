@@ -1,5 +1,9 @@
+import './Dashboard.scss'
+
 import { LemonButton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import clsx from 'clsx'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -8,13 +12,14 @@ import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
@@ -22,6 +27,7 @@ interface DashboardProps {
     id?: string
     dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
+    themes?: DataColorThemeModel[]
 }
 
 export const scene: SceneExport = {
@@ -31,9 +37,12 @@ export const scene: SceneExport = {
         id: parseInt(id as string),
         placement,
     }),
+    settingSectionId: 'environment-product-analytics',
 }
 
-export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes }: DashboardProps = {}): JSX.Element {
+    useMountedLogic(dataThemeLogic({ themes }))
+
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
             <DashboardScene />
@@ -42,9 +51,20 @@ export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JS
 }
 
 function DashboardScene(): JSX.Element {
-    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
-        useValues(dashboardLogic)
+    const {
+        placement,
+        dashboard,
+        canEditDashboard,
+        tiles,
+        itemsLoading,
+        dashboardMode,
+        dashboardFailedToLoad,
+        accessDeniedToDashboard,
+        dashboardVariables,
+    } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
+
+    const hasVariables = Object.keys(dashboardVariables).length > 0
 
     useEffect(() => {
         reportDashboardViewed()
@@ -87,9 +107,14 @@ function DashboardScene(): JSX.Element {
         return <NotFound object="dashboard" />
     }
 
+    if (accessDeniedToDashboard) {
+        return <AccessDenied object="dashboard" />
+    }
+
     return (
         <div className="dashboard">
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {canEditDashboard && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
@@ -97,35 +122,45 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex gap-2 items-start justify-between flex-wrap">
-                        {![
-                            DashboardPlacement.Public,
-                            DashboardPlacement.Export,
-                            DashboardPlacement.FeatureFlag,
-                        ].includes(placement) &&
-                            dashboard && <DashboardEditBar />}
-                        {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
-                            <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                Edit dashboard
-                            </LemonButton>
-                        )}
-                        {placement !== DashboardPlacement.Export && (
-                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
+                    <div className="Dashboard_filters">
+                        <div className="flex gap-2 justify-between">
+                            {![
+                                DashboardPlacement.Public,
+                                DashboardPlacement.Export,
+                                DashboardPlacement.FeatureFlag,
+                                DashboardPlacement.Group,
+                            ].includes(placement) &&
+                                dashboard && <DashboardEditBar />}
+                            {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
+                                dashboard?.id && (
+                                    <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                        {placement === DashboardPlacement.Group
+                                            ? 'Edit dashboard template'
+                                            : 'Edit dashboard'}
+                                    </LemonButton>
+                                )}
+                            {placement !== DashboardPlacement.Export && (
                                 <div
-                                    className={`left-item ${
-                                        placement === DashboardPlacement.Public ? 'text-right' : ''
-                                    }`}
+                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
+                                        'mt-7': hasVariables,
+                                    })}
                                 >
-                                    {[DashboardPlacement.Public].includes(placement) ? (
-                                        <LastRefreshText />
-                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
-                                        <DashboardReloadAction />
-                                    ) : null}
+                                    <div
+                                        className={`left-item ${
+                                            placement === DashboardPlacement.Public ? 'text-right' : ''
+                                        }`}
+                                    >
+                                        {[DashboardPlacement.Public].includes(placement) ? (
+                                            <LastRefreshText />
+                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
+                                            <DashboardReloadAction />
+                                        ) : null}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
-                    <VariablesForDashboard />
+
                     <DashboardItems />
                 </div>
             )}

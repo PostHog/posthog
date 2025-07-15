@@ -5,7 +5,7 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { pluginConfig39 } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 interface ActivityLog {
     team_id: number | null

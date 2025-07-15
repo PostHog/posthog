@@ -1,13 +1,13 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor, RGBToHex, uuid } from 'lib/utils'
+import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
 import {
     AnyResponseType,
     ChartAxis,
@@ -17,9 +17,9 @@ import {
     ConditionalFormattingRule,
     DataVisualizationNode,
     HogQLVariable,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
+import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
@@ -64,11 +64,14 @@ export interface AxisSeries<T> {
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
+    insightMode: ItemMode
+    dataNodeCollectionId: string
     setQuery?: (node: DataVisualizationNode) => void
-    insightLogicProps: InsightLogicProps<DataVisualizationNode>
     context?: QueryContext<DataVisualizationNode>
     cachedResults?: AnyResponseType
     insightLoading?: boolean
+    dashboardId?: DashboardType['id']
+    loadPriority?: number
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
 }
@@ -176,7 +179,17 @@ export const convertTableValue = (
     return value
 }
 
-const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
+    if (!type) {
+        return 'UNKNOWN'
+    }
+
+    if (type.indexOf('Array') !== -1) {
+        return 'ARRAY'
+    }
+    if (type.indexOf('Tuple') !== -1) {
+        return 'TUPLE'
+    }
     if (type.indexOf('Int') !== -1) {
         return 'INTEGER'
     }
@@ -202,8 +215,8 @@ const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
     return type as ColumnScalar
 }
 
-const isNumericalType = (type: string): boolean => {
-    if (type.indexOf('Int') !== -1 || type.indexOf('Float') !== -1 || type.indexOf('Decimal') !== -1) {
+const isNumericalType = (type: ColumnScalar): boolean => {
+    if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
         return true
     }
 
@@ -217,32 +230,37 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         values: [
             teamLogic,
             ['currentTeamId'],
-            insightSceneLogic,
-            ['insightMode'],
             dataNodeLogic({
                 cachedResults: props.cachedResults,
                 key: props.key,
                 query: props.query.source,
-                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
-                loadPriority: props.insightLogicProps.loadPriority,
+                dataNodeCollectionId: props.dataNodeCollectionId,
+                loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
             }),
             ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
             ['isDarkModeOn'],
+            sceneLogic,
+            ['activeScene'],
         ],
         actions: [
             dataNodeLogic({
                 cachedResults: props.cachedResults,
                 key: props.key,
                 query: props.query.source,
-                dataNodeCollectionId: insightVizDataCollectionId(props.insightLogicProps, props.key),
-                loadPriority: props.insightLogicProps.loadPriority,
+                dataNodeCollectionId: props.dataNodeCollectionId,
+                loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
             }),
             ['loadData'],
         ],
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.query && !objectsEqual(props.query, oldProps.query)) {
+            actions._setQuery(props.query)
+        }
+    }),
     props({ query: { source: {} } } as DataVisualizationLogicProps),
     actions(({ values }) => ({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
@@ -281,16 +299,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             colorMode: values.isDarkModeOn ? 'dark' : 'light',
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
+        _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
         query: [
             props.query,
             {
                 setQuery: (_, { node }) => node,
+                _setQuery: (_, { node }) => node,
             },
         ],
         visualizationType: [
-            ChartDisplayType.ActionsTable as ChartDisplayType,
+            props.query.display ?? ChartDisplayType.ActionsTable,
             {
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
@@ -541,11 +561,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return columns.map((column, index) => {
                     const type = types[index]?.[1]
+                    const friendlyClickhouseTypeName = toFriendlyClickhouseTypeName(type)
+
                     return {
                         name: column,
                         type: {
-                            name: toFriendlyClickhouseTypeName(type),
-                            isNumerical: isNumericalType(type),
+                            name: friendlyClickhouseTypeName,
+                            isNumerical: isNumericalType(friendlyClickhouseTypeName),
                         },
                         label: `${column} - ${type}`,
                         dataIndex: index,
@@ -559,31 +581,38 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 return columns.filter((n) => n.type.isNumerical)
             },
         ],
+        dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
-            (state, props) => [state.insightMode, props.insightLogicProps],
-            (insightMode, insightLogicProps) => {
-                if (insightLogicProps.dashboardId) {
+            (state, props) => [props.insightMode, state.dashboardId],
+            (insightMode, dashboardId) => {
+                if (dashboardId) {
                     return false
                 }
 
                 return insightMode == ItemMode.Edit
             },
         ],
-        insightLogicProps: [(_state, props) => [props.insightLogicProps], (insightLogicProps) => insightLogicProps],
         showResultControls: [
-            (state, props) => [state.insightMode, props.insightLogicProps],
-            (insightMode, insightLogicProps) => {
+            (state, props) => [props.insightMode, state.dashboardId],
+            (insightMode, dashboardId) => {
                 if (insightMode === ItemMode.Edit) {
                     return true
                 }
 
-                return !insightLogicProps.dashboardId
+                return !dashboardId
             },
         ],
         presetChartHeight: [
-            (_state, props) => [props.insightLogicProps],
-            (insightLogicProps) => {
-                return !insightLogicProps.dashboardId
+            (state, props) => [props.key, state.dashboardId, state.activeScene],
+            (key, dashboardId, activeScene) => {
+                // Key for SQL editor based visiaulizations
+                const sqlEditorScene = activeScene === Scene.SQLEditor
+
+                if (activeScene === Scene.Insight) {
+                    return true
+                }
+
+                return !key.includes('new-SQL') && !dashboardId && !sqlEditorScene
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],
@@ -623,6 +652,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                                 series.settings.formatting.decimalPlaces
                                             )
                                         )
+                                    }
+
+                                    const isNotANumber =
+                                        Number.isNaN(n[column.dataIndex]) ||
+                                        n[column.dataIndex] === undefined ||
+                                        n[column.dataIndex] === null
+                                    if (isNotANumber) {
+                                        return 0
                                     }
 
                                     const isInt = Number.isInteger(n[column.dataIndex])
@@ -768,7 +805,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         isTableVisualization: [
             (state) => [state.visualizationType],
-            (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
+            (visualizationType): boolean =>
+                // BoldNumber relies on yAxis formatting so it's considered a table visualization
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
         ],
         showTableSettings: [
             (state) => [state.visualizationType],
@@ -781,7 +821,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         updateChartSettings: ({ settings }) => {
             actions.setQuery({
                 ...props.query,
-                chartSettings: { ...(props.query.chartSettings ?? {}), ...settings },
+                chartSettings: { ...props.query.chartSettings, ...settings },
             })
         },
         setQuery: ({ node }) => {
@@ -833,7 +873,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     subscriptions(({ props, actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {
             // If response is cleared, then don't update any internal values
-            if (!values.response || (!values.response.results && !values.response.result)) {
+            if (!values.response || (!(values.response as any).results && !(values.response as any).result)) {
                 return
             }
 
@@ -894,7 +934,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 chartSettings: {
-                    ...(props.query.chartSettings ?? {}),
+                    ...props.query.chartSettings,
                     yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                     xAxis: xColumn,
                 },
@@ -912,7 +952,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 chartSettings: {
-                    ...(props.query.chartSettings ?? {}),
+                    ...props.query.chartSettings,
                     yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
                     xAxis: xColumn,
                 },
@@ -928,7 +968,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 tableSettings: {
-                    ...(props.query.tableSettings ?? {}),
+                    ...props.query.tableSettings,
                     columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
                 },
             })
@@ -939,7 +979,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             actions.setQuery({
                 ...props.query,
                 tableSettings: {
-                    ...(props.query.tableSettings ?? {}),
+                    ...props.query.tableSettings,
                     conditionalFormatting: saveableRules,
                 },
             })

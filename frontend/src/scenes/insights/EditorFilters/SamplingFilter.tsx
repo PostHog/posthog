@@ -16,7 +16,7 @@ interface SamplingFilterProps {
 }
 
 export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFilterProps): JSX.Element {
-    const { isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { samplingPercentage } = useValues(samplingFilterLogic(insightProps))
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
 
@@ -25,7 +25,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
             <div className="flex items-center gap-1">
                 <LemonLabel
                     info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
-                    infoLink="https://posthog.com/manual/sampling"
+                    infoLink="https://posthog.com/docs/product-analytics/sampling"
                 >
                     Sampling <LemonTag type="warning">BETA</LemonTag>
                 </LemonLabel>
@@ -42,7 +42,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
                     }}
                     checked={!!samplingPercentage}
                     disabledReason={
-                        isDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
+                        hasDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
                     }
                 />
             </div>

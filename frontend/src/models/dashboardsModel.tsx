@@ -10,6 +10,8 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -18,9 +20,9 @@ import type { dashboardsModelType } from './dashboardsModelType'
 
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
-    connect({
+    connect(() => ({
         actions: [tagsModel, ['loadTags']],
-    }),
+    })),
     actions(() => ({
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
@@ -114,10 +116,11 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                 const beforeChange = { ...values.rawDashboards[id] }
 
-                const response = (await api.update(
+                const response = await api.update<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
-                )) as DashboardType
+                )
+                refreshTreeItem('dashboard', id)
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
                     eventUsageLogic.actions.reportDashboardFrontEndUpdate(
@@ -134,10 +137,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         button: {
                             label: 'Undo',
                             action: async () => {
-                                const reverted = (await api.update(
+                                const reverted = await api.update<DashboardType>(
                                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
-                                )) as DashboardType
+                                )
                                 actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
                                 lemonToast.success('Dashboard change reverted')
                             },
@@ -146,45 +149,54 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 }
                 return getQueryBasedDashboard(response)
             },
-            deleteDashboard: async ({ id, deleteInsights }) =>
-                getQueryBasedDashboard(
+            deleteDashboard: async ({ id, deleteInsights }) => {
+                const deleted = getQueryBasedDashboard(
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
-            restoreDashboard: async ({ id }) =>
-                getQueryBasedDashboard(
+                ) as DashboardType<QueryBasedInsightModel>
+                deleteFromTree('dashboard', String(id))
+                return deleted
+            },
+            restoreDashboard: async ({ id }) => {
+                const restored = getQueryBasedDashboard(
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
+                ) as DashboardType<QueryBasedInsightModel>
+                refreshTreeItem('dashboard', String(id))
+                return restored
+            },
             pinDashboard: async ({ id, source }) => {
-                const response = (await api.update(
+                const response = await api.update(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
                         pinned: true,
                     }
-                )) as DashboardType
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(true, source)
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
-                const response = (await api.update(
+                const response = await api.update<DashboardType>(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
                         pinned: false,
                     }
-                )) as DashboardType
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
-                const result = (await api.create(`api/environments/${teamLogic.values.currentTeamId}/dashboards/`, {
-                    use_dashboard: id,
-                    name: `${name} (Copy)`,
-                    duplicate_tiles: duplicateTiles,
-                })) as DashboardType
+                const result = await api.create<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    {
+                        use_dashboard: id,
+                        name: `${name} (Copy)`,
+                        duplicate_tiles: duplicateTiles,
+                    }
+                )
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
@@ -244,7 +256,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                return [...Object.values(rawDashboards)]
+                return Object.values(rawDashboards)
                     .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
                     .sort(nameCompareFunction)
             },
@@ -276,6 +288,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
+
             if (router.values.location.pathname.includes('onboarding')) {
                 // don't send a toast if we're in onboarding
                 return

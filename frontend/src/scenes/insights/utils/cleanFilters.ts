@@ -5,12 +5,14 @@ import {
     NON_VALUES_ON_SERIES_DISPLAY_TYPES,
     PERCENT_STACK_VIEW_DISPLAY_TYPE,
     RETENTION_FIRST_TIME,
+    RETENTION_MEAN_NONE,
     ShownAsValue,
 } from 'lib/constants'
 import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
+    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -22,6 +24,7 @@ import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsDataLogic'
 
 import {
     AnyFilterType,
+    CalendarHeatmapFilterType,
     ChartDisplayType,
     Entity,
     EntityTypes,
@@ -81,7 +84,7 @@ export const getClampedStepRangeFilter = ({
     }
 
     return {
-        ...(stepRange || {}),
+        ...stepRange,
         funnel_from_step,
         funnel_to_step,
     }
@@ -97,12 +100,11 @@ export const deepCleanFunnelExclusionEvents = (filters: FunnelsFilterType): Funn
         const funnel_from_step = event.funnel_from_step ? clamp(event.funnel_from_step, 0, lastIndex - 1) : 0
         return {
             ...event,
-            ...{ funnel_from_step },
-            ...{
-                funnel_to_step: event.funnel_to_step
-                    ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
-                    : lastIndex,
-            },
+            funnel_from_step,
+
+            funnel_to_step: event.funnel_to_step
+                ? clamp(event.funnel_to_step, funnel_from_step + 1, lastIndex)
+                : lastIndex,
         }
     })
     return exclusions.length > 0 ? exclusions : undefined
@@ -308,6 +310,9 @@ export function cleanFilters(
             breakdown_type: filters.breakdown_type,
             retention_reference: filters.retention_reference,
             show_mean: filters.show_mean,
+            ...(filters.mean_retention_calculation && filters.mean_retention_calculation !== RETENTION_MEAN_NONE
+                ? { mean_retention_calculation: filters.mean_retention_calculation }
+                : { mean_retention_calculation: 'simple' }),
             cumulative: filters.cumulative,
             total_intervals: Math.min(Math.max(filters.total_intervals ?? 11, 0), 100),
             ...(filters.aggregation_group_type_index != undefined
@@ -523,6 +528,13 @@ export function cleanFilters(
     } else if ((filters as any).insight === 'SESSIONS') {
         // DEPRECATED: Used to show deprecation warning for dashboard items
         return cleanFilters({ insight: InsightType.TRENDS })
+    } else if (isCalendarHeatmapFilter(filters)) {
+        const calendarHeatmapFilter: Partial<CalendarHeatmapFilterType> = {
+            insight: InsightType.CALENDAR_HEATMAP,
+            ...filters,
+            ...commonFilters,
+        }
+        return calendarHeatmapFilter
     }
 
     throw new Error(`Unknown insight type "${(filters as any).insight}" given to cleanFilters`)

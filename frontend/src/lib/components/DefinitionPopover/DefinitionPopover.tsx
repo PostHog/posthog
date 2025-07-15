@@ -8,10 +8,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CoreFilterDefinition, UserBasicType } from '~/types'
 
 interface DefinitionPopoverProps {
@@ -67,17 +66,7 @@ function Header({
                 </div>
                 {state === DefinitionPopoverState.View && (
                     <div className="definition-popover-header-row-buttons click-outside-block">
-                        {!hideEdit &&
-                            isViewable &&
-                            (hasTaxonomyFeatures ? (
-                                <Link onClick={onEdit}>Edit</Link>
-                            ) : (
-                                <Tooltip title="Creating and editing definitions require a premium license">
-                                    <Link onClick={onEdit} className="definition-popover-disabled-button">
-                                        Edit
-                                    </Link>
-                                </Tooltip>
-                            ))}
+                        {!hideEdit && isViewable && hasTaxonomyFeatures && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && (
                             <Link
                                 target={openDetailInNewTab ? '_blank' : undefined}
@@ -190,7 +179,7 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
                     <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
                 </div>
             ) : (
-                <span className="text-muted italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>
+                <span className="text-secondary italic inline-flex font-semibold pl-1 whitespace-nowrap">No owner</span>
             )}
         </>
     )

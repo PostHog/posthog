@@ -35,6 +35,7 @@ class TestStickinessFilter(BaseTest):
                         "math": None,
                         "math_hogql": None,
                         "math_property": None,
+                        "math_property_revenue_currency": None,
                         "math_group_type_index": None,
                         "properties": {},
                         "table_name": None,

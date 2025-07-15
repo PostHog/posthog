@@ -2,9 +2,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { actionEditLogic } from 'scenes/actions/actionEditLogic'
 import { actionLogic } from 'scenes/actions/actionLogic'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
-
-import { HogFunctionFiltersType } from '~/types'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
 export function ActionHogFunctions(): JSX.Element | null {
     const { action } = useValues(actionLogic)
@@ -15,18 +13,8 @@ export function ActionHogFunctions(): JSX.Element | null {
         return null
     }
 
-    const filters: HogFunctionFiltersType = {
-        actions: [
-            {
-                id: `${action?.id}`,
-                name: action?.name,
-                type: 'actions',
-            },
-        ],
-    }
-
     return (
-        <div className="my-4 space-y-2">
+        <div className="my-4 deprecated-space-y-2">
             <h2 className="flex-1 subtitle">Connected destinations</h2>
             <p>Actions can be used a filters for destinations such as Slack or Webhook delivery</p>
 
@@ -36,7 +24,17 @@ export function ActionHogFunctions(): JSX.Element | null {
 
             <LinkedHogFunctions
                 type="destination"
-                filters={filters}
+                forceFilterGroups={[
+                    {
+                        actions: [
+                            {
+                                id: `${action.id}`,
+                                name: action.name,
+                                type: 'actions',
+                            },
+                        ],
+                    },
+                ]}
                 newDisabledReason={
                     hasCohortFilters
                         ? "Action with cohort filters can't be used in realtime destinations"

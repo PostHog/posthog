@@ -1,11 +1,17 @@
 import { ComponentType, HTMLProps } from 'react'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema'
-import { ChartDisplayType, GraphPointPayload, InsightLogicProps, TrendResult } from '~/types'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    InsightActorsQuery,
+    QuerySchema,
+    RefreshType,
+} from '~/queries/schema/schema-general'
+import { InsightLogicProps, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
-export interface QueryContext<T = InsightVizNode> {
+export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     /** used to override the value in the query */
@@ -13,26 +19,24 @@ export interface QueryContext<T = InsightVizNode> {
     showQueryEditor?: boolean
     /* Adds help and examples to the query editor component */
     showQueryHelp?: boolean
-    insightProps?: InsightLogicProps<T>
+    insightProps?: InsightLogicProps<Q>
     emptyStateHeading?: string
-    emptyStateDetail?: string
+    emptyStateDetail?: string | JSX.Element
+    renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
-    /** chart-specific rendering context **/
-    chartRenderingMetadata?: ChartRenderingMetadata
-    /** Whether queries should always be refreshed. */
-    alwaysRefresh?: boolean
+    /**
+     * Displayed in insight tooltip's "Click to view {groupTypeLabel}".
+     * Inferred from the query by default, e.g. `people` or `organizations`.
+     */
+    groupTypeLabel?: string
+    /** NOTE: Custom data point click handling is currently only supported for Trends insights. */
+    onDataPointClick?: (series: Pick<InsightActorsQuery, 'day' | 'breakdown' | 'compare'>, data: TrendResult) => void
+    /** Refresh behaviour for queries. */
+    refresh?: RefreshType
     /** Extra source feature for Data Tables */
     extraDataTableQueryFeatures?: QueryFeature[]
-}
-
-/** Pass custom rendering metadata to specific kinds of charts **/
-export interface ChartRenderingMetadata {
-    [ChartDisplayType.WorldMap]?: {
-        countryProps?: (countryCode: string, countryData: TrendResult | undefined) => Omit<HTMLProps<SVGElement>, 'key'>
-    }
-    [ChartDisplayType.ActionsPie]?: {
-        onSegmentClick?: (payload: GraphPointPayload) => void
-    }
+    /** Allow customization of file name when exporting */
+    fileNameForExport?: string
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -45,11 +49,12 @@ export type QueryContextColumnComponent = ComponentType<{
     query: DataTableNode | DataVisualizationNode
     record: unknown
     recordIndex: number
+    rowCount: number
     value: unknown
 }>
 
-interface QueryContextColumn {
-    title?: string
+export interface QueryContextColumn {
+    title?: JSX.Element | string
     renderTitle?: QueryContextColumnTitleComponent
     render?: QueryContextColumnComponent
     align?: 'left' | 'right' | 'center' // default is left

@@ -8,6 +8,12 @@ export const kafkaRebalancePartitionCount = new Gauge({
     labelNames: ['topic'],
 })
 
+export const kafkaConsumerAssignment = new Gauge({
+    name: 'kafka_consumer_assignment',
+    help: 'Kafka consumer partition assignment status',
+    labelNames: ['topic_name', 'partition_id', 'pod', 'group_id'],
+})
+
 export const latestOffsetTimestampGauge = new Gauge({
     name: 'latest_processed_timestamp_ms',
     help: 'Timestamp of the latest offset that has been committed.',
@@ -44,8 +50,8 @@ export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const scheduledTaskCounter = new Counter({
-    name: 'scheduled_task',
-    help: 'Scheduled task status change',
-    labelNames: ['status', 'task'],
+export const cookielessRedisErrorCounter = new Counter({
+    name: 'cookieless_redis_error',
+    help: 'Count redis errors.',
+    labelNames: ['operation'],
 })

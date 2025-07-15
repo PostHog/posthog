@@ -31,14 +31,14 @@ export function CreateOrganizationModal({
 
     return (
         <LemonModal
-            width={480}
+            width={440}
             title="Create an organization"
             description={
                 <p>
                     Organizations gather people building together.
                     <br />
                     <Link to="https://posthog.com/docs/user-guides/organizations-and-projects" target="_blank">
-                        Learn more in PostHog Docs.
+                        Learn more in PostHog docs.
                     </Link>
                 </p>
             }

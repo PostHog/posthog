@@ -4,7 +4,6 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { genericOperatorMap } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
@@ -14,7 +13,9 @@ import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/se
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionReplaySceneLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModelType } from '~/models/cohortsModelType'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { PropertyOperator, SessionRecordingPlaylistType, UniversalFilterValue } from '~/types'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
@@ -79,6 +80,7 @@ export async function updatePlaylist(
     silent: boolean = false
 ): Promise<SessionRecordingPlaylistType> {
     const newPlaylist = await api.recordings.updatePlaylist(shortId, playlist)
+    refreshTreeItem('session_recording_playlist', shortId)
     if (!silent) {
         lemonToast.success('Playlist updated successfully')
     }
@@ -135,7 +137,14 @@ export async function deletePlaylist(
         object: playlist,
         idField: 'short_id',
         endpoint: `projects/@current/session_recording_playlists`,
-        callback: undoCallback,
+        callback: (undo) => {
+            if (undo) {
+                refreshTreeItem('session_recording_playlist', playlist.short_id)
+            } else {
+                deleteFromTree('session_recording_playlist', playlist.short_id)
+            }
+            undoCallback?.()
+        },
     })
     return playlist
 }

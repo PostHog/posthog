@@ -1,5 +1,7 @@
+from datetime import datetime
 import re
 from typing import Any, Optional, Union
+import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -18,7 +20,7 @@ from posthog.warehouse.models.util import (
     remove_named_tuples,
 )
 from posthog.hogql.database.s3_table import S3Table
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
@@ -53,6 +55,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    latest_error = models.TextField(default=None, null=True, blank=True)
     columns = models.JSONField(
         default=dict,
         null=True,
@@ -68,7 +71,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         null=True,
         help_text="The timestamp of this SavedQuery's last run (if any).",
     )
+    sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
+
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    # The name of the view at the time of soft deletion
+    deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -77,6 +84,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 name="posthog_datawarehouse_saved_query_unique_name",
             )
         ]
+
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
+
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.deleted_name = self.name
+        self.name = f"POSTHOG_DELETED_{uuid.uuid4()}"
+
+        self.save()
 
     def get_columns(self) -> dict[str, dict[str, Any]]:
         from posthog.api.services.query import process_query_dict
@@ -138,23 +157,36 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         return f"team_{self.team.pk}_model_{self.id.hex}/modeling"
 
     @property
+    def normalized_name(self):
+        return NamingConvention().normalize_identifier(self.name)
+
+    @property
     def url_pattern(self):
-        normalized_name = NamingConvention().normalize_identifier(self.name)
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{normalized_name}"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_model_{self.id.hex}/modeling/{self.normalized_name}"
+
+    @property
+    def is_materialized(self):
+        return self.table is not None and (
+            self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None
+        )
 
     def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> Union[SavedQuery, S3Table]:
-        from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
+        if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
+            return self.table.hogql_definition(modifiers)
 
         columns = self.columns or {}
-
         fields: dict[str, FieldOrTable] = {}
-        structure = []
+
+        from posthog.warehouse.models.table import CLICKHOUSE_HOGQL_MAPPING
+
         for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type
-            else:
+            elif isinstance(type, dict):
                 clickhouse_type = type["clickhouse"]
+            else:
+                raise Exception(f"Unknown column type: {type}")  # Never reached
 
             if clickhouse_type.startswith("Nullable("):
                 clickhouse_type = clickhouse_type.replace("Nullable(", "")[:-1]
@@ -163,37 +195,23 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if clickhouse_type.startswith("Array("):
                 clickhouse_type = remove_named_tuples(clickhouse_type)
 
-            if isinstance(type, dict):
-                column_invalid = not type.get("valid", True)
-            else:
-                column_invalid = False
-
-            if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
-                structure.append(f"`{column}` {clickhouse_type}")
-
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
                 hogql_type = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str]
-            else:
+            elif isinstance(type, dict):
                 hogql_type = STR_TO_HOGQL_MAPPING[type["hogql"]]
+            else:
+                raise Exception(f"Unknown column type: {type}")  # Never reached
 
             fields[column] = hogql_type(name=column)
 
-        if (
-            self.table is not None
-            and (self.status == DataWarehouseSavedQuery.Status.COMPLETED or self.last_run_at is not None)
-            and modifiers is not None
-            and modifiers.useMaterializedViews
-        ):
-            return self.table.hogql_definition(modifiers)
-        else:
-            return SavedQuery(
-                id=str(self.id),
-                name=self.name,
-                query=self.query["query"],
-                fields=fields,
-            )
+        return SavedQuery(
+            id=str(self.id),
+            name=self.name,
+            query=self.query["query"],
+            fields=fields,
+        )
 
 
 @database_sync_to_async
@@ -212,4 +230,4 @@ def asave_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
 
 @database_sync_to_async
 def aget_table_by_saved_query_id(saved_query_id: str, team_id: int):
-    return DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=team_id).table
+    return DataWarehouseSavedQuery.objects.exclude(deleted=True).get(id=saved_query_id, team_id=team_id).table

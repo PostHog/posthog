@@ -12,6 +12,7 @@ export function createIncomingRecordingMessage(
     // that has properties, and they have $snapshot_data
     // that will have data_items, which are the actual snapshots each individually compressed
 
+    // @ts-expect-error TODO: Fix type mismatches
     return {
         team_id: 1,
         distinct_id: 'distinct_id',

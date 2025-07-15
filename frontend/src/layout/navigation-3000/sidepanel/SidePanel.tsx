@@ -1,14 +1,16 @@
 import './SidePanel.scss'
 
-import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
+import { IconEllipsis, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
+import { userLogic } from 'scenes/userLogic'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
     SidePanelExports,
     SidePanelExportsIcon,
@@ -16,21 +18,37 @@ import {
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
+import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
-import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
+import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
-import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
+    [SidePanelTab.Max]: {
+        label: 'Max AI',
+        Icon: function IconMaxFromHedgehogConfig() {
+            const { user } = useValues(userLogic)
+            return (
+                <ProfilePicture
+                    user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
+                    size="md"
+                    className="border bg-bg-light -scale-x-100" // Flip the hedegehog to face the scene
+                />
+            )
+        },
+        Content: SidePanelMax,
+        noModalSupport: true,
+    },
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
         Icon: IconNotebook,
@@ -60,12 +78,6 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelSettings,
     },
 
-    [SidePanelTab.FeaturePreviews]: {
-        label: 'Feature previews',
-        Icon: IconFeatures,
-        Content: SidePanelFeaturePreviews,
-    },
-
     [SidePanelTab.Activity]: {
         label: 'Team activity',
         Icon: SidePanelActivityIcon,
@@ -87,6 +99,11 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelStatus,
         noModalSupport: true,
     },
+    [SidePanelTab.AccessControl]: {
+        label: 'Access control',
+        Icon: IconLock,
+        Content: SidePanelAccessControl,
+    },
 }
 
 const DEFAULT_WIDTH = 512
@@ -99,7 +116,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const PanelContent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -121,7 +138,7 @@ export function SidePanel(): JSX.Element | null {
         return () => {
             setSidePanelAvailable(false)
         }
-    }, [])
+    }, [setSidePanelAvailable])
 
     if (!visibleTabs.length) {
         return null
@@ -151,12 +168,12 @@ export function SidePanel(): JSX.Element | null {
         return (
             <LemonModal
                 simple
-                isOpen={!!PanelConent && supportsModal}
+                isOpen={!!PanelContent && supportsModal}
                 onClose={closeSidePanel}
                 hideCloseButton
                 width="40rem"
             >
-                {PanelConent ? <PanelConent /> : null}
+                {PanelContent ? <PanelContent /> : null}
             </LemonModal>
         )
     }
@@ -172,8 +189,9 @@ export function SidePanel(): JSX.Element | null {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
-                ...(theme?.sidebarStyle ?? {}),
+                ...theme?.sidebarStyle,
             }}
+            id="side-panel"
         >
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
@@ -208,11 +226,14 @@ export function SidePanel(): JSX.Element | null {
                     </div>
                 ) : null}
             </div>
-            <Resizer {...resizerLogicProps} offset="3rem" />
 
-            {PanelConent ? (
+            {PanelContent ? (
                 <div className="SidePanel3000__content">
-                    <PanelConent />
+                    <WithinSidePanelContext.Provider value={true}>
+                        <ErrorBoundary>
+                            <PanelContent />
+                        </ErrorBoundary>
+                    </WithinSidePanelContext.Provider>
                 </div>
             ) : null}
         </div>

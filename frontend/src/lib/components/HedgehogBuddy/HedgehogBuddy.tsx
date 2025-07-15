@@ -156,7 +156,7 @@ export class HedgehogActor {
         })
 
         this.setAnimation('stop', {})
-        this.direction = sampleOne(['left', 'right'])
+        this.direction = this.hedgehogConfig.fixed_direction || sampleOne(['left', 'right'])
         this.xVelocity = this.direction === 'left' ? -5 : 5
         this.jump()
     }
@@ -180,6 +180,12 @@ export class HedgehogActor {
                 keys: ['s', 'p', 'i', 'd', 'e', 'r', 'h', 'o', 'g'],
                 action: () => {
                     this.hedgehogConfig.skin = 'spiderhog'
+                },
+            },
+            {
+                keys: ['r', 'o', 'b', 'o', 'h', 'o', 'g'],
+                action: () => {
+                    this.hedgehogConfig.skin = 'robohog'
                 },
             },
             {
@@ -249,14 +255,18 @@ export class HedgehogActor {
                     this.setAnimation('walk')
                 }
 
-                this.direction = ['arrowleft', 'a'].includes(key) ? 'left' : 'right'
-                this.xVelocity = this.direction === 'left' ? -5 : 5
+                if (!this.hedgehogConfig.fixed_direction) {
+                    this.direction = ['arrowleft', 'a'].includes(key) ? 'left' : 'right'
+                    this.xVelocity = this.direction === 'left' ? -5 : 5
 
-                const moonwalk = e.shiftKey
-                if (moonwalk) {
-                    this.direction = this.direction === 'left' ? 'right' : 'left'
-                    // Moonwalking is hard so he moves slightly slower of course
-                    this.xVelocity *= 0.8
+                    const moonwalk = e.shiftKey
+                    if (moonwalk) {
+                        this.direction = this.direction === 'left' ? 'right' : 'left'
+                        // Moonwalking is hard so he moves slightly slower of course
+                        this.xVelocity *= 0.8
+                    }
+                } else {
+                    this.xVelocity = ['arrowleft', 'a'].includes(key) ? -5 : 5
                 }
             }
         }
@@ -340,7 +350,10 @@ export class HedgehogActor {
             (spriteInfo.maxIteration ? Math.max(1, Math.floor(Math.random() * spriteInfo.maxIteration)) : null)
 
         if (this.mainAnimation.name !== 'stop') {
-            this.direction = this.mainAnimation.spriteInfo.forceDirection || sampleOne(['left', 'right'])
+            this.direction =
+                this.hedgehogConfig.fixed_direction ||
+                this.mainAnimation.spriteInfo.forceDirection ||
+                sampleOne(['left', 'right'])
         }
 
         if (animationName === 'walk') {
@@ -384,17 +397,20 @@ export class HedgehogActor {
         }
     }
 
-    setRandomAnimation(): void {
+    setRandomAnimation(exclude: AnimationName[] = []): void {
         if (this.mainAnimation?.name !== 'stop') {
             this.setAnimation('stop')
         } else {
             let randomChoiceList = Object.keys(this.animations()).reduce((acc, key) => {
-                return [...acc, ...range(this.animations()[key].randomChance || 0).map(() => key)] as AnimationName[]
+                const newItems = range(this.animations()[key].randomChance || 0).map(() => key as AnimationName)
+                acc.push(...newItems)
+                return acc
             }, [] as AnimationName[])
 
             randomChoiceList = this.hedgehogConfig.walking_enabled
                 ? randomChoiceList
                 : randomChoiceList.filter((x) => x !== 'walk')
+            randomChoiceList = randomChoiceList.filter((x) => !exclude.includes(x))
             this.setAnimation(sampleOne(randomChoiceList))
         }
     }
@@ -503,7 +519,9 @@ export class HedgehogActor {
             this.x = 0
             if (!this.isControlledByUser) {
                 this.xVelocity = -this.xVelocity
-                this.direction = 'right'
+                if (!this.hedgehogConfig.fixed_direction) {
+                    this.direction = 'right'
+                }
             }
         }
 
@@ -511,7 +529,9 @@ export class HedgehogActor {
             this.x = window.innerWidth - SPRITE_SIZE
             if (!this.isControlledByUser) {
                 this.xVelocity = -this.xVelocity
-                this.direction = 'left'
+                if (!this.hedgehogConfig.fixed_direction) {
+                    this.direction = 'left'
+                }
             }
         }
     }
@@ -545,7 +565,9 @@ export class HedgehogActor {
                 this.yVelocity = -this.yVelocity * 0.4
             }
             this.x = this.x + this.xVelocity
-            this.direction = this.xVelocity > 0 ? 'right' : 'left'
+            if (!this.hedgehogConfig.fixed_direction) {
+                this.direction = this.xVelocity > 0 ? 'right' : 'left'
+            }
 
             return
         }
@@ -775,7 +797,7 @@ export class HedgehogActor {
                             ref?.(r)
                         }
                     }}
-                    className="HedgehogBuddy cursor-pointer m-0"
+                    className="m-0 cursor-pointer HedgehogBuddy"
                     data-content={preloadContent}
                     onTouchStart={this.static ? undefined : () => onTouchOrMouseStart()}
                     onMouseDown={this.static ? undefined : () => onTouchOrMouseStart()}
@@ -799,8 +821,8 @@ export class HedgehogActor {
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 // NOTE: Some styles done here to avoid it showing as an interactable element (via border)
-                                border: '1px solid var(--border)',
-                                backgroundColor: 'var(--bg-light)',
+                                border: '1px solid var(--border-primary)',
+                                backgroundColor: 'var(--bg-surface-primary)',
                             }}
                         >
                             {this.tooltip}
@@ -828,17 +850,22 @@ export class HedgehogActor {
                                     }px`,
                                     backgroundSize: (SPRITE_SIZE / SPRITE_SIZE) * X_FRAMES * 100 + '%',
                                     filter: imageFilter as any,
-                                    ...(this.mainAnimation.spriteInfo.style ?? {}),
+                                    ...this.mainAnimation.spriteInfo.style,
                                 }}
                             />
                         ) : null}
 
                         {this.accessories().map((accessory, index) => (
                             <div
-                                className={`absolute top-0 left-0 w-[${SPRITE_SIZE}px] h-[${SPRITE_SIZE}px] rendering-pixelated`}
+                                className="absolute rendering-pixelated"
                                 key={index}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    top: 0,
+                                    left: 0,
+                                    // NOTE: Don't use tailwind here as it can't pre-compute these values
+                                    width: SPRITE_SIZE,
+                                    height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteAccessoryUrl(accessory.img)})`,
                                     transform: accessoryPosition
                                         ? `translate3d(${accessoryPosition[0]}px, ${accessoryPosition[1]}px, 0)`
@@ -849,16 +876,18 @@ export class HedgehogActor {
                         ))}
                         {this.overlayAnimation ? (
                             <div
-                                className="absolute top-0 left-0 rendering-pixelated"
+                                className="absolute rendering-pixelated"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{
+                                    top: 0,
+                                    left: 0,
                                     width: SPRITE_SIZE,
                                     height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
                                     backgroundPosition: `-${
                                         (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
                                     }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
-                                    ...(this.overlayAnimation.spriteInfo.style ?? {}),
+                                    ...this.overlayAnimation.spriteInfo.style,
                                 }}
                             />
                         ) : null}
@@ -921,6 +950,9 @@ export const HedgehogBuddy = React.forwardRef<HTMLDivElement, HedgehogBuddyProps
         if (hedgehogConfig) {
             actor.hedgehogConfig = hedgehogConfig
             actor.setAnimation(hedgehogConfig.walking_enabled ? 'walk' : 'stop')
+            if (hedgehogConfig.fixed_direction) {
+                actor.direction = hedgehogConfig.fixed_direction
+            }
         }
     }, [hedgehogConfig])
 
@@ -1005,13 +1037,13 @@ export function MyHedgehogBuddy({
             fallbackPlacements={['bottom', 'left', 'right']}
             overflowHidden
             overlay={
-                <div className="max-w-140 flex flex-col flex-1 overflow-hidden">
-                    <ScrollableShadows className="flex-1 overflow-y-auto" direction="vertical">
+                <div className="flex overflow-hidden flex-col flex-1 max-w-140">
+                    <ScrollableShadows className="overflow-y-auto flex-1" direction="vertical">
                         <div className="p-2">
                             <HedgehogOptions />
                         </div>
                     </ScrollableShadows>
-                    <div className="flex shrink-0 justify-end gap-2 p-2 border-t">
+                    <div className="flex gap-2 justify-end p-2 border-t shrink-0">
                         <LemonButton type="secondary" status="danger" onClick={disappear}>
                             Good bye!
                         </LemonButton>
@@ -1032,7 +1064,7 @@ export function MyHedgehogBuddy({
                 hedgehogConfig={hedgehogConfig}
                 tooltip={
                     hedgehogConfig.party_mode_enabled ? (
-                        <div className="whitespace-nowrap flex items-center justify-center p-2">
+                        <div className="flex justify-center items-center p-2 whitespace-nowrap">
                             <ProfilePicture user={user} size="md" showName />
                         </div>
                     ) : undefined
@@ -1076,7 +1108,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                         <ProfilePicture user={member.user} size="xl" showName />
                     </div>
 
-                    <div className="flex items-end gap-2 border-t p-3">
+                    <div className="flex gap-2 items-end p-3 border-t">
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -1099,7 +1131,7 @@ export function MemberHedgehogBuddy({ member }: { member: OrganizationMemberType
                 onClick={onClick}
                 hedgehogConfig={memberHedgehogConfig}
                 tooltip={
-                    <div className="whitespace-nowrap flex items-center justify-center p-2">
+                    <div className="flex justify-center items-center p-2 whitespace-nowrap">
                         <ProfilePicture user={member.user} size="md" showName />
                     </div>
                 }

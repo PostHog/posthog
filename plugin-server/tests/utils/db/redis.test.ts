@@ -18,8 +18,8 @@ describe('Redis', () => {
 
         it('should respond with unique options if all values set', () => {
             expect(getRedisConnectionOptions(config, 'posthog')).toMatchInlineSnapshot(`
-                Object {
-                  "options": Object {
+                {
+                  "options": {
                     "password": "posthog-password",
                     "port": 6379,
                   },
@@ -27,16 +27,16 @@ describe('Redis', () => {
                 }
             `)
             expect(getRedisConnectionOptions(config, 'ingestion')).toMatchInlineSnapshot(`
-                Object {
-                  "options": Object {
+                {
+                  "options": {
                     "port": 6479,
                   },
                   "url": "ingestion-redis",
                 }
             `)
             expect(getRedisConnectionOptions(config, 'session-recording')).toMatchInlineSnapshot(`
-                Object {
-                  "options": Object {
+                {
+                  "options": {
                     "port": 6579,
                   },
                   "url": "session-recording-redis",
@@ -50,17 +50,17 @@ describe('Redis', () => {
             config.POSTHOG_SESSION_RECORDING_REDIS_HOST = ''
 
             expect(getRedisConnectionOptions(config, 'posthog')).toMatchInlineSnapshot(`
-                Object {
+                {
                   "url": "redis://localhost:6379",
                 }
             `)
             expect(getRedisConnectionOptions(config, 'ingestion')).toMatchInlineSnapshot(`
-                Object {
+                {
                   "url": "redis://localhost:6379",
                 }
             `)
             expect(getRedisConnectionOptions(config, 'session-recording')).toMatchInlineSnapshot(`
-                Object {
+                {
                   "url": "redis://localhost:6379",
                 }
             `)
@@ -70,8 +70,8 @@ describe('Redis', () => {
             config.INGESTION_REDIS_HOST = ''
 
             expect(getRedisConnectionOptions(config, 'ingestion')).toMatchInlineSnapshot(`
-                Object {
-                  "options": Object {
+                {
+                  "options": {
                     "password": "posthog-password",
                     "port": 6379,
                   },

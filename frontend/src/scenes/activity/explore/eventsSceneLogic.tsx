@@ -10,14 +10,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
-    connect({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),

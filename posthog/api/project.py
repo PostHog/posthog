@@ -1,26 +1,26 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
+from django.db import transaction
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
-from posthog.api.team import (
-    PremiumMultiProjectPermissions,
-    TeamSerializer,
-    validate_team_attrs,
-)
+from posthog.api.team import TeamSerializer, validate_team_attrs
+from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
+    Change,
     Detail,
     dict_changes_between,
     load_activity,
@@ -28,16 +28,17 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.organization import OrganizationMembership
+from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
+    ProductIntentSerializer,
     calculate_product_activation,
 )
 from posthog.models.project import Project
-from posthog.models.scopes import APIScopeObjectOrNotSupported
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data, actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
     APIScopePermission,
@@ -45,13 +46,17 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    CREATE_ACTIONS,
+    get_organization_from_view,
 )
+
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
     get_ip_address,
     get_week_start_for_country_code,
 )
+from posthog.api.team import TEAM_CONFIG_FIELDS_SET
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -64,6 +69,7 @@ class ProjectSerializer(serializers.ModelSerializer):
 class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()  # Compat with TeamSerializer
     has_group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    group_types = serializers.SerializerMethodField()  # Compat with TeamSerializer
     live_events_token = serializers.SerializerMethodField()  # Compat with TeamSerializer
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
 
@@ -77,8 +83,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "created_at",
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer
+            "group_types",  # Compat with TeamSerializer
             "live_events_token",  # Compat with TeamSerializer
-            "updated_at",
+            "updated_at",  # Compat with TeamSerializer
             "uuid",  # Compat with TeamSerializer
             "api_token",  # Compat with TeamSerializer
             "app_urls",  # Compat with TeamSerializer
@@ -106,8 +113,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_minimum_duration_milliseconds",  # Compat with TeamSerializer
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
+            "session_recording_masking_config",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
-            "survey_config",
+            "survey_config",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
@@ -122,6 +130,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "surveys_opt_in",  # Compat with TeamSerializer
             "heatmaps_opt_in",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
+            "flags_persistence_default",  # Compat with TeamSerializer
+            "secret_api_token",  # Compat with TeamSerializer
+            "secret_api_token_backup",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -129,6 +140,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "organization",
             "effective_membership_level",
             "has_group_types",
+            "group_types",
             "live_events_token",
             "created_at",
             "api_token",
@@ -137,6 +149,8 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "default_modifiers",
             "person_on_events_querying_enabled",
             "product_intents",
+            "secret_api_token",
+            "secret_api_token_backup",
         )
 
         team_passthrough_fields = {
@@ -168,6 +182,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_masking_config",
             "session_replay_config",
             "survey_config",
             "access_control",
@@ -183,6 +198,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "flags_persistence_default",
+            "secret_api_token",
+            "secret_api_token_backup",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -190,7 +208,12 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=project.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=project.id).exists()
+
+    def get_group_types(self, project: Project) -> list[dict[str, Any]]:
+        return list(
+            GroupTypeMapping.objects.filter(project_id=project.id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
@@ -215,6 +238,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
         return TeamSerializer.validate_session_recording_network_payload_capture_config(value)
+
+    @staticmethod
+    def validate_session_recording_masking_config(value) -> dict | None:
+        return TeamSerializer.validate_session_recording_masking_config(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
@@ -343,14 +370,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
         should_team_be_saved_too = False
         for attr, value in validated_data.items():
-            if attr in self.Meta.team_passthrough_fields:
+            if attr not in self.Meta.team_passthrough_fields:
+                # This attr is a Project field
+                setattr(instance, attr, value)
+            else:
+                # This attr is actually on the Project's passthrough Team
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
-            else:
-                if attr == "name":  # `name` should be updated on _both_ the Project and Team
-                    should_team_be_saved_too = True
-                    setattr(team, attr, value)
-                setattr(instance, attr, value)
 
         instance.save()
         if should_team_be_saved_too:
@@ -395,7 +421,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return instance
 
 
-class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """
@@ -420,6 +446,23 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return ProjectBackwardCompatBasicSerializer
         return super().get_serializer_class()
 
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # Used for the AccessControlViewSetMixin
+        mixin_result = super().dangerously_get_required_scopes(request, view)
+        if mixin_result is not None:
+            return mixin_result
+
+        # If the request only contains config fields, require read:team scope
+        # Otherwise, require write:team scope (handled by APIScopePermission)
+        if self.action == "partial_update":
+            request_fields = set(request.data.keys())
+            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+            if not non_team_config_fields:
+                return ["project:read"]
+
+        # Fall back to the default behavior
+        return None
+
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def dangerously_get_permissions(self) -> list:
         """
@@ -429,7 +472,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
-            PremiumMultiProjectPermissions,
+            PremiumMultiProjectPermission,
             *self.permission_classes,
         ]
 
@@ -538,6 +581,32 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
     @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.rotate_secret_token_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        # Only ADMIN or higher users are allowed to access this project
+        permission_classes=[TeamMemberStrictManagementPermission],
+    )
+    def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        project.passthrough_team.delete_secret_token_backup_and_save(
+            user=request.user, is_impersonated_session=is_impersonated_session(request)
+        )
+        return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
+
+    @action(
         methods=["GET"],
         detail=True,
         permission_classes=[IsAuthenticated],
@@ -566,46 +635,33 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(
         methods=["PATCH"],
         detail=True,
+        required_scopes=["team:read"],
     )
     def add_product_intent(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
         team = project.passthrough_team
         user = request.user
-        product_type = request.data.get("product_type")
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
 
-        if not product_type:
-            return response.Response({"error": "product_type is required"}, status=400)
+        serializer = ProductIntentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
-        if not created:
-            if not product_intent.activated_at:
-                product_intent.check_and_update_activation()
-            product_intent.updated_at = datetime.now(tz=UTC)
-            product_intent.save()
-
-        if isinstance(user, User) and not product_intent.activated_at:
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
+        ProductIntent.register(
+            team=team,
+            product_type=serializer.validated_data["product_type"],
+            context=serializer.validated_data["intent_context"],
+            user=cast(User, user),
+            metadata={**serializer.validated_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+        )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=201)
 
-    @action(methods=["PATCH"], detail=True)
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        required_scopes=["team:read"],
+    )
     def complete_product_onboarding(self, request: request.Request, *args, **kwargs):
         project = self.get_object()
         team = project.passthrough_team
@@ -617,27 +673,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
 
-        product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
+        product_intent_serializer = ProductIntentSerializer(data=request.data)
+        product_intent_serializer.is_valid(raise_exception=True)
+        intent_data = product_intent_serializer.validated_data
 
-        if created and isinstance(user, User):
-            report_user_action(
-                user,
-                "user showed product intent",
-                {
-                    "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
-                    "$current_url": current_url,
-                    "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
-                    "is_first_intent_for_product": created,
-                    "intent_created_at": product_intent.created_at,
-                    "intent_updated_at": product_intent.updated_at,
-                    "realm": get_instance_realm(),
-                },
-                team=team,
-            )
-        product_intent.onboarding_completed_at = datetime.now(tz=UTC)
-        product_intent.save()
+        product_intent = ProductIntent.register(
+            team=team,
+            product_type=product_type,
+            context=intent_data["intent_context"],
+            user=cast(User, user),
+            metadata={**intent_data["metadata"], "$current_url": current_url, "$session_id": session_id},
+            is_onboarding=True,
+        )
 
         if isinstance(user, User):  # typing
             report_user_action(
@@ -647,7 +694,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "product_key": product_type,
                     "$current_url": current_url,
                     "$session_id": session_id,
-                    "intent_context": request.data.get("intent_context"),
+                    "intent_context": intent_data["intent_context"],
                     "intent_created_at": product_intent.created_at,
                     "intent_updated_at": product_intent.updated_at,
                     "realm": get_instance_realm(),
@@ -657,9 +704,90 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
+    @action(methods=["POST"], detail=True)
+    def change_organization(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        project = self.get_object()
+        user = cast(User, request.user)
+
+        target_organization_id = request.data.get("organization_id")
+        current_organization = project.organization
+
+        try:
+            target_organization = Organization.objects.get(pk=target_organization_id)
+            current_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=current_organization
+            )
+            target_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=target_organization
+            )
+
+            if (
+                current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+            ):
+                raise exceptions.ValidationError(
+                    "You must be an admin of both the source and target organizations to move a project."
+                )
+
+        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+        if project.organization_id == target_organization_id:
+            raise exceptions.ValidationError("Project is already in the target organization.")
+
+        teams = list(project.teams.all())
+
+        with transaction.atomic():
+            project.organization_id = target_organization_id
+            project.save()
+
+            log_activity(
+                organization_id=cast(UUIDT, target_organization_id),
+                team_id=project.pk,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                scope="Project",
+                item_id=project.pk,
+                activity="updated",
+                detail=Detail(
+                    name="moved to another organization",
+                    changes=[
+                        Change(
+                            type="Project",
+                            action="changed",
+                            field="organization_id",
+                            before=str(current_organization.id),
+                            after=str(target_organization.id),
+                        )
+                    ],
+                ),
+            )
+
+            for team in teams:
+                team.organization_id = target_organization_id
+                team.save()
+
+        report_user_action(
+            user,
+            f"project moved to another organization",
+            {
+                "project_id": project.id,
+                "project_name": project.name,
+                "old_organization_id": current_organization.id,
+                "old_organization_name": current_organization.name,
+                "new_organization_id": target_organization_id,
+                "new_organization_name": target_organization.name,
+            },
+            team=teams[0],
+        )
+
+        return response.Response(
+            ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
+        )
+
     @cached_property
     def user_permissions(self):
-        project = self.get_object() if self.action == "reset_token" else None
+        project = self.get_object() if self.action in actions_that_require_current_team else None
         team = project.passthrough_team if project else None
         return UserPermissions(cast(User, self.request.user), team)
 
@@ -668,3 +796,41 @@ class RootProjectViewSet(ProjectViewSet):
     # NOTE: We don't want people creating projects via the "current_organization" concept, but rather specify the org ID
     # in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
+
+
+class PremiumMultiProjectPermission(BasePermission):
+    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+
+    message = "You must upgrade your PostHog plan to be able to create and manage more projects."
+
+    def has_permission(self, request: request.Request, view) -> bool:
+        if view.action not in CREATE_ACTIONS:
+            return True
+
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return False
+
+        if request.data.get("is_demo"):
+            # If we're requesting to make a demo project but the org already has a demo project
+            if organization.teams.filter(is_demo=True).count() > 0:
+                return False
+
+        current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
+        projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        if projects_feature:
+            allowed_project_count = projects_feature.get("limit")
+            # If allowed_project_count is None then the user is allowed unlimited projects
+            if allowed_project_count is None:
+                return True
+            # Check current limit against allowed limit
+            if current_non_demo_project_count >= allowed_project_count:
+                return False
+        else:
+            # If the org doesn't have the feature, they can only have one non-demo project
+            if current_non_demo_project_count >= 1:
+                return False
+
+        # in any other case, we're good to go
+        return True

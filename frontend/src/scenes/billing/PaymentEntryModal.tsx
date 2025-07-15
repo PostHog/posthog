@@ -1,23 +1,23 @@
-import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { useActions, useValues } from 'kea'
-import { WavingHog } from 'lib/components/hedgehogs'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
 
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
 
 export const PaymentForm = (): JSX.Element => {
-    const { error, isLoading } = useValues(paymentEntryLogic)
-    const { setError, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } = useActions(paymentEntryLogic)
+    const { stripeError, isLoading } = useValues(paymentEntryLogic)
+    const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
+        useActions(paymentEntryLogic)
 
     const stripe = useStripe()
     const elements = useElements()
 
-    // @ts-expect-error
-    const handleSubmit = async (event): Promise<void> => {
+    const handleSubmit = async (event: React.MouseEvent<HTMLElement>): Promise<void> => {
+        clearErrors()
         event.preventDefault()
         if (!stripe || !elements) {
             return
@@ -33,7 +33,8 @@ export const PaymentForm = (): JSX.Element => {
 
         if (result.error) {
             setLoading(false)
-            setError(result.error.message)
+            setStripeError(result.error.message)
+            posthog.captureException(new Error('payment entry stripe error', { cause: result.error }))
         } else {
             pollAuthorizationStatus(result.paymentIntent.id)
         }
@@ -42,12 +43,12 @@ export const PaymentForm = (): JSX.Element => {
     return (
         <div>
             <PaymentElement />
-            <p className="text-xs text-muted mt-0.5">
+            <p className="text-xs text-secondary mt-0.5">
                 Your card will not be charged but we place a $0.50 hold on it to verify your card that will be released
                 in 7 days.
             </p>
-            {error && <div className="error">{error}</div>}
-            <div className="flex justify-end space-x-2 mt-2">
+            {stripeError && <LemonBanner type="error">{stripeError}</LemonBanner>}
+            <div className="flex justify-end deprecated-space-x-2 mt-2">
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
@@ -59,14 +60,8 @@ export const PaymentForm = (): JSX.Element => {
     )
 }
 
-interface PaymentEntryModalProps {
-    redirectPath?: string | null
-}
-
-export const PaymentEntryModal = ({
-    redirectPath = urls.organizationBilling(),
-}: PaymentEntryModalProps): JSX.Element => {
-    const { clientSecret, paymentEntryModalOpen } = useValues(paymentEntryLogic)
+export const PaymentEntryModal = (): JSX.Element => {
+    const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
 
@@ -84,9 +79,9 @@ export const PaymentEntryModal = ({
 
     useEffect(() => {
         if (paymentEntryModalOpen) {
-            initiateAuthorization(redirectPath)
+            initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, initiateAuthorization, redirectPath])
+    }, [paymentEntryModalOpen, initiateAuthorization])
 
     return (
         <LemonModal
@@ -101,15 +96,23 @@ export const PaymentEntryModal = ({
                     <Elements stripe={stripePromise} options={{ clientSecret }}>
                         <PaymentForm />
                     </Elements>
+                ) : apiError ? (
+                    <div className="flex flex-col gap-2 my-2">
+                        <p className="text-md">
+                            We could not complete your upgrade at this time. Please review the error below and contact
+                            support if you need help.
+                        </p>
+                        <LemonBanner type="error">{apiError}</LemonBanner>
+                    </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
-                        <p className="text-muted text-md mt-4">We're contacting the Hedgehogs for approval.</p>
-                        <div className="flex items-center space-x-2">
-                            <div className="text-4xl">
-                                <Spinner />
-                            </div>
-                            <WavingHog className="w-18 h-18" />
+                        <div className="text-4xl">
+                            <img
+                                src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
+                                alt="Loading animation"
+                            />
                         </div>
+                        <p className="text-secondary text-md mt-4">We're contacting the Hedgehogs for approval.</p>
                     </div>
                 )}
             </div>

@@ -17,7 +17,7 @@ export const getPathFromUrl = (urlOrPath: string): string => {
     try {
         const url = new URL(urlOrPath)
         return url.pathname + url.search + url.hash
-    } catch (e) {
+    } catch {
         return urlOrPath
     }
 }
@@ -34,10 +34,10 @@ export type SidePanelDocsLogicProps = {
 export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     props({} as SidePanelDocsLogicProps),
-    connect({
+    connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions']],
         values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
-    }),
+    })),
 
     actions({
         updatePath: (path: string) => ({ path }),

@@ -1,11 +1,11 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
-import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage, ProjectTreeRef } from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
 import { NODE_STAGE_TO_PIPELINE_TAB } from './pipelineNodeNewLogic'
@@ -29,11 +29,8 @@ type HogFunctionNodeId = {
     backend: PipelineBackend.HogFunction
     id: string
 }
-type ManagedSourceId = {
-    backend: PipelineBackend.ManagedSource
-    id: string
-}
-export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId | ManagedSourceId
+
+export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -42,6 +39,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     actions({
         setCurrentTab: (tab: PipelineNodeTab = PipelineNodeTab.Configuration) => ({ tab }),
         setBreadcrumbTitle: (title: string) => ({ title }),
+        setProjectTreeRef: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
     }),
     reducers(() => ({
         currentTab: [
@@ -54,6 +52,12 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             '',
             {
                 setBreadcrumbTitle: (_, { title }) => title,
+            },
+        ],
+        projectTreeRef: [
+            null as ProjectTreeRef | null,
+            {
+                setProjectTreeRef: (_, { projectTreeRef }) => projectTreeRef,
             },
         ],
     })),
@@ -78,13 +82,15 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             ],
         ],
 
-        activityFilters: [
+        [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.node],
-            (node): ActivityFilters | null => {
+            (node): SidePanelSceneContext | null => {
                 return node.backend === PipelineBackend.Plugin
                     ? {
-                          scope: ActivityScope.PLUGIN,
-                          item_id: `${node.id}`,
+                          activity_scope: ActivityScope.PLUGIN,
+                          activity_item_id: `${node.id}`,
+                          //   access_control_resource: 'plugin',
+                          //   access_control_resource_id: `${node.id}`,
                       }
                     : null
             },
@@ -102,10 +108,6 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                 if (typeof id === 'string') {
                     if (id.indexOf('hog-') === 0) {
                         return { backend: PipelineBackend.HogFunction, id: `${id}`.replace('hog-', '') }
-                    }
-
-                    if (id.indexOf('managed') === 0) {
-                        return { backend: PipelineBackend.ManagedSource, id: `${id}`.replace('managed-', '') }
                     }
 
                     return { backend: PipelineBackend.BatchExport, id }
@@ -136,6 +138,28 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
         [urls.pipelineNode(props.stage as PipelineStage, props.id, ':nodeTab')]: ({ nodeTab }) => {
             if (nodeTab !== values.currentTab && Object.values(PipelineNodeTab).includes(nodeTab as PipelineNodeTab)) {
                 actions.setCurrentTab(nodeTab as PipelineNodeTab)
+            }
+
+            // Redirect managed sources to the new data warehouse source page
+            if (
+                typeof props.id === 'string' &&
+                (props.id.startsWith('managed-') || props.id.startsWith('self-managed-'))
+            ) {
+                router.actions.replace(urls.dataWarehouseSource(props.id.toString()))
+                return
+            }
+
+            // Set the project tree ref from the URL
+            // Use the wildcard 'hog/' type format to match against all possible types without a mapping from the URL
+            const path = router.values.location.pathname
+            const match = path.match(/\/pipeline\/([^/]+)\/hog-([^/]+)\/?/)
+            if (match) {
+                const { projectTreeRef } = values
+                const type = 'hog_function/'
+                const ref = match[2]
+                if (!projectTreeRef || projectTreeRef.type !== type || projectTreeRef.ref !== ref) {
+                    actions.setProjectTreeRef({ type, ref })
+                }
             }
         },
     })),

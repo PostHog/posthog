@@ -1,8 +1,12 @@
-use crate::limiters::redis::RedisLimiter;
+use crate::api::CaptureError;
+use crate::config::KafkaConfig;
+use crate::prometheus::report_dropped_events;
+use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-
 use health::HealthHandle;
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, OwnedHeaders};
@@ -14,12 +18,6 @@ use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
 
-use crate::api::CaptureError;
-use crate::config::KafkaConfig;
-use crate::limiters::overflow::OverflowLimiter;
-use crate::prometheus::report_dropped_events;
-use crate::sinks::Event;
-
 struct KafkaContext {
     liveness: HealthHandle,
 }
@@ -27,7 +25,10 @@ struct KafkaContext {
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
+        if brokers_up {
+            self.liveness.report_healthy_blocking();
+        }
 
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
@@ -112,6 +113,7 @@ pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     partition: Option<OverflowLimiter>,
     main_topic: String,
+    overflow_topic: String,
     historical_topic: String,
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
@@ -121,7 +123,7 @@ pub struct KafkaSink {
 }
 
 impl KafkaSink {
-    pub fn new(
+    pub async fn new(
         config: KafkaConfig,
         liveness: HealthHandle,
         partition: Option<OverflowLimiter>,
@@ -137,6 +139,10 @@ impl KafkaSink {
             .set(
                 "metadata.max.age.ms",
                 config.kafka_metadata_max_age_ms.to_string(),
+            )
+            .set(
+                "topic.metadata.refresh.interval.ms",
+                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
             )
             .set(
                 "message.send.max.retries",
@@ -155,7 +161,8 @@ impl KafkaSink {
             .set(
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
-            );
+            )
+            .set("acks", config.kafka_producer_acks.to_string());
 
         if !&config.kafka_client_id.is_empty() {
             client_config.set("client.id", &config.kafka_client_id);
@@ -169,19 +176,29 @@ impl KafkaSink {
 
         debug!("rdkafka configuration: {:?}", client_config);
         let producer: FutureProducer<KafkaContext> =
-            client_config.create_with_context(KafkaContext { liveness })?;
+            client_config.create_with_context(KafkaContext {
+                liveness: liveness.clone(),
+            })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-        drop(producer.client().fetch_metadata(
-            Some("__consumer_offsets"),
-            Timeout::After(Duration::new(10, 0)),
-        )?);
-        info!("connected to Kafka brokers");
+        // Note: we don't error if we fail to connect as there may be other sinks that report healthy
+        if producer
+            .client()
+            .fetch_metadata(
+                Some("__consumer_offsets"),
+                Timeout::After(Duration::new(10, 0)),
+            )
+            .is_ok()
+        {
+            liveness.report_healthy().await;
+            info!("connected to Kafka brokers");
+        };
 
         Ok(KafkaSink {
             producer,
             partition,
             main_topic: config.kafka_topic,
+            overflow_topic: config.kafka_overflow_topic,
             historical_topic: config.kafka_historical_topic,
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
@@ -208,6 +225,7 @@ impl KafkaSink {
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
+        let distinct_id = event.distinct_id.clone();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -219,9 +237,25 @@ impl KafkaSink {
                     None => false,
                     Some(partition) => partition.is_limited(&event_key),
                 };
+
                 if is_limited {
-                    (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
+                    // Analytics overflow goes to the overflow topic
+                    // we configure to retain partition key or not.
+                    // if is_limited is true, the OverflowLimiter is
+                    // configured and is safe to unwrap here.
+                    counter!(
+                        "capture_events_rerouted_overflow",
+                        &[("reason", "event_key")]
+                    )
+                    .increment(1);
+                    if self.partition.as_ref().unwrap().should_preserve_locality() {
+                        (&self.overflow_topic, Some(event_key.as_str()))
+                    } else {
+                        (&self.overflow_topic, None)
+                    }
                 } else {
+                    // event_key is "<token>:<distinct_id>" for std events or
+                    // "<token>:<ip_addr>" for cookieless events
                     (&self.main_topic, Some(event_key.as_str()))
                 }
             }
@@ -254,16 +288,25 @@ impl KafkaSink {
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: Some(OwnedHeaders::new().insert(Header {
-                key: "token",
-                value: Some(&token),
-            })),
+            headers: Some(
+                OwnedHeaders::new()
+                    .insert(Header {
+                        key: "token",
+                        value: Some(&token),
+                    })
+                    .insert(Header {
+                        key: "distinct_id",
+                        value: Some(&distinct_id),
+                    }),
+            ),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
                     report_dropped_events("kafka_message_size", 1);
-                    Err(CaptureError::EventTooBig)
+                    Err(CaptureError::EventTooBig(
+                        "Event rejected by kafka during send".to_string(),
+                    ))
                 }
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
@@ -286,7 +329,9 @@ impl KafkaSink {
             Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
                 // Rejected by broker due to message size
                 report_dropped_events("kafka_message_size", 1);
-                Err(CaptureError::EventTooBig)
+                Err(CaptureError::EventTooBig(
+                    "Event rejected by kafka broker during ack".to_string(),
+                ))
             }
             Ok(Err((err, _))) => {
                 // Unretriable produce error
@@ -355,13 +400,13 @@ impl Event for KafkaSink {
 mod tests {
     use crate::api::CaptureError;
     use crate::config;
-    use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use health::HealthRegistry;
+    use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use rdkafka::mocking::MockCluster;
@@ -381,16 +426,19 @@ mod tests {
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,
+            false,
         ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_topic_metadata_refresh_interval_ms: 20000,
             kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
+            kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
@@ -400,8 +448,11 @@ mod tests {
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
             kafka_producer_max_retries: 2,
+            kafka_producer_acks: "all".to_string(),
         };
-        let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
+        let sink = KafkaSink::new(config, handle, limiter, None)
+            .await
+            .expect("failed to create sink");
         (cluster, sink)
     }
 
@@ -411,14 +462,16 @@ mod tests {
         // We test different cases in a single test to amortize the startup cost of the producer.
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
+        let distinct_id = "test_distinct_id_123".to_string();
         let event: CapturedEvent = CapturedEvent {
             uuid: uuid_v7(),
-            distinct_id: "id1".to_string(),
+            distinct_id: distinct_id.clone(),
             ip: "".to_string(),
             data: "".to_string(),
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let metadata = ProcessedEventMetadata {
@@ -460,6 +513,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let big_event = ProcessedEvent {
@@ -487,12 +541,13 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                is_cookieless_mode: false,
             },
             metadata: metadata.clone(),
         };
 
         match sink.send(big_event).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {}", err),
             Ok(()) => panic!("should have errored"),
         };
@@ -502,7 +557,7 @@ mod tests {
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {}", err),
             Ok(()) => panic!("should have errored"),
         };

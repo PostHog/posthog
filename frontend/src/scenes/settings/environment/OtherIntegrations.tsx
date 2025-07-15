@@ -11,7 +11,7 @@ export function OtherIntegrations(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { deleteIntegration } = useActions(integrationsLogic)
 
-    const otherIntegrations = integrations?.filter((integration) => integration.kind !== 'slack')
+    const otherIntegrations = integrations?.filter((integration) => !['slack', 'linear'].includes(integration.kind))
 
     const onDeleteClick = (integration: IntegrationType): void => {
         LemonDialog.open({
@@ -36,7 +36,7 @@ export function OtherIntegrations(): JSX.Element {
                 data warehouse or pipeline destinations. To connect a new integration, visit the relevant product area.
             </p>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {otherIntegrations?.length ? (
                     otherIntegrations.map((integration) => (
                         <IntegrationView

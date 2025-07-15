@@ -1,23 +1,44 @@
 import dataclasses
+import typing as t
 
 from django.db import close_old_connections
 from temporalio import activity
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
-
-from posthog.warehouse.models import sync_old_schemas_with_new_schemas, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import (
-    get_sql_schemas_for_source_type,
-    get_snowflake_schemas,
+from posthog.temporal.data_imports.pipelines.bigquery import BigQuerySourceConfig, get_schemas as get_bigquery_schemas
+from posthog.temporal.data_imports.pipelines.doit.source import DoItSourceConfig, doit_list_reports
+from posthog.temporal.data_imports.pipelines.google_sheets.source import (
+    GoogleSheetsServiceAccountSourceConfig,
+    get_schemas as get_google_sheets_schemas,
 )
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
+from posthog.temporal.data_imports.pipelines.mssql import MSSQLSourceConfig, get_schemas as get_mssql_schemas
+from posthog.temporal.data_imports.pipelines.mysql import MySQLSourceConfig, get_schemas as get_mysql_schemas
+from posthog.temporal.data_imports.pipelines.mongo import MongoSourceConfig, get_schemas as get_mongo_schemas
+from posthog.temporal.data_imports.pipelines.postgres import PostgreSQLSourceConfig, get_schemas as get_postgres_schemas
+from posthog.temporal.data_imports.pipelines.schemas import (
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+)
+from posthog.temporal.data_imports.pipelines.snowflake import (
+    SnowflakeSourceConfig,
+    get_schemas as get_snowflake_schemas,
+)
+from posthog.warehouse.models import (
+    ExternalDataSource,
+    sync_old_schemas_with_new_schemas,
+)
 
 
 @dataclasses.dataclass
 class SyncNewSchemasActivityInputs:
     source_id: str
     team_id: int
+
+    @property
+    def properties_to_log(self) -> dict[str, t.Any]:
+        return {
+            "source_id": self.source_id,
+            "team_id": self.team_id,
+        }
 
 
 @activity.defn
@@ -31,61 +52,58 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     schemas_to_sync: list[str] = []
 
-    if source.source_type in [
-        ExternalDataSource.Type.POSTGRES,
-        ExternalDataSource.Type.MYSQL,
-        ExternalDataSource.Type.MSSQL,
-    ]:
+    if source.source_type == ExternalDataSource.Type.POSTGRES:
         if not source.job_inputs:
             return
 
-        host = source.job_inputs.get("host")
-        port = source.job_inputs.get("port")
-        user = source.job_inputs.get("user")
-        password = source.job_inputs.get("password")
-        database = source.job_inputs.get("database")
-        db_schema = source.job_inputs.get("schema")
+        schemas = get_postgres_schemas(PostgreSQLSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = list(schemas.keys())
 
-        using_ssh_tunnel = str(source.job_inputs.get("ssh_tunnel_enabled", False)) == "True"
-        ssh_tunnel_host = source.job_inputs.get("ssh_tunnel_host")
-        ssh_tunnel_port = source.job_inputs.get("ssh_tunnel_port")
-        ssh_tunnel_auth_type = source.job_inputs.get("ssh_tunnel_auth_type")
-        ssh_tunnel_auth_type_username = source.job_inputs.get("ssh_tunnel_auth_type_username")
-        ssh_tunnel_auth_type_password = source.job_inputs.get("ssh_tunnel_auth_type_password")
-        ssh_tunnel_auth_type_passphrase = source.job_inputs.get("ssh_tunnel_auth_type_passphrase")
-        ssh_tunnel_auth_type_private_key = source.job_inputs.get("ssh_tunnel_auth_type_private_key")
+    elif source.source_type == ExternalDataSource.Type.MYSQL:
+        if not source.job_inputs:
+            return
 
-        ssh_tunnel = SSHTunnel(
-            enabled=using_ssh_tunnel,
-            host=ssh_tunnel_host,
-            port=ssh_tunnel_port,
-            auth_type=ssh_tunnel_auth_type,
-            username=ssh_tunnel_auth_type_username,
-            password=ssh_tunnel_auth_type_password,
-            passphrase=ssh_tunnel_auth_type_passphrase,
-            private_key=ssh_tunnel_auth_type_private_key,
-        )
+        schemas = get_mysql_schemas(MySQLSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = list(schemas.keys())
 
-        sql_schemas = get_sql_schemas_for_source_type(
-            ExternalDataSource.Type(source.source_type), host, port, database, user, password, db_schema, ssh_tunnel
-        )
+    elif source.source_type == ExternalDataSource.Type.MSSQL:
+        if not source.job_inputs:
+            return
 
-        schemas_to_sync = list(sql_schemas.keys())
+        schemas = get_mssql_schemas(MSSQLSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = list(schemas.keys())
+
     elif source.source_type == ExternalDataSource.Type.SNOWFLAKE:
         if not source.job_inputs:
             return
 
-        account_id = source.job_inputs.get("account_id")
-        user = source.job_inputs.get("user")
-        password = source.job_inputs.get("password")
-        database = source.job_inputs.get("database")
-        warehouse = source.job_inputs.get("warehouse")
-        sf_schema = source.job_inputs.get("schema")
-        role = source.job_inputs.get("role")
+        schemas = get_snowflake_schemas(SnowflakeSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = list(schemas.keys())
 
-        sql_schemas = get_snowflake_schemas(account_id, database, warehouse, user, password, sf_schema, role)
+    elif source.source_type == ExternalDataSource.Type.BIGQUERY:
+        if not source.job_inputs:
+            return
 
-        schemas_to_sync = list(sql_schemas.keys())
+        schemas = get_bigquery_schemas(BigQuerySourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = list(schemas.keys())
+    elif source.source_type == ExternalDataSource.Type.DOIT:
+        if not source.job_inputs:
+            return
+
+        doit_schemas = doit_list_reports(DoItSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = [name for name, _ in doit_schemas]
+    elif source.source_type == ExternalDataSource.Type.GOOGLESHEETS:
+        if not source.job_inputs:
+            return
+
+        sheets_schemas = get_google_sheets_schemas(GoogleSheetsServiceAccountSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = [name for name, _ in sheets_schemas]
+    elif source.source_type == ExternalDataSource.Type.MONGODB:
+        if not source.job_inputs:
+            return
+
+        schemas = get_mongo_schemas(MongoSourceConfig.from_dict(source.job_inputs))
+        schemas_to_sync = list(schemas.keys())
     else:
         schemas_to_sync = list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING.get(source.source_type, ()))
 

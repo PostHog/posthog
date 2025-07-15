@@ -3,7 +3,6 @@ import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Link, Toolti
 import { useActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
@@ -12,7 +11,7 @@ import { FeatureFlagReleaseType } from '~/types'
 import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 interface Props {
-    distinctId: string
+    distinctId: string | null
     groupTypeIndex?: number
     groups?: { [key: string]: string }
 }
@@ -36,10 +35,10 @@ const featureFlagMatchMapping = {
 }
 
 export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
-    const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
-        relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
-    )
-    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups }))
+    const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
+    const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters, pagination } =
+        useValues(relatedFlagsLogic)
+    const { setSearchTerm, setFilters } = useActions(relatedFlagsLogic)
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
@@ -83,20 +82,18 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
                     <div className="break-words">
-                        {featureFlag.active && featureFlag.value
-                            ? capitalizeFirstLetter(featureFlag.value.toString())
-                            : 'False'}
+                        {featureFlag.active && featureFlag.value ? featureFlag.value.toString() : 'false'}
                     </div>
                 )
             },
         },
         {
             title: (
-                <div className="inline-flex items-center space-x-1">
-                    <div className="">Match evaluation</div>
+                <div className="inline-flex items-center deprecated-space-x-1">
+                    <div>Match evaluation</div>
                     <Tooltip
                         title={
-                            <div className="space-y-2">
+                            <div className="deprecated-space-y-2">
                                 <div>
                                     This column simulates the feature flag evaluation based on the selected distinct ID,
                                     current properties, and groups associated with the user. If the actual flag value
@@ -114,7 +111,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                         }
                         closeDelayMs={200}
                     >
-                        <IconInfo className="text-muted-alt text-base ml-1" />
+                        <IconInfo className="text-secondary text-base ml-1" />
                     </Tooltip>
                 </div>
             ),
@@ -235,7 +232,12 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                     />
                 </div>
             </div>
-            <LemonTable columns={columns} loading={relatedFeatureFlagsLoading} dataSource={filteredMappedFlags} />
+            <LemonTable
+                columns={columns}
+                loading={relatedFeatureFlagsLoading}
+                dataSource={filteredMappedFlags}
+                pagination={pagination}
+            />
         </>
     )
 }

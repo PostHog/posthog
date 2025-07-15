@@ -1,5 +1,6 @@
 import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
@@ -61,6 +62,24 @@ export function SupportForm(): JSX.Element | null {
 
     const dropRef = useRef<HTMLDivElement>(null)
 
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
+        const items = e.clipboardData?.items
+        if (!items) {
+            return
+        }
+
+        // Convert DataTransferItemList to array for iteration
+        const itemsArray = Array.from(items)
+        for (const item of itemsArray) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile()
+                if (file) {
+                    setFilesToUpload([...filesToUpload, file])
+                }
+            }
+        }
+    }
+
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
             setSendSupportRequestValue('message', sendSupportRequest.message + `\n\nAttachment "${fileName}": ${url}`)
@@ -85,7 +104,7 @@ export function SupportForm(): JSX.Element | null {
             formKey="sendSupportRequest"
             id="support-modal-form"
             enableFormOnSubmit
-            className="space-y-4"
+            className="deprecated-space-y-4"
         >
             {!user && (
                 <>
@@ -111,12 +130,18 @@ export function SupportForm(): JSX.Element | null {
                     options={TARGET_AREA_TO_NAME}
                 />
             </LemonField>
+            {sendSupportRequest.target_area === 'error_tracking' && (
+                <LemonBanner type="warning">
+                    This topic is for our Error Tracking <i>product</i>. If you're reporting an error in PostHog please
+                    choose the relevant topic so your submission is sent to the correct team.
+                </LemonBanner>
+            )}
             <LemonField
                 name="message"
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
                 {(props) => (
-                    <div ref={dropRef} className="flex flex-col gap-2">
+                    <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
                         <LemonTextArea
                             placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"

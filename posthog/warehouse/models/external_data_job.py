@@ -5,7 +5,7 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 from posthog.settings import TEST
 from uuid import UUID
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -13,7 +13,12 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         RUNNING = "Running", "Running"
         FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
+
+    class PipelineVersion(models.TextChoices):
+        V1 = "v1-dlt-sync", "v1-dlt-sync"
+        V2 = "v2-non-dlt", "v2-non-dlt"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     pipeline = models.ForeignKey("posthog.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
@@ -24,6 +29,10 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
+
+    pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
+    billable = models.BooleanField(default=True, null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
 
     __repr__ = sane_repr("id")
 

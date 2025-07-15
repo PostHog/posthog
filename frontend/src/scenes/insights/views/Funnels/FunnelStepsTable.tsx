@@ -1,12 +1,13 @@
 import { IconFlag } from '@posthog/icons'
+import { LemonColorButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { compare as compareFn } from 'natural-orderby'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
@@ -19,19 +20,24 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { resultCustomizationsModalLogic } from '../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns } = useValues(funnelDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
 
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const allChecked = flattenedBreakdowns?.every(
@@ -40,6 +46,13 @@ export function FunnelStepsTable(): JSX.Element | null {
     const someChecked = flattenedBreakdowns?.some(
         (b) => !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
     )
+
+    /** :HACKY: We don't want to allow changing of colors in experiments (they can't be
+    saved there). Therefore we use the `disable_baseline` prop on the cached insight passed
+    in by experiments as a measure of detecting wether we are in an experiment context.
+    Likely this can be done in a better way once experiments are re-written to use their own
+    queries. */
+    const showCustomizationIcon = hasInsightColors && !insightProps.cachedInsight?.disable_baseline
 
     const columnsGrouped = [
         {
@@ -63,6 +76,31 @@ export function FunnelStepsTable(): JSX.Element | null {
                         />
                     ),
                     dataIndex: 'breakdown_value',
+                    sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) => {
+                        // Unwrap breakdown values to compare them properly
+                        const valueA = a.breakdown_value?.length == 1 ? a.breakdown_value[0] : a.breakdown_value
+                        const valueB = b.breakdown_value?.length == 1 ? b.breakdown_value[0] : b.breakdown_value
+
+                        // For numeric values, use numeric comparison
+                        if (typeof valueA === 'number' && typeof valueB === 'number') {
+                            return valueA - valueB
+                        }
+
+                        // For string values, use string comparison
+                        const labelA = formatBreakdownLabel(
+                            valueA,
+                            breakdownFilter,
+                            allCohorts.results,
+                            formatPropertyValueForDisplay
+                        )
+                        const labelB = formatBreakdownLabel(
+                            valueB,
+                            breakdownFilter,
+                            allCohorts.results,
+                            formatPropertyValueForDisplay
+                        )
+                        return compareFn()(labelA, labelB)
+                    },
                     render: function RenderBreakdownValue(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
@@ -73,11 +111,26 @@ export function FunnelStepsTable(): JSX.Element | null {
                             breakdown.breakdown_value?.length == 1
                                 ? breakdown.breakdown_value[0]
                                 : breakdown.breakdown_value
-                        const label = formatBreakdownLabel(
-                            value,
-                            breakdownFilter,
-                            cohorts,
-                            formatPropertyValueForDisplay
+
+                        const color = getFunnelsColor(breakdown)
+
+                        const label = (
+                            <div className="flex justify-between items-center">
+                                {formatBreakdownLabel(
+                                    value,
+                                    breakdownFilter,
+                                    allCohorts.results,
+                                    formatPropertyValueForDisplay
+                                )}
+                                {showCustomizationIcon && (
+                                    <LemonColorButton
+                                        onClick={() => openModal(breakdown)}
+                                        color={color}
+                                        type="tertiary"
+                                        size="small"
+                                    />
+                                )}
+                            </div>
                         )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>
@@ -100,9 +153,12 @@ export function FunnelStepsTable(): JSX.Element | null {
                             conversion
                         </>
                     ),
+                    key: 'total_conversion',
                     render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                         percentage(breakdown?.conversionRates?.total ?? 0, 2, true),
                     align: 'right',
+                    sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) =>
+                        (a?.conversionRates?.total ?? 0) - (b?.conversionRates?.total ?? 0),
                 },
             ],
         },
@@ -119,6 +175,7 @@ export function FunnelStepsTable(): JSX.Element | null {
             children: [
                 {
                     title: stepIndex === 0 ? 'Entered' : 'Converted',
+                    key: `step_${stepIndex}_conversion`,
                     render: function RenderCompleted(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
@@ -139,14 +196,16 @@ export function FunnelStepsTable(): JSX.Element | null {
                             ))
                         )
                     },
-
                     align: 'right',
+                    sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) =>
+                        (a.steps?.[stepIndex]?.count ?? 0) - (b.steps?.[stepIndex]?.count ?? 0),
                 },
                 ...(stepIndex === 0
                     ? []
                     : [
                           {
-                              title: 'Dropped off',
+                              title: 'Dropped off',
+                              key: `step_${stepIndex}_dropoff`,
                               render: function RenderDropped(
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
@@ -172,6 +231,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                                   )
                               },
                               align: 'right',
+                              sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) =>
+                                  (a.steps?.[stepIndex]?.droppedOffFromPrevious ?? 0) -
+                                  (b.steps?.[stepIndex]?.droppedOffFromPrevious ?? 0),
                           },
                       ]),
                 {
@@ -182,6 +244,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             so&nbsp;far
                         </>
                     ),
+                    key: `step_${stepIndex}_conversion_so_far`,
                     render: function RenderConversionSoFar(
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
@@ -201,6 +264,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                         )
                     },
                     align: 'right',
+                    sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) =>
+                        (a.steps?.[step.order]?.conversionRates.total ?? 0) -
+                        (b.steps?.[step.order]?.conversionRates.total ?? 0),
                 },
                 ...(stepIndex === 0
                     ? []
@@ -213,6 +279,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       from&nbsp;previous
                                   </>
                               ),
+                              key: `step_${stepIndex}_conversion_from_prev`,
                               render: function RenderConversionFromPrevious(
                                   _: void,
                                   breakdown: FlattenedFunnelStepByBreakdown
@@ -241,6 +308,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                                   )
                               },
                               align: 'right',
+                              sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) =>
+                                  (a.steps?.[step.order]?.conversionRates.fromPrevious ?? 0) -
+                                  (b.steps?.[step.order]?.conversionRates.fromPrevious ?? 0),
                           },
                           {
                               title: (
@@ -250,6 +320,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       time
                                   </>
                               ),
+                              key: `step_${stepIndex}_median_time`,
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.median_conversion_time != undefined
                                       ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, {
@@ -259,6 +330,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                               align: 'right',
                               width: 0,
                               className: 'whitespace-nowrap',
+                              sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) =>
+                                  (a.steps?.[step.order]?.median_conversion_time ?? 0) -
+                                  (b.steps?.[step.order]?.median_conversion_time ?? 0),
                           },
                           {
                               title: (
@@ -268,6 +342,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                       time
                                   </>
                               ),
+                              key: `step_${stepIndex}_average_time`,
                               render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
                                   breakdown.steps?.[step.order]?.average_conversion_time != undefined
                                       ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, {
@@ -277,6 +352,9 @@ export function FunnelStepsTable(): JSX.Element | null {
                               align: 'right',
                               width: 0,
                               className: 'whitespace-nowrap',
+                              sorter: (a: FlattenedFunnelStepByBreakdown, b: FlattenedFunnelStepByBreakdown) =>
+                                  (a.steps?.[step.order]?.average_conversion_time ?? 0) -
+                                  (b.steps?.[step.order]?.average_conversion_time ?? 0),
                           },
                       ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],
@@ -290,8 +368,9 @@ export function FunnelStepsTable(): JSX.Element | null {
             loading={insightLoading}
             rowKey="breakdownIndex"
             rowStatus={(record) => (record.significant ? 'highlighted' : null)}
-            rowRibbonColor={(series) => getSeriesColor(series?.breakdownIndex ?? 0)}
+            rowRibbonColor={getFunnelsColor}
             firstColumnSticky
+            useURLForSorting
         />
     )
 }

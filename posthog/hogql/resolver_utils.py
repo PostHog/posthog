@@ -8,8 +8,21 @@ from posthog.hogql.errors import ResolutionError, SyntaxError
 from posthog.hogql.visitor import clone_expr
 
 
-def lookup_field_by_name(scope: ast.SelectQueryType, name: str, context: HogQLContext) -> Optional[ast.Type]:
+def lookup_field_by_name(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, name: str, context: HogQLContext
+) -> Optional[ast.Type]:
     """Looks for a field in the scope's list of aliases and children for each joined table."""
+
+    if isinstance(scope, ast.SelectSetQueryType):
+        field: Optional[ast.Type] = None
+        for type in scope.types:
+            new_field = lookup_field_by_name(type, name, context)
+            if new_field:
+                if field:
+                    raise ResolutionError(f"Ambiguous query. Found multiple sources for field: {name}")
+                field = new_field
+        return field
+
     if name in scope.aliases:
         return scope.aliases[name]
     else:
@@ -66,8 +79,11 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
             if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()
                 attributes.pop("kind")
-                attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
-                return klass(**attributes)
+                # Query runners use "source" instead of "children" for their source query
+                if "children" in attributes and "source" in klass.model_fields:
+                    attributes["source"] = attributes.pop("children")[0]
+                new_attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
+                return klass(**new_attributes)
         raise SyntaxError(f'Tag of kind "{expr.kind}" not found in schema.')
     else:
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')

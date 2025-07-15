@@ -8,14 +8,14 @@ import {
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 const kafkaEvent: RawKafkaEvent = {
     event: '$pageview',
@@ -53,7 +53,7 @@ describe('eachMessageWebhooksHandlers', () => {
             'testTag'
         )
         await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -84,28 +84,19 @@ describe('eachMessageWebhooksHandlers', () => {
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
         const actionManager = new ActionManager(hub.postgres, hub)
-        const actionMatcher = new ActionMatcher(hub.postgres, actionManager, hub.teamManager)
+        const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
         const hookCannon = new HookCommander(
             hub.postgres,
             hub.teamManager,
-            hub.organizationManager,
             hub.rustyHook,
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        groupTypeManager['groupTypesCache'].set(2, [
-            {
-                organization: 0,
-            },
-            Date.now(),
-        ])
+        await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
 
-        const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
-        organizationManager['availableProductFeaturesCache'].set(2, [
-            [{ name: 'Group Analytics', key: 'group_analytics' }],
-            Date.now(),
-        ])
+        const team = await hub.teamManager.getTeam(2)
+        team!.available_features = ['group_analytics'] // NOTE: Hacky but this will be removed soon
 
         actionManager['ready'] = true
         actionManager['actionCache'] = {
@@ -121,6 +112,7 @@ describe('eachMessageWebhooksHandlers', () => {
                     is_calculating: false,
                     steps: [
                         {
+                            // @ts-expect-error TODO revisit this, but fixing TS for now
                             id: 913,
                             action_id: 69,
                             tag_name: null,
@@ -149,7 +141,7 @@ describe('eachMessageWebhooksHandlers', () => {
             actionMatcher,
             hookCannon,
             groupTypeManager,
-            organizationManager,
+            hub.teamManager,
             hub.postgres
         )
 
@@ -157,16 +149,16 @@ describe('eachMessageWebhooksHandlers', () => {
         // on hookCannon, but that would require a little more setup, and it
         // is at the least testing a little bit more than we were before.
         expect(matchSpy.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
+            {
               "distinctId": "my_id",
               "elementsList": undefined,
               "event": "$pageview",
               "eventUuid": "uuid1",
-              "groups": Object {
-                "organization": Object {
+              "groups": {
+                "organization": {
                   "index": 0,
                   "key": "org_posthog",
-                  "properties": Object {
+                  "properties": {
                     "name": "PostHog",
                   },
                   "type": "organization",
@@ -174,10 +166,10 @@ describe('eachMessageWebhooksHandlers', () => {
               },
               "person_created_at": "2020-02-20T02:15:00.000Z",
               "person_id": "F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC",
-              "person_properties": Object {},
+              "person_properties": {},
               "projectId": 2,
-              "properties": Object {
-                "$groups": Object {
+              "properties": {
+                "$groups": {
                   "organization": "org_posthog",
                 },
                 "$ip": "127.0.0.1",
@@ -188,9 +180,9 @@ describe('eachMessageWebhooksHandlers', () => {
         `)
 
         expect(postWebhookSpy).toHaveBeenCalledTimes(1)
-        expect(JSON.parse(postWebhookSpy.mock.calls[0][0].webhook.body)).toMatchInlineSnapshot(`
-            Object {
-              "text": "[Test Action](/project/2/action/1) was triggered by [my\\\\_id](/project/2/person/my\\\\_id) in organization [PostHog](/project/2/groups/0/org\\\\_posthog)",
+        expect(parseJSON(postWebhookSpy.mock.calls[0][0].webhook.body)).toMatchInlineSnapshot(`
+            {
+              "text": "[Test Action](/project/2/action/1) was triggered by [my\\_id](/project/2/person/my\\_id) in organization [PostHog](/project/2/groups/0/org\\_posthog)",
             }
         `)
     })

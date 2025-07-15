@@ -1,11 +1,10 @@
 import { useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
-import { SavedInsightNode } from '~/queries/schema'
+import { SavedInsightNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -24,7 +23,7 @@ export function SavedInsight({ query: propsQuery, context, embedded, readOnly }:
     if (insightLoading) {
         return (
             <div className="text-center">
-                <Animation type={AnimationType.LaptopHog} />
+                <LoadingBar />
             </div>
         )
     }

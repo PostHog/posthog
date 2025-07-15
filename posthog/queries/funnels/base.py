@@ -71,9 +71,10 @@ class ClickhouseFunnelBase(ABC):
 
         # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
         self._filter.hogql_context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(team.person_on_events_mode)
+
         # Recreate the database with the legacy-alised PoE mode
         self._filter.hogql_context.database = create_hogql_database(
-            team_id=self._team.pk, modifiers=self._filter.hogql_context.modifiers
+            team=self._team, modifiers=self._filter.hogql_context.modifiers
         )
 
         # handle default if window isn't provided
@@ -286,6 +287,7 @@ class ClickhouseFunnelBase(ABC):
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
+            settings={"allow_experimental_analyzer": 0},
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -794,9 +796,9 @@ class ClickhouseFunnelBase(ABC):
                 prop_alias = f"prop_{index}"
                 select_columns.append(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as {prop_alias}")
                 prop_aliases.append(prop_alias)
-            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop"
+            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop_final"
 
-            prop_window = "groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals"
+            prop_window = "groupUniqArray(prop_final) over (PARTITION by aggregation_target) as prop_vals"
 
             return ",".join([basic_prop_selector, *select_columns, final_select, prop_window]), basic_prop_params
         elif self._filter.breakdown_attribution_type in [

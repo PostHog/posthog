@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
@@ -22,10 +23,12 @@ import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { isDataVisualizationNode } from '~/queries/utils'
 import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
+import { TZLabel } from 'lib/components/TZLabel'
 
 interface InsightMetaProps
     extends Pick<
@@ -37,6 +40,7 @@ interface InsightMetaProps
         | 'refresh'
         | 'refreshEnabled'
         | 'loading'
+        | 'loadingQueued'
         | 'rename'
         | 'duplicate'
         | 'dashboardId'
@@ -48,6 +52,7 @@ interface InsightMetaProps
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
+    hasResults?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
@@ -62,6 +67,8 @@ export function InsightMeta({
     refresh,
     refreshEnabled,
     loading,
+    loadingQueued,
+    hasResults,
     rename,
     duplicate,
     moveToDashboard,
@@ -78,13 +85,15 @@ export function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
+
+    // (@zach) Access Control TODO: add access control checks for remove from dashboard
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
     const summary = useSummarizeInsight()(insight.query)
     const refreshDisabledReason =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
-            : loading || !refreshEnabled
+            : loading || loadingQueued || !refreshEnabled
             ? 'Refreshing...'
             : undefined
 
@@ -93,124 +102,45 @@ export function InsightMeta({
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
-            refresh={refresh}
-            refreshDisabledReason={refreshDisabledReason}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            topHeading={<TopHeading query={insight.query} />}
-            meta={
-                <>
-                    <Link to={urls.insightView(short_id, dashboardId, variablesOverride)}>
-                        <h4 title={name} data-attr="insight-card-title">
-                            {name || <i>{summary}</i>}
-                            {loading && (
-                                <Tooltip
-                                    title="This insight is queued to check for newer results. It will be updated soon."
-                                    placement="top-end"
-                                >
-                                    <span className="text-primary text-sm font-medium ml-1.5">
-                                        <Spinner className="mr-1.5 text-base" />
-                                        Refreshing
-                                    </span>
-                                </Tooltip>
-                            )}
-                        </h4>
-                    </Link>
-
-                    {!!insight.description && (
-                        <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
-                            {insight.description}
-                        </LemonMarkdown>
-                    )}
-                    {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
-
-                    {loading && <LemonTableLoader loading={true} />}
-                </>
+            detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
+            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
+            content={
+                <InsightMetaContent
+                    link={urls.insightView(short_id, dashboardId, variablesOverride)}
+                    title={name}
+                    fallbackTitle={summary}
+                    description={insight.description}
+                    loading={loading}
+                    loadingQueued={loadingQueued}
+                    hasResults={hasResults}
+                    tags={insight.tags}
+                />
             }
-            metaDetails={<InsightDetails insight={insight} />}
+            metaDetails={
+                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+            }
             samplingFactor={samplingFactor}
             moreButtons={
                 <>
-                    <>
-                        <LemonButton to={urls.insightView(short_id, dashboardId, variablesOverride)} fullWidth>
-                            View
-                        </LemonButton>
-                        {refresh && (
+                    {/* Insight related */}
+                    {editable && (
+                        <>
                             <LemonButton
-                                onClick={() => {
-                                    refresh()
-                                }}
-                                disabledReason={refreshDisabledReason}
+                                to={
+                                    isDataVisualizationNode(insight.query)
+                                        ? urls.sqlEditor(undefined, undefined, short_id)
+                                        : urls.insightEdit(short_id)
+                                }
                                 fullWidth
                             >
-                                Refresh
+                                Edit
                             </LemonButton>
-                        )}
-                    </>
-                    {editable && updateColor && (
-                        <LemonButtonWithDropdown
-                            dropdown={{
-                                overlay: Object.values(InsightColor).map((availableColor) => (
-                                    <LemonButton
-                                        key={availableColor}
-                                        active={availableColor === (ribbonColor || InsightColor.White)}
-                                        onClick={() => updateColor(availableColor)}
-                                        icon={
-                                            availableColor !== InsightColor.White ? (
-                                                <Splotch color={availableColor as string as SplotchColor} />
-                                            ) : null
-                                        }
-                                        fullWidth
-                                    >
-                                        {availableColor !== InsightColor.White
-                                            ? capitalizeFirstLetter(availableColor)
-                                            : 'No color'}
-                                    </LemonButton>
-                                )),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                            fullWidth
-                        >
-                            Set color
-                        </LemonButtonWithDropdown>
-                    )}
-                    {editable && moveToDashboard && otherDashboards.length > 0 && (
-                        <LemonButtonWithDropdown
-                            dropdown={{
-                                overlay: otherDashboards.map((otherDashboard) => (
-                                    <LemonButton
-                                        key={otherDashboard.id}
-                                        onClick={() => {
-                                            moveToDashboard(otherDashboard)
-                                        }}
-                                        fullWidth
-                                    >
-                                        {otherDashboard.name || <i>Untitled</i>}
-                                    </LemonButton>
-                                )),
-                                placement: 'right-start',
-                                fallbackPlacements: ['left-start'],
-                                actionable: true,
-                                closeParentPopoverOnClickInside: true,
-                            }}
-                            fullWidth
-                        >
-                            Move to
-                        </LemonButtonWithDropdown>
-                    )}
-                    <LemonDivider />
-                    {editable && (
-                        <LemonButton to={urls.insightEdit(short_id)} fullWidth>
-                            Edit
-                        </LemonButton>
-                    )}
-                    {editable && (
-                        <LemonButton onClick={rename} fullWidth>
-                            Rename
-                        </LemonButton>
+                            <LemonButton onClick={rename} fullWidth>
+                                Rename
+                            </LemonButton>
+                        </>
                     )}
                     <LemonButton
                         onClick={duplicate}
@@ -221,6 +151,90 @@ export function InsightMeta({
                     >
                         Duplicate
                     </LemonButton>
+
+                    {/* Dashboard related */}
+                    {editable && (
+                        <>
+                            <LemonDivider />
+                            {updateColor && (
+                                <LemonButtonWithDropdown
+                                    dropdown={{
+                                        overlay: Object.values(InsightColor).map((availableColor) => (
+                                            <LemonButton
+                                                key={availableColor}
+                                                active={availableColor === (ribbonColor || InsightColor.White)}
+                                                onClick={() => updateColor(availableColor)}
+                                                icon={
+                                                    availableColor !== InsightColor.White ? (
+                                                        <Splotch color={availableColor as string as SplotchColor} />
+                                                    ) : null
+                                                }
+                                                fullWidth
+                                            >
+                                                {availableColor !== InsightColor.White
+                                                    ? capitalizeFirstLetter(availableColor)
+                                                    : 'No color'}
+                                            </LemonButton>
+                                        )),
+                                        placement: 'right-start',
+                                        fallbackPlacements: ['left-start'],
+                                        actionable: true,
+                                        closeParentPopoverOnClickInside: true,
+                                    }}
+                                    fullWidth
+                                >
+                                    Set color
+                                </LemonButtonWithDropdown>
+                            )}
+                            {moveToDashboard && otherDashboards.length > 0 && (
+                                <LemonButtonWithDropdown
+                                    dropdown={{
+                                        overlay: otherDashboards.map((otherDashboard) => (
+                                            <LemonButton
+                                                key={otherDashboard.id}
+                                                onClick={() => {
+                                                    moveToDashboard(otherDashboard)
+                                                }}
+                                                fullWidth
+                                            >
+                                                {otherDashboard.name || <i>Untitled</i>}
+                                            </LemonButton>
+                                        )),
+                                        placement: 'right-start',
+                                        fallbackPlacements: ['left-start'],
+                                        actionable: true,
+                                        closeParentPopoverOnClickInside: true,
+                                    }}
+                                    fullWidth
+                                >
+                                    Move to
+                                </LemonButtonWithDropdown>
+                            )}
+                            {removeFromDashboard ? (
+                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
+                                    Remove from dashboard
+                                </LemonButton>
+                            ) : (
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        void (async () => {
+                                            try {
+                                                await deleteWithUndo?.()
+                                            } catch (error: any) {
+                                                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
+                                            }
+                                        })()
+                                    }}
+                                    fullWidth
+                                >
+                                    Delete insight
+                                </LemonButton>
+                            )}
+                        </>
+                    )}
+
+                    {/* Data related */}
                     {exportContext ? (
                         <>
                             <LemonDivider />
@@ -244,28 +258,120 @@ export function InsightMeta({
                             />
                         </>
                     ) : null}
+                    <>
+                        {refresh && (
+                            <LemonButton
+                                onClick={() => {
+                                    refresh()
+                                }}
+                                disabledReason={refreshDisabledReason}
+                                fullWidth
+                            >
+                                {insight.last_refresh ? (
+                                    <div className="block my-1">
+                                        Refresh data
+                                        <p className="text-xs text-muted mt-0.5">
+                                            Last computed{' '}
+                                            <TZLabel
+                                                time={insight.last_refresh}
+                                                noStyles
+                                                className="whitespace-nowrap border-dotted border-b"
+                                            />
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>Refresh data</>
+                                )}
+                            </LemonButton>
+                        )}
+                    </>
+
+                    {/* More */}
                     {moreButtons && (
                         <>
                             <LemonDivider />
                             {moreButtons}
                         </>
                     )}
-                    {editable && (
-                        <>
-                            <LemonDivider />
-                            {removeFromDashboard ? (
-                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
-                                    Remove from dashboard
-                                </LemonButton>
-                            ) : (
-                                <LemonButton status="danger" onClick={() => void deleteWithUndo?.()} fullWidth>
-                                    Delete insight
-                                </LemonButton>
-                            )}
-                        </>
-                    )}
                 </>
             }
+            moreTooltip={
+                editable ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
+            }
         />
+    )
+}
+
+export function InsightMetaContent({
+    title,
+    fallbackTitle,
+    description,
+    link,
+    loading,
+    loadingQueued,
+    hasResults,
+    tags,
+}: {
+    title: string
+    fallbackTitle?: string
+    description?: string
+    link?: string
+    loading?: boolean
+    loadingQueued?: boolean
+    hasResults?: boolean
+    tags?: string[]
+}): JSX.Element {
+    let titleEl: JSX.Element = (
+        <h4 title={title} data-attr="insight-card-title">
+            {title || <i>{fallbackTitle || 'Untitled'}</i>}
+            {(loading || loadingQueued) && (
+                <>
+                    {hasResults ? (
+                        <Tooltip
+                            title={
+                                loading
+                                    ? 'This insight is checking for newer results.'
+                                    : 'This insight is waiting to check for newer results.'
+                            }
+                            placement="top-end"
+                        >
+                            <span className="text-muted text-sm font-medium ml-1.5">
+                                <Spinner className="mr-1.5 text-base" textColored />
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <Tooltip
+                            title={
+                                loading
+                                    ? 'This insight is loading results.'
+                                    : 'This insight is waiting to load results.'
+                            }
+                            placement="top-end"
+                        >
+                            <span className="text-accent text-sm font-medium ml-1.5">
+                                <Spinner className="mr-1.5 text-base" textColored />
+                                {loading ? 'Loading' : 'Waiting to load'}
+                            </span>
+                        </Tooltip>
+                    )}
+                </>
+            )}
+        </h4>
+    )
+    if (link) {
+        titleEl = <Link to={link}>{titleEl}</Link>
+    }
+
+    return (
+        <>
+            {titleEl}
+            {!!description && (
+                <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                    {description}
+                </LemonMarkdown>
+            )}
+            {tags && tags.length > 0 && <ObjectTags tags={tags} staticOnly />}
+            <LemonTableLoader loading={loading && !hasResults} />
+        </>
     )
 }

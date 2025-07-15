@@ -16,13 +16,10 @@ from posthog.schema import (
     SessionPropertyFilter,
     PropertyOperator,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
 
+@snapshot_clickhouse_queries
 class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_session(
         self, url=None, source=None, medium=None, campaign=None, gclid=None, gad_source=None, referring_domain="$direct"
@@ -110,7 +107,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["source1", "source2"],
                 ["medium1", "medium2"],
                 ["campaign1a", "campaign1b", "campaign2"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 ["http://example.com/1a", "http://example.com/1b", "http://example.com/2"],
             )
         ]
@@ -130,7 +127,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["source1"],
                 ["medium1"],
                 ["campaign1a"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 "http://example.com/1a",
             ),
             (
@@ -140,7 +137,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["source1"],
                 ["medium1"],
                 ["campaign1b"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 "http://example.com/1b",
             ),
             (
@@ -174,7 +171,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "source1",
                 "medium1",
                 ["campaign1a", "campaign1b"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 ["http://example.com/1a", "http://example.com/1b"],
             ),
             (1, "Referral", ["referring_domain2"], "source2", "medium2", ["campaign2"], [], ["http://example.com/2"]),
@@ -202,7 +199,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "source1",
                 "medium1",
                 ["campaign1a", "campaign1b"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 ["http://example.com/1a", "http://example.com/1b"],
             ),
         ]

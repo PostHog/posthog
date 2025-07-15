@@ -1,5 +1,5 @@
 import { DependencyUnavailableError } from '../utils/db/error'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 
 export const retryOnDependencyUnavailableError = async <T>(
     fn: () => Promise<T>,
@@ -27,14 +27,14 @@ export const retryOnDependencyUnavailableError = async <T>(
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
                 if (currentRetryCount === 4) {
-                    status.error('🔁', 'main_loop_error_retry_limit', {
+                    logger.error('🔁', 'main_loop_error_retry_limit', {
                         error,
                         currentRetryCount,
                         retryDelay,
                     })
                     throw error
                 } else {
-                    status.error('🔁', 'main_loop_error_retriable', {
+                    logger.error('🔁', 'main_loop_error_retriable', {
                         error,
                         retryCount,
                         retryDelay,
@@ -44,7 +44,7 @@ export const retryOnDependencyUnavailableError = async <T>(
                     currentRetryCount += 1
                 }
             } else {
-                status.error('🔁', 'main_loop_error', { error })
+                logger.error('🔁', 'main_loop_error', { error })
                 throw error
             }
         }

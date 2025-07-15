@@ -2,25 +2,62 @@
 
 set -e
 
-trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
-
+export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export DEBUG=${DEBUG:-1}
-export SKIP_SERVICE_VERSION_REQUIREMENTS=1
+export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
+
 export BILLING_SERVICE_URL=${BILLING_SERVICE_URL:-https://billing.dev.posthog.dev}
 export HOG_HOOK_URL=${HOG_HOOK_URL:-http://localhost:3300/hoghook}
+export API_QUERIES_PER_TEAM='{"1": 100}'
 
-service_warning() {
-  echo -e "\033[0;31m$1 isn't ready. You can run the stack with:\ndocker compose -f docker-compose.dev.yml up\nIf you have already ran that, just make sure that services are starting properly, and sit back.\nWaiting for $1 to start...\033[0m"
-}
+# Dagster
+export DAGSTER_HOME=$REPOSITORY_ROOT/.dagster_home
+export DAGSTER_UI_HOST=${DAGSTER_UI_HOST:-localhost}
+export DAGSTER_UI_PORT=${DAGSTER_UI_PORT:-3030}
+export DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN=${DAGSTER_WEB_PREAGGREGATED_MAX_PARTITIONS_PER_RUN:-3000}
 
-nc -z localhost 9092 || ( service_warning 'Kafka'; bin/check_kafka_clickhouse_up )
-curl -s 'http://localhost:8123/ping' || ( service_warning 'ClickHouse'; bin/check_kafka_clickhouse_up )
+# OpenTelemetry Environment Variables
+export OTEL_SERVICE_NAME="posthog-local-dev"
+export OTEL_PYTHON_LOG_LEVEL="debug"
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317" # Collector's OTLP gRPC port is mapped to host
+export OTEL_TRACES_EXPORTER="otlp"
+export OTEL_METRICS_EXPORTER="none" # Explicitly disable if not used
+export OTEL_LOGS_EXPORTER="none"    # Explicitly disable if not used
+export OTEL_PYTHON_DJANGO_INSTRUMENT="true"
+export OTEL_PYTHON_DJANGO_MIDDLEWARE_POSITION="1"
 
-[ ! -f ./share/GeoLite2-City.mmdb ] && ( curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb )
+# Check for minimal mode - disable OpenTelemetry for minimal mode
+if [[ "$*" == *"--minimal"* ]]; then
+    export OTEL_SDK_DISABLED="true"
+elif [[ "$*" == *"--enable-tracing"* ]]; then
+    export OTEL_SDK_DISABLED="false"
+    export OTEL_TRACES_SAMPLER="parentbased_traceidratio"
+    export OTEL_TRACES_SAMPLER_ARG="1"
+else
+    export OTEL_SDK_DISABLED="true"
+fi
 
-./bin/start-worker &
-./bin/start-backend &
-./bin/start-frontend &
-./bin/temporal-django-worker &
+if [ -f .env ]; then
+    set -o allexport
+    source .env
+    set +o allexport
+fi
 
-wait
+./bin/download-mmdb
+
+if ! command -v mprocs &>/dev/null; then
+    if command -v brew &>/dev/null; then
+        echo "🔁 Installing mprocs via Homebrew..."
+        brew install mprocs
+    else
+        echo "👉 To run bin/start, install mprocs: https://github.com/pvolok/mprocs#installation"
+        exit 1
+    fi
+fi
+
+# Use minimal config if --minimal flag is passed
+if [[ "$*" == *"--minimal"* ]]; then
+    exec mprocs --config bin/mprocs-minimal.yaml
+else
+    exec mprocs --config bin/mprocs.yaml
+fi

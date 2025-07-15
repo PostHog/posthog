@@ -6,6 +6,12 @@ from posthog.batch_exports.service import batch_export_delete_schedule
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 
+actions_that_require_current_team = [
+    "rotate_secret_token",
+    "delete_secret_token_backup",
+    "reset_token",
+]
+
 
 def delete_bulky_postgres_data(team_ids: list[int]):
     "Efficiently delete large tables for teams from postgres. Using normal CASCADE delete here can time out"
@@ -14,10 +20,12 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     from posthog.models.feature_flag.feature_flag import FeatureFlagHashKeyOverride
     from posthog.models.insight_caching_state import InsightCachingState
     from posthog.models.person import Person, PersonDistinctId
-    from posthog.models.early_access_feature import EarlyAccessFeature
+    from posthog.models.error_tracking import ErrorTrackingIssueFingerprintV2
+    from products.early_access_features.backend.models import EarlyAccessFeature
 
     _raw_delete(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
     _raw_delete(PersonDistinctId.objects.filter(team_id__in=team_ids))
+    _raw_delete(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
     _raw_delete(CohortPeople.objects.filter(cohort__team_id__in=team_ids))
     _raw_delete(FeatureFlagHashKeyOverride.objects.filter(team_id__in=team_ids))
     _raw_delete(Person.objects.filter(team_id__in=team_ids))

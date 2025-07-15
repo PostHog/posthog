@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import type { pipelineNodeMetricsLogicType } from './pipelineNodeMetricsLogicType'
 
@@ -51,9 +51,9 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
     props({} as PipelineNodeMetricsProps),
     key(({ id }: PipelineNodeMetricsProps) => id),
     path((id) => ['scenes', 'pipeline', 'appMetricsLogic', id]),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
     actions({
         setDateRange: (from: string | null, to: string | null) => ({ from, to }),
         openErrorDetailsModal: (errorType: string) => ({
@@ -67,9 +67,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
             {
                 loadMetrics: async () => {
                     const params = toParams({ date_from: values.dateRange.from, date_to: values.dateRange.to })
-                    return await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.id}?${params}`
-                    )
+                    return await api.get(`api/projects/${values.currentProjectId}/app_metrics/${props.id}?${params}`)
                 },
             },
         ],
@@ -79,7 +77,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
                 openErrorDetailsModal: async ({ errorType }) => {
                     const params = toParams({ error_type: errorType })
                     const { result } = await api.get(
-                        `api/projects/${teamLogic.values.currentTeamId}/app_metrics/${props.id}/error_details?${params}`
+                        `api/projects/${values.currentProjectId}/app_metrics/${props.id}/error_details?${params}`
                     )
                     return result
                 },
@@ -106,6 +104,7 @@ export const pipelineNodeMetricsLogic = kea<pipelineNodeMetricsLogicType>([
             actions.loadMetrics()
         },
     })),
+
     afterMount(({ actions }) => {
         actions.loadMetrics()
     }),

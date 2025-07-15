@@ -12,7 +12,7 @@ export interface LemonSwitchProps {
     labelClassName?: string
     id?: string
     fullWidth?: boolean
-    size?: 'small' | 'medium'
+    size?: 'xxsmall' | 'xsmall' | 'small' | 'medium'
     bordered?: boolean
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
@@ -54,7 +54,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         const id = useMemo(() => rawId || `lemon-switch-${switchCounter++}`, [rawId])
         const [isActive, setIsActive] = useState(false)
 
-        const conditionalProps = {}
+        const conditionalProps: { 'aria-label'?: string } = {}
         if (ariaLabel) {
             conditionalProps['aria-label'] = ariaLabel
         }
@@ -66,10 +66,17 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         } else if (tooltip) {
             tooltipContent = <span>{tooltip}</span>
         }
+
+        const ButtonHtmlComponent = onChange ? 'button' : 'div'
+
         let buttonComponent = (
-            <button
+            <ButtonHtmlComponent
                 id={id}
-                className="LemonSwitch__button"
+                className={`LemonSwitch__button ${
+                    sliderColorOverrideChecked || sliderColorOverrideUnchecked
+                        ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
+                        : ''
+                }`}
                 type="button"
                 role="switch"
                 onClick={() => {
@@ -84,15 +91,8 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
                 disabled={disabled}
                 {...conditionalProps}
             >
-                <div
-                    className={`LemonSwitch__slider ${
-                        sliderColorOverrideChecked || sliderColorOverrideUnchecked
-                            ? `bg-${checked ? sliderColorOverrideChecked : sliderColorOverrideUnchecked}`
-                            : ''
-                    }`}
-                />
                 <div className="LemonSwitch__handle">{handleContent}</div>
-            </button>
+            </ButtonHtmlComponent>
         )
         if (tooltipContent) {
             buttonComponent = (

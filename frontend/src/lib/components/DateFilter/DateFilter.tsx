@@ -35,17 +35,26 @@ export interface DateFilterProps {
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
+    type?: LemonButtonProps['type']
     dropdownPlacement?: Placement
     /* True when we're not dealing with ranges, but a single date / relative date */
     isFixedDateMode?: boolean
     placeholder?: string
+    fullWidth?: boolean
 }
+
 interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
     dateTo?: string | null | dayjs.Dayjs
     max?: number | null
     allowedRollingDateOptions?: DateOption[]
     allowTimePrecision?: boolean
+    /**
+     * Granularity is picked based on the dateFrom value
+     * but can be overridden to force a specific granularity.
+     * For example, set to 'day' to never show the time picker.
+     */
+    forceGranularity?: LemonCalendarSelectProps['granularity']
 }
 
 export function DateFilter({
@@ -60,12 +69,15 @@ export function DateFilter({
     dateOptions = dateMapping,
     isDateFormatted = true,
     size,
+    type,
     dropdownPlacement = 'bottom-start',
     max,
     isFixedDateMode = false,
     allowedRollingDateOptions,
     allowTimePrecision = false,
     placeholder,
+    fullWidth = false,
+    forceGranularity,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -107,7 +119,7 @@ export function DateFilter({
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
     const [granularity, setGranularity] = useState<LemonCalendarSelectProps['granularity']>(
-        dateFromHasTimePrecision ? 'minute' : 'day'
+        forceGranularity ?? (dateFromHasTimePrecision ? 'minute' : 'day')
     )
 
     const popoverOverlay =
@@ -129,13 +141,15 @@ export function DateFilter({
                 onChange={(date) => {
                     setRangeDateFrom(date)
                     setRangeDateTo(null)
-                    setExplicitDate(!!(granularity === 'minute'))
+                    setExplicitDate(granularity === 'minute')
                     applyRange()
                 }}
                 onClose={open}
-                granularity={granularity}
-                showTimeToggle={allowTimePrecision}
-                onToggleTime={() => setGranularity(granularity === 'minute' ? 'day' : 'minute')}
+                granularity={forceGranularity ?? granularity}
+                showTimeToggle={forceGranularity ? false : allowTimePrecision}
+                onToggleTime={
+                    forceGranularity ? undefined : () => setGranularity(granularity === 'minute' ? 'day' : 'minute')
+                }
             />
         ) : view === DateFilterView.FixedDate ? (
             <PropertyFilterDatePicker
@@ -147,7 +161,7 @@ export function DateFilter({
                 }}
             />
         ) : (
-            <div className="space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
+            <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {
                     if (key === CUSTOM_OPTION_KEY && !showCustom) {
                         return null
@@ -242,11 +256,12 @@ export function DateFilter({
             <LemonButton
                 id="daterange_selector"
                 size={size ?? 'small'}
-                type="secondary"
+                type={type ?? 'secondary'}
                 disabledReason={disabledReason}
                 data-attr="date-filter"
                 icon={<IconCalendar />}
                 onClick={isVisible ? close : open}
+                fullWidth={fullWidth}
             >
                 <span className={clsx('text-nowrap', className)}>{label}</span>
             </LemonButton>

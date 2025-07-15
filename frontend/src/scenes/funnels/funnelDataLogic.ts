@@ -1,13 +1,17 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
@@ -40,7 +44,6 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
-
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
 export const funnelDataLogic = kea<funnelDataLogicType>([
@@ -60,6 +63,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'interval',
                 'insightData',
                 'insightDataError',
+                'getTheme',
             ],
             groupsModel,
             ['aggregationLabel'],
@@ -84,7 +88,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
     }),
 
-    selectors(() => ({
+    selectors(({ props }) => ({
         querySource: [
             (s) => [s.vizQuerySource],
             (vizQuerySource) => (isFunnelsQuery(vizQuerySource) ? vizQuerySource : null),
@@ -169,6 +173,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (
                     // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource &&
                     querySource?.kind !== NodeKind.FunnelsQuery
                 ) {
                     return []
@@ -208,6 +213,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         hiddenLegendBreakdowns: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.hiddenLegendBreakdowns],
+        resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter, s.flattenedBreakdowns],
             (steps, funnelsFilter, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
@@ -275,6 +281,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (
                     // TODO: Ideally we don't check filters anymore, but tests are still using this
                     insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource &&
                     querySource?.kind !== NodeKind.FunnelsQuery
                 ) {
                     return false
@@ -405,6 +412,59 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.steps],
             (steps) =>
                 Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
+        ],
+        getFunnelsColorToken: [
+            (s) => [s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
+            (resultCustomizations, getTheme, breakdownFilter, querySource) => {
+                return (
+                    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
+                ): [DataColorTheme | null, DataColorToken | null] => {
+                    // stringified breakdown value
+                    const key = getFunnelDatasetKey(dataset)
+                    let breakdownValue = JSON.parse(key)['breakdown_value']
+                    breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+
+                    // dashboard color overrides
+                    const logic = dashboardLogic.findMounted({ id: props.dashboardId })
+                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
+                    const colorOverride = dashboardBreakdownColors?.find(
+                        (config) =>
+                            config.breakdownValue === breakdownValue &&
+                            config.breakdownType === (breakdownFilter?.breakdown_type ?? 'event')
+                    )
+
+                    if (colorOverride?.colorToken) {
+                        // use the dashboard theme, or fallback to the default theme
+                        const dashboardTheme = logic?.values.dataColorTheme || getTheme(undefined)
+                        return [dashboardTheme, colorOverride.colorToken]
+                    }
+
+                    // use the dashboard theme, or fallback to the insight theme, or the default theme
+                    const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
+                    if (!theme) {
+                        return [null, null]
+                    }
+
+                    return [
+                        theme,
+                        getFunnelResultCustomizationColorToken(
+                            resultCustomizations,
+                            theme,
+                            dataset,
+                            props?.cachedInsight?.disable_baseline
+                        ),
+                    ]
+                }
+            },
+        ],
+        getFunnelsColor: [
+            (s) => [s.getFunnelsColorToken],
+            (getFunnelsColorToken) => {
+                return (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => {
+                    const [colorTheme, colorToken] = getFunnelsColorToken(dataset)
+                    return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
+                }
+            },
         ],
     })),
 

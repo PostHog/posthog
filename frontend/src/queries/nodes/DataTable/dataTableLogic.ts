@@ -8,9 +8,17 @@ import { objectsEqual, sortedKeys } from 'lib/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyDataNode, AnyResponseType, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
+import {
+    AnyDataNode,
+    AnyResponseType,
+    DataTableNode,
+    EventsQuery,
+    HogQLExpression,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
+import { RequiredExcept } from '~/types'
 
 import type { dataTableLogicType } from './dataTableLogicType'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
@@ -176,7 +184,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInQuery,
                 featureFlags,
                 context
-            ): Required<Omit<DataTableNode, 'response'>> => {
+            ): RequiredExcept<Omit<DataTableNode, 'response'>, 'version'> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = !!featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
@@ -186,6 +194,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     columns: columnsInQuery,
                     hiddenColumns: [],
                     source,
+                    context: query.context ?? { type: 'team_columns' },
                     ...sortedKeys({
                         ...rest,
                         full: query.full ?? false,

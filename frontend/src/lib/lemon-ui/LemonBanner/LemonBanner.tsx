@@ -19,7 +19,12 @@ export interface LemonBannerProps {
     className?: string
     /** If provided, the banner will be dismissed and hidden when the key is set in localStorage. */
     dismissKey?: string
+    /**
+     * If left unset, the type-specific icon will show up above a certain width of the banner.
+     * If set to a boolean, the icon will either always be hidden or always shown.
+     */
     hideIcon?: boolean
+    square?: boolean
 }
 
 /** Generic alert message. */
@@ -30,7 +35,8 @@ export function LemonBanner({
     action,
     className,
     dismissKey = '',
-    hideIcon = false,
+    hideIcon,
+    square = false,
 }: LemonBannerProps): JSX.Element | null {
     const logic = lemonBannerLogic({ dismissKey })
     const { isDismissed } = useValues(logic)
@@ -49,19 +55,26 @@ export function LemonBanner({
     }
 
     return (
-        <div className={clsx('LemonBanner @container', `LemonBanner--${type}`, className)}>
-            <div className="flex items-center gap-2 grow @md:px-1">
+        <div
+            className={clsx(
+                'LemonBanner @container',
+                `LemonBanner--${type}`,
+                className,
+                square && 'LemonBanner--square'
+            )}
+        >
+            <div className="flex items-center gap-2 grow @md:!px-1">
                 {!hideIcon &&
                     (type === 'warning' || type === 'error' ? (
-                        <IconWarning className="LemonBanner__icon hidden @md:block" />
+                        <IconWarning className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
                     ) : (
-                        <IconInfo className="LemonBanner__icon hidden @md:block" />
+                        <IconInfo className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
                     ))}
                 <div className="grow overflow-hidden">{children}</div>
-                {action && <LemonButton className="hidden @md:flex" type="secondary" {...action} />}
+                {action && <LemonButton className="!hidden @md:!flex" type="secondary" {...action} />}
                 {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
             </div>
-            {action && <LemonButton className="@md:hidden" type="secondary" fullWidth {...action} />}
+            {action && <LemonButton className="@md:!hidden" type="secondary" fullWidth {...action} />}
         </div>
     )
 }

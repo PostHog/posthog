@@ -25,7 +25,7 @@ class TestPluginServerTasks(APIBaseTest):
             "hog function state changed",
             {
                 "hog_function_id": str(hog_function.id),
-                "hog_function_url": f"http://localhost:8000/project/{hog_function.team.id}/pipeline/destinations/hog-{str(hog_function.id)}",
+                "hog_function_url": f"http://localhost:8010/project/{hog_function.team.id}/pipeline/destinations/hog-{str(hog_function.id)}",
                 "state": 1,
             },
         )

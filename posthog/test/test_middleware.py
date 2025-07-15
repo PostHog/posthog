@@ -1,11 +1,14 @@
 import json
 from datetime import datetime, timedelta
 from urllib.parse import quote
+from unittest.mock import patch
 
 from django.test.client import Client
 from django.urls import reverse
 from freezegun import freeze_time
 from rest_framework import status
+from django.conf import settings
+from django.core.cache import cache
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -130,6 +133,18 @@ class TestAccessMiddleware(APIBaseTest):
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
+        with self.settings(
+            BLOCKED_GEOIP_REGIONS=["DE"],
+            USE_X_FORWARDED_HOST=True,
+        ):
+            with self.settings(TRUST_ALL_PROXIES=True):
+                response = self.client.get(
+                    "/",
+                    REMOTE_ADDR="28.160.62.192",
+                    HTTP_X_FORWARDED_FOR="",
+                )
+                self.assertNotIn(b"PostHog is not available", response.content)
+
 
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
@@ -142,7 +157,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 47
+        cls.base_app_num_queries = 51
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -164,7 +179,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
-        with self.assertNumQueries(self.base_app_num_queries + 4):  # AutoProjectMiddleware adds 4 queries
+        with self.assertNumQueries(self.base_app_num_queries + 7):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -212,7 +227,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(self.base_app_num_queries):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(self.base_app_num_queries + 3):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -282,7 +297,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.base_app_num_queries + 4):
+        with self.assertNumQueries(self.base_app_num_queries + 7):
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -296,7 +311,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(self.base_app_num_queries):
+        with self.assertNumQueries(self.base_app_num_queries + 3):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -501,7 +516,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertNotIn("ph_current_project_name", response.cookies)
 
 
-@override_settings(IMPERSONATION_TIMEOUT_SECONDS=30)
+@override_settings(IMPERSONATION_TIMEOUT_SECONDS=100)
+@override_settings(IMPERSONATION_IDLE_TIMEOUT_SECONDS=20)
 class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
     other_user: User
 
@@ -538,21 +554,65 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
         assert response.status_code == 200
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
-    def test_after_timeout_api_requests_401(self):
-        now = datetime.now()
+    def test_after_idle_timeout_api_requests_401(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
         with freeze_time(now):
             self.login_as_other_user()
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:20+00:00"
             assert self.client.session.get("session_created_at") == now.timestamp()
 
-        with freeze_time(now + timedelta(seconds=10)):
+        # Move forward by 19
+        now = now + timedelta(seconds=19)
+        with freeze_time(now):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:39+00:00"
 
-        with freeze_time(now + timedelta(seconds=35)):
+        # Past idle timeout
+        now = now + timedelta(seconds=21)
+
+        with freeze_time(now):
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 401
+
+    def test_after_total_timeout_api_requests_401(self):
+        now = datetime(2024, 1, 1, 12, 0, 0)
+        with freeze_time(now):
+            self.login_as_other_user()
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:00:20+00:00"
+            assert self.client.session.get("session_created_at") == now.timestamp()
+
+        for _ in range(4):
+            # Move forward by 19 seconds 4 times for a total of 76 seconds
+            now = now + timedelta(seconds=19)
+            with freeze_time(now):
+                res = self.client.get("/api/users/@me")
+                assert res.status_code == 200
+                assert res.json()["email"] == "other-user@posthog.com"
+                # Format exactly like the date above
+                assert res.json()["is_impersonated_until"] == (now + timedelta(seconds=20)).strftime(
+                    "%Y-%m-%dT%H:%M:%S+00:00"
+                )
+
+        now = now + timedelta(seconds=19)
+        with freeze_time(now):
+            res = self.client.get("/api/users/@me")
+            assert res.status_code == 200
+            assert res.json()["email"] == "other-user@posthog.com"
+            # Even though below the idle timeout, we now see the total timeout as that is earlier
+            assert res.json()["is_impersonated_until"] == "2024-01-01T12:01:40+00:00"
+
+        # Now even less than the idle time will take us past the total timeout
+        now = now + timedelta(seconds=10)
+
+        with freeze_time(now):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 401
 
@@ -573,3 +633,107 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
+
+
+@override_settings(SESSION_COOKIE_AGE=100)
+class TestSessionAgeMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        # Patch time.time before login to ensure session creation time is correct
+        self.time_patcher = patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+        self.time_patcher.start()
+        self.client.force_login(self.user)
+        self.time_patcher.stop()
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+        # Ensure any remaining patches are stopped
+        self.time_patcher.stop()
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_continues_when_not_expired(self, mock_time):
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Move forward 99 seconds (before timeout)
+        mock_time.return_value = 1704110499.0  # 2024-01-01 12:01:39
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_expires_after_total_time(self, mock_time):
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Move forward past total session age (101 seconds)
+        mock_time.return_value = 1704110501.0  # 2024-01-01 12:01:41
+        response = self.client.get("/")
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_org_specific_session_timeout_from_cache(self, mock_time):
+        # Set org-specific timeout in cache
+        cache.set(f"org_session_age:{self.organization.id}", 50)
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Move forward past org timeout (51 seconds)
+        mock_time.return_value = 1704110451.0  # 2024-01-01 12:00:51
+        response = self.client.get("/")
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )
+
+    @freeze_time("2024-01-01 12:00:00")
+    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
+    def test_session_timeout_after_switching_org_with_cache(self, mock_time):
+        # Create another org with different timeout
+        other_org = Organization.objects.create(name="Other Org", session_cookie_age=30)
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        self.user.organizations.add(other_org)
+
+        # Set cache for both orgs
+        cache.set(f"org_session_age:{self.organization.id}", 50)
+        cache.set(f"org_session_age:{other_org.id}", 30)
+
+        # Initial request sets session creation time
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY), 1704110400.0)
+
+        # Switch to other team
+        self.user.team = other_team
+        self.user.current_team = other_team
+        self.user.current_organization = other_org
+        self.user.save()
+
+        # Move forward 29 seconds (before new org's timeout)
+        mock_time.return_value = 1704110429.0  # 2024-01-01 12:00:29
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+
+        # Move forward 31 seconds (past new org's timeout)
+        mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )

@@ -1,13 +1,13 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
-import { status } from '../../src/utils/status'
+import { PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
+import { logger } from '../../src/utils/logger'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { plugin60, pluginConfig39 } from '../helpers/plugins'
 
 jest.mock('../../src/utils/db/error')
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/worker/vm/vm')
 
@@ -26,9 +26,7 @@ describe('LazyPluginVM', () => {
     const mockServer: any = {
         db,
         capabilities: {
-            ingestion: true,
-            pluginScheduledTasks: true,
-            processPluginJobs: true,
+            ingestionV2: true,
             processAsyncHandlers: true,
         },
         celery: {
@@ -49,11 +47,6 @@ describe('LazyPluginVM', () => {
         methods: {
             processEvent: 'processEvent',
         },
-        tasks: {
-            schedule: {
-                runEveryMinute: 'runEveryMinute',
-            },
-        },
         vmResponseVariable: 'arghhhhh',
     }
 
@@ -67,9 +60,6 @@ describe('LazyPluginVM', () => {
             void initializeVm(vm)
 
             expect(await vm.getPluginMethod('processEvent')).toEqual('processEvent')
-            expect(await vm.getTask('someTask', PluginTaskType.Schedule)).toEqual(null)
-            expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual('runEveryMinute')
-            expect(await vm.getScheduledTasks()).toEqual(mockVM.tasks.schedule)
         })
 
         it('logs info and clears errors on success', async () => {
@@ -77,7 +67,7 @@ describe('LazyPluginVM', () => {
             void initializeVm(vm)
             await vm.resolveInternalVm
 
-            expect(status.debug).toHaveBeenCalledWith('🔌', 'Loaded some plugin.')
+            expect(logger.debug).toHaveBeenCalledWith('🔌', 'Loaded some plugin.')
             expect(mockServer.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     instanceId: undefined,
@@ -111,8 +101,6 @@ describe('LazyPluginVM', () => {
             void initializeVm(vm)
 
             expect(await vm.getPluginMethod('processEvent')).toEqual(null)
-            expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual(null)
-            expect(await vm.getScheduledTasks()).toEqual({})
         })
 
         it('disables plugin if vm creation fails before setupPlugin', async () => {
@@ -123,7 +111,7 @@ describe('LazyPluginVM', () => {
             await vm.initialize!('some log info', 'failure plugin')
             await vm.resolveInternalVm
 
-            expect((status.warn as any).mock.calls).toEqual([
+            expect((logger.warn as any).mock.calls).toEqual([
                 ['⚠️', 'Failed to load failure plugin. Error: VM creation failed before setupPlugin'],
             ])
         })
@@ -151,7 +139,7 @@ describe('LazyPluginVM', () => {
             await lazyVm._setupPlugin(mockVm as any)
             await lazyVm._setupPlugin(mockVm as any)
 
-            expect((status.warn as any).mock.calls).toEqual([
+            expect((logger.warn as any).mock.calls).toEqual([
                 [
                     '⚠️',
                     expect.stringContaining(
@@ -178,14 +166,14 @@ describe('LazyPluginVM', () => {
                 ],
             ])
 
-            expect((status.info as any).mock.calls).toEqual([])
+            expect((logger.info as any).mock.calls).toEqual([])
 
             // The 5th, final attempt succeeds because we re-mock the implementation to succeed. Yay!
             mockedRun.mockImplementation(() => 1)
 
             await expect(lazyVm._setupPlugin(mockVm as any)).resolves.toBeUndefined()
 
-            expect((status.info as any).mock.calls).toEqual([
+            expect((logger.info as any).mock.calls).toEqual([
                 ['🔌', expect.stringContaining('setupPlugin succeeded for plugin test-maxmind-plugin')],
             ])
         })
@@ -213,7 +201,7 @@ describe('LazyPluginVM', () => {
             await lazyVm._setupPlugin(mockVm as any)
             await lazyVm._setupPlugin(mockVm as any)
 
-            expect(jest.mocked(status.warn).mock.calls).toEqual([
+            expect(jest.mocked(logger.warn).mock.calls).toEqual([
                 [
                     '⚠️',
                     expect.stringContaining(

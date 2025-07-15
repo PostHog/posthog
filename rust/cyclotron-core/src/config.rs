@@ -34,11 +34,18 @@ impl PoolConfig {
 pub const DEFAULT_QUEUE_DEPTH_LIMIT: u64 = 1_000_000;
 pub const DEFAULT_SHARD_HEALTH_CHECK_INTERVAL: u64 = 10;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct ManagerConfig {
+    #[serde(alias = "shards")]
     pub shards: Vec<PoolConfig>,
+    #[serde(alias = "shardDepthLimit")]
     pub shard_depth_limit: Option<u64>, // Defaults to 10_000 available jobs per shard
+    #[serde(alias = "shardDepthCheckIntervalSeconds")]
     pub shard_depth_check_interval_seconds: Option<u64>, // Defaults to 10 seconds - checking shard capacity
+    #[serde(alias = "shouldCompressVmState")]
+    pub should_compress_vm_state: Option<bool>, // Defaults to "false" for now
+    #[serde(alias = "shouldUseBulkJobCopy")]
+    pub should_use_bulk_job_copy: Option<bool>, // Defaults to "false" for now
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -53,6 +60,8 @@ pub struct WorkerConfig {
     pub max_bytes_buffered: Option<usize>, // Defaults to 10MB
     #[serde(alias = "flushLoopIntervalMs")]
     pub flush_loop_interval_ms: Option<u64>, // Defaults to 10
+    #[serde(alias = "shouldCompressVmState")]
+    pub should_compress_vm_state: Option<bool>, // Defaults to "false"
 }
 
 impl WorkerConfig {
@@ -74,5 +83,9 @@ impl WorkerConfig {
 
     pub fn max_bytes_buffered(&self) -> usize {
         self.max_bytes_buffered.unwrap_or(10_000_000)
+    }
+
+    pub fn should_compress_vm_state(&self) -> bool {
+        self.should_compress_vm_state.unwrap_or(false)
     }
 }

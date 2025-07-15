@@ -1,15 +1,19 @@
 from datetime import datetime
 from typing import Any
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
-
+import json
 import jwt
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
+from requests import get, Response
 from rest_framework import status
+import urllib.parse
 
+from ee.api.billing import BillingUsageRequestSerializer
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_types import (
     BillingPeriod,
@@ -48,8 +52,11 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         ),
         usage_summary={
             "events": {"limit": None, "usage": 0},
+            "exceptions": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
             "rows_synced": {"limit": None, "usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_product_features=[],
@@ -94,6 +101,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
                 percentage_usage=0,
                 projected_usage=0,
                 projected_amount_usd="0.00",
+                projected_amount_usd_with_limit="0.00",
                 usage_key="events",
                 addons=[
                     CustomerProductAddon(
@@ -143,8 +151,11 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         ),
         usage_summary={
             "events": {"limit": None, "usage": 0},
+            "exceptions": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
             "rows_synced": {"limit": None, "usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
@@ -233,6 +244,7 @@ def create_billing_products_response(**kwargs) -> dict[str, list[CustomerProduct
                 projected_usage=0,
                 projected_amount=0,
                 projected_amount_usd=0.00,
+                projected_amount_usd_with_limit=0.00,
                 usage_key="events",
             )
         ]
@@ -360,7 +372,7 @@ class TestBillingAPI(APILicensedTest):
             "available_product_features": [],
             "custom_limits_usd": {},
             "has_active_subscription": True,
-            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
+            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
             "current_total_amount_usd": "100.00",
             "deactivated": False,
             "products": [
@@ -391,6 +403,7 @@ class TestBillingAPI(APILicensedTest):
                     "has_exceeded_limit": False,
                     "unit_amount_usd": "0.00",
                     "projected_amount_usd": "0.00",
+                    "projected_amount_usd_with_limit": "0.00",
                     "projected_usage": 0,
                     "usage_key": "events",
                     "addons": [
@@ -434,8 +447,11 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
+                "exceptions": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
+                "feature_flag_requests": {"limit": None, "usage": 0},
+                "api_queries_read_bytes": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
         }
@@ -499,8 +515,9 @@ class TestBillingAPI(APILicensedTest):
                     "percentage_usage": 0,
                     "current_amount_usd": 0.0,
                     "has_exceeded_limit": False,
-                    "projected_amount_usd": 0.0,
                     "projected_amount": 0,
+                    "projected_amount_usd": 0.0,
+                    "projected_amount_usd_with_limit": 0.0,
                     "projected_usage": 0,
                     "tiered": True,
                     "unit_amount_usd": "0.00",
@@ -557,13 +574,16 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
+                "exceptions": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
+                "feature_flag_requests": {"limit": None, "usage": 0},
+                "api_queries_read_bytes": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "stripe_portal_url": "http://localhost:8000/api/billing/portal",
+            "stripe_portal_url": "http://localhost:8010/api/billing/portal",
         }
 
     @patch("ee.api.billing.requests.get")
@@ -716,24 +736,42 @@ class TestBillingAPI(APILicensedTest):
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
-        assert self.organization.usage == {
-            "events": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 1000,
+        TestCase().assertDictEqual(
+            self.organization.usage,
+            {
+                "events": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 1000,
+                },
+                "exceptions": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "recordings": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "rows_synced": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "feature_flag_requests": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "api_queries_read_bytes": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
             },
-            "recordings": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "rows_synced": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
-        }
+        )
 
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
         self.organization.save()
@@ -754,21 +792,21 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
             mock = MagicMock()
-            mock.status_code = 404
-
             if "api/billing/portal" in url:
                 mock.status_code = 200
                 mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+                return mock
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
                     # Set usage to none so it is calculated from scratch
                     customer=create_billing_customer(has_active_subscription=False, usage=None)
                 )
-
-            return mock
+                return mock
+            else:
+                return get(url, headers=headers, params=params)
 
         mock_request.side_effect = mock_implementation
 
@@ -805,8 +843,11 @@ class TestBillingAPI(APILicensedTest):
 
         assert self.organization.usage == {
             "events": {"limit": None, "usage": 0, "todays_usage": 0},
+            "exceptions": {"limit": None, "usage": 0, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
             "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
 
@@ -831,14 +872,60 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         self.organization.customer_id = None
-        self.organization.customer_trust_scores = {"recordings": 0, "events": 0, "rows_synced": 0}
+        # For key values check: TRUST_SCORE_KEYS
+        self.organization.customer_trust_scores = {
+            "events": 0,
+            "exceptions": 0,
+            "recordings": 0,
+            "rows_synced": 0,
+            "feature_flags": 0,
+            "api_queries_read_bytes": 17,
+        }
         self.organization.save()
 
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
 
-        assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
+        assert self.organization.customer_trust_scores == {
+            "events": 15,
+            "exceptions": 0,
+            "recordings": 0,
+            "rows_synced": 0,
+            "feature_flags": 0,
+            "api_queries_read_bytes": 17,
+        }
+
+    @patch("ee.api.billing.requests.get")
+    def test_billing_with_supported_params(self, mock_get):
+        """Test that the include_forecasting param is passed through to the billing service."""
+
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 200
+
+            if "api/billing/portal" in url:
+                mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+            elif "api/billing" in url:
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True)
+                )
+
+            return mock
+
+        mock_get.side_effect = mock_implementation
+
+        response = self.client.get("/api/billing/?include_forecasting=true")
+        assert response.status_code == 200
+
+        # Verify the billing service was called with the correct query param
+        billing_calls = [
+            call
+            for call in mock_get.call_args_list
+            if "api/billing" in call[0][0] and "api/billing/portal" not in call[0][0]
+        ]
+        assert len(billing_calls) == 1
+        assert billing_calls[0].kwargs["params"] == {"include_forecasting": "true"}
 
 
 class TestPortalBillingAPI(APILicensedTest):
@@ -932,7 +1019,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
-        mock_get_billing.assert_called_once_with(self.organization, None)
+        mock_get_billing.assert_called_once_with(self.organization, {})
 
     def test_deactivate_failure(self):
         url = "/api/billing/deactivate"
@@ -941,3 +1028,223 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, data)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestStartupApplicationBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        # Set user as admin/owner by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.url = "/api/billing/startups/apply"
+        self.data = {"organization_id": str(self.organization.id)}
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
+    def test_startup_apply_owner_success(self, mock_apply_startup_program):
+        mock_apply_startup_program.return_value = {"success": True}
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+        mock_apply_startup_program.assert_called_once()
+
+    def test_startup_apply_non_admin_failure(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self.url, self.data)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or owner to apply for the startup program"
+        )
+
+    def test_startup_apply_missing_org_id(self):
+        empty_data: dict[str, Any] = {}
+
+        response = self.client.post(self.url, empty_data)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required.",
+                "attr": "organization_id",
+            },
+        )
+
+    @patch("ee.billing.billing_manager.BillingManager.apply_startup_program")
+    def test_startup_apply_passes_user_info(self, mock_apply_startup_program):
+        mock_apply_startup_program.return_value = {"success": True}
+
+        # Set user properties
+        self.user.email = "test@example.com"
+        self.user.first_name = "Test"
+        self.user.last_name = "User"
+        self.user.save()
+
+        # Add additional data fields
+        data = {
+            **self.data,
+            "raised": "1000000",
+            "incorporation_date": "2023-01-01",
+        }
+
+        response = self.client.post(self.url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        expected_data = {
+            "organization_id": str(self.organization.id),
+            "raised": "1000000",
+            "incorporation_date": "2023-01-01",
+            "email": "test@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+        }
+
+        # Check that apply_startup_program was called with the organization and the expected data
+        mock_apply_startup_program.assert_called_once()
+        _, call_args, _ = mock_apply_startup_program.mock_calls[0]
+        self.assertEqual(call_args[0], self.organization)
+        self.assertEqual(call_args[1], expected_data)
+
+
+class TestBillingUsageRequestSerializer(TestCase):
+    def test_valid_dates(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "2025-01-01", "end_date": "2025-01-31"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2025-01-01")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-01-31")
+
+    @freeze_time("2025-02-15")
+    def test_relative_dates(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "-7d", "end_date": "-1d"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2025-02-08")
+        self.assertEqual(serializer.validated_data["end_date"], "2025-02-14")
+
+    def test_start_date_all(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "all"})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["start_date"], "2020-01-01")
+
+    def test_passthrough_fields(self):
+        data = {
+            "usage_types": urllib.parse.quote('["event_count_in_period","recording_count_in_period"]'),
+            "team_ids": urllib.parse.quote("[1,2,3]"),
+            "breakdowns": urllib.parse.quote("[type,team]"),
+            "interval": "week",
+        }
+        serializer = BillingUsageRequestSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        for key, value in data.items():
+            self.assertEqual(serializer.validated_data[key], value)
+
+    def test_empty_and_null_dates_are_valid(self):
+        serializer = BillingUsageRequestSerializer(data={"start_date": "", "end_date": None})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertIsNone(serializer.validated_data.get("start_date"))
+        self.assertIsNone(serializer.validated_data.get("end_date"))
+
+
+class TestBillingUsageAndSpendAPI(APILicensedTest):
+    MOCK_USAGE_DATA = {"results": [{"data": [1, 2], "count": 2}]}
+    MOCK_SPEND_DATA = {"results": [{"spend": 100.0, "usage": 10000}]}
+
+    def setUp(self):
+        super().setUp()
+        # Ensure the user is an admin for these tests by default
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_success(self, mock_get_usage_data):
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get(f"/api/billing/usage/?start_date=2025-01-01&team_ids=[{self.team.pk}]")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+        mock_get_usage_data.assert_called_once()
+        call_args = mock_get_usage_data.call_args[0]
+        self.assertEqual(call_args[0], self.organization)  # First arg is organization
+        passed_params = call_args[1]  # Second arg is params dict
+        self.assertEqual(passed_params["start_date"], "2025-01-01")
+        self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    def test_get_spend_success(self, mock_get_spend_data):
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(
+            f"/api/billing/spend/?start_date=2025-01-01&usage_types=events&team_ids=[{self.team.pk}]"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
+        mock_get_spend_data.assert_called_once()
+        call_args = mock_get_spend_data.call_args[0]
+        self.assertEqual(call_args[0], self.organization)
+        passed_params = call_args[1]
+        self.assertEqual(passed_params["start_date"], "2025-01-01")
+        self.assertEqual(passed_params["usage_types"], "events")
+        self.assertEqual(passed_params["team_ids"], f"[{str(self.team.pk)}]")
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {str(self.team.pk): self.team.name})
+
+    def test_get_usage_permission_denied_for_member(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/billing/usage/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_spend_permission_denied_for_member(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/billing/spend/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    @patch("ee.api.billing.BillingViewset._get_teams_map")
+    def test_get_usage_empty_teams_map_graceful_handling(self, mock_get_teams_map, mock_get_usage_data):
+        mock_get_teams_map.return_value = {}
+        mock_get_usage_data.return_value = self.MOCK_USAGE_DATA
+
+        response = self.client.get(f"/api/billing/usage/?start_date=2025-01-01")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_USAGE_DATA)
+        mock_get_usage_data.assert_called_once()
+        call_args = mock_get_usage_data.call_args[0]
+        passed_params = call_args[1]
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {})
+        mock_get_teams_map.assert_called_once()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    @patch("ee.api.billing.BillingViewset._get_teams_map")
+    def test_get_spend_empty_teams_map_graceful_handling(self, mock_get_teams_map, mock_get_spend_data):
+        mock_get_teams_map.return_value = {}
+        mock_get_spend_data.return_value = self.MOCK_SPEND_DATA
+
+        response = self.client.get(f"/api/billing/spend/?start_date=2025-01-01")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), self.MOCK_SPEND_DATA)
+        mock_get_spend_data.assert_called_once()
+        call_args = mock_get_spend_data.call_args[0]
+        passed_params = call_args[1]
+        self.assertIn("teams_map", passed_params)
+
+        teams_map_dict = json.loads(passed_params["teams_map"])
+        self.assertEqual(teams_map_dict, {})
+        mock_get_teams_map.assert_called_once()

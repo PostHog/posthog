@@ -2,11 +2,13 @@ import json
 import re
 from typing import Any, Optional, cast
 
+from django.conf import settings
+from posthoganalytics import capture_exception
 import requests
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.uploadedfile import UploadedFile
-from django.db import connections, transaction
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils.encoding import smart_str
@@ -22,12 +24,12 @@ from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
+from posthog.event_usage import report_user_action
 from posthog.models import Plugin, PluginAttachment, PluginConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityPage,
     Change,
     Detail,
-    Trigger,
     dict_changes_between,
     load_activity,
     load_all_activity,
@@ -39,10 +41,9 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import (
     PluginSourceFile,
     update_validated_data_from_url,
-    validate_plugin_job_payload,
     transpile,
 )
-from posthog.models.utils import UUIDT, generate_random_token
+from posthog.models.utils import generate_random_token
 from posthog.permissions import APIScopePermission
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins, has_plugin_access_level
@@ -686,6 +687,34 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         _fix_formdata_config_json(self.context["request"], validated_data)
 
         validated_data["web_token"] = generate_random_token()
+
+        if settings.CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG:
+            # Try and create a hog function if possible, otherwise create plugin
+            from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
+
+            try:
+                hog_function_serializer = hog_function_from_plugin_config(validated_data, self.context)
+
+                if hog_function_serializer:
+                    hog_function = hog_function_serializer.create(hog_function_serializer.validated_data)
+                    # A bit hacky - we return the non saved plugin config
+
+                    report_user_action(
+                        self.context["request"].user,
+                        "hog function created from plugin config api",
+                        {
+                            "hog_function_id": hog_function.id,
+                            "plugin_id": validated_data["plugin"].id,
+                            "team_id": self.context["team_id"],
+                        },
+                    )
+                    # Return plugin config without saving if hog function was created successfully
+                    return PluginConfig(**validated_data)
+
+            except Exception as e:
+                # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
+                capture_exception(e)
+
         plugin_config = super().create(validated_data)
         log_enabled_change_activity(
             new_plugin_config=plugin_config,
@@ -809,64 +838,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
         return Response(PluginConfigSerializer(plugin_configs, many=True).data)
-
-    @action(methods=["POST"], detail=True)
-    def job(self, request: request.Request, **kwargs):
-        if not can_configure_plugins(self.team.organization_id):
-            raise ValidationError("Plugin configuration is not available for the current organization!")
-
-        plugin_config = self.get_object()
-        plugin_config_id = plugin_config.id
-        job = request.data.get("job", {})
-
-        if "type" not in job:
-            raise ValidationError("The job type must be specified!")
-
-        # job_type = job name
-        job_type = job.get("type")
-        job_payload = job.get("payload", {})
-        job_op = job.get("operation", "start")
-        job_id = str(UUIDT())
-
-        validate_plugin_job_payload(
-            plugin_config.plugin,
-            job_type,
-            job_payload,
-            is_staff=request.user.is_staff or is_impersonated_session(request),
-        )
-
-        payload_json = json.dumps(
-            {
-                "type": job_type,
-                "payload": {**job_payload, **{"$operation": job_op, "$job_id": job_id}},
-                "pluginConfigId": plugin_config_id,
-                "pluginConfigTeam": self.team.pk,
-            }
-        )
-        sql = f"SELECT graphile_worker.add_job('pluginJob', %s)"
-        params = [payload_json]
-        try:
-            connection = connections["graphile"] if "graphile" in connections else connections["default"]
-            with connection.cursor() as cursor:
-                cursor.execute(sql, params)
-        except Exception as e:
-            raise Exception(f"Failed to execute postgres sql={sql},\nparams={params},\nexception={str(e)}")
-
-        log_activity(
-            organization_id=self.team.organization.id,
-            # Users in an org but not yet in a team can technically manage plugins via the API
-            team_id=self.team.pk,
-            user=request.user,  # type: ignore
-            was_impersonated=is_impersonated_session(self.request),
-            item_id=plugin_config_id,
-            scope="PluginConfig",  # use the type plugin so we can also provide unified history
-            activity="job_triggered",
-            detail=Detail(
-                name=self.get_object().plugin.name,
-                trigger=Trigger(job_type=job_type, job_id=job_id, payload=job_payload),
-            ),
-        )
-        return Response(status=200)
 
     @action(methods=["GET"], detail=True)
     @renderer_classes((PlainRenderer,))

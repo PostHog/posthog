@@ -3,8 +3,9 @@ import './PropertyKeyInfo.scss'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { getCoreFilterDefinition, PropertyKey } from 'lib/taxonomy'
 import React, { useState } from 'react'
+
+import { getCoreFilterDefinition, PropertyKey } from '~/taxonomy/helpers'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
@@ -38,11 +39,8 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
     const valueDisplayText = (coreDefinition ? coreDefinition.label : value)?.trim() ?? ''
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
-    const recognizedSource: 'posthog' | 'langfuse' | null = coreDefinition
-        ? 'posthog'
-        : value.startsWith('langfuse ')
-        ? 'langfuse'
-        : null
+    const recognizedSource: 'posthog' | 'langfuse' | null =
+        coreDefinition || value.startsWith('$') ? 'posthog' : value.startsWith('langfuse ') ? 'langfuse' : null
 
     const innerContent = (
         <span
@@ -68,7 +66,9 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
             overlay={
                 <div className="PropertyKeyInfo__overlay">
                     <div className="PropertyKeyInfo__header">
-                        {!!coreDefinition && <span className="PropertyKeyInfo__logo" />}
+                        {!!coreDefinition && (
+                            <span className={`PropertyKeyInfo__logo PropertyKeyInfo__logo--${recognizedSource}`} />
+                        )}
                         {coreDefinition.label}
                     </div>
                     {coreDefinition.description || coreDefinition.examples ? (

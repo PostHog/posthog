@@ -1,0 +1,573 @@
+{
+    "count": 15,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "alpha",
+            "free": false,
+            "type": "transformation",
+            "id": "template-blank-transformation",
+            "name": "Custom transformation",
+            "hog": "// This is a blank template for custom transformations\n// The function receives 'event' as a global object and expects it to be returned\n// If you return null then the event will be discarded\nreturn event",
+            "inputs_schema": [],
+            "category": ["Custom"],
+            "description": "This is a starter template for custom transformations",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/hedgehog/builder-hog-01.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "alpha",
+            "free": true,
+            "type": "transformation",
+            "id": "template-geoip",
+            "name": "GeoIP",
+            "hog": "// Define the properties to be added to the event\nlet geoipProperties := {\n    'city_name': null,\n    'city_confidence': null,\n    'subdivision_2_name': null,\n    'subdivision_2_code': null,\n    'subdivision_1_name': null,\n    'subdivision_1_code': null,\n    'country_name': null,\n    'country_code': null,\n    'continent_name': null,\n    'continent_code': null,\n    'postal_code': null,\n    'latitude': null,\n    'longitude': null,\n    'accuracy_radius': null,\n    'time_zone': null\n}\n// Check if the event has an IP address\nif (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {\n    print('geoip disabled or no ip.')\n    return event\n}\nlet ip := event.properties.$ip\nif (ip == '127.0.0.1') {\n    print('spoofing ip for local development', ip)\n    ip := '89.160.20.129'\n}\nlet response := geoipLookup(ip)\nif (not response) {\n    print('geoip lookup failed for ip', ip)\n    return event\n}\nlet location := {}\nif (response.city) {\n    location['city_name'] := response.city.names?.en\n}\nif (response.country) {\n    location['country_name'] := response.country.names?.en\n    location['country_code'] := response.country.isoCode\n}\nif (response.continent) {\n    location['continent_name'] := response.continent.names?.en\n    location['continent_code'] := response.continent.code\n}\nif (response.postal) {\n    location['postal_code'] := response.postal.code\n}\nif (response.location) {\n    location['latitude'] := response.location?.latitude\n    location['longitude'] := response.location?.longitude\n    location['accuracy_radius'] := response.location?.accuracyRadius\n    location['time_zone'] := response.location?.timeZone\n}\nif (response.subdivisions) {\n    for (let index, subdivision in response.subdivisions) {\n        location[f'subdivision_{index + 1}_code'] := subdivision.isoCode\n        location[f'subdivision_{index + 1}_name'] := subdivision.names?.en\n    }\n}\nprint('geoip location data for ip:', location) \nlet returnEvent := event\nreturnEvent.properties := returnEvent.properties ?? {}\nreturnEvent.properties.$set := returnEvent.properties.$set ?? {}\nreturnEvent.properties.$set_once := returnEvent.properties.$set_once ?? {}\nfor (let key, value in geoipProperties) {\n    if (value != null) {\n        returnEvent.properties.$set[f'$geoip_{key}'] := value\n        returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n    }\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nfor (let key, value in location) {\n    returnEvent.properties[f'$geoip_{key}'] := value\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nreturn returnEvent",
+            "inputs_schema": [],
+            "category": ["Custom"],
+            "description": "Adds geoip data to the event",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/transformations/geoip.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "alpha",
+            "free": true,
+            "type": "transformation",
+            "id": "template-ip-anonymization",
+            "name": "IP Anonymization",
+            "hog": "// Check if the event has an IP address\nif (empty(event.properties?.$ip)) {\n    print('No IP address found in event')\n    return event\n}\n\nlet ip := event.properties.$ip\nlet parts := splitByString('.', ip)\n\n// Check if we have exactly 4 parts for IPv4\nif (length(parts) != 4) {\n    print('Invalid IP address format: wrong number of octets')\n    return event\n}\n\n// Validate each octet is a number between 0 and 255\nfor (let i := 1; i \u003C= 4; i := i + 1) {\n    let octet := toInt(parts[i])\n    if (octet = null or octet \u003C 0 or octet \u003E 255) {\n        print('Invalid IP address: octets must be numbers between 0 and 255')\n        return event\n    }\n}\n\n// Replace the last octet with '0'\nlet anonymizedIp := concat(parts[1], '.', parts[2], '.', parts[3], '.0')\n    \nlet returnEvent := event\nreturnEvent.properties.$ip := anonymizedIp\nreturn returnEvent",
+            "inputs_schema": [],
+            "category": ["Custom"],
+            "description": "This transformation sets the last octet of an IP address to zero (e.g., 12.214.31.144 → 12.214.31.0), protecting user privacy and reducing disclosure risk.",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/hedgehog/builder-hog-01.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "alpha",
+            "free": true,
+            "type": "transformation",
+            "id": "template-remove-null-properties",
+            "name": "Remove Null Properties",
+            "hog": "// Check if the event has properties\nif (empty(event.properties)) {\n    return event\n}\n\nlet returnEvent := event\nreturnEvent.properties := cleanNullValues(event.properties)\nreturn returnEvent",
+            "inputs_schema": [],
+            "category": ["Custom"],
+            "description": "This transformation removes null properties from the event properties object. If the object nesting exceeds 3 levels, deeper levels will be returned unchanged.",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/hedgehog/builder-hog-01.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-downsampling-plugin",
+            "name": "Downsample",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "type": "string",
+                    "templating": false,
+                    "key": "percentage",
+                    "label": "% of events to keep",
+                    "default": "100",
+                    "required": false
+                },
+                {
+                    "type": "choice",
+                    "templating": false,
+                    "key": "samplingMethod",
+                    "label": "Sampling method",
+                    "choices": [
+                        {
+                            "value": "Random sampling",
+                            "label": "Random sampling"
+                        },
+                        {
+                            "value": "Distinct ID aware sampling",
+                            "label": "Distinct ID aware sampling"
+                        }
+                    ],
+                    "default": "Distinct ID aware sampling",
+                    "required": false
+                }
+            ],
+            "category": ["Custom"],
+            "description": "Reduces event volume coming into PostHog",
+            "filters": null,
+            "masking": null,
+            "icon_url": "https://raw.githubusercontent.com/posthog/downsampling-plugin/main/logo.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-language-url-splitter-app",
+            "name": "Language URL stripper",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "key": "pattern",
+                    "label": "Pattern",
+                    "type": "string",
+                    "default": "^/([a-z]{2})(?=/|#|\\?|$)",
+                    "description": "Ininitalized with `const regexp = new RegExp($pattern)`",
+                    "required": true,
+                    "templating": false
+                },
+                {
+                    "key": "matchGroup",
+                    "label": "Match group",
+                    "type": "string",
+                    "default": "1",
+                    "description": "Used in: `const value = regexp.match($pathname)[$matchGroup]`",
+                    "required": true,
+                    "templating": false
+                },
+                {
+                    "key": "property",
+                    "label": "Property",
+                    "type": "string",
+                    "default": "locale",
+                    "description": "Name of the event property we will store the matched value in",
+                    "required": true,
+                    "templating": false
+                },
+                {
+                    "key": "replacePattern",
+                    "label": "Replacement pattern",
+                    "type": "string",
+                    "default": "^(/[a-z]{2})(/|(?=/|#|\\?|$))",
+                    "description": "Initialized with `new RegExp($pattern)`, leave empty to disable path cleanup.",
+                    "required": true,
+                    "templating": false
+                },
+                {
+                    "key": "replaceKey",
+                    "label": "Replacement key",
+                    "type": "string",
+                    "default": "$pathname",
+                    "description": "Where to store the updated path. Keep as `$pathname` to override.",
+                    "required": true,
+                    "templating": false
+                },
+                {
+                    "key": "replaceValue",
+                    "label": "Replacement value",
+                    "type": "string",
+                    "default": "/",
+                    "description": "`properties[key] = $pathname.replace(pattern, value)`",
+                    "required": true,
+                    "templating": false
+                }
+            ],
+            "category": ["Transformation"],
+            "description": "Replace the language from the URL with a custom value",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/hedgehog/builder-hog-01.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-posthog-app-url-parameters-to-event-properties",
+            "name": "URL parameters to event properties",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "key": "parameters",
+                    "templating": false,
+                    "label": "URL query parameters to convert",
+                    "type": "string",
+                    "default": "",
+                    "description": "Comma separated list of URL query parameters to capture. Leaving this blank will capture nothing."
+                },
+                {
+                    "key": "prefix",
+                    "templating": false,
+                    "label": "Prefix",
+                    "type": "string",
+                    "default": "",
+                    "description": "Add a prefix to the property name e.g. set it to 'prefix_' to get followerId -\u003E prefix_followerId"
+                },
+                {
+                    "key": "suffix",
+                    "templating": false,
+                    "label": "Suffix",
+                    "type": "string",
+                    "default": "",
+                    "description": "Add a suffix to the property name e.g. set it to '_suffix' to get followerId -\u003E followerId_suffix"
+                },
+                {
+                    "key": "ignoreCase",
+                    "templating": false,
+                    "label": "Ignore the case of URL parameters",
+                    "type": "choice",
+                    "choices": [
+                        {
+                            "value": "true",
+                            "label": "true"
+                        },
+                        {
+                            "value": "false",
+                            "label": "false"
+                        }
+                    ],
+                    "default": "false",
+                    "description": "Ignores the case of parameters e.g. when set to true than followerId would match FollowerId, followerID, FoLlOwErId and similar"
+                },
+                {
+                    "key": "setAsUserProperties",
+                    "templating": false,
+                    "label": "Add to user properties",
+                    "type": "choice",
+                    "choices": [
+                        {
+                            "value": "true",
+                            "label": "true"
+                        },
+                        {
+                            "value": "false",
+                            "label": "false"
+                        }
+                    ],
+                    "default": "false",
+                    "description": "Additionally adds the property to the user properties"
+                },
+                {
+                    "key": "setAsInitialUserProperties",
+                    "templating": false,
+                    "label": "Add to user initial properties",
+                    "type": "choice",
+                    "choices": [
+                        {
+                            "value": "true",
+                            "label": "true"
+                        },
+                        {
+                            "value": "false",
+                            "label": "false"
+                        }
+                    ],
+                    "default": "false",
+                    "description": "Additionally adds the property to the user initial properties. This will add a prefix of 'initial_' before the already fully composed property e.g. initial_prefix_followerId_suffix"
+                },
+                {
+                    "key": "alwaysJson",
+                    "templating": false,
+                    "label": "Always JSON stringify the property data",
+                    "type": "choice",
+                    "choices": [
+                        {
+                            "value": "true",
+                            "label": "true"
+                        },
+                        {
+                            "value": "false",
+                            "label": "false"
+                        }
+                    ],
+                    "default": "false",
+                    "description": "If set, always store the resulting data as a JSON array. (Otherwise, single parameters get stored as-is, and multi-value parameters get stored as a JSON array.)"
+                }
+            ],
+            "category": ["Transformation"],
+            "description": "Converts URL query parameters to event properties",
+            "filters": null,
+            "masking": null,
+            "icon_url": "https://raw.githubusercontent.com/posthog/posthog-app-url-parameters-to-event-properties/main/logo.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-posthog-filter-out-plugin",
+            "name": "Filter Out Plugin",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "key": "filters",
+                    "templating": false,
+                    "label": "Filters to apply",
+                    "type": "json",
+                    "description": "A JSON file containing an array of filters to apply. See the README for more information.",
+                    "required": false
+                },
+                {
+                    "key": "eventsToDrop",
+                    "templating": false,
+                    "label": "Events to filter out",
+                    "type": "string",
+                    "description": "A comma-separated list of event names to filter out (e.g. $pageview,$autocapture)",
+                    "required": false
+                },
+                {
+                    "key": "keepUndefinedProperties",
+                    "templating": false,
+                    "label": "Keep event if any of the filtered properties are undefined?",
+                    "type": "choice",
+                    "choices": [
+                        {
+                            "value": "Yes",
+                            "label": "Yes"
+                        },
+                        {
+                            "value": "No",
+                            "label": "No"
+                        }
+                    ],
+                    "default": "No"
+                }
+            ],
+            "category": ["Transformation"],
+            "description": "Filter out events where property values satisfy the given condition",
+            "filters": null,
+            "masking": null,
+            "icon_url": "https://raw.githubusercontent.com/posthog/posthog-filter-out-plugin/main/logo.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-posthog-plugin-geoip",
+            "name": "GeoIP",
+            "hog": "return event",
+            "inputs_schema": [],
+            "category": ["Custom"],
+            "description": "Enrich events with GeoIP data",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/transformations/geoip.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-posthog-url-normalizer-plugin",
+            "name": "URL Normalizer",
+            "hog": "return event",
+            "inputs_schema": [],
+            "category": ["Transformation"],
+            "description": "Normalize the format of urls in your application allowing you to more easily compare them in insights.",
+            "filters": null,
+            "masking": null,
+            "icon_url": "https://raw.githubusercontent.com/posthog/posthog-url-normalizer-plugin/main/logo.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-property-filter-plugin",
+            "name": "Property Filter",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "templating": false,
+                    "key": "properties",
+                    "label": "Properties to filter out",
+                    "type": "string",
+                    "description": "A comma-separated list of properties to filter out (e.g. $ip, $current_url)",
+                    "default": "",
+                    "required": true
+                }
+            ],
+            "category": ["Transformation"],
+            "description": "This plugin will set all configured properties to null inside an ingested event.",
+            "filters": null,
+            "masking": null,
+            "icon_url": "https://raw.githubusercontent.com/posthog/property-filter-plugin/dev/logo.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-semver-flattener-plugin",
+            "name": "SemVer Flattener",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "key": "properties",
+                    "templating": false,
+                    "label": "comma separated properties to explode version number from",
+                    "type": "string",
+                    "description": "my_version_number,app_version",
+                    "default": "",
+                    "required": true
+                }
+            ],
+            "category": ["Transformation"],
+            "description": "This plugin will flatten semver versions in the specified properties.",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/transformations/semver-flattener.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-taxonomy-plugin",
+            "name": "Taxonomy",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "key": "defaultNamingConvention",
+                    "templating": false,
+                    "label": "Select your default naming pattern",
+                    "type": "choice",
+                    "choices": [
+                        {
+                            "value": "camelCase",
+                            "label": "camelCase"
+                        },
+                        {
+                            "value": "PascalCase",
+                            "label": "PascalCase"
+                        },
+                        {
+                            "value": "snake_case",
+                            "label": "snake_case"
+                        },
+                        {
+                            "value": "kebab-case",
+                            "label": "kebab-case"
+                        },
+                        {
+                            "value": "spaces in between",
+                            "label": "spaces in between"
+                        }
+                    ],
+                    "default": "camelCase",
+                    "required": true
+                }
+            ],
+            "category": ["Transformation"],
+            "description": "Standardize your event names into a single pattern.",
+            "filters": null,
+            "masking": null,
+            "icon_url": "https://raw.githubusercontent.com/posthog/taxonomy-plugin/main/logo.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-timestamp-parser-plugin",
+            "name": "Timestamp Parser",
+            "hog": "return event",
+            "inputs_schema": [],
+            "category": ["Transformation"],
+            "description": "Parse your event timestamps into useful date properties.",
+            "filters": null,
+            "masking": null,
+            "icon_url": "https://raw.githubusercontent.com/posthog/timestamp-parser-plugin/main/logo.png"
+        },
+        {
+            "mapping_templates": null,
+            "mappings": null,
+            "sub_templates": null,
+            "status": "stable",
+            "free": true,
+            "type": "transformation",
+            "id": "plugin-user-agent-plugin",
+            "name": "User Agent Populator",
+            "hog": "return event",
+            "inputs_schema": [
+                {
+                    "key": "overrideUserAgentDetails",
+                    "templating": false,
+                    "label": "Can override existing browser related properties of event?",
+                    "type": "string",
+                    "description": "If the ingested event already have $browser $browser_version properties in combination with $useragent the $browser, $browser_version properties will be re-populated with the value of $useragent",
+                    "default": "false",
+                    "required": false
+                },
+                {
+                    "key": "enableSegmentAnalyticsJs",
+                    "templating": false,
+                    "label": "Automatically read segment_userAgent property, automatically sent by Segment via analytics.js?",
+                    "type": "choice",
+                    "description": "Segment's analytics.js library automatically sends a useragent property that Posthog sees as segment_userAgent. Enabling this causes this plugin to parse that property",
+                    "choices": [
+                        {
+                            "value": "false",
+                            "label": "false"
+                        },
+                        {
+                            "value": "true",
+                            "label": "true"
+                        }
+                    ],
+                    "default": "false",
+                    "required": false
+                },
+                {
+                    "key": "debugMode",
+                    "templating": false,
+                    "type": "choice",
+                    "description": "Enable debug mode to log when the plugin is unable to extract values from the user agent",
+                    "choices": [
+                        {
+                            "value": "false",
+                            "label": "false"
+                        },
+                        {
+                            "value": "true",
+                            "label": "true"
+                        }
+                    ],
+                    "default": "false",
+                    "required": false
+                }
+            ],
+            "category": ["Transformation"],
+            "description": "Enhances events with user agent details. User Agent plugin allows you to populate events with the $browser, $browser_version for PostHog Clients that don't  typically populate these properties",
+            "filters": null,
+            "masking": null,
+            "icon_url": "/static/transformations/user-agent.png"
+        }
+    ]
+}

@@ -1,14 +1,15 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub } from '../../../../src/types'
+import { Hub, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { MeasuringPersonsStoreForBatch } from '../../../../src/worker/ingestion/persons/measuring-person-store'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
-import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
+import { createOrganization, createTeam, fetchPostgresPersons, getTeam, resetTestDatabase } from '../../../helpers/sql'
 
 describe('processPersonsStep()', () => {
     let runner: Pick<EventPipelineRunner, 'hub' | 'eventsProcessor'>
@@ -16,6 +17,7 @@ describe('processPersonsStep()', () => {
 
     let uuid: string
     let teamId: number
+    let team: Team
     let pluginEvent: PluginEvent
     let timestamp: DateTime
 
@@ -28,6 +30,7 @@ describe('processPersonsStep()', () => {
         }
         const organizationId = await createOrganization(runner.hub.db.postgres)
         teamId = await createTeam(runner.hub.db.postgres, organizationId)
+        team = (await getTeam(runner.hub, teamId))!
         uuid = new UUIDT().toString()
 
         pluginEvent = {
@@ -53,12 +56,19 @@ describe('processPersonsStep()', () => {
 
     it('creates person', async () => {
         const processPerson = true
-        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent, timestamp, processPerson)
+        const [resEvent, resPerson] = await processPersonsStep(
+            runner as EventPipelineRunner,
+            pluginEvent,
+            team,
+            timestamp,
+            processPerson,
+            new MeasuringPersonsStoreForBatch(runner.hub.db)
+        )
 
         expect(resEvent).toEqual(pluginEvent)
         expect(resPerson).toEqual(
             expect.objectContaining({
-                id: expect.any(Number),
+                id: expect.any(String),
                 uuid: expect.any(String),
                 properties: { a: 5, $creator_event_uuid: expect.any(String) },
                 version: 0,
@@ -85,7 +95,14 @@ describe('processPersonsStep()', () => {
 
         const processPerson = true
         const [normalizedEvent, timestamp] = await normalizeEventStep(event, processPerson)
-        const [resEvent, resPerson] = await processPersonsStep(runner, normalizedEvent, timestamp, processPerson)
+        const [resEvent, resPerson] = await processPersonsStep(
+            runner as EventPipelineRunner,
+            normalizedEvent,
+            team,
+            timestamp,
+            processPerson,
+            new MeasuringPersonsStoreForBatch(runner.hub.db)
+        )
 
         expect(resEvent).toEqual({
             ...event,
@@ -102,7 +119,7 @@ describe('processPersonsStep()', () => {
         })
         expect(resPerson).toEqual(
             expect.objectContaining({
-                id: expect.any(Number),
+                id: expect.any(String),
                 uuid: expect.any(String),
                 properties: {
                     $initial_browser: 'Chrome',

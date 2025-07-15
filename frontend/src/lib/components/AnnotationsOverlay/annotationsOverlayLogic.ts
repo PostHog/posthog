@@ -1,5 +1,5 @@
-import { Tick } from 'chart.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { Tick } from 'lib/Chart'
 import { Dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
 import { groupBy } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -152,6 +152,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     dateRange
                         ? annotations.filter(
                               (annotation) =>
+                                  annotation.scope !== AnnotationScope.Recording &&
                                   (annotation.scope !== AnnotationScope.Insight ||
                                       annotation.dashboard_item === insightNumericId) &&
                                   (annotation.scope !== AnnotationScope.Dashboard ||

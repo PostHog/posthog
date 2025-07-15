@@ -9,10 +9,11 @@ import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicT
 import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, Node } from '~/queries/schema'
+import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
@@ -74,9 +75,9 @@ export const notebooksModel = kea<notebooksModelType>([
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
         createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
     }),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
 
     reducers({
         scratchpadNotebook: [SCRATCHPAD_NOTEBOOK],
@@ -90,6 +91,7 @@ export const notebooksModel = kea<notebooksModelType>([
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
+                        _create_in_folder: getLastNewFolder(),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {
@@ -105,8 +107,15 @@ export const notebooksModel = kea<notebooksModelType>([
 
                 deleteNotebook: async ({ shortId, title }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/${values.currentTeamId}/notebooks`,
+                        endpoint: `projects/${values.currentProjectId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
+                        callback: (undo) => {
+                            if (undo) {
+                                refreshTreeItem('notebook', shortId)
+                            } else {
+                                deleteFromTree('notebook', shortId)
+                            }
+                        },
                     })
 
                     const panelLogic = notebookPanelLogic.findMounted()
@@ -140,13 +149,11 @@ export const notebooksModel = kea<notebooksModelType>([
                 if (!tile.insight) {
                     return acc
                 }
-                return [
-                    ...acc,
-                    {
-                        title: tile.insight.name,
-                        query: tile.insight.query,
-                    },
-                ]
+                acc.push({
+                    title: tile.insight.name,
+                    query: tile.insight.query,
+                })
+                return acc
             }, [] as { title: string; query: InsightVizNode | Node | null }[])
 
             const resources = queries.map((x) => ({

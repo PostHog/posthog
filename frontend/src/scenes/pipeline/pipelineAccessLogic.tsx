@@ -5,13 +5,13 @@ import { AvailableFeature } from '~/types'
 
 import { canConfigurePlugins, canGloballyManagePlugins } from './access'
 import type { pipelineAccessLogicType } from './pipelineAccessLogicType'
-import { Destination, NewDestinationItemType, PipelineBackend } from './types'
+import { Destination, NewDestinationItemType, SiteApp, Transformation } from './types'
 
 export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
     path(['scenes', 'pipeline', 'pipelineAccessLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user', 'hasAvailableFeature']],
-    }),
+    })),
     selectors({
         // This is currently an organization level setting but might in the future be user level
         // it's better to add the permission checks everywhere now
@@ -25,12 +25,12 @@ export const pipelineAccessLogic = kea<pipelineAccessLogicType>([
 
         canEnableDestination: [
             (s) => [s.canEnableNewDestinations],
-            (canEnableNewDestinations): ((destination: Destination | NewDestinationItemType) => boolean) => {
-                return (destination: Destination | NewDestinationItemType) => {
-                    return destination.backend === PipelineBackend.HogFunction
-                        ? ('hog_function' in destination
-                              ? destination.hog_function.template?.status === 'free'
-                              : destination.status === 'free') || canEnableNewDestinations
+            (
+                canEnableNewDestinations
+            ): ((destination: Destination | NewDestinationItemType | SiteApp | Transformation) => boolean) => {
+                return (destination: Destination | NewDestinationItemType | SiteApp | Transformation) => {
+                    return 'free' in destination
+                        ? destination.free || canEnableNewDestinations
                         : canEnableNewDestinations
                 }
             },

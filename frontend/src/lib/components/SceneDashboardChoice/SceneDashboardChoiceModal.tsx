@@ -38,7 +38,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
             }
         >
             {dashboardsLoading ? (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton.Row repeat={4} />
                 </div>
             ) : (
@@ -53,7 +53,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                         className="mb-4"
                     />
                     <LemonDivider />
-                    <div className="space-y-2 min-h-100">
+                    <div className="deprecated-space-y-2 min-h-100">
                         {dashboards.map((dashboard) => {
                             const isCurrentChoice = dashboard.id === currentDashboardId
                             const rowContents = (

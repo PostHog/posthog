@@ -28,13 +28,13 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from structlog import get_logger
 
 from posthog.celery import app
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker", "decide"]
+ServiceRole = Literal["events", "web", "worker", "decide", "query", "report"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http", "kafka_connected"],
@@ -43,7 +43,8 @@ service_dependencies: dict[ServiceRole, list[str]] = {
         # NOTE: we include Postgres because the way we use django means every request hits the DB
         # https://posthog.slack.com/archives/C02E3BKC78F/p1679669676438729
         "postgres",
-        "postgres_migrations_uptodate",
+        # NOTE: migrations run in a separate job before the version is even deployed. This check is unnecessary
+        # "postgres_migrations_uptodate",
         "cache",
         # NOTE: we do not include clickhouse for web, as even without clickhouse we
         # want to be able to display something to the user.
@@ -58,11 +59,14 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     "worker": [
         "http",
         "postgres",
-        "postgres_migrations_uptodate",
+        # NOTE: migrations run in a separate job before the version is even deployed. This check is unnecessary
+        # "postgres_migrations_uptodate",
         "clickhouse",
         "celery_broker",
     ],
     "decide": ["http"],
+    "query": ["http", "postgres", "cache"],
+    "report": ["http", "kafka_connected"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy

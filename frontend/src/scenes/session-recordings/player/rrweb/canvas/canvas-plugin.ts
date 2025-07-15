@@ -1,8 +1,15 @@
-import { CanvasArg, canvasMutationData, canvasMutationParam, eventWithTime } from '@rrweb/types'
-import { captureException } from '@sentry/react'
+import { canvasMutation, Replayer } from '@posthog/rrweb'
+import { ReplayPlugin } from '@posthog/rrweb'
+import {
+    CanvasArg,
+    canvasMutationData,
+    canvasMutationParam,
+    EventType,
+    eventWithTime,
+    IncrementalSource,
+} from '@posthog/rrweb-types'
 import { debounce } from 'lib/utils'
-import { canvasMutation, EventType, IncrementalSource, Replayer } from 'rrweb'
-import { ReplayPlugin } from 'rrweb/typings/types'
+import posthog from 'posthog-js'
 
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
@@ -16,12 +23,12 @@ function isCanvasMutation(e: eventWithTime): e is CanvasEventWithTime {
 }
 
 function quickFindClosestCanvasEventIndex(
-    events: CanvasEventWithTime[],
-    target: CanvasEventWithTime,
+    events: CanvasEventWithTime[] | undefined,
+    target: CanvasEventWithTime | undefined,
     start: number,
     end: number
 ): number {
-    if (!target) {
+    if (!target || !events || !events.length) {
         return -1
     }
 
@@ -29,9 +36,19 @@ function quickFindClosestCanvasEventIndex(
         return end
     }
 
+    if (start < 0 || end > events.length - 1) {
+        return -1
+    }
+
     const mid = Math.floor((start + end) / 2)
 
-    return target.timestamp <= events[mid].timestamp
+    // in production, we do sometimes see this be undefined
+    const middleEvent = events[mid]
+    if (!middleEvent) {
+        return -1
+    }
+
+    return target.timestamp <= middleEvent.timestamp
         ? quickFindClosestCanvasEventIndex(events, target, start, mid - 1)
         : quickFindClosestCanvasEventIndex(events, target, mid + 1, end)
 }
@@ -197,14 +214,45 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
             }
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
-                const el = containers.get(id) || document.createElement('img')
-                ;(node as HTMLCanvasElement).appendChild(el)
-                containers.set(id, el)
+                const existingContainer = containers.get(id)
+                if (existingContainer) {
+                    return // Already processed
+                }
+
+                // Create wrapper div that gets all the canvas attributes
+                const wrapper = document.createElement('div')
+                const img = document.createElement('img')
+
+                const canvasElement = node as HTMLCanvasElement
+
+                // Copy all attributes from canvas to wrapper div
+                for (let i = 0; i < canvasElement.attributes.length; i++) {
+                    const attr = canvasElement.attributes[i]
+                    wrapper.setAttribute(attr.name, attr.value)
+                }
+
+                // Style the img to fill the wrapper
+                img.style.width = '100%'
+                img.style.height = '100%'
+                img.style.objectFit = 'contain'
+
+                // Set dimensions on wrapper if canvas has them
+                if (canvasElement.width) {
+                    wrapper.style.width = canvasElement.width + 'px'
+                }
+                if (canvasElement.height) {
+                    wrapper.style.height = canvasElement.height + 'px'
+                }
+
+                wrapper.appendChild(img)
+
+                const parent = node.parentNode as Node
+                parent?.replaceChild?.(wrapper, node as Node)
+                containers.set(id, img)
             }
         },
 
-        // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        handler: async (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
+        handler: (e: eventWithTime, isSync: boolean, { replayer }: { replayer: Replayer }) => {
             const isCanvas = isCanvasMutation(e)
 
             // scrubbing / fast forwarding
@@ -227,5 +275,5 @@ export const CanvasReplayerPlugin = (events: eventWithTime[]): ReplayPlugin => {
 }
 
 const handleMutationError = (error: unknown): void => {
-    captureException(error)
+    posthog.captureException(error)
 }

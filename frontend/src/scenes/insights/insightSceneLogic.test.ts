@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 
@@ -25,8 +25,9 @@ describe('insightSceneLogic', () => {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
         })
         initKeaTests()
@@ -44,45 +45,25 @@ describe('insightSceneLogic', () => {
             })
     })
 
-    it('redirects when opening /insight/new with insight type in theurl', async () => {
-        router.actions.push(urls.insightNew(InsightType.FUNNELS))
+    it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
+        router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
         await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(router)
-            .delay(1)
-            .toMatchValues({
-                location: partial({
-                    pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID),
-                    search: '',
-                    hash: '',
-                }),
-            })
 
         expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
             'FunnelsQuery'
         )
     })
 
-    it('redirects when opening /insight/new with query in the url', async () => {
+    it('redirects maintaining url params when opening /insight/new with query in the url', async () => {
         router.actions.push(
-            urls.insightNew(undefined, undefined, {
-                kind: NodeKind.InsightVizNode,
-                source: examples.InsightPathsQuery,
-            } as InsightVizNode)
-        )
-        await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(router)
-            .delay(1)
-            .toMatchValues({
-                location: partial({
-                    pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID),
-                    search: '',
-                    hash: '',
-                }),
+            urls.insightNew({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: examples.InsightPathsQuery,
+                } as InsightVizNode,
             })
-
-        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
-            'PathsQuery'
         )
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
     it('persists edit mode in the url', async () => {

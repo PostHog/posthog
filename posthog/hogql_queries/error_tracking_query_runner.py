@@ -1,4 +1,8 @@
+from dataclasses import dataclass
 import re
+import structlog
+from django.core.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -8,9 +12,21 @@ from posthog.schema import (
     ErrorTrackingQuery,
     ErrorTrackingQueryResponse,
     CachedErrorTrackingQueryResponse,
+    DateRange,
 )
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_select
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.error_tracking import ErrorTrackingIssue
+from posthog.models.property.util import property_to_django_filter
+from posthog.api.error_tracking import ErrorTrackingIssueSerializer
+
+logger = structlog.get_logger(__name__)
+
+
+@dataclass
+class VolumeOptions:
+    date_range: DateRange
+    resolution: int
 
 
 class ErrorTrackingQueryRunner(QueryRunner):
@@ -24,105 +40,224 @@ class ErrorTrackingQueryRunner(QueryRunner):
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
             limit=self.query.limit if self.query.limit else None,
+            offset=self.query.offset,
         )
+
+        if self.query.withAggregations is None:
+            self.query.withAggregations = True
+
+        if self.query.withFirstEvent is None:
+            self.query.withFirstEvent = True
 
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=self.select(),
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=self.from_expr(),
             where=self.where(),
             order_by=self.order_by,
-            group_by=self.group_by(),
+            group_by=[ast.Field(chain=["issue_id"])],
         )
 
+    def from_expr(self):
+        # for the second iteration of this query, we just need to select from the events table
+        return parse_select("SELECT 1 FROM events").select_from  # type: ignore
+
     def select(self):
+        # First, the easy groups - distinct uuid as occurrances, etc
         exprs: list[ast.Expr] = [
-            ast.Alias(
-                alias="occurrences", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])])
-            ),
-            ast.Alias(
-                alias="sessions", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["$session_id"])])
-            ),
-            ast.Alias(
-                alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
-            ),
+            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(
-                alias="description",
-                expr=ast.Call(
-                    name="nullIf",
-                    args=[
-                        ast.Call(
-                            name="coalesce",
-                            args=[
-                                self.extracted_exception_list_property("value"),
-                                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_message"])]),
-                            ],
-                        ),
-                        ast.Constant(value=""),
-                    ],
-                ),
-            ),
-            ast.Alias(
-                alias="exception_type",
-                expr=ast.Call(
-                    name="nullIf",
-                    args=[
-                        ast.Call(
-                            name="coalesce",
-                            args=[
-                                self.extracted_exception_list_property("type"),
-                                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_type"])]),
-                            ],
-                        ),
-                        ast.Constant(value=""),
-                    ],
-                ),
-            ),
         ]
 
-        if not self.query.fingerprint:
-            exprs.append(self.fingerprint_grouping_expr)
+        if self.query.withAggregations:
+            volume_option = VolumeOptions(date_range=self.query.dateRange, resolution=self.query.volumeResolution)
+            exprs.extend(
+                [
+                    ast.Alias(
+                        alias="occurrences",
+                        expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])]),
+                    ),
+                    ast.Alias(
+                        alias="sessions",
+                        expr=ast.Call(
+                            name="count",
+                            distinct=True,
+                            # the $session_id property can be blank if not set
+                            # we do not want that case counted so cast it to `null` which is excluded by default
+                            args=[
+                                ast.Call(
+                                    name="nullIf",
+                                    args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
+                                )
+                            ],
+                        ),
+                    ),
+                    ast.Alias(
+                        alias="users",
+                        expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])]),
+                    ),
+                    ast.Alias(alias="volumeRange", expr=self.select_sparkline_array(volume_option)),
+                ]
+            )
 
-        if self.query.select:
-            exprs.extend([parse_expr(x) for x in self.query.select])
+        if self.query.withFirstEvent:
+            exprs.append(
+                ast.Alias(
+                    alias="first_event",
+                    expr=ast.Call(
+                        name="argMin",
+                        args=[
+                            ast.Tuple(
+                                exprs=[
+                                    ast.Field(chain=["uuid"]),
+                                    ast.Field(chain=["timestamp"]),
+                                    ast.Field(chain=["properties"]),
+                                ]
+                            ),
+                            ast.Field(chain=["timestamp"]),
+                        ],
+                    ),
+                )
+            )
+
+        exprs.append(
+            ast.Alias(
+                alias="library",
+                expr=ast.Call(
+                    name="argMax", args=[ast.Field(chain=["properties", "$lib"]), ast.Field(chain=["timestamp"])]
+                ),
+            )
+        )
 
         return exprs
 
-    @property
-    def fingerprint_grouping_expr(self):
-        groups = self.error_tracking_groups.values()
+    def select_sparkline_array(self, opts: VolumeOptions):
+        """
+        This function partitions a given time range into segments (or "buckets") based on the specified resolution and then computes the number of events occurring in each segment.
+        The resolution determines the total number of segments in the time range.
+        Accordingly, the duration of each segment is dictated by the total time range and the resolution.
 
-        expr: ast.Expr = self.extracted_fingerprint_property()
-
-        if groups:
-            args: list[ast.Expr] = []
-            for group in groups:
-                # set the "fingerprint" of an exception to match that of the groups primary fingerprint
-                # replaces exceptions in "merged_fingerprints" with the group fingerprint
-                args.extend(
-                    [
-                        ast.Call(
-                            name="has",
-                            args=[
-                                self.group_fingerprints([group]),
-                                self.extracted_fingerprint_property(),
-                            ],
-                        ),
-                        ast.Constant(value=group["fingerprint"]),
-                    ]
-                )
-
-            # default to $exception_fingerprint property for exception events that don't match a group
-            args.append(self.extracted_fingerprint_property())
-
-            expr = ast.Call(
-                name="multiIf",
-                args=args,
-            )
-
-        return ast.Alias(alias="fingerprint", expr=expr)
+        The equivalent SQL would look like:
+            WITH
+                toDateTime('2025-03-01 00:00:00') AS date_from,
+                toDateTime('2025-03-20 00:00:00') AS date_to,
+                10 AS resolution,
+            SELECT
+                sumForEach(
+                    arrayMap(
+                        bin ->
+                            IF(
+                                timestamp > bin AND dateDiff('seconds', bin, timestamp) < dateDiff('seconds', date_from, date_to) / resolution,
+                                1,
+                                0
+                            ), ## If we are inside the right bucket, return 1, otherwise 0
+                        arrayMap(
+                            i -> dateAdd(
+                                start_time,
+                                toIntervalSecond(i * dateDiff('seconds', date_from, date_to) / resolution)
+                            ),
+                            range(0, resolution)
+                        ) ## Generate an array of len resolution containing the start times of each segment
+                    )
+                ) AS counts
+        """
+        start_time = ast.Call(
+            name="toDateTime",
+            args=[
+                ast.Constant(value=opts.date_range.date_from),
+            ],
+        )
+        end_time = ast.Call(
+            name="toDateTime",
+            args=[
+                ast.Constant(value=opts.date_range.date_to),
+            ],
+        )
+        total_size = ast.Call(
+            name="dateDiff",
+            args=[
+                ast.Constant(value="seconds"),
+                start_time,
+                end_time,
+            ],
+        )
+        bin_size = ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Div,
+            left=total_size,
+            right=ast.Constant(value=opts.resolution),
+        )
+        bin_timestamps = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["i"],
+                    expr=ast.Call(
+                        name="dateAdd",
+                        args=[
+                            start_time,
+                            ast.Call(
+                                name="toIntervalSecond",
+                                args=[
+                                    ast.ArithmeticOperation(
+                                        op=ast.ArithmeticOperationOp.Mult, left=ast.Field(chain=["i"]), right=bin_size
+                                    )
+                                ],
+                            ),
+                        ],
+                    ),
+                ),
+                ast.Call(
+                    name="range",
+                    args=[
+                        ast.Constant(value=0),
+                        ast.Constant(value=opts.resolution),
+                    ],
+                ),
+            ],
+        )
+        hot_indices = ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["bin"],
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.And(
+                                exprs=[
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Gt,
+                                        left=ast.Field(chain=["timestamp"]),
+                                        right=ast.Field(chain=["bin"]),
+                                    ),
+                                    ast.CompareOperation(
+                                        op=ast.CompareOperationOp.LtEq,
+                                        left=ast.Call(
+                                            name="dateDiff",
+                                            args=[
+                                                ast.Constant(value="seconds"),
+                                                ast.Field(chain=["bin"]),
+                                                ast.Field(chain=["timestamp"]),
+                                            ],
+                                        ),
+                                        right=bin_size,
+                                    ),
+                                ]
+                            ),
+                            ast.Constant(value=1),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                bin_timestamps,
+            ],
+        )
+        summed = ast.Call(
+            name="sumForEach",
+            args=[hot_indices],
+        )
+        return summed
 
     def where(self):
         exprs: list[ast.Expr] = [
@@ -131,25 +266,44 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 left=ast.Field(chain=["event"]),
                 right=ast.Constant(value="$exception"),
             ),
+            ast.Call(
+                name="isNotNull",
+                args=[ast.Field(chain=["issue_id"])],
+            ),
             ast.Placeholder(expr=ast.Field(chain=["filters"])),
         ]
 
-        groups = []
-
-        if self.query.fingerprint:
-            groups.append(self.group_or_default(self.query.fingerprint))
-        elif self.query.assignee:
-            groups.extend(self.error_tracking_groups.values())
-
-        if groups:
+        if self.query.dateRange.date_from:
             exprs.append(
-                ast.Call(
-                    name="has",
-                    args=[
-                        self.group_fingerprints(groups),
-                        self.extracted_fingerprint_property(),
-                    ],
-                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.dateRange.date_from)],
+                    ),
+                )
+            )
+
+        if self.query.dateRange.date_to:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Call(
+                        name="toDateTime",
+                        args=[ast.Constant(value=self.query.dateRange.date_to)],
+                    ),
+                )
+            )
+
+        if self.query.issueId:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["issue_id"]),
+                    right=ast.Constant(value=self.query.issueId),
+                )
             )
 
         if self.query.searchQuery:
@@ -162,8 +316,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             tokens = search_tokenizer(self.query.searchQuery)
             and_exprs: list[ast.Expr] = []
 
-            if len(tokens) > 10:
-                raise ValueError("Too many search tokens")
+            if len(tokens) > 100:
+                raise ValidationError("Too many search tokens")
 
             for token in tokens:
                 if not token:
@@ -171,52 +325,67 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
                 or_exprs: list[ast.Expr] = []
 
-                props_to_search = [
-                    "$exception_list",
-                    "$exception_type",
-                    "$exception_message",
-                ]
-                for prop in props_to_search:
-                    or_exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Gt,
-                            left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Call(name="lower", args=[ast.Field(chain=["properties", prop])]),
-                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                                ],
-                            ),
-                            right=ast.Constant(value=0),
+                props_to_search = {
+                    ("properties",): [
+                        "$exception_types",
+                        "$exception_values",
+                        "$exception_sources",
+                        "$exception_functions",
+                        "email",
+                    ],
+                    ("person", "properties"): [
+                        "email",
+                    ],
+                }
+                for chain_prefix, properties in props_to_search.items():
+                    for prop in properties:
+                        or_exprs.append(
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Gt,
+                                left=ast.Call(
+                                    name="position",
+                                    args=[
+                                        ast.Call(name="lower", args=[ast.Field(chain=[*chain_prefix, prop])]),
+                                        ast.Call(name="lower", args=[ast.Constant(value=token)]),
+                                    ],
+                                ),
+                                right=ast.Constant(value=0),
+                            )
                         )
-                    )
 
-                and_exprs.append(
-                    ast.Or(
-                        exprs=or_exprs,
-                    )
-                )
+                and_exprs.append(ast.Or(exprs=or_exprs))
+
             exprs.append(ast.And(exprs=and_exprs))
+
+        # We do this prefetching of a list of "valid" issue id's based on issue properties that aren't in
+        # CH, so that when we run the aggregation and LIMIT, we can filter out the invalid issue id's
+        # This is a hack - it'll break down if the list of valid issue id's is too long, but we do it for now
+        prefetched_ids = self.prefetch_issue_ids()
+        if prefetched_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["issue_id"]),
+                    right=ast.Constant(value=prefetched_ids),
+                )
+            )
 
         return ast.And(exprs=exprs)
 
-    def group_by(self):
-        return None if self.query.fingerprint else [ast.Field(chain=["fingerprint"])]
-
     def calculate(self):
-        query_result = self.paginator.execute_hogql_query(
-            query=self.to_query(),
-            team=self.team,
-            query_type="ErrorTrackingQuery",
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-            filters=HogQLFilters(
-                dateRange=self.query.dateRange,
-                filterTestAccounts=self.query.filterTestAccounts,
-                properties=self.properties,
-            ),
-        )
+        with self.timings.measure("error_tracking_query_hogql_execute"):
+            query_result = self.paginator.execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                query_type="ErrorTrackingQuery",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                filters=HogQLFilters(
+                    filterTestAccounts=self.query.filterTestAccounts,
+                    properties=self.hogql_properties,
+                ),
+            )
 
         columns: list[str] = query_result.columns or []
         results = self.results(columns, query_result.results)
@@ -231,91 +400,140 @@ class ErrorTrackingQueryRunner(QueryRunner):
         )
 
     def results(self, columns: list[str], query_results: list):
-        mapped_results = [dict(zip(columns, value)) for value in query_results]
         results = []
-        for result_dict in mapped_results:
-            fingerprint = self.query.fingerprint if self.query.fingerprint else result_dict["fingerprint"]
-            group = self.group_or_default(fingerprint)
-            results.append(result_dict | group)
+        mapped_results = [dict(zip(columns, value)) for value in query_results]
+        issue_ids = [result["id"] for result in mapped_results]
+
+        with self.timings.measure("issue_fetching_execute"):
+            issues = self.error_tracking_issues(issue_ids)
+
+        with self.timings.measure("issue_resolution"):
+            for result_dict in mapped_results:
+                issue = issues.get(str(result_dict["id"]))
+
+                if issue:
+                    results.append(
+                        issue
+                        | {
+                            "last_seen": result_dict.get("last_seen"),
+                            "library": result_dict.get("library"),
+                            "first_event": (
+                                self.extract_event(result_dict.get("first_event"))
+                                if self.query.withFirstEvent
+                                else None
+                            ),
+                            "aggregations": (
+                                self.extract_aggregations(result_dict) if self.query.withAggregations else None
+                            ),
+                        }
+                    )
 
         return results
+
+    def extract_event(self, event_tuple):
+        if event_tuple is None:
+            return None
+        else:
+            return {
+                "uuid": str(event_tuple[0]),
+                "timestamp": str(event_tuple[1]),
+                "properties": event_tuple[2],
+            }
+
+    def extract_aggregations(self, result):
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeRange")}
+        return aggregations
 
     @property
     def order_by(self):
         return (
             [
                 ast.OrderExpr(
-                    expr=ast.Field(chain=[self.query.order]),
-                    order="ASC" if self.query.order == "first_seen" else "DESC",
+                    expr=ast.Field(chain=[self.query.orderBy]),
+                    order=(
+                        self.query.orderDirection.value
+                        if self.query.orderDirection
+                        else "ASC"
+                        if self.query.orderBy == "first_seen"
+                        else "DESC"
+                    ),
                 )
             ]
-            if self.query.order
+            if self.query.orderBy
             else None
         )
 
+    def error_tracking_issues(self, ids):
+        status = self.query.status
+        queryset = (
+            ErrorTrackingIssue.objects.with_first_seen()
+            .select_related("assignment")
+            .prefetch_related("external_issues__integration")
+            .filter(team=self.team, id__in=ids)
+        )
+
+        if self.query.issueId:
+            queryset = queryset.filter(id=self.query.issueId)
+        elif status and not status == "all":
+            queryset = queryset.filter(status=status)
+
+        if self.query.assignee:
+            queryset = (
+                queryset.filter(assignment__user_id=self.query.assignee.id)
+                if self.query.assignee.type == "user"
+                else queryset.filter(assignment__role_id=self.query.assignee.id)
+            )
+
+        for filter in self.issue_properties:
+            queryset = property_to_django_filter(queryset, filter)
+
+        serializer = ErrorTrackingIssueSerializer(queryset, many=True)
+        return {issue["id"]: issue for issue in serializer.data}
+
+    def prefetch_issue_ids(self) -> list[str]:
+        # We hit postgres to get a list of "valid" issue id's based on issue properties that aren't in
+        # CH, but that we want to filter the returned results by. This is a hack - it'll break down if
+        # the list of valid issue id's is too long, but we do it for now, until we can get issue properties
+        # into CH
+
+        use_prefetched = False
+        if self.query.issueId:
+            # If we have an issueId, we should just use that
+            return [self.query.issueId]
+
+        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team)
+
+        if self.query.status and self.query.status not in ["all", "active"]:
+            use_prefetched = True
+            queryset = queryset.filter(status=self.query.status)
+
+        if self.query.assignee:
+            use_prefetched = True
+            queryset = (
+                queryset.filter(assignment__user_id=self.query.assignee.id)
+                if self.query.assignee.type == "user"
+                else queryset.filter(assignment__role_id=str(self.query.assignee.id))
+            )
+
+        for filter in self.issue_properties:
+            queryset = property_to_django_filter(queryset, filter)
+
+        if not use_prefetched:
+            return []
+
+        return [str(issue["id"]) for issue in queryset.values("id")]
+
+    @cached_property
+    def issue_properties(self):
+        return [value for value in self.properties if "error_tracking_issue" == value.type]
+
+    @cached_property
+    def hogql_properties(self):
+        return [value for value in self.properties if "error_tracking_issue" != value.type]
+
     @cached_property
     def properties(self):
-        return self.query.filterGroup.values[0].values if self.query.filterGroup else None
-
-    def group_or_default(self, fingerprint):
-        return self.error_tracking_groups.get(
-            str(fingerprint),
-            {
-                "fingerprint": fingerprint,
-                "assignee": None,
-                "merged_fingerprints": [],
-                "status": "active",
-                # "status": str(ErrorTrackingGroup.Status.ACTIVE),
-            },
-        )
-
-    def group_fingerprints(self, groups):
-        exprs: list[ast.Expr] = []
-        for group in groups:
-            exprs.append(ast.Constant(value=group["fingerprint"]))
-            for fp in group["merged_fingerprints"]:
-                exprs.append(ast.Constant(value=fp))
-        return ast.Array(exprs=exprs)
-
-    def extracted_exception_list_property(self, property):
-        return ast.Call(
-            name="JSON_VALUE",
-            args=[
-                ast.Call(name="any", args=[ast.Field(chain=["properties", "$exception_list"])]),
-                ast.Constant(value=f"$[0].{property}"),
-            ],
-        )
-
-    def extracted_fingerprint_property(self):
-        return ast.Call(
-            name="JSONExtract",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Field(chain=["properties", "$exception_fingerprint"]),
-                        ast.Constant(value="[]"),
-                    ],
-                ),
-                ast.Constant(value="Array(String)"),
-            ],
-        )
-
-    @cached_property
-    def error_tracking_groups(self):
-        return {}
-        # queryset = ErrorTrackingGroup.objects.filter(team=self.team)
-        # # :TRICKY: Ideally we'd have no null characters in the fingerprint, but if something made it into the pipeline with null characters
-        # # (because rest of the system supports it), try cleaning it up here. Make sure this cleaning is consistent with the rest of the system.
-        # cleaned_fingerprint = [part.replace("\x00", "\ufffd") for part in self.query.fingerprint or []]
-        # queryset = (
-        #     queryset.filter(fingerprint=cleaned_fingerprint)
-        #     if self.query.fingerprint
-        #     else queryset.filter(status__in=[ErrorTrackingGroup.Status.ACTIVE])
-        # )
-        # queryset = queryset.filter(assignee=self.query.assignee) if self.query.assignee else queryset
-        # groups = queryset.values("fingerprint", "merged_fingerprints", "status", "assignee")
-        # return {str(item["fingerprint"]): item for item in groups}
+        return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
 
 def search_tokenizer(query: str) -> list[str]:

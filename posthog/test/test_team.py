@@ -7,14 +7,12 @@ from posthog.models import (
     Dashboard,
     DashboardTile,
     Organization,
-    PluginConfig,
     Team,
     User,
 )
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
-from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.schema import PersonsOnEventsMode
 
 from .base import BaseTest
@@ -118,22 +116,6 @@ class TestTeam(BaseTest):
 
         # Ensure insights are created and linked
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
-
-    @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
-    def test_preinstalled_are_autoenabled(self, mock_get):
-        with self.is_cloud(False):
-            with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
-                _, _, new_team = Organization.objects.bootstrap(
-                    self.user,
-                    plugins_access_level=Organization.PluginsAccessLevel.INSTALL,
-                )
-
-        self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).count(), 1)
-        self.assertEqual(
-            PluginConfig.objects.filter(team=new_team, enabled=True).get().plugin.name,
-            "helloworldplugin",
-        )
-        self.assertEqual(mock_get.call_count, 2)
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):

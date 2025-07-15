@@ -2,7 +2,7 @@ from typing import Optional
 
 import structlog
 from semantic_version.base import SimpleSpec
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.async_migrations.setup import (

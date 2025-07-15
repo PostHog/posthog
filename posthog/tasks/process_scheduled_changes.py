@@ -1,5 +1,6 @@
 from posthog.models import ScheduledChange
 from django.utils import timezone
+from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag
 from django.db import transaction, OperationalError
 
@@ -23,7 +24,7 @@ def process_scheduled_changes() -> None:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
                     instance = model.objects.get(id=scheduled_change.record_id)
-                    instance.scheduled_changes_dispatcher(scheduled_change.payload)
+                    instance.scheduled_changes_dispatcher(scheduled_change.payload, scheduled_change.created_by)
 
                     # Mark scheduled change completed
                     scheduled_change.executed_at = timezone.now()
@@ -34,6 +35,7 @@ def process_scheduled_changes() -> None:
                     scheduled_change.failure_reason = str(e)
                     scheduled_change.executed_at = timezone.now()
                     scheduled_change.save()
+                    capture_exception(e)
     except OperationalError:
         # Failed to obtain the lock
         pass

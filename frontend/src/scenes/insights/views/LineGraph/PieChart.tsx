@@ -29,7 +29,7 @@ import {
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 
 import { groupsModel } from '~/models/groupsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { GraphType } from '~/types'
 
 let timer: NodeJS.Timeout | null = null

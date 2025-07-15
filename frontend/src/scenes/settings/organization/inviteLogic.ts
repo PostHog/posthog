@@ -1,12 +1,13 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
@@ -29,10 +30,10 @@ const EMPTY_INVITE: InviteRowState = {
 
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight']],
         actions: [router, ['locationChanged']],
-    }),
+    })),
     actions({
         showInviteModal: true,
         hideInviteModal: true,
@@ -49,7 +50,7 @@ export const inviteLogic = kea<inviteLogicType>([
             {
                 inviteTeamMembers: async () => {
                     if (!values.canSubmit) {
-                        return { invites: [] }
+                        return []
                     }
 
                     const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name' | 'level' | 'message'>[] =
@@ -57,16 +58,25 @@ export const inviteLogic = kea<inviteLogicType>([
                     if (values.message) {
                         payload.forEach((payload) => (payload.message = values.message))
                     }
-                    return await api.create('api/organizations/@current/invites/bulk/', payload)
+                    return await api.create<OrganizationInviteType[]>(
+                        'api/organizations/@current/invites/bulk/',
+                        payload
+                    )
                 },
             },
         ],
+    })),
+    lazyLoaders(({ values }) => ({
         invites: [
             [] as OrganizationInviteType[],
             {
                 loadInvites: async () => {
                     return organizationLogic.values.currentOrganization
-                        ? (await api.get('api/organizations/@current/invites/')).results
+                        ? (
+                              await api.get<PaginatedResponse<OrganizationInviteType>>(
+                                  'api/organizations/@current/invites/'
+                              )
+                          ).results
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
@@ -152,6 +162,13 @@ export const inviteLogic = kea<inviteLogicType>([
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
             }
+
+            if (inviteCount > 0) {
+                // We want to avoid this updating the team before the onboarding is finished
+                setTimeout(() => {
+                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                }, 1000)
+            }
         },
     })),
     urlToAction(({ actions }) => ({
@@ -160,8 +177,5 @@ export const inviteLogic = kea<inviteLogicType>([
                 actions.showInviteModal()
             }
         },
-    })),
-    events(({ actions }) => ({
-        afterMount: [actions.loadInvites],
     })),
 ])

@@ -57,8 +57,14 @@ Default.args = { granularity: 'day' }
 export const Upcoming: Story = BasicTemplate.bind({})
 Upcoming.args = { selectionPeriod: 'upcoming' }
 
+export const UpcomingWithLimit: Story = BasicTemplate.bind({})
+UpcomingWithLimit.args = { selectionPeriod: 'upcoming', selectionPeriodLimit: dayjs().add(1, 'day') }
+
 export const Past: Story = BasicTemplate.bind({})
 Past.args = { selectionPeriod: 'past' }
+
+export const PastWithLimit: Story = BasicTemplate.bind({})
+PastWithLimit.args = { selectionPeriod: 'past', selectionPeriodLimit: dayjs().subtract(1, 'day') }
 
 export const Hour: Story = BasicTemplate.bind({})
 Hour.args = { granularity: 'hour' }
@@ -68,3 +74,6 @@ Minute.args = { granularity: 'minute' }
 
 export const WithTimeToggle: Story = BasicTemplate.bind({})
 WithTimeToggle.args = { showTimeToggle: true }
+
+export const WithTimeToggleAndMultipleMonths: Story = BasicTemplate.bind({})
+WithTimeToggleAndMultipleMonths.args = { showTimeToggle: true, months: 3 }

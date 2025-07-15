@@ -1,7 +1,10 @@
 // This file contains example queries, used in storybook and in the /query interface.
+import { RETENTION_FIRST_TIME } from 'lib/constants'
+
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     ActionsNode,
+    CalendarHeatmapQuery,
     DataTableNode,
     DataVisualizationNode,
     EventsNode,
@@ -18,15 +21,27 @@ import {
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema'
+    WebStatsBreakdown,
+    WebVitalsMetric,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsPercentile,
+    WebVitalsQuery,
+} from '~/queries/schema/schema-general'
 import {
+    BaseMathType,
     ChartDisplayType,
     FilterLogicalOperator,
+    InsightType,
     PropertyFilterType,
     PropertyGroupFilter,
+    PropertyMathType,
     PropertyOperator,
+    RetentionPeriod,
     StepOrderValue,
 } from '~/types'
+
+import { WEB_VITALS_THRESHOLDS } from './nodes/WebVitals/definitions'
+import { setLatestVersionsOnQuery } from './utils'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,
@@ -193,6 +208,16 @@ const InsightTrendsQuery: TrendsQuery = {
     },
 }
 
+const InsightCalendarHeatmapQuery: CalendarHeatmapQuery = {
+    kind: NodeKind.CalendarHeatmapQuery,
+    properties: [],
+    filterTestAccounts,
+    series,
+    dateRange: {
+        date_from: '-7d',
+    },
+}
+
 const InsightFunnelsQuery: FunnelsQuery = {
     kind: NodeKind.FunnelsQuery,
     properties,
@@ -276,16 +301,10 @@ const HogQLForDataVisualization: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `select toDate(timestamp) as timestamp, count()
 from events
-where {filters} and timestamp <= now()
+where timestamp >= now() - interval '7 days'
 group by timestamp
 order by timestamp asc
 limit 100`,
-    explain: true,
-    filters: {
-        dateRange: {
-            date_from: '-7d',
-        },
-    },
 }
 
 const HogQLForDataWarehouse: HogQLQuery = {
@@ -352,6 +371,150 @@ const Hoggonacci: HogQuery = {
 }
 return fibonacci(16);`,
 }
+
+const WebVitals: WebVitalsQuery = {
+    kind: NodeKind.WebVitalsQuery,
+    properties: [],
+    dateRange: {
+        date_from: '-7d',
+    },
+    source: {
+        kind: NodeKind.TrendsQuery,
+        dateRange: {
+            date_from: '-7d',
+        },
+        interval: 'day',
+        series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).flatMap((name) =>
+            [PropertyMathType.P75, PropertyMathType.P90, PropertyMathType.P99].map((math) => ({
+                kind: NodeKind.EventsNode,
+                event: '$web_vitals',
+                name: '$web_vitals',
+                custom_name: name,
+                math: math,
+                math_property: `$web_vitals_${name}_value`,
+            }))
+        ),
+        trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+        filterTestAccounts,
+    },
+}
+
+const WebVitalsPathBreakdown: WebVitalsPathBreakdownQuery = {
+    kind: NodeKind.WebVitalsPathBreakdownQuery,
+    properties: [],
+    dateRange: {
+        date_from: '-7d',
+    },
+    filterTestAccounts,
+    percentile: 'p90' as WebVitalsPercentile,
+    metric: 'CLS' as WebVitalsMetric,
+    doPathCleaning: true,
+    thresholds: [WEB_VITALS_THRESHOLDS['CLS'].good, WEB_VITALS_THRESHOLDS['CLS'].poor],
+}
+
+const WebAnalyticsReferrerDomain: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.WebStatsTableQuery,
+        properties: [],
+        breakdownBy: WebStatsBreakdown.InitialReferringDomain,
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+        },
+        compareFilter: { compare: false },
+        limit: 10,
+        filterTestAccounts: false,
+        conversionGoal: null,
+    },
+}
+
+const WebAnalyticsPath: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.WebStatsTableQuery,
+        properties: [],
+        breakdownBy: WebStatsBreakdown.Page,
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+        },
+        compareFilter: { compare: false },
+        limit: 10,
+        filterTestAccounts: false,
+        conversionGoal: null,
+    },
+}
+
+const WebAnalyticsBrowser: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.WebStatsTableQuery,
+        properties: [],
+        breakdownBy: WebStatsBreakdown.Browser,
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+        },
+        compareFilter: { compare: false },
+        limit: 10,
+        filterTestAccounts: false,
+        conversionGoal: null,
+    },
+}
+
+const WebAnalyticsWorldMap: InsightVizNode<TrendsQuery> = {
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        breakdownFilter: {
+            breakdown: '$geoip_country_code',
+            breakdown_type: 'event',
+        },
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+        },
+        series: [
+            {
+                event: '$pageview',
+                name: 'Pageview',
+                kind: NodeKind.EventsNode,
+                math: BaseMathType.MonthlyActiveUsers, // Should be DAU, but it's not supported yet
+            },
+        ],
+        trendsFilter: { display: ChartDisplayType.WorldMap },
+        filterTestAccounts: false,
+        properties: [],
+    },
+}
+
+const WebAnalyticsRetention: InsightVizNode<RetentionQuery> = {
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.RetentionQuery,
+        properties: [],
+        dateRange: {
+            date_from: '-14d',
+            date_to: null,
+        },
+        filterTestAccounts: false,
+        retentionFilter: {
+            retentionType: RETENTION_FIRST_TIME,
+            retentionReference: 'total',
+            totalIntervals: 8,
+            period: RetentionPeriod.Week,
+        },
+    },
+    vizSpecificOptions: {
+        [InsightType.RETENTION]: {
+            hideLineGraph: true,
+            hideSizeColumn: false,
+            useSmallLayout: false,
+        },
+    },
+}
+
 /* a subset of examples including only those we can show all users and that don't use HogQL */
 export const queryExamples: Record<string, Node> = {
     Events,
@@ -365,6 +528,11 @@ export const queryExamples: Record<string, Node> = {
     PersonsTableFull,
     InsightTrendsQuery,
     InsightTrends: { kind: NodeKind.InsightVizNode, source: InsightTrendsQuery } as InsightVizNode<TrendsQuery>,
+    InsightCalendarHeatmapQuery,
+    InsightCalendarHeatmap: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightCalendarHeatmapQuery,
+    } as InsightVizNode<CalendarHeatmapQuery>,
     InsightFunnelsQuery,
     InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,
@@ -384,21 +552,29 @@ export const queryExamples: Record<string, Node> = {
         kind: NodeKind.InsightVizNode,
         source: InsightLifecycleQuery,
     } as InsightVizNode<LifecycleQuery>,
+    WebVitals,
+    WebVitalsPathBreakdown,
+    WebAnalyticsWorldMap,
+    WebAnalyticsReferrerDomain,
+    WebAnalyticsPath,
+    WebAnalyticsBrowser,
+    WebAnalyticsRetention,
 }
 
 export const stringifiedQueryExamples: Record<string, string> = Object.fromEntries(
     Object.entries(queryExamples).map(([key, node]) => [key, JSON.stringify(node)])
 )
 
-export const examples: Record<string, Node> = {
+export const examples: Record<string, Node> = setLatestVersionsOnQuery({
     ...queryExamples,
     HogQLRaw,
     HogQLTable,
     DataVisualization,
+    HogQLForDataVisualization,
     Hog,
     Hoggonacci,
     DataWarehouse,
-}
+})
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
     Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node)])

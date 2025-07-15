@@ -2,6 +2,7 @@ import random
 from unittest.mock import ANY, patch
 
 from django.core import mail
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
@@ -10,6 +11,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 from posthog.test.base import APIBaseTest
+from posthog.constants import AvailableFeature
+from posthog.models import User
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
@@ -93,6 +96,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                     "last_name": self.user.last_name,
                     "is_email_verified": self.user.is_email_verified,
                     "hedgehog_config": None,
+                    "role_at_organization": None,
                 },
                 "is_expired": False,
                 "level": 1,
@@ -112,16 +116,16 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert capture call for invitee
         mock_capture.assert_any_call(
-            f"invite_{invite_id}",
-            "user invited",
+            event="user invited",
+            distinct_id=f"invite_{invite_id}",
             properties=capture_props,
             groups={"instance": ANY, "organization": str(self.team.organization_id)},
         )
 
         # Assert capture call for inviting party
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "team member invited",
+            event="team member invited",
+            distinct_id=self.user.distinct_id,
             properties={**capture_props, "$current_url": None, "$session_id": None},
             groups={
                 "instance": ANY,
@@ -156,29 +160,16 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         # Assert invite email is not sent
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_can_create_invites_for_the_same_email_multiple_times(self):
+    def test_create_invites_for_the_same_email_multiple_times_deletes_older_invites(self):
         email = "x@posthog.com"
         count = OrganizationInvite.objects.count()
 
-        for _ in range(0, 2):
+        for _ in range(0, 3):
             response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             obj = OrganizationInvite.objects.get(id=response.json()["id"])
             self.assertEqual(obj.target_email, email)
             self.assertEqual(obj.created_by, self.user)
-
-        self.assertEqual(OrganizationInvite.objects.count(), count + 2)
-
-    def test_can_specify_membership_level_in_invite(self):
-        email = "x@posthog.com"
-        count = OrganizationInvite.objects.count()
-
-        response = self.client.post(
-            "/api/organizations/@current/invites/", {"target_email": email, "level": OrganizationMembership.Level.OWNER}
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        obj = OrganizationInvite.objects.get(id=response.json()["id"])
-        self.assertEqual(obj.level, OrganizationMembership.Level.OWNER)
 
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
@@ -392,8 +383,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert capture was called
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "bulk invite executed",
+            event="bulk invite executed",
+            distinct_id=self.user.distinct_id,
             properties={
                 "invitee_count": 7,
                 "name_count": sum(1 for user in payload if user["first_name"]),
@@ -412,8 +403,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Assert capture call for invitee
         mock_capture.assert_any_call(
-            f"invite_{OrganizationInvite.objects.last().id}",  # type: ignore
-            "user invited",
+            event="user invited",
+            distinct_id=f"invite_{OrganizationInvite.objects.last().id}",  # type: ignore
             properties={
                 "name_provided": True,
                 "current_invite_count": 7,
@@ -508,3 +499,686 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(response.content, b"")  # Empty response
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(OrganizationInvite.objects.exists())
+
+    # Combine pending invites
+
+    def test_combine_pending_invites_combines_levels_and_project_access(self):
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin_user)
+
+        email = "x@posthog.com"
+        private_team_1 = Team.objects.create(organization=self.organization, name="Private Team 1", access_control=True)
+        private_team_2 = Team.objects.create(organization=self.organization, name="Private Team 2", access_control=True)
+
+        ExplicitTeamMembership.objects.create(
+            team=private_team_1,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+        ExplicitTeamMembership.objects.create(
+            team=private_team_2,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+
+        # Create first invite with member access to team 1
+        first_invite = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": private_team_1.id, "level": ExplicitTeamMembership.Level.MEMBER}],
+            },
+        ).json()
+
+        # Create second invite with admin access to team 2
+        second_invite = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.ADMIN,
+                "private_project_access": [{"id": private_team_2.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            },
+        ).json()
+
+        # Create third invite combining previous invites
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "private_project_access": [{"id": private_team_1.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "combine_pending_invites": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        combined_invite = response.json()
+
+        # Check that previous invites are deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=first_invite["id"]).exists())
+        self.assertFalse(OrganizationInvite.objects.filter(id=second_invite["id"]).exists())
+
+        # Check that the new invite has the highest level (ADMIN)
+        self.assertEqual(combined_invite["level"], OrganizationMembership.Level.ADMIN)
+
+        # Check that private project access is combined with highest levels
+        expected_access = [
+            {"id": private_team_1.id, "level": ExplicitTeamMembership.Level.ADMIN},
+            {"id": private_team_2.id, "level": ExplicitTeamMembership.Level.ADMIN},
+        ]
+        self.assertEqual(len(combined_invite["private_project_access"]), 2)
+        for access in expected_access:
+            self.assertIn(access, combined_invite["private_project_access"])
+
+    def test_combine_pending_invites_with_no_existing_invites(self):
+        email = "x@posthog.com"
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "combine_pending_invites": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invite = response.json()
+        self.assertEqual(invite["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite["target_email"], email)
+        self.assertEqual(invite["private_project_access"], [])
+
+    @freeze_time("2024-01-10")
+    def test_combine_pending_invites_with_expired_invites(self):
+        email = "xyz@posthog.com"
+
+        # Create an expired invite
+        with freeze_time("2023-01-05"):
+            OrganizationInvite.objects.create(
+                organization=self.organization,
+                target_email=email,
+                level=OrganizationMembership.Level.ADMIN,
+            )
+
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "combine_pending_invites": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invite = response.json()
+
+        # Check that the new invite uses its own level, not the expired invite's level
+        self.assertEqual(invite["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite["target_email"], email)
+        self.assertEqual(invite["private_project_access"], [])
+
+    def test_combine_pending_invites_false_expires_existing_invites(self):
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin_user)
+
+        email = "x@posthog.com"
+
+        # Create first invite
+        first_invite = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.ADMIN,
+            },
+        ).json()
+
+        # Create second invite with combine_pending_invites=False
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {
+                "target_email": email,
+                "level": OrganizationMembership.Level.MEMBER,
+                "combine_pending_invites": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        new_invite = response.json()
+
+        # Check that previous invite is deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=first_invite["id"]).exists())
+
+        # Check that new invite uses its own level
+        self.assertEqual(new_invite["level"], OrganizationMembership.Level.MEMBER)
+
+    def test_member_cannot_invite_admin(self):
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+
+        # Login as the member
+        self.client.force_login(member_user)
+
+        # Try to invite an admin as an member
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "new_admin@posthog.com",
+                "level": OrganizationMembership.Level.ADMIN,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "You cannot invite a user with a higher permission level than your own.",
+        )
+
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_admin@posthog.com").count(), 0)
+
+    def test_admin_cannot_invite_owner(self):
+        # Create an admin user
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+
+        # Login as the admin
+        self.client.force_login(admin_user)
+
+        # Try to invite an owner as an admin
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "new_owner@posthog.com",
+                "level": OrganizationMembership.Level.OWNER,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "You cannot invite a user with a higher permission level than your own.",
+        )
+
+        # Verify no invite was created
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_owner@posthog.com").count(), 0)
+
+    def test_member_can_invite_member(self):
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+
+        # Login as the member
+        self.client.force_login(member_user)
+
+        # Try to invite a member as a member (same level)
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "new_member@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify invite was created
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_member@posthog.com").count(), 1)
+        invite = OrganizationInvite.objects.get(target_email="new_member@posthog.com")
+        self.assertEqual(invite.level, OrganizationMembership.Level.MEMBER)
+
+    def test_admin_can_invite_admin(self):
+        # Create an admin user
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+
+        # Login as the admin
+        self.client.force_login(admin_user)
+
+        # Try to invite an admin as an admin (same level)
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "new_admin@posthog.com",
+                "level": OrganizationMembership.Level.ADMIN,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify invite was created
+        self.assertEqual(OrganizationInvite.objects.filter(target_email="new_admin@posthog.com").count(), 1)
+        invite = OrganizationInvite.objects.get(target_email="new_admin@posthog.com")
+        self.assertEqual(invite.level, OrganizationMembership.Level.ADMIN)
+
+    def test_bulk_invite_with_higher_permission_level(self):
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+
+        # Login as the member
+        self.client.force_login(member_user)
+
+        # Try to bulk invite users with mixed permission levels
+        payload = [
+            {
+                "target_email": "new_member@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+            {
+                "target_email": "new_admin@posthog.com",
+                "level": OrganizationMembership.Level.ADMIN,
+            },
+            {
+                "target_email": "another_member@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        ]
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/invites/bulk/", payload)
+
+        # Should be forbidden due to the admin invite
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"],
+            "You cannot invite a user with a higher permission level than your own.",
+        )
+
+        # Verify no invites were created
+        self.assertEqual(
+            OrganizationInvite.objects.filter(
+                target_email__in=["new_member@posthog.com", "new_admin@posthog.com", "another_member@posthog.com"]
+            ).count(),
+            0,
+        )
+
+    def test_bulk_invite_with_same_permission_level(self):
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+
+        # Login as the member
+        self.client.force_login(member_user)
+
+        # Try to bulk invite users with same permission level
+        payload = [
+            {
+                "target_email": "new_member1@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+            {
+                "target_email": "new_member2@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        ]
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/invites/bulk/", payload)
+
+        # Should be successful
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify invites were created
+        self.assertEqual(
+            OrganizationInvite.objects.filter(
+                target_email__in=["new_member1@posthog.com", "new_member2@posthog.com"]
+            ).count(),
+            2,
+        )
+
+    def test_member_cannot_invite_when_members_can_invite_false_and_feature_available(self):
+        """Test that members cannot invite when members_can_invite is False and ORGANIZATION_INVITE_SETTINGS is available."""
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_member_cannot_delete_invite_when_members_can_invite_false(self):
+        # Create a member user and log in as them
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        # Create an invite as an admin (so it exists)
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
+        invite = OrganizationInvite.objects.create(organization=self.organization, created_by=admin_user)
+
+        # Try to delete as member
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+
+    def test_member_can_invite_when_members_can_invite_true_and_feature_available(self):
+        """Test that members can invite when members_can_invite is True and ORGANIZATION_INVITE_SETTINGS is available."""
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to True
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_admin_can_always_invite_regardless_of_members_can_invite(self):
+        """Test that admins can always invite regardless of members_can_invite setting."""
+        # Create an admin user
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(admin_user)
+
+        # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
+        self.organization.available_product_features = [{"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS}]
+        self.organization.members_can_invite = False
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_member_can_invite_when_feature_not_available(self):
+        """Test that members can invite when ORGANIZATION_INVITE_SETTINGS feature is not available."""
+        # Create a member user
+        member_user = self._create_user("member@posthog.com")
+        self.client.force_login(member_user)
+
+        # Ensure ORGANIZATION_INVITE_SETTINGS feature is not available
+        self.organization.available_product_features = []
+        self.organization.members_can_invite = False  # This should be ignored since feature is not available
+        self.organization.save()
+
+        # Try to create a single invite
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "level": OrganizationMembership.Level.MEMBER,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Try to create bulk invites
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/bulk/",
+            [
+                {
+                    "target_email": "test1@posthog.com",
+                    "level": OrganizationMembership.Level.MEMBER,
+                }
+            ],
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_can_invite_with_new_access_control_as_org_admin(self):
+        """
+        Test that organization admins can invite users to teams with the new access control system
+        """
+        # Create a team with access_control=False (using new access control system)
+        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
+
+        # Import AccessControl
+
+        # Create an admin user
+        admin_user = self._create_user("admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        OrganizationMembership.objects.get(organization=self.organization, user=admin_user)
+
+        # Login as the admin
+        self.client.force_login(admin_user)
+
+        # Try to invite a user to the team
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+            },
+        )
+
+        # Should be successful
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify the invite was created with the correct private project access
+        invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        self.assertEqual(len(invite.private_project_access), 1)
+        self.assertEqual(invite.private_project_access[0]["id"], team.id)
+        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+
+    def test_can_invite_with_new_access_control_as_org_member_to_non_private_team(self):
+        """
+        Test that organization members can invite users to non-private teams with the new access control system
+        """
+        # Create a team with access_control=False (using new access control system)
+        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
+
+        # Import AccessControl
+
+        # Create a member user
+        member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
+
+        # Login as the member
+        self.client.force_login(member_user)
+
+        # Try to invite a user to the team
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+            },
+        )
+
+        # Should be successful since the team is not private
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify the invite was created with the correct private project access
+        invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        self.assertEqual(len(invite.private_project_access), 1)
+        self.assertEqual(invite.private_project_access[0]["id"], team.id)
+        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+
+    def test_cannot_invite_with_new_access_control_as_org_member_to_private_team(self):
+        """
+        Test that organization members cannot invite users to private teams with the new access control system
+        """
+        # Create a team with access_control=False (using new access control system)
+        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
+
+        # Import AccessControl
+        from ee.models.rbac.access_control import AccessControl
+
+        # Create a member user
+        member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        OrganizationMembership.objects.get(organization=self.organization, user=member_user)
+
+        # Login as the member
+        self.client.force_login(member_user)
+
+        # Make the team private by creating an access control with level 'none'
+        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+
+        # Try to invite a user to the private team
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+            },
+        )
+
+        # Should fail because the team is private and the user doesn't have access
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "Project does not exist on this organization, or it is private and you do not have access to it",
+            response.json()["detail"],
+        )
+
+    def test_can_invite_with_new_access_control_as_team_admin(self):
+        """
+        Test that team admins can invite users to private teams with the new access control system
+        """
+        # Create a team with access_control=False (using new access control system)
+        team = Team.objects.create(organization=self.organization, name="New Team", access_control=False)
+
+        # Import AccessControl
+        from ee.models.rbac.access_control import AccessControl
+
+        # Create a member user
+        member_user = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        member_membership = OrganizationMembership.objects.get(organization=self.organization, user=member_user)
+
+        # Login as the member
+        self.client.force_login(member_user)
+
+        # Make the team private by creating an access control with level 'none'
+        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+
+        # Give the member admin access to the team
+        AccessControl.objects.create(
+            team=team,
+            resource="team",
+            resource_id=str(team.id),
+            organization_member=member_membership,
+            access_level="admin",
+        )
+
+        # Try to invite a user to the private team
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {
+                "target_email": "test@posthog.com",
+                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+            },
+        )
+
+        # Should be successful because the user has admin access to the team
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Verify the invite was created with the correct private project access
+        invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
+        self.assertEqual(len(invite.private_project_access), 1)
+        self.assertEqual(invite.private_project_access[0]["id"], team.id)
+        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+
+    @patch("posthoganalytics.capture")
+    def test_add_organization_invite_case_insensitive_email_normalization(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        mixed_case_email = "Test.User@Example.COM"
+        expected_normalized_email = "test.user@example.com"
+
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": mixed_case_email},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        invite = OrganizationInvite.objects.get()
+        self.assertEqual(invite.target_email, expected_normalized_email)
+
+        response_data = response.json()
+        self.assertEqual(response_data["target_email"], expected_normalized_email)
+
+    def test_add_organization_invite_case_insensitive_duplicate_prevention(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        base_email = "user@example.com"
+
+        # Create first invite with lowercase email
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response1 = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": base_email},
+            )
+
+        self.assertEqual(response1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
+
+        mixed_case_email = "User@Example.COM"
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com"):
+            response2 = self.client.post(
+                "/api/organizations/@current/invites/",
+                {"target_email": mixed_case_email},
+            )
+
+        self.assertEqual(response2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(OrganizationInvite.objects.count(), 1)
+
+    def test_add_organization_invite_case_insensitive_existing_member_check(self):
+        """Test that invites are rejected if a user with case variation already exists as member"""
+        existing_user = User.objects.create_user(
+            email="Existing.User@Example.COM", password="password123", first_name="Existing"
+        )
+
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=existing_user, level=OrganizationMembership.Level.MEMBER
+        )
+
+        invite_email = "existing.user@example.com"
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {"target_email": invite_email},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(OrganizationInvite.objects.count(), 0)

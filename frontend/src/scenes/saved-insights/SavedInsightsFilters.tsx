@@ -1,28 +1,43 @@
 import { IconCalendar } from '@posthog/icons'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect, LemonSelectOption, LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { SavedInsightsTabs } from '~/types'
+import { InsightType, SavedInsightsTabs } from '~/types'
 
-export function SavedInsightsFilters(): JSX.Element {
+export function SavedInsightsFilters({
+    filters,
+    setFilters,
+}: {
+    filters: SavedInsightFilters
+    setFilters: (filters: Partial<SavedInsightFilters>) => void
+}): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { setSavedInsightsFilters } = useActions(savedInsightsLogic)
-    const { filters } = useValues(savedInsightsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
 
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
+    const insightTypeOptions = calendarHeatmapInsightEnabled
+        ? INSIGHT_TYPE_OPTIONS
+        : (INSIGHT_TYPE_OPTIONS as LemonSelectOption<InsightType>[]).filter(
+              (option): option is LemonSelectOptionLeaf<InsightType> =>
+                  'value' in option && option.value !== InsightType.CALENDAR_HEATMAP
+          )
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
             <LemonInput
                 type="search"
                 placeholder="Search for insights"
-                onChange={(value) => setSavedInsightsFilters({ search: value })}
+                onChange={(value) => setFilters({ search: value })}
                 value={search || ''}
             />
             <div className="flex items-center gap-2 flex-wrap">
@@ -37,7 +52,7 @@ export function SavedInsightsFilters(): JSX.Element {
                             }))}
                             value={dashboardId}
                             onChange={(newValue) => {
-                                setSavedInsightsFilters({ dashboardId: newValue })
+                                setFilters({ dashboardId: newValue })
                             }}
                             dropdownMatchSelectWidth={false}
                             data-attr="insight-on-dashboard"
@@ -49,9 +64,9 @@ export function SavedInsightsFilters(): JSX.Element {
                     <span>Type:</span>
                     <LemonSelect
                         size="small"
-                        options={INSIGHT_TYPE_OPTIONS}
+                        options={insightTypeOptions}
                         value={insightType}
-                        onChange={(v: any): void => setSavedInsightsFilters({ insightType: v })}
+                        onChange={(v?: string): void => setFilters({ insightType: v })}
                         dropdownMatchSelectWidth={false}
                         data-attr="insight-type"
                     />
@@ -62,9 +77,7 @@ export function SavedInsightsFilters(): JSX.Element {
                         disabled={false}
                         dateFrom={dateFrom}
                         dateTo={dateTo}
-                        onChange={(fromDate, toDate) =>
-                            setSavedInsightsFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })
-                        }
+                        onChange={(fromDate, toDate) => setFilters({ dateFrom: fromDate, dateTo: toDate ?? undefined })}
                         makeLabel={(key) => (
                             <>
                                 <IconCalendar />
@@ -78,7 +91,7 @@ export function SavedInsightsFilters(): JSX.Element {
                         <span>Created by:</span>
                         <MemberSelect
                             value={createdBy === 'All users' ? null : createdBy}
-                            onChange={(user) => setSavedInsightsFilters({ createdBy: user?.id || 'All users' })}
+                            onChange={(user) => setFilters({ createdBy: user?.id || 'All users' })}
                         />
                     </div>
                 ) : null}

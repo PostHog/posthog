@@ -2,7 +2,7 @@ import pytest
 
 from django.db import connection
 
-from posthog.api.search import process_query
+from posthog.helpers.full_text_search import process_query
 from posthog.models.event_definition import EventDefinition
 from posthog.test.base import APIBaseTest
 
@@ -87,7 +87,7 @@ class TestSearch(APIBaseTest):
                     "rank": sorted_results[1]["rank"],
                     "type": "insight",
                     "result_id": self.insight_1.short_id,
-                    "extra_fields": {"name": "second insight", "description": None, "filters": {}, "query": None},
+                    "extra_fields": {"name": "second insight", "description": None, "query": None},
                 },
                 {
                     "rank": sorted_results[2]["rank"],
@@ -104,7 +104,7 @@ class TestSearch(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json()["results"][0]["extra_fields"],
-            {"name": None, "description": None, "filters": {}, "query": None},
+            {"name": None, "description": None, "query": None},
         )
 
     def test_search_with_fully_invalid_query(self):

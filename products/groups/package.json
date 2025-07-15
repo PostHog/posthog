@@ -1,0 +1,13 @@
+{
+    "name": "@posthog/products-groups",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "fuse.js": "*",
+        "kea": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*"
+    }
+}

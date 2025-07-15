@@ -14,8 +14,11 @@ import {
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     ActivityScope,
     CommentType,
     NotebookNodeType,
@@ -31,6 +34,9 @@ import type { notebookLogicType } from './notebookLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
 import { EditorRange, JSONContent, NotebookEditor } from './utils'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { TableOfContentData } from '@tiptap/extension-table-of-contents'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
@@ -76,6 +82,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'itemContext'],
+            notebookSettingsLogic,
+            ['showTableOfContents'],
         ],
         actions: [
             notebooksModel,
@@ -129,12 +137,24 @@ export const notebookLogic = kea<notebookLogicType>([
             nodeId?: string
         }) => options,
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
+        setTableOfContents: (tableOfContents: TableOfContentData) => ({ tableOfContents }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
         selectComment: (itemContextId: string) => ({ itemContextId }),
+        openShareModal: true,
+        closeShareModal: true,
+        setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
+        isShareModalOpen: [
+            false,
+            {
+                openShareModal: () => true,
+                closeShareModal: () => false,
+            },
+        ],
+        accessDeniedToNotebook: [false, { setAccessDeniedToNotebook: () => true }],
         localContent: [
             null as JSONContent | null,
             { persist: props.mode !== 'canvas', prefix: NOTEBOOKS_VERSION },
@@ -208,6 +228,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 setShowHistory: (_, { showHistory }) => showHistory,
             },
         ],
+        tableOfContents: [
+            [] as TableOfContentData,
+            {
+                setTableOfContents: (_, { tableOfContents }) => tableOfContents,
+            },
+        ],
         containerSize: [
             'small' as 'small' | 'medium',
             {
@@ -232,6 +258,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             content: null,
                             text_content: null,
                             version: 0,
+                            user_access_level: AccessControlLevel.Editor,
                         }
                     } else if (props.shortId.startsWith('template-')) {
                         response =
@@ -245,18 +272,19 @@ export const notebookLogic = kea<notebookLogicType>([
                                 'If-None-Match': values.notebook?.version,
                             })
                         } catch (e: any) {
-                            if (e.status === 304) {
+                            if (e.status === 403 && e.code === 'permission_denied') {
+                                actions.setAccessDeniedToNotebook()
+                            } else if (e.status === 304) {
                                 // Indicates nothing has changed
                                 return values.notebook
-                            }
-                            if (e.status === 404) {
+                            } else if (e.status === 404) {
                                 return null
                             }
                             throw e
                         }
                     }
 
-                    const notebook = migrate(response)
+                    const notebook = await migrate(response)
 
                     if (notebook.content && (!values.notebook || values.notebook.version !== notebook.version)) {
                         // If this is the first load we need to override the content fully
@@ -283,7 +311,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         if (notebook.content === values.localContent) {
                             actions.clearLocalContent()
                         }
-
+                        refreshTreeItem('notebook', String(values.notebook.short_id))
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
@@ -298,6 +326,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
                     const response = await api.notebooks.update(values.notebook.short_id, { title })
+                    refreshTreeItem('notebook', String(values.notebook.short_id))
                     return response
                 },
             },
@@ -347,9 +376,9 @@ export const notebookLogic = kea<notebookLogicType>([
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
         isLocalOnly: [
-            () => [(_, props) => props],
-            (props): boolean => {
-                return props.shortId === 'scratchpad' || props.mode === 'canvas'
+            (s) => [(_, props) => props, s.isTemplate],
+            (props, isTemplate): boolean => {
+                return props.shortId === 'scratchpad' || props.mode === 'canvas' || isTemplate
             },
         ],
         notebookMissing: [
@@ -435,15 +464,20 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
 
         isShowingLeftColumn: [
-            (s) => [s.editingNodeId, s.showHistory, s.containerSize],
-            (editingNodeId, showHistory, containerSize) => {
-                return showHistory || (!!editingNodeId && containerSize !== 'small')
+            (s) => [s.editingNodeId, s.showHistory, s.showTableOfContents, s.containerSize],
+            (editingNodeId, showHistory, showTableOfContents, containerSize) => {
+                return showHistory || showTableOfContents || (!!editingNodeId && containerSize !== 'small')
             },
         ],
 
         isEditable: [
-            (s) => [s.shouldBeEditable, s.previewContent],
-            (shouldBeEditable, previewContent) => shouldBeEditable && !previewContent,
+            (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
+            (shouldBeEditable, previewContent, notebook, mode) =>
+                mode === 'canvas' ||
+                (shouldBeEditable &&
+                    !previewContent &&
+                    !!notebook?.user_access_level &&
+                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -517,6 +551,15 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
+            if (
+                values.mode !== 'canvas' &&
+                !!values.notebook?.user_access_level &&
+                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+            ) {
+                actions.clearLocalContent()
+                return
+            }
+
             if (values.previewContent) {
                 // We don't want to modify the content if we are viewing a preview
                 return

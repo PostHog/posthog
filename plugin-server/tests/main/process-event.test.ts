@@ -10,12 +10,24 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import { ClickHouseEvent, Database, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
+import { captureTeamEvent } from '~/utils/posthog'
+import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
+import { MeasuringPersonsStoreForBatch } from '~/worker/ingestion/persons/measuring-person-store'
+
+import {
+    ClickHouseEvent,
+    Database,
+    Hub,
+    InternalPerson,
+    LogLevel,
+    Person,
+    PluginsServerConfig,
+    Team,
+} from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import { posthog } from '../../src/utils/posthog'
+import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -23,8 +35,12 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.
+jest.mock('../../src/utils/posthog', () => ({
+    ...jest.requireActual('../../src/utils/posthog'),
+    captureTeamEvent: jest.fn(),
+}))
 
 export async function createPerson(
     server: Hub,
@@ -32,7 +48,7 @@ export async function createPerson(
     distinctIds: string[],
     properties: Record<string, any> = {}
 ): Promise<Person> {
-    return server.db.createPerson(
+    const [person, kafkaMessages] = await server.db.createPerson(
         DateTime.utc(),
         properties,
         {},
@@ -43,6 +59,8 @@ export async function createPerson(
         new UUIDT().toString(),
         distinctIds.map((distinctId) => ({ distinctId }))
     )
+    await server.db.kafkaProducer.queueMessages(kafkaMessages)
+    return person
 }
 
 type EventsByPerson = [string[], string[]]
@@ -71,8 +89,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 }
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Log,
-    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+    LOG_LEVEL: LogLevel.Info,
 }
 
 let processEventCounter = 0
@@ -103,10 +120,16 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
-    await runner.runEventPipeline(pluginEvent)
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
+    await runner.runEventPipeline(pluginEvent, team)
 
-    await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
+    await groupStoreForBatch.flush()
+
+    await delayUntilEventIngested(async () => {
+        return await hub.db.fetchEvents()
+    }, ++processEventCounter)
 }
 
 // Simple client used to simulate sending events
@@ -163,8 +186,10 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
-    await runner.runEventPipeline(event)
+    const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
+    const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
+    await runner.runEventPipeline(event, team)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
 
@@ -186,23 +211,20 @@ const alias = async (hub: Hub, alias: string, distinctId: string) => {
 }
 
 test('merge people', async () => {
-    const p0 = await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })
+    const p0 = (await createPerson(hub, team, ['person_0'], { $os: 'Microsoft' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
 
-    const [_person0, kafkaMessages0] = await hub.db.updatePersonDeprecated(p0, {
+    const [_person0, kafkaMessages0, _versionDisparity0] = await hub.db.updatePerson(p0, {
         created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
     })
 
-    const p1 = await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
+    const p1 = (await createPerson(hub, team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })) as InternalPerson
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 2)
-    const [_person1, kafkaMessages1] = await hub.db.updatePersonDeprecated(p1, {
+    const [_person1, kafkaMessages1, _versionDisparity1] = await hub.db.updatePerson(p1, {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
     })
 
-    await hub.db.kafkaProducer.queueMessages({
-        kafkaMessages: [...kafkaMessages0, ...kafkaMessages1],
-        waitForAck: true,
-    })
+    await hub.db.kafkaProducer.queueMessages([...kafkaMessages0, ...kafkaMessages1])
 
     await processEvent(
         'person_1',
@@ -321,7 +343,7 @@ test('capture new person', async () => {
     await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse), 1)
     const chPeople = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople.length).toEqual(1)
-    expect(JSON.parse(chPeople[0].properties)).toEqual(expectedProps)
+    expect(parseJSON(chPeople[0].properties)).toEqual(expectedProps)
     expect(chPeople[0].created_at).toEqual(now.toFormat('yyyy-MM-dd HH:mm:ss.000'))
 
     let events = await hub.db.fetchEvents()
@@ -424,10 +446,10 @@ test('capture new person', async () => {
     const chPeople2 = await delayUntilEventIngested(async () =>
         (
             await hub.db.fetchPersons(Database.ClickHouse)
-        ).filter((p) => p && JSON.parse(p.properties).utm_medium == 'instagram')
+        ).filter((p) => p && parseJSON(p.properties).utm_medium == 'instagram')
     )
     expect(chPeople2.length).toEqual(1)
-    expect(JSON.parse(chPeople2[0].properties)).toEqual(expectedProps)
+    expect(parseJSON(chPeople2[0].properties)).toEqual(expectedProps)
 
     expect(events[1].properties.$set).toEqual({
         x: 123,
@@ -510,12 +532,13 @@ test('capture new person', async () => {
 
     const chPeople3 = await hub.db.fetchPersons(Database.ClickHouse)
     expect(chPeople3.length).toEqual(1)
-    expect(JSON.parse(chPeople3[0].properties)).toEqual(expectedProps)
+    expect(parseJSON(chPeople3[0].properties)).toEqual(expectedProps)
 
     team = await getFirstTeam(hub)
 })
 
 test('capture bad team', async () => {
+    const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
@@ -525,7 +548,9 @@ test('capture bad team', async () => {
             } as any as PluginEvent,
             1337,
             now,
-            new UUIDT().toString()
+            new UUIDT().toString(),
+            false,
+            groupStoreForBatch
         )
     ).rejects.toThrowError("No team found with ID 1337. Can't ingest event.")
 })
@@ -632,7 +657,7 @@ test('anonymized ip capture', async () => {
     )
 
     const [event] = await hub.db.fetchEvents()
-    expect(event.properties['$ip']).not.toBeDefined()
+    expect(event.properties['$ip']).not.toBeTruthy()
 })
 
 test('merge_dangerously', async () => {
@@ -874,9 +899,6 @@ test('capture first team event', async () => {
         'testTag'
     )
 
-    posthog.capture = jest.fn() as any
-    posthog.identify = jest.fn() as any
-
     await processEvent(
         '2',
         '',
@@ -894,18 +916,12 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
-    expect(posthog.capture).toHaveBeenCalledWith({
-        distinctId: 'plugin_test_user_distinct_id_1001',
-        event: 'first team event ingested',
-        properties: {
-            team: team.uuid,
-        },
-        groups: {
-            project: team.uuid,
-            organization: team.organization_id,
-            instance: 'unknown',
-        },
-    })
+    expect(captureTeamEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: team.uuid, organization_id: team.organization_id }),
+        'first team event ingested',
+        { host: undefined, realm: undefined, sdk: undefined },
+        'plugin_test_user_distinct_id_1001'
+    )
 
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
@@ -1435,6 +1451,7 @@ describe('when handling $identify', () => {
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
             // We need to slice off the txn arg, or else we conflict with the `identify` below.
+            // @ts-expect-error because TS is crazy, this is valid
             const result = await originalCreatePerson(...args.slice(0, -1))
 
             if (createPersonMock.mock.calls.length === 1) {
@@ -1638,47 +1655,6 @@ test('long event name substr', async () => {
 
     const [event] = await hub.db.fetchEvents()
     expect(event.event?.length).toBe(200)
-})
-
-describe('validates eventUuid', () => {
-    test('invalid uuid string returns an error', async () => {
-        const pluginEvent: PluginEvent = {
-            distinct_id: 'i_am_a_distinct_id',
-            site_url: '',
-            team_id: team.id,
-            timestamp: DateTime.utc().toISO(),
-            now: now.toUTC().toISO(),
-            ip: '',
-            uuid: 'i_am_not_a_uuid',
-            event: 'eVeNt',
-            properties: { price: 299.99, name: 'AirPods Pro' },
-        }
-
-        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
-        const result = await runner.runEventPipeline(pluginEvent)
-
-        expect(result.error).toBeDefined()
-        expect(result.error).toEqual('Not a valid UUID: "i_am_not_a_uuid"')
-    })
-    test('null value in eventUUID returns an error', async () => {
-        const pluginEvent: PluginEvent = {
-            distinct_id: 'i_am_a_distinct_id',
-            site_url: '',
-            team_id: team.id,
-            timestamp: DateTime.utc().toISO(),
-            now: now.toUTC().toISO(),
-            ip: '',
-            uuid: null as any,
-            event: 'eVeNt',
-            properties: { price: 299.99, name: 'AirPods Pro' },
-        }
-
-        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
-        const result = await runner.runEventPipeline(pluginEvent)
-
-        expect(result.error).toBeDefined()
-        expect(result.error).toEqual('Not a valid UUID: "null"')
-    })
 })
 
 test('any event can do $set on props (user exists)', async () => {
@@ -1906,7 +1882,7 @@ test('$groupidentify updating properties', async () => {
     const next: DateTime = now.plus({ minutes: 1 })
 
     await createPerson(hub, team, ['distinct_id1'])
-    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {}, 1)
+    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {})
 
     await processEvent(
         'distinct_id1',

@@ -1,16 +1,16 @@
 import concurrent.futures
 from datetime import datetime
 from typing import cast
-from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 from freezegun import freeze_time
+from parameterized import parameterized
 import pytest
+from flaky import flaky
 
-from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
@@ -37,6 +37,18 @@ from posthog.test.base import (
 
 class TestFeatureFlagCohortExpansion(BaseTest):
     maxDiff = None
+
+    @parameterized.expand(
+        [
+            ("some_distinct_id", 0.7270002403585725),
+            ("test-identifier", 0.4493881716040236),
+            ("example_id", 0.9402003475831224),
+            ("example_id2", 0.6292740389966519),
+        ]
+    )
+    def test_calculate_hash(self, identifier, expected_hash):
+        result = FeatureFlagMatcher.calculate_hash("holdout-", identifier, "")
+        self.assertAlmostEqual(result, expected_hash)
 
     def test_cohort_expansion(self):
         cohort = Cohort.objects.create(
@@ -750,17 +762,17 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     maxDiff = None
 
     def match_flag(self, flag: FeatureFlag, distinct_id: str = "test_id", **kwargs):
-        return FeatureFlagMatcher([flag], distinct_id, **kwargs).get_match(flag)
+        return FeatureFlagMatcher(self.team.id, self.project.id, [flag], distinct_id, **kwargs).get_match(flag)
 
     def test_blank_flag(self):
         # Blank feature flags now default to be released for everyone
         feature_flag = self.create_feature_flag()
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -790,11 +802,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "307").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -849,7 +861,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(0):
             self.assertEqual(
                 self.match_flag(feature_flag, "example_id"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -1024,44 +1036,44 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "307").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # confirm it works with overrides as well, which are computed locally
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Organizer Id": "307"}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Organizer Id": "307"}
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Organizer Id": 307}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Organizer Id": 307}
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # test with a flag where the property is a number
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307").get_match(feature_flag2),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(feature_flag2),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # confirm it works with overrides as well, which are computed locally
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": "307"}).get_match(
-                feature_flag2
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": "307"}
+            ).get_match(feature_flag2),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(
-                feature_flag2
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": 307}
+            ).get_match(feature_flag2),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -1324,37 +1336,39 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag1], "307").get_match(feature_flag1),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "307").get_match(feature_flag1),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307").get_match(feature_flag2),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(feature_flag2),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag3], "307").get_match(feature_flag3),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307").get_match(feature_flag3),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag4], "307").get_match(feature_flag4),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag4], "307").get_match(feature_flag4),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # confirm it works with overrides as well, which are computed locally
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag1], "307", property_value_overrides={"enabled": True}).get_match(
-                feature_flag1
-            ),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
-        )
-        self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"enabled": True}).get_match(
-                feature_flag2
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag1], "307", property_value_overrides={"enabled": True}
+            ).get_match(feature_flag1),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"enabled": True}
+            ).get_match(feature_flag2),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag3],
                 "307",
                 property_value_overrides={"string_enabled": True},
@@ -1363,6 +1377,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag4],
                 "307",
                 property_value_overrides={"string_enabled": True},
@@ -1371,19 +1387,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag1], "307", property_value_overrides={"enabled": "true"}).get_match(
-                feature_flag1
-            ),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
-        )
-        self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"enabled": "true"}).get_match(
-                feature_flag2
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag1], "307", property_value_overrides={"enabled": "true"}
+            ).get_match(feature_flag1),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"enabled": "true"}
+            ).get_match(feature_flag2),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag3],
                 "307",
                 property_value_overrides={"string_enabled": "true"},
@@ -1392,6 +1410,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag4],
                 "307",
                 property_value_overrides={"string_enabled": "true"},
@@ -1900,70 +1920,70 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "307").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "307").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # don't require explicit type correctness for overrides when you're already at /decide
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Distinct Id": 307}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], "307", property_value_overrides={"Distinct Id": 307}
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # test with a flag where the property is a number
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307").get_match(feature_flag2),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag2], "307").get_match(feature_flag2),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(
-                feature_flag2
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag2], "307", property_value_overrides={"Distinct Id": 307}
+            ).get_match(feature_flag2),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
         # test with a flag where the property is a non-array number
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag3], "307").get_match(feature_flag3),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag3], "307").get_match(feature_flag3),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
     def test_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"rollout_percentage": 50}]})
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
 
     def test_empty_group(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{}]})
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
     def test_null_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": None}]})
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
     def test_zero_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"properties": [], "rollout_percentage": 0}]})
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
 
@@ -1994,15 +2014,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
         )
 
@@ -2057,15 +2077,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
 
@@ -2121,7 +2141,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with snapshot_postgres_queries_context(self):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
             )
 
@@ -2176,15 +2196,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
 
@@ -2239,15 +2259,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
 
@@ -2296,15 +2316,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # Rollout to everyone
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
 
@@ -2353,15 +2373,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # Rollout to everyone
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
 
@@ -2416,21 +2436,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag],
                 "example_id",
                 property_value_overrides={"is_enabled": True},
@@ -2438,11 +2460,13 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag],
                 "another_id",
                 property_value_overrides={"is_enabled": True},
@@ -2501,21 +2525,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id", property_value_overrides={"is_enabled": True}).get_match(
-                feature_flag
-            ),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], "test_id", property_value_overrides={"is_enabled": True}
+            ).get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag],
                 "example_id",
                 property_value_overrides={"is_enabled": True},
@@ -2523,11 +2549,13 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.SUPER_CONDITION_VALUE, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
         self.assertEqual(
             FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag],
                 "another_id",
                 property_value_overrides={"is_enabled": True},
@@ -2567,6 +2595,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0), snapshot_postgres_queries_context(self):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "test_id",
                     property_value_overrides={"is_enabled": True},
@@ -2575,6 +2605,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example_id",
                     property_value_overrides={"is_enabled": True},
@@ -2630,16 +2662,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # would've been `third-variant` if not for the override
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         # would've been `second-variant` if not for the override
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, "first-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
         )
 
@@ -2703,15 +2735,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
         )
 
@@ -2763,16 +2795,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         # would've been `third-variant` if not for the override
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         # would've been `second-variant` if not for the override
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
         )
 
@@ -2827,15 +2859,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "test_id").get_match(feature_flag),
             FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 2),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -2957,10 +2989,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with (
-            self.assertNumQueries(10),
+            self.assertNumQueries(13),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -2974,7 +3008,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "test_id",
                 {"project": "group_key", "organization": "foo"},
                 FlagsMatcherCache(self.team.id),
-            ).get_matches()
+            ).get_matches_with_details()
 
         self.assertEqual(
             matches,
@@ -3033,10 +3067,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
         with (
-            self.assertNumQueries(9),
+            self.assertNumQueries(12),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -3050,7 +3086,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "test_id",
                 {"organization": "foo2"},
                 FlagsMatcherCache(self.team.id),
-            ).get_matches()
+            ).get_matches_with_details()
 
         self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
@@ -3131,16 +3167,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
             )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "false_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "false_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
         )
 
@@ -3166,12 +3202,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={}).get_match(feature_flag),
+                FeatureFlagMatcher(
+                    self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}
+                ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
             # can be computed locally
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example_id",
                     property_value_overrides={"email": "bzz"},
@@ -3181,13 +3221,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
             )
 
             # can be computed locally
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id",
                     property_value_overrides={"email": "example@example.com"},
@@ -3227,6 +3269,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(12):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example1_id",
                     cache=cache,
@@ -3238,6 +3282,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # can be computed using the db, with help from the overrides
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example2_id",
                     cache=cache,
@@ -3249,6 +3295,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # name property is incorrect, since different group
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example3_id",
                     cache=cache,
@@ -3260,13 +3308,17 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(0):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "random_id", cache=cache).get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id", cache=cache).get_match(
+                    feature_flag
+                ),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE),
             )
 
             # can be computed locally
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id",
                     cache=cache,
@@ -3283,6 +3335,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # even if the group property stored in db is different
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id",
                     cache=cache,
@@ -3317,6 +3371,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example_id",
                     property_value_overrides={"email": "tim@posthog.com"},
@@ -3325,6 +3381,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example_id",
                     property_value_overrides={"email": "bzz"},
@@ -3334,13 +3392,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 1),
             )
 
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id",
                     property_value_overrides={"email": "example@example.com"},
@@ -3367,6 +3427,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # and user doesn't exist yet
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example_id",
                     property_value_overrides={"email": "tim@posthog.com"},
@@ -3375,6 +3437,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example_id",
                     property_value_overrides={"email": "bzz"},
@@ -3384,7 +3448,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
@@ -3392,6 +3456,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # Both of these match properties, but second one is outside rollout %.
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id_without_rollout",
                     property_value_overrides={
@@ -3404,6 +3470,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id_within_rollout",
                     property_value_overrides={
@@ -3419,6 +3487,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # These don't match properties
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id_without_rollout",
                     property_value_overrides={
@@ -3431,6 +3501,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id_without_rollout",
                     property_value_overrides={
@@ -3459,12 +3531,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id", property_value_overrides={}).get_match(feature_flag),
+                FeatureFlagMatcher(
+                    self.team.id, self.project.id, [feature_flag], "example_id", property_value_overrides={}
+                ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "example_id",
                     property_value_overrides={"email": "bzz"},
@@ -3474,12 +3550,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "random_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "random_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "random_id",
                     property_value_overrides={"email": "example@example.com"},
@@ -3495,11 +3573,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # one extra query to check existence
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "not-seen-person").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(
+                    feature_flag
+                ),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "not-seen-person",
                     property_value_overrides={"email": "example@example.com"},
@@ -3523,12 +3605,16 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # one extra query to check existence
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "not-seen-person").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "not-seen-person").get_match(
+                    feature_flag
+                ),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "not-seen-person",
                     property_value_overrides={"$initial_utm_source": "fb"},
@@ -3537,6 +3623,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "not-seen-person",
                     property_value_overrides={"$initial_utm_source": "fbx"},
@@ -3567,13 +3655,17 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # no extra query to check existence because it doesn't matter - since not a pure condition
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1], "not-seen-person").get_match(feature_flag1),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(
+                    feature_flag1
+                ),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
         # still goes to DB because no company override, and then fails because person doesn't exist
         with self.assertNumQueries(4):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "not-seen-person",
                     property_value_overrides={"email": "example@example.com"},
@@ -3588,6 +3680,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(4):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "not-seen-person",
                     property_value_overrides={"company": "x.com"},
@@ -3598,6 +3692,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "not-seen-person",
                     property_value_overrides={"company": "x.com", "email": "k"},
@@ -3608,7 +3704,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # now dealing with existing person
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1], "another_id").get_match(feature_flag1),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(
+                    feature_flag1
+                ),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
         # since not all conditions are available in overrides, goes to DB, but then correctly matches is_not_set condition
@@ -3616,6 +3714,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(4):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "another_id",
                     property_value_overrides={"email": "example@example.com"},
@@ -3647,13 +3747,17 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # 1 extra query to get existence clause
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1], "not-seen-person").get_match(feature_flag1),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "not-seen-person").get_match(
+                    feature_flag1
+                ),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "not-seen-person",
                     property_value_overrides={"email": "x"},
@@ -3664,6 +3768,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "not-seen-person",
                     property_value_overrides={"email": "example.com"},
@@ -3675,13 +3781,17 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # one extra query to check existence
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1], "another_id").get_match(feature_flag1),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag1], "another_id").get_match(
+                    feature_flag1
+                ),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
             )
 
         with self.assertNumQueries(0):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "another_id",
                     property_value_overrides={"email": "x"},
@@ -3692,7 +3802,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # without email, person exists though, should thus return True
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1], "another_id_without_email").get_match(feature_flag1),
+                FeatureFlagMatcher(
+                    self.team.id, self.project.id, [feature_flag1], "another_id_without_email"
+                ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
@@ -3787,18 +3899,24 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # one extra query for existence clause
         with self.assertNumQueries(9):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "", {"organization": "target_group"}).get_match(feature_flag),
+                FeatureFlagMatcher(
+                    self.team.id, self.project.id, [feature_flag], "", {"organization": "target_group"}
+                ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
         with self.assertNumQueries(9):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "", {"organization": "foo"}).get_match(feature_flag),
+                FeatureFlagMatcher(
+                    self.team.id, self.project.id, [feature_flag], "", {"organization": "foo"}
+                ).get_match(feature_flag),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
         with self.assertNumQueries(9):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "", {"organization": "unknown-new-org"}).get_match(feature_flag),
+                FeatureFlagMatcher(
+                    self.team.id, self.project.id, [feature_flag], "", {"organization": "unknown-new-org"}
+                ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
@@ -3806,6 +3924,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(4):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "",
                     {"organization": "target_group"},
@@ -3816,6 +3936,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(4):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag],
                     "",
                     {"organization": "unknown-new-org"},
@@ -3830,7 +3952,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(9):
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag, feature_flag_different_group], "", {"organization": "target_group"}
+                    self.team.id,
+                    self.project.id,
+                    [feature_flag, feature_flag_different_group],
+                    "",
+                    {"organization": "target_group"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -3839,15 +3965,21 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(9):
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag, feature_flag_unknown_group_type], "", {"organization": "target_group"}
+                    self.team.id,
+                    self.project.id,
+                    [feature_flag, feature_flag_unknown_group_type],
+                    "",
+                    {"organization": "target_group"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
-        # one extra query to query group
+        # 4 extra query to query group (including setting timeout)
         # second extra query to check existence
         with self.assertNumQueries(11):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag, feature_flag_different_group],
                     "",
                     {"organization": "target_group", "project": "shazam"},
@@ -3859,6 +3991,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         # TODO: We still make a query for existence check, but this is unnecessary. Consider optimising.
         with self.assertNumQueries(10):
             matcher = FeatureFlagMatcher(
+                self.team.id,
+                self.project.id,
                 [feature_flag, feature_flag_different_group],
                 "",
                 {"organization": "target_group", "project": "shazam"},
@@ -3873,11 +4007,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        # 9 queries same as before for groups, 1 extra for person existence check, 1 extra for person query
-        with self.assertNumQueries(11):
+        # 9 queries same as before for groups, 4 extra for person existence check (including timeouts), 1 extra for person query
+        with self.assertNumQueries(14):
             self.assertEqual(
                 FeatureFlagMatcher(
-                    [feature_flag, feature_flag_with_person_is_not_set], "random_id", {"organization": "target_group"}
+                    self.team.id,
+                    self.project.id,
+                    [feature_flag, feature_flag_with_person_is_not_set],
+                    "random_id",
+                    {"organization": "target_group"},
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
@@ -3887,6 +4025,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(10):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag, feature_flag_with_person_is_not_set],
                     "random_id",
                     {"organization": "target_group"},
@@ -3896,9 +4036,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # no existence check for person because flag has not is_not_set condition
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(13):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag, feature_flag_with_no_person_is_not_set],
                     "random_id",
                     {"organization": "target_group"},
@@ -3988,6 +4130,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # no team queries
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2, feature_flag3],
                     "example_id",
                     property_value_overrides={},
@@ -4047,6 +4191,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2],
                     "example_id",
                     property_value_overrides={},
@@ -4054,11 +4200,13 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2],
                     "example_id",
                     property_value_overrides={"email": "bzz"},
@@ -4066,10 +4214,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2],
                     "example_id",
                     property_value_overrides={"email": "neil@posthog.com"},
@@ -4077,10 +4227,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # Random person doesn't yet exist, but still should resolve thanks to overrides
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2],
                     "random_id",
                     property_value_overrides={"email": "xxx"},
@@ -4088,9 +4240,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2],
                     "random_id",
                     property_value_overrides={"email": "example@posthog.com"},
@@ -4130,6 +4284,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "example_id",
                     property_value_overrides={},
@@ -4137,12 +4293,14 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             # property id override shouldn't confuse the matcher
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "example_id",
                     property_value_overrides={"id": "example_id", "email": "bzz"},
@@ -4150,10 +4308,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "example_id",
                     property_value_overrides={"id": "second_id", "email": "neil@posthog.com"},
@@ -4165,6 +4325,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "example_id",
                     property_value_overrides={"id": "second_id"},
@@ -4217,6 +4379,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(5):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "example_id",
                     property_value_overrides={"email": "neil@posthog.com"},
@@ -4228,6 +4392,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # no local computation because cohort lookup is required
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "example_id",
                     property_value_overrides={"email": "bzz"},
@@ -4283,7 +4449,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
 
         with self.assertNumQueries(5):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag1], "example_id", property_value_overrides={}).get_match(feature_flag1),
+                FeatureFlagMatcher(
+                    self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={}
+                ).get_match(feature_flag1),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
@@ -4291,6 +4459,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             # no local computation because cohort lookup is required
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1],
                     "example_id",
                     property_value_overrides={"email": "neil@posthog.com"},
@@ -4326,11 +4496,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -4395,22 +4565,24 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_4").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_4").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_5").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_5").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
         matches = []
         for i in range(1, 7):
             distinct_id = f"example_id_{i}"
-            match = FeatureFlagMatcher([feature_flag], distinct_id).get_match(feature_flag)
+            match = FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], distinct_id).get_match(
+                feature_flag
+            )
             matches.append((match.match, match.reason))
 
         expanded_filters = feature_flag.transform_cohort_filters_for_easy_evaluation()
@@ -4421,7 +4593,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         expanded_matches = []
         for i in range(1, 7):
             distinct_id = f"example_id_{i}"
-            match = FeatureFlagMatcher([feature_flag_expanded], distinct_id).get_match(feature_flag_expanded)
+            match = FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag_expanded], distinct_id).get_match(
+                feature_flag_expanded
+            )
             expanded_matches.append((match.match, match.reason))
 
         self.assertEqual(matches, expanded_matches)
@@ -4439,11 +4613,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "3").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "3").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -4473,182 +4647,22 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_1").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
-
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
-    def test_invalid_filters_dont_set_db_down(self, mock_database_healthcheck):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$some_prop",
-                                    "value": "nomatchihope",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "$some_prop2",
-                                    "value": "nomatchihope2",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                            ],
-                        }
-                    ],
-                }
-            },
-            name="cohort1",
-        )
-        flag: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="active-flag",
-            filters={
-                "groups": [
-                    {
-                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                        "rollout_percentage": 50,
-                    }
-                ]
-            },
-        )
-
-        matcher = FeatureFlagMatcher([flag], "example_id_1")
-
-        self.assertEqual(matcher.get_matches(), ({}, {}, {}, True))
-        self.assertEqual(matcher.failed_to_fetch_conditions, False)
-        mock_database_healthcheck.set_connection.assert_not_called()
-
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
-    def test_invalid_group_filters_dont_set_db_down(self, mock_database_healthcheck):
-        flag: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="active-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        flag2: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="group-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "aggregation_group_type_index": 0,
-            },
-        )
-        GroupTypeMapping.objects.create(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
-        )
-
-        matcher = FeatureFlagMatcher([flag, flag2], "example_id_1", ["organization"])  # type: ignore
-
-        self.assertEqual(
-            matcher.get_matches(),
-            (
-                {"active-flag": True},
-                {
-                    "active-flag": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    }
-                },
-                {},
-                True,
-            ),
-        )
-        self.assertEqual(matcher.failed_to_fetch_conditions, False)
-        mock_database_healthcheck.set_connection.assert_not_called()
-
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
-    def test_data_errors_dont_set_db_down(self, mock_database_healthcheck):
-        flag: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="active-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        flag2: FeatureFlag = FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            active=True,
-            key="other-flag",
-            filters={
-                "groups": [
-                    {"properties": [{"key": "tear", "value": "tear", "type": "person"}], "rollout_percentage": 100}
-                ],
-            },
-        )
-
-        matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html?\x00")
-
-        self.assertEqual(
-            matcher.get_matches(),
-            (
-                {"active-flag": True},
-                {
-                    "active-flag": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    }
-                },
-                {},
-                True,
-            ),
-        )
-        self.assertEqual(matcher.failed_to_fetch_conditions, True)
-        mock_database_healthcheck.set_connection.assert_not_called()
-
-        # with operational error, should set db down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            matcher = FeatureFlagMatcher([flag, flag2], "bxss.me/t/xss.html")
-
-            self.assertEqual(
-                matcher.get_matches(),
-                (
-                    {"active-flag": True},
-                    {
-                        "active-flag": {
-                            "condition_index": 0,
-                            "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                        }
-                    },
-                    {},
-                    True,
-                ),
-            )
-            self.assertEqual(matcher.failed_to_fetch_conditions, True)
-            mock_database_healthcheck.set_connection.assert_called_once_with(False)
 
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
 
@@ -4667,11 +4681,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"properties": [{"key": "email", "value": "tim@posthog.com"}]},
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -4697,15 +4711,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         with self.assertNumQueries(4):
             self.assertEqual(
-                FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+                FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "id_number_3").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "id_number_3").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -4737,11 +4751,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_2").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id_2").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -4772,7 +4786,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "11").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "11").get_match(feature_flag),
             FeatureFlagMatch(
                 True,
                 variant="first-variant",
@@ -4781,7 +4795,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             ),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "example_id").get_match(feature_flag),
             FeatureFlagMatch(
                 True,
                 variant="second-variant",
@@ -4790,7 +4804,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             ),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "3").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "3").get_match(feature_flag),
             FeatureFlagMatch(
                 True,
                 variant="third-variant",
@@ -4809,19 +4823,25 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "").get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "", {"unknown": "group_key"}).get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"unknown": "group_key"}).get_match(
+                feature_flag
+            ),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "", {"organization": "group_key"}).get_match(feature_flag),
+            FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], "", {"organization": "group_key"}
+            ).get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_GROUP_TYPE),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "", {"project": "group_key"}).get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "group_key"}).get_match(
+                feature_flag
+            ),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -4835,11 +4855,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "", {"project": "1"}).get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "1"}).get_match(
+                feature_flag
+            ),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "", {"project": "4"}).get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"project": "4"}).get_match(
+                feature_flag
+            ),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
@@ -4863,11 +4887,15 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             }
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "", {"organization": "foo"}).get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "foo"}).get_match(
+                feature_flag
+            ),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
         self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "", {"organization": "bar"}).get_match(feature_flag),
+            FeatureFlagMatcher(self.team.id, self.project.id, [feature_flag], "", {"organization": "bar"}).get_match(
+                feature_flag
+            ),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
@@ -5335,10 +5363,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with snapshot_postgres_queries_context(self, replace_all_numbers=False):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2, feature_flag4_person],
                     "307",
                     groups={"organization": "foo", "project": "foo-project"},
-                ).get_matches()[1],
+                ).get_matches_with_details()[1],
                 {
                     "random1": {
                         "condition_index": 0,
@@ -5546,9 +5576,11 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with snapshot_postgres_queries_context(self, replace_all_numbers=False):
             self.assertEqual(
                 FeatureFlagMatcher(
+                    self.team.id,
+                    self.project.id,
                     [feature_flag1, feature_flag2, feature_flag3],
                     "307",
-                ).get_matches()[1],
+                ).get_matches_with_details()[1],
                 {
                     "random1": {
                         "condition_index": 0,
@@ -5786,39 +5818,41 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # try matching all together, invalids don't interfere with regular flags
+        featureFlags, _, payloads, errors, _ = FeatureFlagMatcher(
+            self.team.id,
+            self.project.id,
+            [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
+            "307",
+        ).get_matches_with_details()
+
         self.assertEqual(
-            FeatureFlagMatcher(
-                [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
-                "307",
-            ).get_matches(),
-            (
-                {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
-                {
-                    "random1": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random2": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random3": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                    },
-                    "random4": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random5": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                    },
+            featureFlags,
+            {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
+            {
+                "random1": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
                 },
-                {},
-                False,
-            ),
+                "random2": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                },
+                "random3": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                },
+                "random4": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                },
+                "random5": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                },
+            },
         )
+        self.assertEqual(payloads, {})
+        self.assertEqual(errors, False)
 
         # confirm it works with overrides as well, which are computed locally
         self.assertEqual(
@@ -5918,7 +5952,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk,
+            team=self.team,
             distinct_ids=self.person.distinct_ids,
             hash_key_override="other_id",
         )
@@ -5933,7 +5967,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk,
+            team=self.team,
             distinct_ids=self.person.distinct_ids,
             hash_key_override="other_id",
         )
@@ -5955,8 +5989,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             properties={"email": "beuk2@posthog.com", "team": "posthog"},
         )
 
-        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["1"], hash_key_override="other_id1")
-        set_feature_flag_hash_key_overrides(team_id=self.team.pk, distinct_ids=["2"], hash_key_override="aother_id2")
+        set_feature_flag_hash_key_overrides(team=self.team, distinct_ids=["1"], hash_key_override="other_id1")
+        set_feature_flag_hash_key_overrides(team=self.team, distinct_ids=["2"], hash_key_override="aother_id2")
 
         hash_keys = get_feature_flag_hash_key_overrides(self.team.pk, ["1", "2"])
 
@@ -5981,7 +6015,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
         # and now we come to get new overrides
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk,
+            team=self.team,
             distinct_ids=self.person.distinct_ids,
             hash_key_override="other_id",
         )
@@ -5996,7 +6030,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides_when_persons_dont_exist(self):
         set_feature_flag_hash_key_overrides(
-            team_id=self.team.pk,
+            team=self.team,
             distinct_ids=["1", "2", "3", "4"],
             hash_key_override="other_id",
         )
@@ -6010,7 +6044,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags, reasons, payloads, _ = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags, reasons, payloads, _ = get_all_feature_flags(self.team, "other_id", {}, "example_id")
         self.assertEqual(
             flags,
             {
@@ -6041,10 +6075,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
@@ -6109,7 +6139,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             future_to_index = {
                 executor.submit(
                     get_all_feature_flags,
-                    team.pk,
+                    team,
                     "other_id",
                     {},
                     hash_key_override="example_id",
@@ -6205,7 +6235,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
 
         with snapshot_postgres_queries_context(self, capture_all_queries=True), connection.execute_wrapper(insert_fail):
             flags, reasons, payloads, errors = get_all_feature_flags(
-                team.pk, "other_id", {}, hash_key_override="example_id"
+                team, "other_id", {}, hash_key_override="example_id"
             )
             assert errors is False
             # overrides failed since both insert failed :shrug:
@@ -6301,7 +6331,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             connection.execute_wrapper(InsertFailOnce()),
         ):
             flags, reasons, payloads, errors = get_all_feature_flags(
-                team.pk, "other_id", {}, hash_key_override="example_id"
+                team, "other_id", {}, hash_key_override="example_id"
             )
             assert errors is False
             # overrides succeeded on second try
@@ -6311,6 +6341,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
+    @flaky(max_runs=3, min_passes=1)
     def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")
@@ -6382,7 +6413,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
             future_to_index = {
                 executor.submit(
                     get_all_feature_flags,
-                    team.pk,
+                    team,
                     "other_id",
                     {},
                     hash_key_override="example_id",
@@ -7427,7 +7458,9 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
         for i in range(1000):
             distinctID = f"distinct_id_{i}"
 
-            feature_flag_match = FeatureFlagMatcher([feature_flag], distinctID).get_match(feature_flag)
+            feature_flag_match = FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], distinctID
+            ).get_match(feature_flag)
 
             if results[i]:
                 self.assertEqual(
@@ -8486,7 +8519,9 @@ class TestFeatureFlagMatcherConsistency(BaseTest):
         for i in range(1000):
             distinctID = f"distinct_id_{i}"
 
-            feature_flag_match = FeatureFlagMatcher([feature_flag], distinctID).get_match(feature_flag)
+            feature_flag_match = FeatureFlagMatcher(
+                self.team.id, self.project.id, [feature_flag], distinctID
+            ).get_match(feature_flag)
 
             if results[i]:
                 self.assertEqual(

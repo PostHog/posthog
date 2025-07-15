@@ -36,7 +36,7 @@ from posthog.test.base import BaseTest, MemoryLeakTestMixin
 def parser_test_factory(backend: Literal["python", "cpp"]):
     base_classes = (MemoryLeakTestMixin, BaseTest) if backend == "cpp" else (BaseTest,)
 
-    class TestParser(*base_classes):
+    class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
         MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT = 0.1
         MEMORY_PRIMING_RUNS_N = 2
@@ -339,6 +339,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         ),
                     ),
                     args=[ast.Constant(value=3)],
+                ),
+            )
+
+        def test_call_expr_sql(self):
+            self.assertEqual(
+                self._expr("asd.asd(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Field(chain=["asd", "asd"]),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+            self.assertEqual(
+                self._expr("sql(select 1)"),
+                ast.Call(
+                    name="sql",
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
                 ),
             )
 
@@ -766,7 +782,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
             )
             self.assertEqual(
+                self._expr("interval '1 month'"),
+                ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
+            )
+            self.assertEqual(
                 self._expr("now() - interval 1 week"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
+                ),
+            )
+            self.assertEqual(
+                self._expr("now() - interval '1 week'"),
                 ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Call(name="now", args=[]),
@@ -1320,13 +1348,47 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1 from events LIMIT 1 OFFSET 3 BY 1, event"),
+                self._select("select 1 from events LIMIT 1 BY event LIMIT 2 OFFSET 3"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=1),
+                    limit=ast.Constant(value=2),
                     offset=ast.Constant(value=3),
-                    limit_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["event"])]),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 4, 1 BY event LIMIT 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2 OFFSET 5"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    offset=ast.Constant(value=5),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
                 ),
             )
 
@@ -1738,7 +1800,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_visit_hogqlx_tag(self):
             node = self._select("select event from <HogQLQuery query='select event from events' />")
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
                 attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
@@ -1752,44 +1817,61 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node = self._select(
                 "select event from <OuterQuery><HogQLQuery query='select event from events' /></OuterQuery>"
             )
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="OuterQuery",
                 attributes=[
                     ast.HogQLXAttribute(
-                        name="source",
-                        value=ast.HogQLXTag(
-                            kind="HogQLQuery",
-                            attributes=[
-                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
-                            ],
-                        ),
+                        name="children",
+                        value=[
+                            ast.HogQLXTag(
+                                kind="HogQLQuery",
+                                attributes=[
+                                    ast.HogQLXAttribute(
+                                        name="query", value=ast.Constant(value="select event from events")
+                                    )
+                                ],
+                            )
+                        ],
                     )
                 ],
             )
 
             # Empty tag
             node = self._select("select event from <OuterQuery></OuterQuery>")
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(kind="OuterQuery", attributes=[])
 
             # With attribute
             node = self._select(
                 "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></OuterQuery>"
             )
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="OuterQuery",
                 attributes=[
                     ast.HogQLXAttribute(name="q", value=ast.Constant(value="b")),
                     ast.HogQLXAttribute(
-                        name="source",
-                        value=ast.HogQLXTag(
-                            kind="HogQLQuery",
-                            attributes=[
-                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
-                            ],
-                        ),
+                        name="children",
+                        value=[
+                            ast.HogQLXTag(
+                                kind="HogQLQuery",
+                                attributes=[
+                                    ast.HogQLXAttribute(
+                                        name="query", value=ast.Constant(value="select event from events")
+                                    )
+                                ],
+                            )
+                        ],
                     ),
                 ],
             )
@@ -1804,14 +1886,17 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             # With mismatched closing tag
             with self.assertRaises(ExposedHogQLError) as e:
                 self._select(
-                    "select event from <OuterQuery source='b'><HogQLQuery query='select event from events' /></OuterQuery>"
+                    "select event from <OuterQuery children='b'><HogQLQuery query='select event from events' /></OuterQuery>"
                 )
-            assert str(e.exception) == "Nested HogQLX tags cannot have a source attribute"
+            assert str(e.exception) == "Can't have a HogQLX tag with both children and a 'children' attribute"
 
         def test_visit_hogqlx_tag_alias(self):
             node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
-            table_node = cast(ast.SelectQuery, node).select_from.table
-            alias = cast(ast.SelectQuery, node).select_from.alias
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            alias = node.select_from.alias
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
                 attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
@@ -1833,7 +1918,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 )
             """
             node = self._select(query)
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="ActorsQuery",
                 attributes=[
@@ -1866,7 +1954,31 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 kind="a",
                 attributes=[
                     ast.HogQLXAttribute(name="href", value=Constant(value="https://google.com")),
-                    ast.HogQLXAttribute(name="source", value=ast.Field(chain=["event"])),
+                    ast.HogQLXAttribute(name="children", value=[ast.Field(chain=["event"])]),
+                ],
+            )
+
+        def test_visit_hogqlx_multiple_children(self):
+            query = """
+                select <a href='https://google.com'>{event}<b>{'Bold!'}</b></a> from events
+            """
+            node = self._select(query)
+            assert isinstance(node, ast.SelectQuery) and cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
+                kind="a",
+                attributes=[
+                    ast.HogQLXAttribute(name="href", value=Constant(value="https://google.com")),
+                    ast.HogQLXAttribute(
+                        name="children",
+                        value=[
+                            ast.Field(chain=["event"]),
+                            ast.HogQLXTag(
+                                kind="b",
+                                attributes=[
+                                    ast.HogQLXAttribute(name="children", value=[ast.Constant(value="Bold!")]),
+                                ],
+                            ),
+                        ],
+                    ),
                 ],
             )
 

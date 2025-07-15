@@ -12,10 +12,12 @@ import { ActorType } from '~/types'
 interface Props {
     groupTypeIndex: number | null
     id: string
+    type?: 'person' | 'group'
+    limit?: number
 }
 
-export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
-    const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
+export function RelatedGroups({ groupTypeIndex, id, type, limit }: Props): JSX.Element {
+    const { relatedActors, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id, type, limit }))
     const { aggregationLabel } = useValues(groupsModel)
 
     const columns: LemonTableColumns<ActorType> = [
@@ -25,24 +27,22 @@ export function RelatedGroups({ groupTypeIndex, id }: Props): JSX.Element {
             render: function RenderActor(_, actor: ActorType) {
                 if (actor.type === 'group') {
                     return <>{capitalizeFirstLetter(aggregationLabel(actor.group_type_index).singular)}</>
-                } else {
-                    return (
-                        <>
-                            <IconPerson /> Person
-                        </>
-                    )
                 }
+                return (
+                    <>
+                        <IconPerson /> Person
+                    </>
+                )
             },
         },
         {
             title: 'id',
             key: 'id',
             render: function RenderActor(_, actor: ActorType) {
-                if (actor.type == 'group') {
+                if (actor.type === 'group') {
                     return <GroupActorDisplay actor={actor} />
-                } else {
-                    return <PersonDisplay person={actor} withIcon={false} />
                 }
+                return <PersonDisplay person={actor} withIcon={false} />
             },
         },
     ]

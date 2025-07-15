@@ -1,6 +1,7 @@
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
+    LemonColorGlyph,
     LemonInput,
     LemonLabel,
     LemonSegmentedButton,
@@ -10,17 +11,13 @@ import {
     LemonTag,
     Popover,
 } from '@posthog/lemon-ui'
+import { LemonColorPicker } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { ColorPickerButton } from './ColorPickerButton'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
@@ -126,7 +123,6 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
     const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
@@ -135,20 +131,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {showSeriesColor && (
-                    <SeriesGlyph
-                        style={{
-                            borderColor: seriesColor,
-                            color: seriesColor,
-                            backgroundColor: isDarkModeOn
-                                ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
-                                : hexToRGBA(seriesColor, 0.2),
-                        }}
-                        className="mr-2"
-                    >
-                        <></>
-                    </SeriesGlyph>
-                )}
+                {showSeriesColor && <LemonColorGlyph className="mr-2" color={seriesColor} />}
                 {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
@@ -217,7 +200,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
 
 const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="space-y-4">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="deprecated-space-y-4">
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="style" label="Style" className="gap-1">
                     <LemonSelect
@@ -252,16 +235,19 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="deprecated-space-y-4">
             {(showColorPicker || showLabelInput) && (
                 <div className="flex gap-3">
                     {showColorPicker && (
                         <LemonField name="color" label="Color">
                             {({ value, onChange }) => (
-                                <ColorPickerButton
-                                    color={value}
-                                    onColorSelect={onChange}
-                                    colorChoices={getSeriesColorPalette()}
+                                <LemonColorPicker
+                                    selectedColor={value}
+                                    onSelectColor={onChange}
+                                    colors={getSeriesColorPalette()}
+                                    showCustomColor
+                                    hideDropdown
+                                    preventPopoverClose
                                 />
                             )}
                         </LemonField>
@@ -399,24 +385,12 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
 }
 
 const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number>; index: number }): JSX.Element => {
-    const { isDarkModeOn } = useValues(themeLogic)
     const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
 
     return (
         <div className="flex gap-1 mb-2">
             <div className="flex gap-2">
-                <SeriesGlyph
-                    style={{
-                        borderColor: seriesColor,
-                        color: seriesColor,
-                        backgroundColor: isDarkModeOn
-                            ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
-                            : hexToRGBA(seriesColor, 0.2),
-                    }}
-                    className="mr-2"
-                >
-                    <></>
-                </SeriesGlyph>
+                <LemonColorGlyph color={seriesColor} className="mr-2" />
                 <span>{series.name ? series.name : '[No value]'}</span>
             </div>
             {/* For now let's keep things simple and not allow too much configuration */}

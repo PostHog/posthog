@@ -6,12 +6,8 @@ import posthog from 'posthog-js'
 import React, { Fragment, useState } from 'react'
 import { Scene } from 'scenes/sceneTypes'
 
-export type SidebarChangeNoticeProps = {
+type SidebarChangeNoticeProps = {
     identifier: string | number
-}
-
-export type SidebarChangeNoticeTooltipProps = SidebarChangeNoticeProps & {
-    children: TooltipProps['children']
 }
 
 /**

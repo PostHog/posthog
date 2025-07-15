@@ -1,17 +1,19 @@
-use std::{fmt, hash::Hash, str::FromStr};
+use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{Executor, Postgres};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
+use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
 
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
 
+pub const SIX_MONTHS_AGO_SECS: u64 = 15768000;
 // These properties have special meaning, and are ignored
 pub const SKIP_PROPERTIES: [&str; 9] = [
     "$set",
@@ -24,6 +26,29 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
     "$group_4",
     "$groups",
 ];
+
+const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
+    "time",
+    "timestamp",
+    "date",
+    "_at",
+    "-at",
+    "createdat",
+    "updatedat",
+];
+
+// TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
+// a string prefix of their value. While this doesn't enforce compliance to standard formats,
+// it does represent a pretty strong indication of the user's intent, for the purposes of
+// *property definition capture only* especially when a bad decision "locks" the property name
+// to the wrong type. Try it here: https://rustexp.lpil.uk/ and review the unit tests.
+// Also notable: post-capture, PostHog displays timestamps in a variety formats:
+// https://github.com/PostHog/posthog/blob/master/posthog/models/property_definition.py#L18-L30
+static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r#"^(([0-9]{4}[/-][0-2][0-9][/-][0-3][0-9])|([0-2][0-9][/-][0-3][0-9][/-][0-9]{4}))([ T][0-2][0-9]:[0-6][0-9]:[0-6][0-9].*)?$"#
+    ).unwrap()
+});
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum PropertyParentType {
@@ -84,6 +109,7 @@ impl GroupType {
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct PropertyDefinition {
     pub team_id: i32,
+    pub project_id: i64,
     pub name: String,
     pub is_numerical: bool,
     pub property_type: Option<PropertyValueType>,
@@ -98,6 +124,7 @@ pub struct PropertyDefinition {
 pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
+    pub project_id: i64,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
@@ -105,6 +132,7 @@ pub struct EventDefinition {
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventProperty {
     pub team_id: i32,
+    pub project_id: i64,
     pub event: String,
     pub property: String,
 }
@@ -117,22 +145,10 @@ pub enum Update {
     EventProperty(EventProperty),
 }
 
-impl Update {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        match self {
-            Update::Event(e) => e.issue(executor).await,
-            Update::Property(p) => p.issue(executor).await,
-            Update::EventProperty(ep) => ep.issue(executor).await,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
+    pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,
 }
@@ -140,13 +156,10 @@ pub struct Event {
 impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
         EventDefinition {
-            name: sanitize_event_name(&event.event),
+            name: sanitize_string(&event.event),
             team_id: event.team_id,
-            // We round last seen to the nearest hour. Unwrap is safe here because we
-            // the duration is positive, non-zero, and smaller than time since epoch. We use this
-            // in the hash value, so updates which would modify this in the DB are issued even
-            // if another otherwise-identical event definition is in the cache
-            last_seen_at: floor_datetime(Utc::now(), Duration::hours(1)).unwrap(),
+            project_id: event.project_id,
+            last_seen_at: get_floored_last_seen(),
         }
     }
 }
@@ -170,8 +183,8 @@ impl Event {
         let updates = self.into_updates_inner();
         if updates.len() > skip_threshold {
             warn!(
-                "Event {} for team {} has more than 10,000 properties, skipping",
-                event, team_id
+                "Event {} for team {} has more than {} properties, skipping",
+                event, team_id, skip_threshold
             );
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "too_many_properties")]).increment(1);
             return vec![];
@@ -261,15 +274,17 @@ impl Event {
 
             updates.push(Update::EventProperty(EventProperty {
                 team_id: self.team_id,
-                event: self.event.clone(),
+                project_id: self.project_id,
+                event: sanitize_string(&self.event),
                 property: key.clone(),
             }));
 
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
 
-            let def = PropertyDefinition {
+            updates.push(Update::Property(PropertyDefinition {
                 team_id: self.team_id,
+                project_id: self.project_id,
                 name: key.clone(),
                 is_numerical,
                 property_type,
@@ -278,13 +293,14 @@ impl Event {
                 property_type_format: None,
                 volume_30_day: None,
                 query_usage_30_day: None,
-            };
-            updates.push(Update::Property(def));
+            }));
         }
     }
 }
 
-fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
+pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
+    let key = key.to_lowercase();
+
     // There are a whole set of special cases here, taken from the TS
     if key.starts_with("utm_") {
         // utm_ prefixed properties should always be detected as strings.
@@ -317,42 +333,73 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
         return Some(PropertyValueType::String);
     }
 
+    if detect_timestamp_property_by_key_and_value(&key, value) {
+        return Some(PropertyValueType::DateTime);
+    }
+
+    // OK, attempt to classify prop type on value alone
     match value {
         Value::String(s) => {
             let s = &s.trim();
             if *s == "true" || *s == "false" || *s == "TRUE" || *s == "FALSE" {
                 Some(PropertyValueType::Boolean)
+            // Try to parse this as an ISO 8601 date, and if we can, use that as the type instead
+            } else if is_likely_date_string(s) {
+                Some(PropertyValueType::DateTime)
             } else {
-                // TODO - we should try to auto-detect datetime strings here, but I'm skipping the chunk of regex necessary to do it for v0
                 Some(PropertyValueType::String)
             }
         }
-        Value::Number(_) => {
-            // TODO - this is a divergence from the TS impl - the TS also checks if the contained number is
-            // "likely" to be a unix timestamp on the basis of the number of characters. I have mixed feelings about this,
-            // so I'm going to leave it as just checking the key for now. This means we're being /less/ strict with datetime
-            // detection here than in the TS
-            if key.contains("timestamp")
-                || key.contains("TIMESTAMP")
-                || key.contains("time")
-                || key.contains("TIME")
-            {
-                Some(PropertyValueType::DateTime)
-            } else {
-                Some(PropertyValueType::Numeric)
-            }
-        }
+
+        Value::Number(_) => Some(PropertyValueType::Numeric),
+
         Value::Bool(_) => Some(PropertyValueType::Boolean),
+
         _ => None,
     }
 }
 
-fn sanitize_event_name(event_name: &str) -> String {
-    event_name.replace('\u{0000}', "\u{FFFD}")
+fn detect_timestamp_property_by_key_and_value(key: &str, value: &Value) -> bool {
+    if DATETIME_PROPERTY_NAME_KEYWORDS
+        .iter()
+        .any(|kw| key.contains(*kw))
+    {
+        return match value {
+            Value::String(s) if is_likely_date_string(s) => true,
+            Value::Number(n) if is_likely_unix_timestamp(n) => true,
+            _ => false,
+        };
+    }
+
+    false
+}
+
+fn is_likely_date_string(s: &str) -> bool {
+    if DateTime::parse_from_rfc3339(s).is_ok() || DateTime::parse_from_rfc2822(s).is_ok() {
+        return true;
+    }
+
+    if DATETIME_PREFIX_REGEX.is_match(s) {
+        return true;
+    }
+
+    false
+}
+
+// frought with peril if folks are pushing big(ish) numbers into event prop values...
+fn is_likely_unix_timestamp(n: &serde_json::Number) -> bool {
+    if let Some(value) = n.as_u64() {
+        // we could go more conservative here, but you get the idea
+        let threshold: u64 = (Utc::now().timestamp_millis() as u64 / 1000u64) - SIX_MONTHS_AGO_SECS;
+        if value >= threshold {
+            return true;
+        }
+    }
+
+    false
 }
 
 // These hash impls correspond to DB uniqueness constraints, pulled from the TS
-
 impl Hash for PropertyDefinition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.team_id.hash(state);
@@ -383,10 +430,13 @@ impl Hash for GroupType {
     }
 }
 
-pub fn floor_datetime(
-    dt: DateTime<Utc>,
-    duration: Duration,
-) -> Result<DateTime<Utc>, RoundingError> {
+// We round last seen to the nearest hour. Unwrap is safe here because
+// the duration is positive, non-zero, and smaller than time since epoch
+pub fn get_floored_last_seen() -> DateTime<Utc> {
+    floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
+}
+
+fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
     let rounded = dt.duration_round(duration)?;
 
     // If we rounded up
@@ -417,98 +467,22 @@ impl EventDefinition {
     where
         E: Executor<'c, Database = Postgres>,
     {
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"
-            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
-            VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
-            ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq
-            DO UPDATE SET last_seen_at = $4
+            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
+            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
+            ON CONFLICT (coalesce(project_id, team_id::bigint), name)
+            DO UPDATE SET last_seen_at = $5
         "#,
             Uuid::now_v7(),
             self.name,
             self.team_id,
+            self.project_id,
             Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
-        ).execute(executor).await.map(|_| ())
-    }
-}
+        ).execute(executor).await.map(|_| ());
 
-impl PropertyDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let group_type_index = match &self.group_type_index {
-            Some(GroupType::Resolved(_, i)) => Some(*i as i16),
-            Some(GroupType::Unresolved(group_name)) => {
-                warn!(
-                    "Group type {} not resolved for property definition {} for team {}, skipping update",
-                    group_name, self.name, self.team_id
-                );
-                None
-            }
-            _ => {
-                // We don't have a group type, so we don't have a group type index
-                None
-            }
-        };
+        metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
 
-        if group_type_index.is_none() && matches!(self.event_type, PropertyParentType::Group) {
-            // Some teams/users wildly misuse group-types, and if we fail to issue an update
-            // during the transaction (which we do if we don't have a group-type index for a
-            // group property), the entire transaction is aborted, so instead we just warn
-            // loudly about this (above, and at resolve time), and drop the update.
-            return Ok(());
-        }
-
-        sqlx::query!(
-            r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
-            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)
-            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
-            DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
-        "#,
-            Uuid::now_v7(),
-            self.name,
-            self.event_type as i16,
-            group_type_index,
-            self.is_numerical,
-            self.team_id,
-            self.property_type.as_ref().map(|t| t.to_string())
-        ).execute(executor).await.map(|_| ())
-    }
-}
-
-impl EventProperty {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        sqlx::query!(
-            r#"INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"#,
-            self.event,
-            self.property,
-            self.team_id
-        )
-        .execute(executor)
-        .await
-        .map(|_| ())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use chrono::{Timelike, Utc};
-
-    use crate::types::floor_datetime;
-
-    #[test]
-    fn test_date_flooring() {
-        let timestamp = Utc::now();
-        let rounded = floor_datetime(timestamp, chrono::Duration::days(1)).unwrap();
-        assert_eq!(rounded.hour(), 0);
-        assert_eq!(rounded.minute(), 0);
-        assert_eq!(rounded.second(), 0);
-        assert_eq!(rounded.nanosecond(), 0);
-        assert!(rounded <= timestamp);
+        res
     }
 }

@@ -1,17 +1,22 @@
+from datetime import datetime
 from typing import Optional, cast
 from collections.abc import Callable
 
+from posthog import settings as app_settings
+from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedHogQLQueryResponse,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryResponse,
     DashboardFilter,
     HogQLFilters,
@@ -20,18 +25,35 @@ from posthog.schema import (
 
 
 class HogQLQueryRunner(QueryRunner):
-    query: HogQLQuery
+    query: HogQLQuery | HogQLASTQuery
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
+    settings: Optional[HogQLGlobalSettings]
 
-    def to_query(self) -> ast.SelectQuery:
-        if self.timings is None:
-            self.timings = HogQLTimings()
+    def __init__(
+        self,
+        *args,
+        settings: Optional[HogQLGlobalSettings] = None,
+        **kwargs,
+    ):
+        self.settings = settings or HogQLGlobalSettings()
+        super().__init__(*args, **kwargs)
+
+    # Treat SQL query caching like day insight
+    def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        if last_refresh is None:
+            return None
+        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            parsed_select = parse_select(str(self.query.query), timings=self.timings, placeholders=values)
+            if isinstance(self.query, HogQLQuery):
+                parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
+            elif isinstance(self.query, HogQLASTQuery):
+                parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
 
         if self.query.filters:
             with self.timings.measure("filters"):
@@ -40,7 +62,7 @@ class HogQLQueryRunner(QueryRunner):
                     parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         return parsed_select
 
-    def to_actors_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
     def calculate(self) -> HogQLQueryResponse:
@@ -52,6 +74,18 @@ class HogQLQueryRunner(QueryRunner):
             Callable[..., HogQLQueryResponse],
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
+
+        if (
+            self.is_query_service
+            and app_settings.API_QUERIES_LEGACY_TEAM_LIST
+            and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
+        ):
+            assert self.settings is not None
+            # p95 threads is 102, limiting to 60 (below global max_threads of 64)
+            self.settings.max_threads = 60
+            # p95 duration of HogQL query is 2.78sec
+            self.settings.max_execution_time = 10
+
         response = func(
             query_type="HogQLQuery",
             query=query,
@@ -61,6 +95,8 @@ class HogQLQueryRunner(QueryRunner):
             timings=self.timings,
             variables=self.query.variables,
             limit_context=self.limit_context,
+            workload=self.workload,
+            settings=self.settings,
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

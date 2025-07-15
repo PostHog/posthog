@@ -1,6 +1,9 @@
-use axum::async_trait;
-use chrono::{DateTime, Utc};
+use std::sync::Arc;
 
+use axum::async_trait;
+use chrono::{DateTime, Duration, Utc};
+
+use sha2::{Digest, Sha512};
 use sqlx::PgPool;
 use tracing::{error, info};
 use uuid::Uuid;
@@ -8,9 +11,11 @@ use uuid::Uuid;
 use crate::{
     error::{Error, FrameError, UnhandledError},
     metric_consts::{
-        SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SAVE_SYMBOL_SET,
+        FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
+        SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
+    posthog_utils::capture_symbol_set_saved,
 };
 
 use super::{Fetcher, Parser, S3Client};
@@ -19,7 +24,7 @@ use super::{Fetcher, Parser, S3Client};
 // source bytes into s3, and the storage pointer into a postgres database.
 pub struct Saving<F> {
     inner: F,
-    s3_client: S3Client,
+    s3_client: Arc<S3Client>,
     pool: PgPool,
     bucket: String,
     prefix: String,
@@ -35,6 +40,8 @@ pub struct SymbolSetRecord {
     pub storage_ptr: Option<String>,
     pub failure_reason: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub content_hash: Option<String>,
+    pub last_used: Option<DateTime<Utc>>,
 }
 
 // This is the "intermediate" symbol set data. Rather than a simple `Vec<u8>`, the saving layer
@@ -52,7 +59,7 @@ impl<F> Saving<F> {
     pub fn new(
         inner: F,
         pool: sqlx::PgPool,
-        s3_client: S3Client,
+        s3_client: Arc<S3Client>,
         bucket: String,
         prefix: String,
     ) -> Self {
@@ -73,20 +80,43 @@ impl<F> Saving<F> {
     ) -> Result<String, UnhandledError> {
         info!("Saving symbol set data for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
-        // Generate a new opaque key, appending our prefix.
+        // Generate a new opaque key, prepending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
+        let mut content_hasher = Sha512::new();
+        content_hasher.update(&data);
 
-        let record = SymbolSetRecord {
+        let mut record = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
             storage_ptr: Some(key.clone()),
             failure_reason: None,
             created_at: Utc::now(),
+            content_hash: Some(format!("{:x}", content_hasher.finalize())),
+            last_used: Some(Utc::now()),
         };
 
         self.s3_client.put(&self.bucket, &key, data).await?;
         record.save(&self.pool).await?;
+        // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
+        // so delete them
+        let deleted: u64 = sqlx::query_scalar!(
+            r#"WITH deleted AS (DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1 RETURNING *) SELECT count(*) from deleted"#,
+            record.id // The call to save() above ensures that this id is correct
+        )
+        .fetch_one(&self.pool)
+        .await.expect("Got at least one row back").map_or(0, |v| {
+            v.max(0) as u64
+        });
+
+        info!(
+            "Deleted {} stack frames for symbol set {}",
+            deleted, record.id
+        );
+        metrics::counter!(FRAME_RESOLUTION_RESULTS_DELETED).increment(deleted);
+
+        capture_symbol_set_saved(team_id, &record.set_ref, &key, deleted > 0);
+
         start.label("outcome", "success").fin();
         Ok(key)
     }
@@ -106,6 +136,8 @@ impl<F> Saving<F> {
             storage_ptr: None,
             failure_reason: Some(serde_json::to_string(&reason)?),
             created_at: Utc::now(),
+            content_hash: None,
+            last_used: Some(Utc::now()),
         }
         .save(&self.pool)
         .await?;
@@ -121,18 +153,22 @@ impl<F> Saving<F> {
 #[async_trait]
 impl<F> Fetcher for Saving<F>
 where
-    F: Fetcher<Fetched = Vec<u8>>,
+    F: Fetcher<Fetched = Vec<u8>, Err = Error>,
     F::Ref: ToString + Send,
 {
     type Ref = F::Ref;
     type Fetched = Saveable;
+    type Err = F::Err;
 
-    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Error> {
+    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
         let set_ref = r.to_string();
         info!("Fetching symbol set data for {}", set_ref);
+        metrics::counter!(SYMBOL_SET_DB_FETCHES).increment(1);
+
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
+            metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
             if let Some(storage_ptr) = record.storage_ptr {
-                info!("Found symbol set data for {}", set_ref);
+                info!("Found s3 saved symbol set data for {}", set_ref);
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
                 metrics::counter!(SAVED_SYMBOL_SET_LOADED).increment(1);
                 return Ok(Saveable {
@@ -165,6 +201,8 @@ where
             metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
 
+        metrics::counter!(SYMBOL_SET_DB_MISSES).increment(1);
+
         match self.inner.fetch(team_id, r).await {
             // NOTE: We don't save the data here, because we want to save it only after parsing
             Ok(data) => {
@@ -189,12 +227,14 @@ where
 #[async_trait]
 impl<F> Parser for Saving<F>
 where
-    F: Parser<Source = Vec<u8>>,
+    F: Parser<Source = Vec<u8>, Err = Error>,
     F::Set: Send,
 {
     type Source = Saveable;
     type Set = F::Set;
-    async fn parse(&self, data: Saveable) -> Result<Self::Set, Error> {
+    type Err = F::Err;
+
+    async fn parse(&self, data: Saveable) -> Result<Self::Set, Self::Err> {
         match self.inner.parse(data.data.clone()).await {
             Ok(s) => {
                 info!("Parsed symbol set data for {}", data.set_ref);
@@ -217,45 +257,87 @@ where
 }
 
 impl SymbolSetRecord {
-    pub async fn load<'c, E>(
-        e: E,
+    pub async fn load(
+        pool: &sqlx::PgPool,
         team_id: i32,
         set_ref: &str,
-    ) -> Result<Option<Self>, UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
-        let record = sqlx::query_as!(
+    ) -> Result<Option<Self>, UnhandledError> {
+        // Query looks a bit odd. Symbol sets are usable by cymbal if they have no storage ptr (indicating an
+        // unfound symbol set) or if they have a content hash (indicating a full saved symbol set). The in-between
+        // states (storage_ptr is not null AND content_hash is null) indicate an ongoing upload.
+        let mut record = sqlx::query_as!(
             SymbolSetRecord,
-            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason
+            r#"SELECT id, team_id, ref as set_ref, storage_ptr, created_at, failure_reason, content_hash, last_used
             FROM posthog_errortrackingsymbolset
-            WHERE team_id = $1 AND ref = $2"#,
+            WHERE (content_hash is not null OR storage_ptr is null) AND team_id = $1 AND ref = $2"#,
             team_id,
             set_ref
         )
-        .fetch_optional(e)
+        .fetch_optional(pool)
         .await?;
+
+        if let Some(r) = &mut record {
+            r.set_last_used(pool).await?;
+        }
 
         Ok(record)
     }
 
-    pub async fn save<'c, E>(&self, e: E) -> Result<(), UnhandledError>
+    // Set the last used timestamp. This isn't used anywhere in cymbal right now, but is
+    // used by retention cleanup jobs to determine which symbol sets are still in use.
+    async fn set_last_used<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
+        // If the elapsed time is less than 12 hours, do nothing
+        if self
+            .last_used
+            .map(|l| Utc::now() - l < Duration::hours(12))
+            .unwrap_or_default()
+        {
+            return Ok(());
+        }
+
+        let now = Utc::now();
+
         sqlx::query!(
-            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4"#,
+            r#"UPDATE posthog_errortrackingsymbolset SET last_used = $2 WHERE id = $1"#,
+            self.id,
+            now
+        )
+        .execute(e)
+        .await?;
+
+        self.last_used = Some(now);
+
+        Ok(())
+    }
+
+    // Save the current record to the database. If the record already exists, it will be updated
+    // with the new storage pointer, content hash and failure reason. If it doesn't exist, a new
+    // record will be created. Takes a mutable reference to self because it will update the found
+    // id if a conflict occurs.
+    pub async fn save<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        self.id = sqlx::query_scalar!(
+            r#"
+            INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4, content_hash = $7, failure_reason = $5
+            RETURNING id
+            "#,
             self.id,
             self.team_id,
             self.set_ref,
             self.storage_ptr,
             self.failure_reason,
-            self.created_at
+            self.created_at,
+            self.content_hash
         )
-        .execute(e)
-        .await?;
+        .fetch_one(e)
+        .await.expect("Got at least one row back");
 
         metrics::counter!(SYMBOL_SET_SAVED).increment(1);
 
@@ -265,11 +347,13 @@ impl SymbolSetRecord {
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use httpmock::MockServer;
     use mockall::predicate;
+    use posthog_symbol_data::write_symbol_data;
     use reqwest::Url;
     use sqlx::PgPool;
-    use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
         config::Config,
@@ -284,16 +368,12 @@ mod test {
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
-    fn get_sourcemapcache_bytes() -> Vec<u8> {
-        let mut result = Vec::new();
-        let writer = SourceMapCacheWriter::new(
-            core::str::from_utf8(MINIFIED).unwrap(),
-            core::str::from_utf8(MAP).unwrap(),
-        )
-        .unwrap();
-
-        writer.serialize(&mut result).unwrap();
-        result
+    fn get_symbol_data_bytes() -> Vec<u8> {
+        write_symbol_data(posthog_symbol_data::SourceAndMap {
+            minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
+            sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
+        })
+        .unwrap()
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -323,7 +403,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::always(), // We won't assert on the contents written
+                predicate::eq(get_symbol_data_bytes()), // We won't assert on the contents written
             )
             .returning(|_, _, _| Ok(()))
             .once();
@@ -334,13 +414,13 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(get_sourcemapcache_bytes()));
+            .returning(|_, _| Ok(get_symbol_data_bytes()));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
@@ -379,7 +459,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
@@ -429,7 +509,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );

@@ -3,7 +3,7 @@ import { performance } from 'perf_hooks'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
-import { status } from '../../src/utils/status'
+import { logger } from '../../src/utils/logger'
 import { delay } from '../../src/utils/utils'
 
 export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
@@ -22,11 +22,13 @@ export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Pl
         clickhouse.querying('TRUNCATE person'),
         clickhouse.querying('TRUNCATE person_distinct_id'),
         clickhouse.querying('TRUNCATE person_distinct_id2'),
+        clickhouse.querying('TRUNCATE person_distinct_id_overrides'),
         clickhouse.querying('TRUNCATE person_static_cohort'),
         clickhouse.querying('TRUNCATE sharded_session_recording_events'),
         clickhouse.querying('TRUNCATE plugin_log_entries'),
         clickhouse.querying('TRUNCATE events_dead_letter_queue'),
         clickhouse.querying('TRUNCATE groups'),
+        clickhouse.querying('TRUNCATE ingestion_warnings'),
         clickhouse.querying('TRUNCATE sharded_ingestion_warnings'),
         clickhouse.querying('TRUNCATE sharded_app_metrics'),
     ])
@@ -39,12 +41,13 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     maxDelayCount = 100
 ): Promise<T> {
     const timer = performance.now()
-    let data: T
+    let data: T | null = null
     let dataLength = 0
+
     for (let i = 0; i < maxDelayCount; i++) {
         data = await fetchData()
         dataLength = typeof data === 'number' ? data : data.length
-        status.debug(
+        logger.debug(
             `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${dataLength} event${
                 dataLength !== 1 ? 's' : ''
             }.`
@@ -54,5 +57,6 @@ export async function delayUntilEventIngested<T extends any[] | number>(
         }
         await delay(delayMs)
     }
+
     throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
 }

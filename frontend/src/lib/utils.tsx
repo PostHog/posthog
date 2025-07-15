@@ -1,8 +1,8 @@
-import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import {
@@ -118,12 +118,24 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
+export function tryDecodeURIComponent(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
     maximumFractionDigits: number = 2,
     fixedPrecision: boolean = false
 ): string {
+    if (division === Infinity) {
+        return '∞%'
+    }
+
     return division.toLocaleString('en-US', {
         style: 'percent',
         maximumFractionDigits,
@@ -157,6 +169,10 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
         ...base,
         padding: '2px 15px',
     }),
+}
+
+export function splitKebabCase(string: string): string {
+    return string.replace(/-/g, ' ')
 }
 
 export function capitalizeFirstLetter(string: string): string {
@@ -193,6 +209,15 @@ export const stringOperatorMap: Record<string, string> = {
     not_regex: "≁ doesn't match regex",
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+}
+
+export const stringArrayOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
 }
 
 export const numericOperatorMap: Record<string, string> = {
@@ -236,15 +261,35 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const stickinessOperatorMap: Record<string, string> = {
+    exact: '= Exactly',
+    gte: '≥ At least',
+    lte: '≤ At most (but at least once)',
+}
+
+export const cleanedPathOperatorMap: Record<string, string> = {
+    is_cleaned_path_exact: '= equals',
+}
+
+export const assigneeOperatorMap: Record<string, string> = {
+    exact: '= is',
+    is_not: '≠ is not',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...assigneeOperatorMap,
+    ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
+    ...stringArrayOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...cleanedPathOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -257,6 +302,8 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Assignee: assigneeOperatorMap,
+    StringArray: stringArrayOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -368,6 +415,20 @@ export function objectCleanWithEmpty<T extends Record<string | number | symbol, 
     return response
 }
 
+export const removeUndefinedAndNull = (obj: any): any => {
+    if (Array.isArray(obj)) {
+        return obj.map(removeUndefinedAndNull)
+    } else if (obj && typeof obj === 'object') {
+        return Object.entries(obj).reduce((acc, [key, value]) => {
+            if (value !== undefined && value !== null) {
+                acc[key] = removeUndefinedAndNull(value)
+            }
+            return acc
+        }, {} as Record<string, any>)
+    }
+    return obj
+}
+
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
 export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
     const response: Record<string, any> = { ...obj2 }
@@ -389,6 +450,10 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
         object[element[keyField]] = element
     }
     return object
+}
+
+export function makeDelay(ms: number): () => Promise<void> {
+    return () => delay(ms)
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -432,27 +497,19 @@ export function slugify(text: string): string {
 export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
-    if (isNaN(precision) || precision < 0) {
-        precision = DEFAULT_DECIMAL_PLACES
+export function humanFriendlyNumber(
+    d: number,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
+    minimumFractionDigits: number = 0
+): string {
+    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
+        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
-}
-
-/** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
-    if (!d) {
-        d = '0.00'
-    }
-
-    let number: number
-    if (typeof d === 'string') {
-        number = parseFloat(d)
-    } else {
-        number = d
+    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
+        minimumFractionDigits = 0
     }
 
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -490,6 +547,22 @@ export function humanFriendlyLargeNumber(d: number): string {
     return `${prefix}${d}`
 }
 
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
+}
+
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
     if (typeof timestamp !== 'number') {
         return undefined
@@ -501,6 +574,7 @@ export const humanFriendlyMilliseconds = (timestamp: number | undefined): string
 
     return `${(timestamp / 1000).toFixed(2)}s`
 }
+
 export function humanFriendlyDuration(
     d: string | number | null | undefined,
     {
@@ -534,7 +608,7 @@ export function humanFriendlyDuration(
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.round((d % 3600) % 60)
+    const s = Math.floor((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -755,7 +829,9 @@ export function autoCaptureEventToDescription(
     }
 
     const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
+        if (event.properties.$el_text) {
+            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
+        } else if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
         } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
@@ -790,9 +866,9 @@ export function determineDifferenceType(
     return 'minute'
 }
 
-const DATE_FORMAT = 'MMMM D, YYYY'
-const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
-const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT = 'MMMM D, YYYY'
+export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
+export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
@@ -908,6 +984,7 @@ const dateOptionsMap = {
     w: 'week',
     d: 'day',
     h: 'hour',
+    M: 'minute',
 } as const
 
 export function dateFilterToText(
@@ -971,6 +1048,9 @@ export function dateFilterToText(
                 case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
                     break
+                case 'minute':
+                    date = dayjs().subtract(counter, 'm')
+                    break
                 default:
                     date = dayjs().subtract(counter, 'd')
                     break
@@ -997,16 +1077,18 @@ export function dateFromToText(dateFrom: string): string | undefined {
     return undefined
 }
 
-export function dateStringToComponents(date: string | null): {
+export type DateComponents = {
     amount: number
     unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
     clip: 'Start' | 'End'
-} | null {
+}
+
+export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
         return null
     }
-    const parseDate = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
-    const matches = date.match(parseDate)
+    const matches = date.match(isStringDateRegex)
     if (!matches) {
         return null
     }
@@ -1014,6 +1096,43 @@ export function dateStringToComponents(date: string | null): {
     const amount = rawAmount ? parseInt(sign + rawAmount) : 0
     const unit = dateOptionsMap[rawUnit] || 'day'
     return { amount, unit, clip: clip as 'Start' | 'End' }
+}
+
+export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset?: Dayjs): Dayjs {
+    const dayjsInstance = offset ?? dayjs()
+    let response: dayjs.Dayjs
+    switch (unit) {
+        case 'year':
+            response = dayjsInstance.add(amount, 'year')
+            break
+        case 'quarter':
+            response = dayjsInstance.add(amount * 3, 'month')
+            break
+        case 'month':
+            response = dayjsInstance.add(amount, 'month')
+            break
+        case 'week':
+            response = dayjsInstance.add(amount * 7, 'day')
+            break
+        case 'day':
+            response = dayjsInstance.add(amount, 'day')
+            break
+        case 'hour':
+            response = dayjsInstance.add(amount, 'hour')
+            break
+        case 'minute':
+            response = dayjsInstance.add(amount, 'minute')
+            break
+        default:
+            throw new UnexpectedNeverError(unit)
+    }
+
+    if (clip === 'Start') {
+        return response.startOf(unit)
+    } else if (clip === 'End') {
+        return response.endOf(unit)
+    }
+    return response
 }
 
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
@@ -1025,39 +1144,22 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (!dateComponents) {
         return null
     }
+    const offset: dayjs.Dayjs = dayjs().startOf('day')
+    const response = componentsToDayJs(dateComponents, offset)
+    return response
+}
 
-    const { unit, amount, clip } = dateComponents
-    let response: dayjs.Dayjs
-
-    switch (unit) {
-        case 'year':
-            response = dayjs().add(amount, 'year')
-            break
-        case 'quarter':
-            response = dayjs().add(amount * 3, 'month')
-            break
-        case 'month':
-            response = dayjs().add(amount, 'month')
-            break
-        case 'week':
-            response = dayjs().add(amount * 7, 'day')
-            break
-        case 'day':
-            response = dayjs().add(amount, 'day')
-            break
-        case 'hour':
-            response = dayjs().add(amount, 'hour')
-            break
-        default:
-            throw new UnexpectedNeverError(unit)
+export function isValidRelativeOrAbsoluteDate(date: string): boolean {
+    if (isStringDateRegex.test(date)) {
+        return true
     }
-
-    if (clip === 'Start') {
-        return response.startOf(unit)
-    } else if (clip === 'End') {
-        return response.endOf(unit)
+    if (dayjs(date).isValid()) {
+        return true
     }
-    return response.startOf('day')
+    if (date === 'all') {
+        return true
+    }
+    return false
 }
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
@@ -1078,6 +1180,15 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
     }
 
     if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+        return 'day'
+    }
+
+    if (
+        (parsedDateFrom?.unit === 'month' && parsedDateFrom.amount <= 3) ||
+        (parsedDateTo?.unit === 'month' && parsedDateTo.amount <= 3) ||
+        (parsedDateFrom?.unit === 'quarter' && parsedDateFrom.amount <= 1) ||
+        (parsedDateTo?.unit === 'quarter' && parsedDateTo.amount <= 1)
+    ) {
         return 'day'
     }
 
@@ -1349,6 +1460,49 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
+const WORD_PLURALIZATION_RULES = [
+    [/s?$/i, 's'],
+    [/([^aeiou]ese)$/i, '$1'],
+    [/(ax|test)is$/i, '$1es'],
+    [/(alias|[^aou]us|t[lm]as|gas|ris)$/i, '$1es'],
+    [/(e[mn]u)s?$/i, '$1s'],
+    [/([^l]ias|[aeiou]las|[ejzr]as|[iu]am)$/i, '$1'],
+    [/(alumn|syllab|vir|radi|nucle|fung|cact|stimul|termin|bacill|foc|uter|loc|strat)(?:us|i)$/i, '$1i'],
+    [/(alumn|alg|vertebr)(?:a|ae)$/i, '$1ae'],
+    [/(seraph|cherub)(?:im)?$/i, '$1im'],
+    [/(her|at|gr)o$/i, '$1oes'],
+    [
+        /(agend|addend|millenni|dat|extrem|bacteri|desiderat|strat|candelabr|errat|ov|symposi|curricul|automat|quor)(?:a|um)$/i,
+        '$1a',
+    ],
+    [/(apheli|hyperbat|periheli|asyndet|noumen|phenomen|criteri|organ|prolegomen|hedr|automat)(?:a|on)$/i, '$1a'],
+    [/sis$/i, 'ses'],
+    [/(?:(kni|wi|li)fe|(ar|l|ea|eo|oa|hoo)f)$/i, '$1$2ves'],
+    [/([^aeiouy]|qu)y$/i, '$1ies'],
+    [/([^ch][ieo][ln])ey$/i, '$1ies'],
+    [/(x|ch|ss|sh|zz)$/i, '$1es'],
+    [/(matr|cod|mur|sil|vert|ind|append)(?:ix|ex)$/i, '$1ices'],
+    [/\b((?:tit)?m|l)(?:ice|ouse)$/i, '$1ice'],
+    [/(pe)(?:rson|ople)$/i, '$1ople'],
+    [/(child)(?:ren)?$/i, '$1ren'],
+    [/eaux$/i, '$0'],
+    [/m[ae]n$/i, 'men'],
+] as [RegExp, string][]
+
+export function wordPluralize(word: string): string {
+    let len = WORD_PLURALIZATION_RULES.length
+
+    // Iterate over the sanitization rules and use the first one to match.
+    while (len--) {
+        const [regex, replacement] = WORD_PLURALIZATION_RULES[len]
+        if (regex.test(word)) {
+            return word.replace(regex, replacement)
+        }
+    }
+
+    return word
+}
+
 const COMPACT_NUMBER_MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1410,9 +1564,20 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
             .split(' ')
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
-        Sentry.captureException(e)
+        posthog.captureException(e)
         return null
     }
+}
+
+export function timeZoneLabel(timeZone: string, offset: number): string {
+    const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
+    const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    const hours = Math.floor(Math.abs(offset))
+    const minutes = Math.round((Math.abs(offset) % 1) * 60)
+        .toString()
+        .padStart(2, '0')
+
+    return `${formattedZone} (UTC${sign}${hours}:${minutes})`
 }
 
 export function humanTzOffset(timezone?: string): string {
@@ -1440,21 +1605,30 @@ export function resolveWebhookService(webhookUrl: string): string {
     return 'your webhook service'
 }
 
-function hexToRGB(hex: string): { r: number; g: number; b: number } {
-    const originalString = hex.trim()
-    const hasPoundSign = originalString[0] === '#'
-    const originalColor = hasPoundSign ? originalString.slice(1) : originalString
+export function hexToRGB(hex: string): { r: number; g: number; b: number; a: number } {
+    // Remove the "#" if it exists
+    hex = hex.replace(/^#/, '')
 
-    if (originalColor.length !== 6) {
-        console.warn(`Incorrectly formatted color string: ${hex}.`)
-        return { r: 0, g: 0, b: 0 }
+    // Handle shorthand notation (e.g., "#123" => "#112233")
+    if (hex.length === 3 || hex.length === 4) {
+        hex = hex
+            .split('')
+            .map((char) => char + char)
+            .join('')
     }
 
-    const originalBase16 = parseInt(originalColor, 16)
-    const r = originalBase16 >> 16
-    const g = (originalBase16 >> 8) & 0x00ff
-    const b = originalBase16 & 0x0000ff
-    return { r, g, b }
+    if (hex.length !== 6 && hex.length !== 8) {
+        console.warn(`Incorrectly formatted color string: ${hex}.`)
+        return { r: 0, g: 0, b: 0, a: 0 }
+    }
+
+    // Extract the rgb values
+    const r = parseInt(hex.slice(0, 2), 16)
+    const g = parseInt(hex.slice(2, 4), 16)
+    const b = parseInt(hex.slice(4, 6), 16)
+    const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1
+
+    return { r, g, b, a }
 }
 
 export function hexToRGBA(hex: string, alpha = 1): string {
@@ -1480,6 +1654,48 @@ export function RGBToRGBA(rgb: string, a: number): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToHSL(r: number, g: number, b: number): { h: number; s: number; l: number } {
+    // Convert RGB values to the range 0-1
+    r /= 255
+    g /= 255
+    b /= 255
+
+    // Find min and max values of r, g, b
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+
+    // Calculate lightness
+    let h = 0,
+        s = 0
+    const l = (max + min) / 2
+
+    if (delta !== 0) {
+        // Calculate saturation
+        s = l < 0.5 ? delta / (max + min) : delta / (2 - max - min)
+
+        // Calculate hue
+        switch (max) {
+            case r:
+                h = ((g - b) / delta + (g < b ? 6 : 0)) % 6
+                break
+            case g:
+                h = (b - r) / delta + 2
+                break
+            case b:
+                h = (r - g) / delta + 4
+                break
+        }
+        h *= 60 // Convert hue to degrees
+    }
+
+    return {
+        h: Math.round(h),
+        s: Math.round(s * 100),
+        l: Math.round(l * 100),
+    }
+}
+
 export function lightenDarkenColor(hex: string, pct: number): string {
     /**
      * Returns a lightened or darkened color, similar to SCSS darken()
@@ -1499,6 +1715,25 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     b = output(b + amt)
 
     return `rgb(${[r, g, b].join(',')})`
+}
+
+/**
+ * Gradate color saturation based on its intended strength.
+ * This is for visualizations where a data point's color depends on its value.
+ * @param color A HEX color to gradate.
+ * @param strength The strength of the data point.
+ * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
+ */
+export function gradateColor(
+    color: string,
+    strength: number,
+    floor: number = 0
+): `hsla(${number}, ${number}%, ${number}%, ${string})` {
+    const { r, g, b } = hexToRGB(color)
+    const { h, s, l } = RGBToHSL(r, g, b)
+
+    const saturation = floor + (1 - floor) * strength
+    return `hsla(${h}, ${s}%, ${l}%, ${saturation.toPrecision(3)})`
 }
 
 export function toString(input?: any): string {
@@ -1535,7 +1770,7 @@ export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
         return true
-    } catch (error) {
+    } catch {
         return false
     }
 }
@@ -1543,7 +1778,7 @@ export function validateJson(value: string): boolean {
 export function tryJsonParse(value: string, fallback?: any): any {
     try {
         return JSON.parse(value)
-    } catch (error) {
+    } catch {
         return fallback
     }
 }
@@ -1713,6 +1948,17 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
     return timeValue
 }
 
+// Compute the ISO week string for a given date
+// Useful above to show the toast once per week
+export function getISOWeekString(date = new Date()): string {
+    const dayjs_date = dayjs(date)
+
+    const year = dayjs_date.year()
+    const week = dayjs_date.week()
+
+    return `${year}-W${week}`
+}
+
 export function range(startOrEnd: number, end?: number): number[] {
     let length = startOrEnd
     let start = 0
@@ -1852,5 +2098,62 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
     return (...args: Parameters<F>): void => {
         clearTimeout(timeout)
         timeout = setTimeout(() => func(...args), waitFor)
+    }
+}
+
+export function interleaveArray<T1, T2>(arr: T1[], separator: T2): (T1 | T2)[] {
+    return arr.flatMap((item, index, _arr) => (_arr.length - 1 !== index ? [item, separator] : [item]))
+}
+
+/**
+ * Uses the non-standard `memory` extension available in Chromium based browsers to
+ * get JS heap metrics.
+ */
+export const getJSHeapMemory = (): {
+    js_heap_used_mb?: number
+    js_heap_total_mb?: number
+    js_heap_limit_mb?: number
+} => {
+    if ('memory' in window.performance) {
+        const memory = (window.performance as any).memory
+        return {
+            js_heap_used_mb: +(memory.usedJSHeapSize / 1024 / 1024).toFixed(2),
+            js_heap_total_mb: +(memory.totalJSHeapSize / 1024 / 1024).toFixed(2),
+            js_heap_limit_mb: +(memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2),
+        }
+    }
+    return {}
+}
+
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+    let decoded: string
+    try {
+        decoded = decodeURIComponent(nextPath)
+    } catch {
+        decoded = nextPath
+    }
+
+    // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
+    if (decoded.startsWith('//')) {
+        return null
+    }
+
+    // Root-relative path
+    if (decoded.startsWith('/')) {
+        return decoded
+    }
+
+    // Try to parse as a full URL
+    try {
+        const url = new URL(decoded)
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
+            return url.pathname + url.search + url.hash
+        }
+        return null
+    } catch {
+        return null
     }
 }

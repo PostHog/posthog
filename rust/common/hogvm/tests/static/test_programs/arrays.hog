@@ -1,0 +1,87 @@
+let a := [1, 2, 3]
+assert_eq(a[2], 2)
+assert_eq(a?.[2], 2)
+assert_eq(a?.2, 2)
+assert_eq(a?.[7], null)
+assert_eq(a?.7, null)
+assert_eq([1, 2, 3][2], 2)
+assert_eq([1, [2, [3, 4], ], 5][2][2][2], 4)
+assert_eq([1, [2, [3, 4], ], 5]?.2?.2?.2, 4)
+assert_eq([1, [2, [3, 4], ], 5]?.[2]?.[2]?.[2], 4)
+assert_eq([1, [2, [3, 4], ], 5]?.7?.4?.2, null)
+assert_eq([1, [2, [3, 4], ], 5]?.[7]?.[4]?.[2], null)
+
+assert_eq([1, [2, [3, 4]], 5][2][2][2] + 1, 5)
+assert_eq([1, [2, [3, 4, ], ], 5, ].2.2.2, 4)
+
+
+let b := [1, 2, [1,2,3]]
+b[2] := 4
+assert_eq(b[1], 1)
+assert_eq(b[2], 4)
+assert_eq(b[3], [1,2,3])
+b[3][3] := 8
+assert_eq(b[3], [1,2,8])
+
+
+assert_eq(arrayPushBack([1,2,3], 4), [1,2,3,4])
+assert_eq(arrayPushFront([1,2,3], 0), [0,1,2,3])
+assert_eq(arrayPopBack([1,2,3]), [1,2])
+assert_eq(arrayPopFront([1,2,3]), [2,3])
+assert_eq(arraySort([3,2,1]), [1,2,3])
+assert_eq(arrayReverse([1,2,3]), [3,2,1])
+assert_eq(arrayReverseSort([3,2,1]), [3,2,1])
+assert_eq(arrayStringConcat([1,2,3], ','), '1,2,3')
+
+
+// Kind of a silly set of checks in the rust VM - the implementation
+// itself enforces that native functions cannot modify VM state
+let arr := [1,2,3,4]
+assert_eq(arr, [1,2,3,4])
+arrayPushBack(arr, 5)
+assert_eq(arr, [1,2,3,4])
+arrayPushFront(arr, 0)
+assert_eq(arr, [1,2,3,4])
+arrayPopBack(arr)
+assert_eq(arr, [1,2,3,4])
+arrayPopFront(arr)
+assert_eq(arr, [1,2,3,4])
+arraySort(arr)
+assert_eq(arr, [1,2,3,4])
+arrayReverse(arr)
+assert_eq(arr, [1,2,3,4])
+arrayReverseSort(arr)
+assert_eq(arr, [1,2,3,4])
+
+// Test membership checks
+assert_eq(has(arr, 0), false)
+assert_eq(has(arr, 2), true)
+assert_eq(has(arr, 'banana'), false)
+assert_eq(has('banananas', 'banana'), true)
+assert_eq(has('banananas', 'foo'), false)
+assert_eq(has(['1', '2'], '1'), true)
+
+assert_eq(indexOf([1,2,3], 1), 1)
+assert_eq(indexOf([1,2,3], 2), 2)
+assert_eq(indexOf([1,2,3], 3), 3)
+assert_eq(indexOf([1,2,3], 4), null)
+
+// This is part of the "hog STL" in other impls
+fun arrayCount(func, arr) {
+  let count := 0
+  for (let i in arr) {
+    if (func(i)) {
+      count := count + 1
+    }
+  }
+  return count
+}
+
+
+assert_eq(arrayCount(x -> x > 2, [1,2,3,4,5]), 3)
+
+assert_eq('a' in ['a', 'b', 'c'], true)
+assert_eq('d' in ['a', 'b', 'c'], false)
+assert_eq('a' in [], false)
+
+return true

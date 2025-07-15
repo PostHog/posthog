@@ -1,16 +1,20 @@
+from typing import cast
+
+import posthoganalytics
 from django.utils import timezone
+from loginas.utils import is_impersonated_session
 from rest_framework import serializers
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.event_usage import groups
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
+    Detail,
     dict_changes_between,
     log_activity,
-    Detail,
 )
-
-from loginas.utils import is_impersonated_session
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -23,6 +27,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
     last_calculated_at = serializers.DateTimeField(read_only=True)
     last_updated_at = serializers.DateTimeField(read_only=True)
     post_to_slack = serializers.BooleanField(default=False)
+    default_columns = serializers.ListField(child=serializers.CharField(), required=False)
 
     class Meta:
         model = EnterpriseEventDefinition
@@ -40,6 +45,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified",
             "verified_at",
             "verified_by",
+            "hidden",
             # Action fields
             "is_action",
             "action_id",
@@ -47,6 +53,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_calculated_at",
             "created_by",
             "post_to_slack",
+            "default_columns",
         )
         read_only_fields = [
             "id",
@@ -65,8 +72,26 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "created_by",
         ]
 
+    def validate(self, data):
+        validated_data = super().validate(data)
+
+        if "hidden" in validated_data and "verified" in validated_data:
+            if validated_data["hidden"] and validated_data["verified"]:
+                raise serializers.ValidationError("An event cannot be both hidden and verified")
+
+        return validated_data
+
     def update(self, event_definition: EnterpriseEventDefinition, validated_data):
         validated_data["updated_by"] = self.context["request"].user
+
+        # If setting hidden=True, ensure verified becomes false
+        if validated_data.get("hidden", False):
+            validated_data["verified"] = False
+            validated_data["verified_by"] = None
+            validated_data["verified_at"] = None
+        # If setting verified=True, ensure hidden becomes false
+        elif validated_data.get("verified", False):
+            validated_data["hidden"] = False
 
         if "verified" in validated_data:
             if validated_data["verified"] and not event_definition.verified:
@@ -104,6 +129,23 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             detail=Detail(name=str(event_definition.name), changes=changes),
         )
 
+        verified_old = event_definition.verified
+        verified_new = validated_data.get("verified", verified_old)
+
+        # If verified status has changed, track it
+        if "verified" in validated_data and verified_old != verified_new:
+            user = cast(User, self.context["request"].user)
+            posthoganalytics.capture(
+                "event verification toggled",
+                distinct_id=str(user.distinct_id),
+                properties={
+                    "verified": verified_new,
+                    "event_name": event_definition.name,
+                    "is_custom_event": not event_definition.name.startswith("$"),
+                },
+                groups=groups(user.organization),
+            )
+
         return super().update(event_definition, validated_data)
 
     def to_representation(self, instance):
@@ -111,6 +153,11 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         representation["owner"] = (
             UserBasicSerializer(instance=instance.owner).data if hasattr(instance, "owner") and instance.owner else None
         )
+
+        # Ensure default_columns is always an array
+        if representation.get("default_columns") is None:
+            representation["default_columns"] = []
+
         return representation
 
     def get_is_action(self, obj):

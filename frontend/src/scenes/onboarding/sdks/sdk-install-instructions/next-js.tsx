@@ -1,12 +1,18 @@
-import { useValues } from 'kea'
+import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import SetupWizardBanner from './components/SetupWizardBanner'
 import { JSInstallSnippet } from './js-web'
+import { nextJsInstructionsLogic, type NextJSRouter } from './nextJsInstructionsLogic'
+import { SDK_DEFAULTS_DATE } from './constants'
 
 function NextEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -20,66 +26,41 @@ function NextEnvVarsSnippet(): JSX.Element {
     )
 }
 
-function NextPagesRouterCodeSnippet(): JSX.Element {
+function NextPagesRouterPageViewSnippet(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
     return (
-        <CodeSnippet language={Language.JavaScript}>
-            {`// pages/_app.js
-import posthog from "posthog-js"
-import { PostHogProvider } from 'posthog-js/react'
-
-if (typeof window !== 'undefined') { // checks that we are client-side
-  posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
-    ${
-        isPersonProfilesDisabled
-            ? ``
-            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
-    }
-    loaded: (posthog) => {
-      if (process.env.NODE_ENV === 'development') posthog.debug() // debug mode in development
-    },
-  })
-}
-
-export default function App(
-    { Component, pageProps: { session, ...pageProps } }
-) {
-    return (
-        <>
-            <PostHogProvider client={posthog}>
-                <Component {...pageProps} />
-            </PostHogProvider>
-        </>
-    )
-}`}
-        </CodeSnippet>
-    )
-}
-
-function NextAppRouterCodeSnippet(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
-    return (
-        <CodeSnippet language={Language.JavaScript}>
-            {`// app/providers.js
-'use client'
+        <CodeSnippet language={Language.TypeScript}>
+            {`// pages/_app.tsx
+import { useEffect } from 'react'
+import { Router } from 'next/router'
 import posthog from 'posthog-js'
 import { PostHogProvider } from 'posthog-js/react'
+import type { AppProps } from 'next/app'
 
-if (typeof window !== 'undefined') {
-  posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-    ${
-        isPersonProfilesDisabled
-            ? ``
-            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
-    }
-  })
-}
-export function CSPostHogProvider({ children }) {
-    return <PostHogProvider client={posthog}>{children}</PostHogProvider>
+export default function App({ Component, pageProps }: AppProps) {
+
+  useEffect(() => {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
+      ${
+          isPersonProfilesDisabled
+              ? ``
+              : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+      }
+      defaults: '${SDK_DEFAULTS_DATE}',
+      // Enable debug mode in development
+      loaded: (posthog) => {
+        if (process.env.NODE_ENV === 'development') posthog.debug()
+      }
+    })
+  }, [])
+
+  return (
+    <PostHogProvider client={posthog}>
+      <Component {...pageProps} />
+    </PostHogProvider>
+  )
 }`}
         </CodeSnippet>
     )
@@ -87,17 +68,20 @@ export function CSPostHogProvider({ children }) {
 
 function NextAppRouterLayoutSnippet(): JSX.Element {
     return (
-        <CodeSnippet language={Language.JavaScript}>
-            {`// app/layout.js
-import './globals.css'
-import { CSPostHogProvider } from './providers'
+        <CodeSnippet language={Language.TypeScript}>
+            {`// app/layout.tsx
 
-export default function RootLayout({ children }) {
+import './globals.css'
+import { PostHogProvider } from './providers'
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <CSPostHogProvider>
-        <body>{children}</body>
-      </CSPostHogProvider>
+      <body>
+        <PostHogProvider>
+          {children}
+        </PostHogProvider>
+      </body>
     </html>
   )
 }`}
@@ -105,9 +89,76 @@ export default function RootLayout({ children }) {
     )
 }
 
-export function SDKInstallNextJSInstructions(): JSX.Element {
+function NextAppRouterPageViewProviderSnippet(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
+    return (
+        <CodeSnippet language={Language.TypeScript}>
+            {`// app/providers.tsx
+'use client'
+
+import { usePathname, useSearchParams } from "next/navigation"
+import { useEffect } from "react"
+import { usePostHog } from 'posthog-js/react'
+
+import posthog from 'posthog-js'
+import { PostHogProvider as PHProvider } from 'posthog-js/react'
+
+export function PostHogProvider({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
+      ${
+          isPersonProfilesDisabled
+              ? ``
+              : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+      }
+      defaults: '${SDK_DEFAULTS_DATE}'
+    })
+  }, [])
+
+  return (
+    <PHProvider client={posthog}>
+      {children}
+    </PHProvider>
+  )
+}
+`}
+        </CodeSnippet>
+    )
+}
+
+function NextInstrumentationClientSnippet(): JSX.Element {
+    return (
+        <CodeSnippet language={Language.TypeScript}>
+            {`// instrumentation-client.js
+import posthog from 'posthog-js'
+
+posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    defaults: '${SDK_DEFAULTS_DATE}'
+});
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
+    const { nextJsRouter } = useValues(nextJsInstructionsLogic)
+    const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = !hideWizard && isCloudOrDev
+
     return (
         <>
+            {showSetupWizard && (
+                <>
+                    <h2>Automated Installation</h2>
+                    <SetupWizardBanner integrationName="Next.js" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
+            )}
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
             <h3>Add environment variables</h3>
@@ -115,35 +166,78 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
                 Netlify, AWS). You can find your project API key in your project settings.
             </p>
-            <p className="italic">
-                These values need to start with <code className="not-italic">NEXT_PUBLIC_</code> to be accessible on the
-                client-side.
+            <p>
+                These values need to start with <code>NEXT_PUBLIC_</code> to be accessible on the client-side.
             </p>
             <NextEnvVarsSnippet />
 
             <h3>Initialize</h3>
-            <h4>With App router</h4>
-            <p>
-                If your Next.js app to uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can
-                integrate PostHog by creating a providers file in your app folder. This is because the posthog-js
-                library needs to be initialized on the client-side using the Next.js{' '}
-                <Link to="https://nextjs.org/docs/getting-started/react-essentials#client-components" target="_blank">
-                    <code>'use client'</code> directive
-                </Link>
-                .
-            </p>
-            <NextAppRouterCodeSnippet />
-            <p>
-                Afterwards, import the <code>PHProvider</code> component in your <code>app/layout.js</code> file and
-                wrap your app with it.
-            </p>
-            <NextAppRouterLayoutSnippet />
-            <h4>With Pages router</h4>
-            <p>
-                If your Next.js app uses the <Link to="https://nextjs.org/docs/pages">pages router</Link>, you can
-                integrate PostHog at the root of your app (pages/_app.js).
-            </p>
-            <NextPagesRouterCodeSnippet />
+
+            <LemonTabs
+                activeKey={nextJsRouter}
+                onChange={(key) => setNextJsRouter(key as NextJSRouter)}
+                tabs={[
+                    {
+                        key: 'instrumentation-client',
+                        label: 'Next.js 15.3+',
+                    },
+                    {
+                        key: 'app',
+                        label: 'App router',
+                    },
+                    {
+                        key: 'pages',
+                        label: 'Pages router',
+                    },
+                ]}
+            />
+            {nextJsRouter === 'instrumentation-client' && (
+                <>
+                    <p>
+                        If you're using Next.js 15.3+ you can use <code>instrumentation-client.ts|js</code> for a
+                        light-weight, fast integration
+                    </p>
+                    <NextInstrumentationClientSnippet />
+                </>
+            )}
+            {nextJsRouter === 'app' && (
+                <>
+                    <p>
+                        If your Next.js app uses the{' '}
+                        <Link to="https://nextjs.org/docs/app" target="_blank">
+                            app router
+                        </Link>
+                        , you can integrate PostHog by creating a <code>providers</code> file in your <code>app</code>{' '}
+                        folder. This is because the <code>posthog-js</code> library needs to be initialized on the
+                        client-side using the Next.js{' '}
+                        <Link
+                            to="https://nextjs.org/docs/getting-started/react-essentials#client-components"
+                            target="_blank"
+                        >
+                            <code>'use client'</code> directive
+                        </Link>
+                        .
+                    </p>
+                    <NextAppRouterPageViewProviderSnippet />
+                    <p>
+                        Afterwards, import the <code>PostHogProvider</code> component in your{' '}
+                        <code>app/layout.tsx</code> file and wrap your app with it.
+                    </p>
+                    <NextAppRouterLayoutSnippet />
+                </>
+            )}
+            {nextJsRouter === 'pages' && (
+                <>
+                    <p>
+                        If your Next.js app uses the{' '}
+                        <Link to="https://nextjs.org/docs/pages" target="_blank">
+                            pages router
+                        </Link>
+                        , you can integrate PostHog at the root of your app.
+                    </p>
+                    <NextPagesRouterPageViewSnippet />
+                </>
+            )}
         </>
     )
 }

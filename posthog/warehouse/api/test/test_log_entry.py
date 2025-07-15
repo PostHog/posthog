@@ -1,19 +1,20 @@
 import datetime as dt
+
 import pytest
+from django.test.client import Client as TestClient
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.client import sync_execute
-from django.test.client import Client as TestClient
-from posthog.warehouse.models import (
-    ExternalDataSchema,
-    ExternalDataJob,
-    ExternalDataSource,
-    DataWarehouseTable,
-    DataWarehouseCredential,
-)
+from posthog.clickhouse.client import sync_execute
 from posthog.utils import encode_get_request_params
+from posthog.warehouse.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 
 def create_external_data_job_log_entry(
@@ -91,7 +92,13 @@ def external_data_resources(client, organization, team):
         # No status but should be completed because a data warehouse table already exists
     )
     job = ExternalDataJob.objects.create(
-        pipeline=source, schema=schema, workflow_id="fake_workflow_id", team=team, status="Running", rows_synced=100000
+        pipeline=source,
+        schema=schema,
+        workflow_id="fake_workflow_id",
+        team=team,
+        status="Running",
+        rows_synced=100000,
+        pipeline_version=ExternalDataJob.PipelineVersion.V1,
     )
 
     return {
@@ -103,7 +110,7 @@ def external_data_resources(client, organization, team):
 
 def get_external_data_schema_run_log_entries(client: TestClient, team_id: int, external_data_schema_id: str, **extra):
     return client.get(
-        f"/api/projects/{team_id}/external_data_schemas/{external_data_schema_id}/logs",
+        f"/api/environments/{team_id}/external_data_schemas/{external_data_schema_id}/logs",
         data=encode_get_request_params(extra),
     )
 

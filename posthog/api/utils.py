@@ -1,41 +1,42 @@
 import json
-from rest_framework.decorators import action as drf_action
-from functools import wraps
-from posthog.api.documentation import extend_schema
 import re
 import socket
+import time
 import urllib.parse
 from enum import Enum, auto
+from functools import wraps
 from ipaddress import ip_address
+from typing import Any, Optional, Union
 from urllib.parse import urlparse
-
-from requests.adapters import HTTPAdapter
-from typing import Literal, Optional, Union, Any
-
-from rest_framework.fields import Field
-from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
+from django.http import HttpRequest
 from prometheus_client import Counter
-from rest_framework import request, status, serializers
+from requests.adapters import HTTPAdapter
+from rest_framework import request, serializers, status
+from rest_framework.decorators import action as drf_action
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import Field
 from statshog.defaults.django import statsd
+from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 
-from posthog.constants import EventDefinitionType
+from posthog.api.documentation import extend_schema
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
 )
-from posthog.models import Entity, EventDefinition
+from posthog.models import Entity
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.schema import QueryTiming
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
+from posthoganalytics import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -145,9 +146,20 @@ def format_paginated_url(request: request.Request, offset: int, page_size: int, 
     return result
 
 
+def is_csp_report(request) -> bool:
+    return (
+        request.path == "/report"
+        or request.path == "/report/"
+        or request.headers.get("Content-Type") in {"application/reports+json", "application/csp-report"}
+    )
+
+
 def get_token(data, request) -> Optional[str]:
     token = None
-    if request.method == "GET":
+
+    if request.method == "GET" or is_csp_report(
+        request
+    ):  # CSPs are actually POST, but the token must be available at the report-uri/to URL
         if request.GET.get("token"):
             token = request.GET.get("token")  # token passed as query param
         elif request.GET.get("api_key"):
@@ -175,7 +187,7 @@ def get_token(data, request) -> Optional[str]:
 
 def get_project_id(data, request) -> Optional[int]:
     if request.GET.get("project_id"):
-        return int(request.POST["project_id"])
+        return int(request.GET["project_id"])
     if request.POST.get("project_id"):
         return int(request.POST["project_id"])
     if isinstance(data, list):
@@ -187,6 +199,7 @@ def get_project_id(data, request) -> Optional[int]:
 
 def get_data(request):
     data = None
+
     try:
         data = load_data_from_request(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
@@ -268,55 +281,6 @@ def safe_clickhouse_string(s: str, with_counter=True) -> str:
     return s
 
 
-def create_event_definitions_sql(
-    event_type: EventDefinitionType,
-    is_enterprise: bool = False,
-    conditions: str = "",
-    order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
-) -> str:
-    if order_expressions is None:
-        order_expressions = []
-    if is_enterprise:
-        from ee.models import EnterpriseEventDefinition
-
-        ee_model = EnterpriseEventDefinition
-    else:
-        ee_model = EventDefinition
-
-    event_definition_fields = {
-        f'"{f.column}"'
-        for f in ee_model._meta.get_fields()
-        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
-    }
-
-    enterprise_join = (
-        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
-        if is_enterprise
-        else ""
-    )
-
-    if event_type == EventDefinitionType.EVENT_CUSTOM:
-        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
-    if event_type == EventDefinitionType.EVENT_POSTHOG:
-        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
-
-    additional_ordering = ""
-    for order_expression, order_direction in order_expressions:
-        additional_ordering += (
-            f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}, "
-            if order_expression
-            else ""
-        )
-
-    return f"""
-            SELECT {",".join(event_definition_fields)}
-            FROM posthog_eventdefinition
-            {enterprise_join}
-            WHERE team_id = %(project_id)s {conditions}
-            ORDER BY {additional_ordering}name ASC
-        """
-
-
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
     try:
         # Test if value is a UUID
@@ -324,6 +288,61 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(uuid=key)
     except ValueError:
         return queryset.filter(pk=key)
+
+
+INSIGHT_KINDS = {
+    "TrendsQuery",
+    "FunnelsQuery",
+    "FunnelCorrelationQuery",
+    "RetentionQuery",
+    "PathsQuery",
+    "StickinessQuery",
+    "LifecycleQuery",
+}
+
+INSIGHT_ACTORS_KINDS = {
+    "InsightActorsQuery",
+    "FunnelsActorsQuery",
+    "FunnelCorrelationActorsQuery",
+    "StickinessActorsQuery",
+}
+
+
+def is_insight_query(query: dict) -> bool:
+    kind = query.get("kind")
+    source = query.get("source")
+
+    if kind in INSIGHT_KINDS:
+        return True
+    if kind == "HogQLQuery":
+        return True
+    if kind == "DataTableNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+    if kind == "DataVisualizationNode":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_KINDS:
+            return True
+
+    return False
+
+
+def is_insight_actors_query(query: dict) -> bool:
+    kind = query.get("kind")
+    source = query.get("source")
+
+    if kind in INSIGHT_ACTORS_KINDS:
+        return True
+    if kind == "ActorsQuery":
+        if source and (source.get("kind") or getattr(source, "kind", None)) in INSIGHT_ACTORS_KINDS:
+            return True
+    return False
+
+
+def is_insight_actors_options_query(query: dict) -> bool:
+    kind = query.get("kind")
+    if kind == "InsightActorsQueryOptions":
+        return True
+    return False
 
 
 def parse_bool(value: Union[str, list[str]]) -> bool:
@@ -364,13 +383,13 @@ def raise_if_connected_to_private_ip(conn):
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        super()._validate_conn(conn)  # type: ignore[misc]
 
 
 class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        super()._validate_conn(conn)  # type: ignore[misc]
 
 
 class PublicIPOnlyHttpAdapter(HTTPAdapter):
@@ -389,7 +408,7 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
             block=block,
             **pool_kwargs,
         )
-        self.poolmanager.pool_classes_by_scheme = {
+        self.poolmanager.pool_classes_by_scheme = {  # type: ignore[attr-defined]
             "http": PublicIPOnlyHTTPConnectionPool,
             "https": PublicIPOnlyHTTPSConnectionPool,
         }
@@ -425,6 +444,25 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
 
 def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
+
+
+def on_permitted_recording_domain(permitted_domains: list[str], request: HttpRequest) -> bool:
+    origin = parse_domain(request.headers.get("Origin"))
+    referer = parse_domain(request.headers.get("Referer"))
+
+    user_agent = request.META.get("HTTP_USER_AGENT")
+
+    is_authorized_web_client: bool = hostname_in_allowed_url_list(
+        permitted_domains, origin
+    ) or hostname_in_allowed_url_list(permitted_domains, referer)
+    # TODO this is a short term fix for beta testers
+    # TODO we will match on the app identifier in the origin instead and allow users to auth those
+    is_authorized_mobile_client: bool = user_agent is not None and any(
+        keyword in user_agent
+        for keyword in ["posthog-android", "posthog-ios", "posthog-react-native", "posthog-flutter"]
+    )
+
+    return is_authorized_web_client or is_authorized_mobile_client
 
 
 # By default, DRF spectacular uses the serializer of the view as the response format for actions. However, most actions don't return a version of the model, but something custom. This function removes the response from all actions in the documentation.
@@ -468,3 +506,71 @@ def action(methods=None, detail=None, url_path=None, url_name=None, responses=No
         return wrapped_function
 
     return decorator
+
+
+# context manager for gathering a sequence of server timings
+# can be used to then return the timings in the HTTP response headers
+# so that browsers and other tools can show them
+class ServerTimingsGathered:
+    def __init__(self):
+        # Instance level dictionary to store timings
+        self.timings_dict = {}
+
+    def __call__(self, name):
+        self.name = name
+        return self
+
+    def __enter__(self):
+        # timings are assumed to be in milliseconds when reported
+        # but are gathered by time.perf_counter which is fractional seconds 🫠
+        # so each value is multiplied by 1000 at collection
+        self.start_time = time.perf_counter() * 1000
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = time.perf_counter() * 1000
+        elapsed_time = end_time - self.start_time
+        self.timings_dict[self.name] = elapsed_time
+
+    def get_all_timings(self):
+        return self.timings_dict
+
+    def generate_timings(self, hogql_timings: list[QueryTiming] | None = None) -> dict[str, float]:
+        timings_dict = self.get_all_timings()
+        hogql_timings_dict = {}
+        for timing in hogql_timings or []:
+            new_key = f"hogql_{timing.k.lstrip('./').replace('/', '_')}"
+            # HogQL query timings are in seconds, convert to milliseconds
+            hogql_timings_dict[new_key] = timing.t * 1000
+        all_timings = {**timings_dict, **hogql_timings_dict}
+        return all_timings
+
+    def to_header_string(self, hogql_timings: list[QueryTiming] | None = None) -> str:
+        timings = self.generate_timings(hogql_timings).items()
+        result: list[str] = []
+        current_length = 0
+
+        for key, duration in timings:
+            timing_str = f"{key};dur={round(duration, ndigits=2)}"
+            # +2 for ", " separator, except for first item
+            new_length = current_length + len(timing_str) + (2 if result else 0)
+
+            if new_length > 10000:
+                """
+                The server timings can grow to arbitrary length - in the case that caused us problems over 33,000 characters
+                AWS ALBs have limits on size for both each individual header and for all headers on a request
+                If we exceed that limit then the ALB returns a 502 with no other explanation
+                leading to confusion and distraction
+                So, we limit here to 10k characters to avoid that issue
+                The timings header is a debug signal we don't rely on for functionality
+                so not receiving all timings is not the worse thing in the world
+                """
+                capture_exception(
+                    Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
+                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
+                )
+                break
+
+            result.append(timing_str)
+            current_length = new_length
+
+        return ", ".join(result)

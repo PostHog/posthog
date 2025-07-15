@@ -1,28 +1,48 @@
-import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
-    const { selfManagedTables } = useValues(dataWarehouseSettingsLogic)
-    const { deleteSelfManagedTable, refreshSelfManagedTableSchema } = useActions(dataWarehouseSettingsLogic)
+    const { filteredSelfManagedTables, searchTerm } = useValues(dataWarehouseSettingsLogic)
+    const { deleteSelfManagedTable, refreshSelfManagedTableSchema, setSearchTerm } =
+        useActions(dataWarehouseSettingsLogic)
 
     return (
-        <LemonTable
-            dataSource={selfManagedTables}
-            pagination={{ pageSize: 10 }}
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                    key: 'name',
-                },
-                {
-                    key: 'actions',
-                    render: (_, item: DatabaseSchemaDataWarehouseTable) => {
-                        return (
+        <div>
+            <div className="flex gap-2 justify-between items-center mb-4">
+                <LemonInput type="search" placeholder="Search..." onChange={setSearchTerm} value={searchTerm} />
+            </div>
+            <LemonTable
+                id="self-managed-sources"
+                dataSource={filteredSelfManagedTables}
+                pagination={{ pageSize: 10 }}
+                columns={[
+                    {
+                        width: 0,
+                        render: (_, item: DatabaseSchemaDataWarehouseTable) => (
+                            <DataWarehouseSourceIcon type={mapUrlToProvider(item.url_pattern)} />
+                        ),
+                    },
+                    {
+                        title: 'Source',
+                        dataIndex: 'name',
+                        key: 'name',
+                        render: (_, item: DatabaseSchemaDataWarehouseTable) => (
+                            <LemonTableLink
+                                to={urls.dataWarehouseSource(`self-managed-${item.id}`)}
+                                title={item.name}
+                            />
+                        ),
+                    },
+                    {
+                        key: 'actions',
+                        render: (_, item: DatabaseSchemaDataWarehouseTable) => (
                             <div className="flex flex-row justify-end">
                                 <LemonButton
                                     data-attr={`refresh-data-warehouse-${item.name}`}
@@ -57,10 +77,10 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                                     Delete
                                 </LemonButton>
                             </div>
-                        )
+                        ),
                     },
-                },
-            ]}
-        />
+                ]}
+            />
+        </div>
     )
 }

@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 from django.conf import settings
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.management.commands.backfill_persons_and_groups_on_events import (
     run_backfill,
@@ -30,11 +30,10 @@ class TestBackfillPersonsAndGroupsOnEvents(BaseTest, ClickhouseTestMixin):
         self.recreate_database()
         super().tearDown()
 
-    def recreate_database(self, create_tables=True):
+    def recreate_database(self):
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
-        if create_tables:
-            create_clickhouse_tables(0)
+        create_clickhouse_tables()
 
     def test_person_backfill(self):
         self.recreate_database()

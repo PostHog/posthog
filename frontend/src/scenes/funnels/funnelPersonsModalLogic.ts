@@ -11,7 +11,7 @@ import {
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FunnelCorrelation,

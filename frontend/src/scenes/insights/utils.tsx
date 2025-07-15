@@ -1,9 +1,10 @@
 import api from 'lib/api'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { ReactNode } from 'react'
+import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { propertyFilterTypeToPropertyDefinitionType } from '~/lib/components/PropertyFilters/utils'
@@ -14,11 +15,18 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
+    HogQLQuery,
     InsightVizNode,
+    Node,
     NodeKind,
     PathsFilter,
-} from '~/queries/schema'
+    ResultCustomization,
+    ResultCustomizationBy,
+    ResultCustomizationByPosition,
+    ResultCustomizationByValue,
+} from '~/queries/schema/schema-general'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
     AnyPartialFilterType,
@@ -28,6 +36,8 @@ import {
     EntityFilter,
     EntityTypes,
     EventType,
+    FlattenedFunnelStepByBreakdown,
+    FunnelStepWithConversionMetrics,
     GroupTypeIndex,
     InsightShortId,
     InsightType,
@@ -36,6 +46,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { RESULT_CUSTOMIZATION_DEFAULT } from './EditorFilters/ResultCustomizationByPicker'
 import { insightLogic } from './insightLogic'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
@@ -105,10 +116,7 @@ export function extractObjectDiffKeys(
                     changedKeys['changed_events_length'] = oldValue?.length
                 } else {
                     events.forEach((event, idx) => {
-                        changedKeys = {
-                            ...changedKeys,
-                            ...extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`),
-                        }
+                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], event, `event_${idx}_`))
                     })
                 }
             } else if (key === 'actions') {
@@ -117,10 +125,7 @@ export function extractObjectDiffKeys(
                     changedKeys['changed_actions_length'] = oldValue.length
                 } else {
                     actions.forEach((action, idx) => {
-                        changedKeys = {
-                            ...changedKeys,
-                            ...extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`),
-                        }
+                        Object.assign(changedKeys, extractObjectDiffKeys(oldValue[idx], action, `action_${idx}_`))
                     })
                 }
             } else {
@@ -160,14 +165,14 @@ export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeE
             humanEventTypes = ['all events']
         }
         if (includeEventTypes.includes(PathType.HogQL)) {
-            humanEventTypes.push('HogQL expression')
+            humanEventTypes.push('SQL expression')
         }
     }
     return humanEventTypes
 }
 
 export function formatAggregationValue(
-    property: string | undefined,
+    property: string | undefined | null,
     propertyValue: number | null,
     renderCount: (value: number) => ReactNode = (x) => <>{humanFriendlyNumber(x)}</>,
     formatPropertyValueForDisplay?: FormatPropertyValueForDisplayFunction
@@ -209,7 +214,7 @@ export function isOtherBreakdown(breakdown_value: string | number | null | undef
     )
 }
 
-export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
+export function isNullBreakdown(breakdown_value: string | number | bigint | null | undefined): boolean {
     return (
         breakdown_value === BREAKDOWN_NULL_STRING_LABEL ||
         breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL ||
@@ -231,7 +236,7 @@ function isValidJsonArray(maybeJson: string): boolean {
 }
 
 function formatNumericBreakdownLabel(
-    breakdown_value: number,
+    breakdown_value: number | bigint,
     breakdownFilter: BreakdownFilter | null | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     multipleBreakdownIndex: number | undefined
@@ -267,12 +272,25 @@ function formatNumericBreakdownLabel(
     return String(breakdown_value)
 }
 
+export function getCohortNameFromId(
+    cohortId: string | number | null | undefined,
+    cohorts: CohortType[] | null | undefined
+): string {
+    // :TRICKY: Different endpoints represent the all users cohort breakdown differently
+    if (cohortId === 'all' || cohortId === 0) {
+        return 'All Users'
+    }
+
+    return cohorts?.filter((c) => c.id == cohortId)[0]?.name ?? (cohortId || '').toString()
+}
+
 export function formatBreakdownLabel(
     breakdown_value: BreakdownKeyType | undefined,
     breakdownFilter: BreakdownFilter | null | undefined,
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
-    multipleBreakdownIndex?: number
+    multipleBreakdownIndex?: number,
+    itemLabel?: string
 ): string {
     if (Array.isArray(breakdown_value)) {
         return breakdown_value
@@ -305,12 +323,15 @@ export function formatBreakdownLabel(
     }
 
     if (breakdownFilter?.breakdown_type === 'cohort') {
-        // :TRICKY: Different endpoints represent the all users cohort breakdown differently
-        if (breakdown_value === 0 || breakdown_value === 'all') {
+        if (breakdown_value === 'all' || breakdown_value === 0) {
             return 'All Users'
         }
-
-        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
+        if (cohorts == null || cohorts.length === 0) {
+            if (itemLabel != null) {
+                return itemLabel
+            }
+        }
+        return getCohortNameFromId(breakdown_value, cohorts)
     }
 
     if (typeof breakdown_value == 'number') {
@@ -322,10 +343,14 @@ export function formatBreakdownLabel(
         )
     }
 
-    const maybeNumericValue = Number(breakdown_value)
-    if (!Number.isNaN(maybeNumericValue)) {
+    // stringified numbers
+    if (breakdown_value && /^\d+$/.test(breakdown_value)) {
+        const numericValue =
+            Number.isInteger(Number(breakdown_value)) && !Number.isSafeInteger(Number(breakdown_value))
+                ? BigInt(breakdown_value)
+                : Number(breakdown_value)
         return formatNumericBreakdownLabel(
-            maybeNumericValue,
+            numericValue,
             breakdownFilter,
             formatPropertyValueForDisplay,
             multipleBreakdownIndex
@@ -350,6 +375,16 @@ export function formatBreakdownType(breakdownFilter: BreakdownFilter): string {
     return breakdownFilter?.breakdown?.toString() || 'Breakdown Value'
 }
 
+export function sortCohorts(
+    cohortIdA: string | number | null | undefined,
+    cohortIdB: string | number | null | undefined,
+    cohorts: CohortType[] | null | undefined
+): number {
+    const nameA = getCohortNameFromId(cohortIdA, cohorts)
+    const nameB = getCohortNameFromId(cohortIdB, cohorts)
+    return nameA.localeCompare(nameB)
+}
+
 export function sortDates(dates: Array<string | null>): Array<string | null> {
     return dates.sort((a, b) => (dayjs(a).isAfter(dayjs(b)) ? 1 : -1))
 }
@@ -363,16 +398,17 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const insightTypeURL = {
-    TRENDS: urls.insightNew(InsightType.TRENDS),
-    STICKINESS: urls.insightNew(InsightType.STICKINESS),
-    LIFECYCLE: urls.insightNew(InsightType.LIFECYCLE),
-    FUNNELS: urls.insightNew(InsightType.FUNNELS),
-    RETENTION: urls.insightNew(InsightType.RETENTION),
-    PATHS: urls.insightNew(InsightType.PATHS),
-    JSON: urls.insightNew(undefined, undefined, examples.EventsTableFull),
-    HOG: urls.insightNew(undefined, undefined, examples.Hoggonacci),
-    SQL: urls.insightNew(undefined, undefined, examples.DataVisualization),
+export const INSIGHT_TYPE_URLS = {
+    TRENDS: urls.insightNew({ type: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ type: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ type: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ type: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ type: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ type: InsightType.PATHS }),
+    JSON: urls.insightNew({ query: examples.EventsTableFull }),
+    HOG: urls.insightNew({ query: examples.Hoggonacci }),
+    SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
+    CALENDAR_HEATMAP: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -431,5 +467,158 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
         }
     }
 
-    return query ? urls.insightNew(undefined, undefined, query) : undefined
+    return query ? urls.insightNew({ query }) : undefined
+}
+
+export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
+    const breakdown_value =
+        Array.isArray(dataset.breakdown_value) && dataset.breakdown_value.length == 1
+            ? dataset.breakdown_value[0]
+            : dataset.breakdown_value
+    const payload = { breakdown_value }
+
+    return JSON.stringify(payload)
+}
+
+export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
+    const payload = {
+        series: Number.isInteger(dataset.action?.order)
+            ? dataset.action?.order
+            : dataset.seriesIndex > 0
+            ? `formula${dataset.seriesIndex + 1}`
+            : 'formula',
+        breakdown_value: dataset.breakdown_value,
+        compare_label: dataset.compare_label,
+    }
+
+    return JSON.stringify(payload)
+}
+
+export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
+    return dataset.colorIndex ?? dataset.seriesIndex ?? ((dataset as any).index as number)
+}
+
+/** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
+function isFunnelStepWithConversionMetrics(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
+): dataset is FunnelStepWithConversionMetrics {
+    return (dataset as FlattenedFunnelStepByBreakdown).breakdownIndex == null
+}
+
+export function getFunnelDatasetPosition(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    disableFunnelBreakdownBaseline?: boolean
+): number {
+    if (isFunnelStepWithConversionMetrics(dataset)) {
+        // increment the minimum order for funnels where there baseline is hidden
+        // i.e. funnels for experiments where only the respective variants matter
+        return disableFunnelBreakdownBaseline ? (dataset.order ?? 0) + 1 : dataset.order ?? 0
+    }
+
+    return dataset?.breakdownIndex ?? 0
+}
+
+export function getTrendResultCustomizationKey(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    dataset: IndexedTrendResult
+): string {
+    const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === RESULT_CUSTOMIZATION_DEFAULT
+    return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
+}
+
+export function getTrendResultCustomization(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    dataset: IndexedTrendResult,
+    resultCustomizations:
+        | Record<string, ResultCustomizationByValue>
+        | Record<number, ResultCustomizationByPosition>
+        | null
+        | undefined
+): ResultCustomization | undefined {
+    const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+    return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
+        ? resultCustomizations[resultCustomizationKey]
+        : undefined
+}
+
+export function getFunnelResultCustomization(
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined
+): ResultCustomization | undefined {
+    const resultCustomizationKey = getFunnelDatasetKey(dataset)
+    return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
+        ? resultCustomizations[resultCustomizationKey]
+        : undefined
+}
+
+export function getTrendResultCustomizationColorToken(
+    resultCustomizationBy: ResultCustomizationBy | null | undefined,
+    resultCustomizations:
+        | Record<string, ResultCustomizationByValue>
+        | Record<number, ResultCustomizationByPosition>
+        | null
+        | undefined,
+    theme: DataColorTheme,
+    dataset: IndexedTrendResult
+): DataColorToken {
+    const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
+
+    // for result customizations without a configuration, the color is determined
+    // by the position in the dataset. colors repeat after all options
+    // have been exhausted.
+    const datasetPosition = getTrendDatasetPosition(dataset)
+    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+
+    return resultCustomization && resultCustomization.color
+        ? resultCustomization.color
+        : (`preset-${tokenIndex}` as DataColorToken)
+}
+
+export function getFunnelResultCustomizationColorToken(
+    resultCustomizations: Record<string, ResultCustomizationByValue> | null | undefined,
+    theme: DataColorTheme,
+    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics,
+    disableFunnelBreakdownBaseline?: boolean
+): DataColorToken {
+    const resultCustomization = getFunnelResultCustomization(dataset, resultCustomizations)
+
+    const datasetPosition = getFunnelDatasetPosition(dataset, disableFunnelBreakdownBaseline)
+    const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
+
+    return resultCustomization && resultCustomization.color
+        ? resultCustomization.color
+        : (`preset-${tokenIndex}` as DataColorToken)
+}
+
+export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
+    // Chrome has a 2MB limit for the HASH params, limit ours at 1MB
+    const queryLength = encodeURI(JSON.stringify(query)).split(/%..|./).length - 1
+    return queryLength > 1024 * 1024
+}
+
+function parseQuery<T>(query: string): T | null {
+    try {
+        return JSON.parse(query)
+    } catch (e) {
+        console.error('Error parsing query', e)
+        return null
+    }
+}
+
+export function parseDraftQueryFromLocalStorage(
+    query: string
+): { query: Node<Record<string, any>>; timestamp: number } | null {
+    return parseQuery(query)
+}
+
+export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
+    return JSON.stringify({ query, timestamp })
+}
+
+export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
+    return parseQuery(query)
+}
+
+export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
+    return JSON.stringify(query)
 }

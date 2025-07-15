@@ -3,9 +3,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 
-import { ProductKey } from '~/types'
+import { ProductKey, OnboardingStepKey } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
@@ -24,6 +24,8 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                 return 'Feature flags are'
             case ProductKey.SURVEYS:
                 return 'Surveys are'
+            case ProductKey.ERROR_TRACKING:
+                return 'Tracking errors is'
             default:
                 return 'PostHog is'
         }
@@ -48,7 +50,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         <OnboardingStep
             title="Invite teammates"
             stepKey={stepKey}
-            continueAction={() =>
+            onContinue={() =>
                 preflight?.email_service_available &&
                 invitesToSend[0]?.target_email &&
                 canSubmitInvites &&

@@ -4,12 +4,13 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { getFilterLabel } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, type CohortType, PropertyOperator, type TeamPublicType, type TeamType } from '~/types'
 
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
@@ -56,6 +57,8 @@ function TestAccountFiltersConfig(): JSX.Element {
     const { setTeamDefault } = useActions(filterTestAccountsDefaultsLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
     const { currentTeam, currentTeamLoading, testAccountFilterFrequentMistakes } = useValues(teamLogic)
+    const { filterTestAccounts } = useValues(revenueAnalyticsSettingsLogic)
+    const { updateFilterTestAccounts } = useActions(revenueAnalyticsSettingsLogic)
     const { cohortsById } = useValues(cohortsModel)
 
     const testAccountFilterWarningLabels = createTestAccountFilterWarningLabels(currentTeam, cohortsById)
@@ -69,7 +72,12 @@ function TestAccountFiltersConfig(): JSX.Element {
 
     return (
         <div className="mb-4 flex flex-col gap-2">
-            <div className="mb-4">
+            <div className="mb-4 flex flex-col gap-2">
+                <LemonBanner type="info">
+                    When filtering out internal users by person properties, like email, we recommend creating a Cohort
+                    with those properties, and then adding that cohort with a "not in" operator in your ‘Filter out
+                    internal and test users’ settings.
+                </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
                         <p>
@@ -125,6 +133,13 @@ function TestAccountFiltersConfig(): JSX.Element {
                 label="Enable this filter on all new insights"
                 bordered
             />
+            <LemonSwitch
+                onChange={updateFilterTestAccounts}
+                checked={filterTestAccounts}
+                disabled={currentTeamLoading}
+                label="Filter test accounts out of revenue analytics"
+                bordered
+            />
         </div>
     )
 }
@@ -141,8 +156,8 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
                 <strong>Example filters</strong>
                 <ul className="list-disc pl-4 mb-2">
                     <li>
-                        Add "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude your
-                        team.
+                        Add a cohort where "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to
+                        exclude your team.
                     </li>
                     <li>
                         Add "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude local

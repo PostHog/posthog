@@ -1,19 +1,25 @@
+import uuid
 from datetime import datetime, timedelta
+import re
+from typing import Optional
 
 from django.utils import timezone
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_filter_query, get_person_ids_by_cohort_id
+from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
 from posthog.schema import PersonsOnEventsMode
 from posthog.test.base import (
@@ -24,7 +30,9 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
+    also_test_with_materialized_columns,
 )
+from posthog.models.person.sql import GET_LATEST_PERSON_SQL, GET_PERSON_IDS_BY_FILTER
 
 
 def _create_action(**kwargs):
@@ -34,12 +42,85 @@ def _create_action(**kwargs):
     return action
 
 
+def get_person_ids_by_cohort_id(
+    team_id: int,
+    cohort_id: int,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+):
+    from posthog.models.property.util import parse_prop_grouped_clauses
+
+    filter = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
+    filter_query, filter_params = parse_prop_grouped_clauses(
+        team_id=team_id,
+        property_group=filter.property_groups,
+        table_name="pdi",
+        hogql_context=filter.hogql_context,
+    )
+
+    results = sync_execute(
+        GET_PERSON_IDS_BY_FILTER.format(
+            person_query=GET_LATEST_PERSON_SQL,
+            distinct_query=filter_query,
+            query="",
+            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id),
+            offset="OFFSET %(offset)s" if offset else "",
+            limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
+        ),
+        {**filter_params, "team_id": team_id, "offset": offset, "limit": limit},
+    )
+
+    return [str(row[0]) for row in results]
+
+
 class TestCohort(ClickhouseTestMixin, BaseTest):
-    def _get_cohortpeople(self, cohort: Cohort):
+    def calculate_cohort_hogql_test_harness(self, cohort: Cohort, pending_version: int):
+        from unittest.mock import patch
+
+        # First run: with hogql cohort calculation disabled
+        version_without_hogql = pending_version * 2 + 2
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with self.capture_queries_startswith(("INSERT", "insert")) as queries_without_hogql:
+                cohort.calculate_people_ch(version_without_hogql)
+
+            results_without_hogql = self._get_cohortpeople(cohort)
+
+            # Check LIMIT in queries
+            for query in queries_without_hogql:
+                if "LIMIT" in query:
+                    assert all(
+                        limit == str(MAX_SELECT_COHORT_CALCULATION_LIMIT) for limit in re.findall(r"LIMIT (\d+)", query)
+                    )
+
+        # Second run: with hogql cohort calculation enabled
+        version_with_hogql = version_without_hogql + 1
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with self.capture_queries_startswith(("INSERT", "insert")) as queries_with_hogql:
+                cohort.calculate_people_ch(version_with_hogql)
+
+            results_with_hogql = self._get_cohortpeople(cohort)
+
+            # Check LIMIT in queries
+            for query in queries_with_hogql:
+                if "LIMIT" in query:
+                    assert all(
+                        limit == str(MAX_SELECT_COHORT_CALCULATION_LIMIT) for limit in re.findall(r"LIMIT (\d+)", query)
+                    )
+
+        # Assert the sets of person_ids are the same
+        self.assertCountEqual(results_without_hogql, results_with_hogql)
+
+        # Return the latest version
+        return version_with_hogql
+
+    def _get_cohortpeople(self, cohort: Cohort, *, team_id: Optional[int] = None):
+        team_id = team_id or cohort.team_id
         return sync_execute(
             GET_COHORTPEOPLE_BY_COHORT_ID,
             {
-                "team_id": self.team.pk,
+                "team_id": team_id,
                 "cohort_id": cohort.pk,
                 "version": cohort.version,
             },
@@ -452,7 +533,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 2)
         self.assertIn(str(user1.uuid), results)
         self.assertIn(str(user3.uuid), results)
@@ -468,7 +549,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
         cohort.insert_users_by_list(["1", "123"])
         cohort = Cohort.objects.get()
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 2)
         self.assertEqual(cohort.is_calculating, False)
 
@@ -481,14 +562,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )[0][0]
         self.assertEqual(results, 3)
 
-        #  If we accidentally call calculate_people it shouldn't erase people
-        cohort.calculate_people_ch(pending_version=0)
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        #  If we accidentally call calculate_people it shouldn't erase people
+        self.calculate_cohort_hogql_test_harness(cohort, 0)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 3)
 
         # if we add people again, don't increase the number of people in cohort
         cohort.insert_users_by_list(["123"])
-        results = get_person_ids_by_cohort_id(self.team, cohort.id)
+        results = get_person_ids_by_cohort_id(self.team.pk, cohort.id)
         self.assertEqual(len(results), 3)
 
     @snapshot_clickhouse_insert_cohortpeople_queries
@@ -521,7 +602,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 2)
@@ -557,13 +638,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1")
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 2)
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort2")
-        cohort2.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort2, 0)
 
         results = self._get_cohortpeople(cohort2)
         self.assertEqual(len(results), 2)
@@ -649,7 +730,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             groups=[{"action_id": action.pk, "days": 3, "count": 2, "count_operator": "gte"}],
             name="cohort1",
         )
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 2)
@@ -659,7 +740,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "lte"}],
             name="cohort2",
         )
-        cohort2.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort2, 0)
 
         results = self._get_cohortpeople(cohort2)
         self.assertEqual(len(results), 1)
@@ -669,7 +750,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             groups=[{"action_id": action.pk, "days": 3, "count": 1, "count_operator": "eq"}],
             name="cohort3",
         )
-        cohort3.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort3, 0)
 
         results = self._get_cohortpeople(cohort3)
         self.assertEqual(len(results), 1)
@@ -703,9 +784,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
         p2.delete()
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
     def test_cohortpeople_prop_changed(self):
         with freeze_time((datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")):
@@ -741,14 +822,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 name="cohort1",
             )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
             p2.version = 1
-            p2.properties = ({"$some_prop": "another", "$another_prop": "another"},)
+            p2.properties = {"$some_prop": "another", "$another_prop": "another"}
             p2.save()
 
-        cohort1.calculate_people_ch(pending_version=1)
+        self.calculate_cohort_hogql_test_harness(cohort1, 1)
 
         results = self._get_cohortpeople(cohort1)
 
@@ -783,7 +864,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ],
             name="cohort1",
         )
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
         results = self._get_cohortpeople(cohort1)
 
         self.assertEqual(len(results), 1)
@@ -799,7 +880,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         ]
         cohort1.save()
 
-        cohort1.calculate_people_ch(pending_version=1)
+        self.calculate_cohort_hogql_test_harness(cohort1, 1)
 
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 1)
@@ -816,7 +897,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
         cohort.insert_users_by_list(["1", "123"])
 
-        cohort.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort, 0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
@@ -831,7 +912,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             groups=[{"properties": [{"key": "foo", "value": "bar", "type": "person"}]}],
             name="cohort0",
         )
-        cohort0.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort0, 0)
 
         cohort1: Cohort = Cohort.objects.create(
             team=self.team,
@@ -839,7 +920,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         res = self._get_cohortpeople(cohort1)
         self.assertEqual(len(res), 1)
@@ -879,7 +960,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "something1", "type": "person"}]}],
             name="cohort0",
         )
-        cohort0.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort0, 0)
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -908,7 +989,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             filter = Filter(
@@ -1017,8 +1098,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
         )
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
+        self.assertEqual(len(result), 2)  # because we didn't precalculate the cohort, both people are in the cohort
+        distinct_ids = [r[1] for r in result]
+        self.assertCountEqual(distinct_ids, ["1", "2"])
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts(self):
@@ -1075,7 +1157,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ],
             name="cohort0",
         )
-        cohort0.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort0, 0)
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -1104,7 +1186,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             filter = Filter(
@@ -1136,7 +1218,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         res = self._get_cohortpeople(cohort1)
         self.assertEqual(len(res), 0)
@@ -1148,7 +1230,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort2.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort2, 0)
         self.assertFalse(Cohort.objects.get().is_calculating)
 
     def test_query_with_multiple_new_style_cohorts(self):
@@ -1287,7 +1369,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort2, 0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         result = self._get_cohortpeople(cohort1)
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
@@ -1315,7 +1398,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=0)
+        self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         # Should only have p1 in this cohort
         results = self._get_cohortpeople(cohort1)
@@ -1323,7 +1406,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.groups = [{"properties": [{"key": "$another_prop", "value": "something", "type": "person"}]}]
         cohort1.save()
-        cohort1.calculate_people_ch(pending_version=1)
+        self.calculate_cohort_hogql_test_harness(cohort1, 1)
 
         # Should only have p2, p3 in this cohort
         results = self._get_cohortpeople(cohort1)
@@ -1331,7 +1414,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1.groups = [{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}]
         cohort1.save()
-        cohort1.calculate_people_ch(pending_version=2)
+        self.calculate_cohort_hogql_test_harness(cohort1, 2)
 
         # Should only have p1 again in this cohort
         results = self._get_cohortpeople(cohort1)
@@ -1361,12 +1444,353 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        cohort1.calculate_people_ch(pending_version=5)
+        version = self.calculate_cohort_hogql_test_harness(cohort1, 5)
 
-        cohort1.pending_version = 5
-        cohort1.version = 5
+        cohort1.pending_version = version
+        cohort1.version = version
         cohort1.save()
 
         # Should have p1 in this cohort even if version is different
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 1)
+
+    def test_calculate_people_ch_in_multiteam_project(self):
+        # Create another team in the same project
+        team2 = Team.objects.create(organization=self.organization, project=self.team.project)
+
+        # Create people in team 1
+        _person1_team1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person1"],
+            properties={"$some_prop": "else"},
+        )
+        person2_team1 = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["person2"],
+            properties={"$some_prop": "something"},
+        )
+        # Create people in team 2 with same property
+        person1_team2 = _create_person(
+            team_id=team2.pk,
+            distinct_ids=["person1_team2"],
+            properties={"$some_prop": "something"},
+        )
+        _person2_team2 = _create_person(
+            team_id=team2.pk,
+            distinct_ids=["person2_team2"],
+            properties={"$some_prop": "else"},
+        )
+        # Create cohort in team 2 (but same project as team 1)
+        shared_cohort = Cohort.objects.create(
+            team=team2,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="shared cohort",
+        )
+        # Calculate cohort
+        self.calculate_cohort_hogql_test_harness(shared_cohort, 0)
+
+        # Verify shared_cohort is now calculated for both teams
+        results_team1 = self._get_cohortpeople(shared_cohort, team_id=self.team.pk)
+        results_team2 = self._get_cohortpeople(shared_cohort, team_id=team2.pk)
+
+        self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
+        self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
+
+    def test_cohortpeople_action_all_events(self):
+        # Create an action that matches all events (no specific event defined)
+        action = Action.objects.create(team=self.team, name="all events", steps_json=[{"event": None}])
+
+        # Create two people
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        # Create different types of events for both people
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        # Create a cohort based on the "all events" action
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort_all_events"
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Both people should be in the cohort since they both performed some event
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 2)
+
+        # Create a person with no events
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["3"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        # Recalculate cohort
+        cohort.calculate_people_ch(pending_version=1)
+
+        # Should still only have 2 people since person 3 has no events
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 2)
+
+    @also_test_with_materialized_columns(person_properties=["organization_id"])
+    def test_recalculate_cohort_with_list_of_values(self):
+        # Create a specific UUID that we'll use both in the person and cohort filter
+        matching_uuid = str(uuid.uuid4())
+
+        # Create a person with the matching organization_id
+        matching_person = _create_person(
+            distinct_ids=["matching_user"],
+            team_id=self.team.pk,
+            properties={"organization_id": matching_uuid},
+        )
+
+        # Create a cohort with the specific filter structure provided
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="property list cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "organization_id",
+                                    "type": "person",
+                                    "value": [
+                                        matching_uuid,  # Include our matching UUID
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                    ],
+                                    "negation": False,
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Capture the SQL insert statements when the cohort is calculated
+        with self.capture_queries_startswith(("INSERT INTO cohortpeople", "insert into cohortpeople")) as queries:
+            self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+        # Assert at least one query was captured
+        self.assertTrue(len(queries) > 0, "No queries were captured during cohort calculation")
+
+        # Check that we don't have an excessive number of replaceRegexpAll and JSONExtractRaw functions
+        for query in queries:
+            # Count instances of replaceRegexpAll and JSONExtractRaw
+            replace_regexp_count = query.lower().count("replaceregexpall")
+            json_extract_raw_count = query.lower().count("jsonextractraw")
+
+            # Ensure we don't have 11 or more instances of either function
+            self.assertLess(replace_regexp_count, 3, "Too many replaceRegexpAll instances found in query")
+            self.assertLess(json_extract_raw_count, 3, "Too many JSONExtractRaw instances found in query")
+
+        # Verify that the person with the matching organization_id is in the cohort
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 1, "Expected one person to be in the cohort")
+        self.assertEqual(
+            str(results[0][0]), str(matching_person.uuid), "Expected the matching person to be in the cohort"
+        )
+
+    @also_test_with_materialized_columns(person_properties=["organization_id"], is_nullable=["organization_id"])
+    def test_recalculate_cohort_empty_string_property(self):
+        # Create a person with an empty organization_id
+        matching_person = _create_person(
+            distinct_ids=["matching_user"],
+            team_id=self.team.pk,
+            properties={"organization_id": ""},
+        )
+
+        # Create a cohort with the specific filter structure provided
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="property list cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "organization_id",
+                                    "type": "person",
+                                    "value": [
+                                        "",  # Include our matching UUID
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                        str(uuid.uuid4()),
+                                    ],
+                                    "negation": False,
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Capture the SQL insert statements when the cohort is calculated
+        with self.capture_queries_startswith(("INSERT INTO cohortpeople", "insert into cohortpeople")) as queries:
+            self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+        # Assert at least one query was captured
+        self.assertTrue(len(queries) > 0, "No queries were captured during cohort calculation")
+
+        # Check that we don't have an excessive number of replaceRegexpAll and JSONExtractRaw functions
+        for query in queries:
+            # Count instances of replaceRegexpAll and JSONExtractRaw
+            replace_regexp_count = query.lower().count("replaceregexpall")
+            json_extract_raw_count = query.lower().count("jsonextractraw")
+
+            # Ensure we don't have 11 or more instances of either function
+            self.assertLess(replace_regexp_count, 3, "Too many replaceRegexpAll instances found in query")
+            self.assertLess(json_extract_raw_count, 3, "Too many JSONExtractRaw instances found in query")
+
+        # Verify that the person with the matching organization_id is in the cohort
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 1, "Expected one person to be in the cohort")
+        self.assertEqual(
+            str(results[0][0]), str(matching_person.uuid), "Expected the matching person to be in the cohort"
+        )
+
+    def test_recalculate_cohort_with_missing_filter(self):
+        # Create a cohort with the specified OR filter structure
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral or filter cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "aim_purchase",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "event_type": "events",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        with self.assertRaises(ValidationError):
+            self.calculate_cohort_hogql_test_harness(cohort, 0)
+
+    def test_cohort_with_inclusion_and_exclusion_and_nested_negation(self):
+        # Create two users with different properties
+        p1 = _create_person(
+            team_id=self.team.pk, distinct_ids=["user1"], properties={"email": "exclude1", "in_cohort_1": "yes"}
+        )
+        p2 = _create_person(
+            team_id=self.team.pk, distinct_ids=["user2"], properties={"email": "exclude2", "in_cohort_1": "yes"}
+        )
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["user3"], properties={"email": "include", "in_cohort_1": "yes"}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["user4"], properties={"in_cohort_1": "yes"})
+        flush_persons_and_events()
+
+        cohort_1 = Cohort.objects.create(
+            team=self.team,
+            name="cohort_1",
+            groups=[{"properties": [{"key": "in_cohort_1", "value": "yes", "type": "person", "operator": "exact"}]}],
+        )
+
+        cohort_2 = Cohort.objects.create(
+            team=self.team,
+            name="cohort_2",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "email", "operator": "is_not", "value": "exclude1", "type": "person"},
+                                {"key": "email", "operator": "is_not", "value": "exclude2", "type": "person"},
+                            ],
+                        },
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "id", "value": cohort_1.pk, "type": "cohort"},
+                            ],
+                        },
+                    ],
+                }
+            },
+        )
+
+        # Create third cohort that includes cohort_1 and excludes cohort_2
+        cohort_3 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "value": cohort_1.pk, "type": "cohort"},
+                        {"key": "id", "value": cohort_2.pk, "type": "cohort", "negation": True},
+                    ],
+                }
+            },
+            name="cohort_3",
+        )
+        self.calculate_cohort_hogql_test_harness(cohort_1, 0)
+        self.calculate_cohort_hogql_test_harness(cohort_2, 0)
+        self.calculate_cohort_hogql_test_harness(cohort_3, 0)
+
+        results = self._get_cohortpeople(cohort_3)
+        self.assertEqual(len(results), 2)
+        self.assertCountEqual([x[0] for x in results], [p1.uuid, p2.uuid])

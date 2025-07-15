@@ -9,7 +9,7 @@ from posthog.async_migrations.setup import (
     setup_async_migrations,
 )
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
-from posthog.client import query_with_columns, sync_execute
+from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models import Person
 from posthog.models.async_migration import (
     AsyncMigration,

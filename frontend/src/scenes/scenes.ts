@@ -6,9 +6,11 @@ import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Error404 as Error404Component } from '~/layout/Error404'
+import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
-import { EventsQuery } from '~/queries/schema'
+import { productConfiguration, productRedirects, productRoutes } from '~/products'
+import { EventsQuery } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     ActivityTab,
@@ -19,12 +21,19 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { BillingSectionId } from './billing/types'
+
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
         id: Scene.Error404,
         component: Error404Component,
+        sceneParams: emptySceneParams,
+    },
+    [Scene.ErrorAccessDenied]: {
+        id: Scene.ErrorAccessDenied,
+        component: ErrorAccessDeniedComponent,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorNetwork]: {
@@ -39,10 +48,13 @@ export const preloadedScenes: Record<string, LoadedScene> = {
     },
 }
 
-export const sceneConfigurations: Record<Scene, SceneConfig> = {
+export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Error404]: {
         name: 'Not found',
         projectBased: true,
+    },
+    [Scene.ErrorAccessDenied]: {
+        name: 'Access denied',
     },
     [Scene.ErrorNetwork]: {
         name: 'Network error',
@@ -61,14 +73,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.ErrorTracking]: {
-        projectBased: true,
-        name: 'Error tracking',
-    },
-    [Scene.ErrorTrackingGroup]: {
-        projectBased: true,
-        name: 'Error tracking group',
-    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -80,6 +84,30 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Web analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.WebAnalyticsWebVitals]: {
+        projectBased: true,
+        name: 'Web vitals',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/web-vitals',
+    },
+    [Scene.WebAnalyticsPageReports]: {
+        projectBased: true,
+        name: 'Page reports',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.WebAnalyticsMarketing]: {
+        projectBased: true,
+        name: 'Marketing',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/marketing',
+    },
+    [Scene.RevenueAnalytics]: {
+        projectBased: true,
+        name: 'Revenue analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/revenue-analytics',
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -131,6 +159,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
+    [Scene.CustomCss]: {
+        projectBased: true,
+        name: 'Custom CSS',
+    },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
         name: 'Replay playlist',
@@ -140,6 +172,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.ReplayFilePlayback]: {
         projectBased: true,
         name: 'File playback',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
+    [Scene.ReplaySettings]: {
+        projectBased: true,
+        name: 'Settings',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
@@ -159,6 +197,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Action',
         defaultDocsPath: '/docs/data/actions',
+    },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
     [Scene.Group]: {
         projectBased: true,
@@ -195,6 +238,18 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
+    [Scene.ExperimentsSharedMetric]: {
+        projectBased: true,
+        name: 'Shared metric',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        activityScope: ActivityScope.EXPERIMENT,
+    },
+    [Scene.ExperimentsSharedMetrics]: {
+        projectBased: true,
+        name: 'Shared metrics',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        activityScope: ActivityScope.EXPERIMENT,
+    },
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
@@ -223,45 +278,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.DataModel]: {
-        projectBased: true,
-        name: 'Visualize person schema',
-        defaultDocsPath: '/docs/data-datawarehouse',
-        layout: 'app-canvas',
-    },
-    [Scene.DataWarehouse]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
-        defaultDocsPath: '/docs/data-warehouse/setup',
+        defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
-    },
-    [Scene.DataWarehouseExternal]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse/setup',
-    },
-    [Scene.DataWarehouseRedirect]: {
-        name: 'Data warehouse redirect',
-    },
-    [Scene.DataWarehouseTable]: {
-        projectBased: true,
-        name: 'Data warehouse table',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
-    [Scene.EarlyAccessFeatures]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
-    },
-    [Scene.EarlyAccessFeature]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
-        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
+        hideProjectNotice: true,
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -275,21 +297,22 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Max]: {
         projectBased: true,
-        name: 'Max AI',
+        name: 'Max',
         layout: 'app-raw',
-        hideProjectNotice: true, // FIXME: Currently doesn't render well...
+        hideProjectNotice: true,
     },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations redirect',
     },
     [Scene.Products]: {
         projectBased: true,
-        hideProjectNotice: true,
+        name: 'Products',
+        layout: 'plain',
     },
     [Scene.Onboarding]: {
         projectBased: true,
-        hideBillingNotice: true,
-        hideProjectNotice: true,
+        name: 'Onboarding',
+        layout: 'plain',
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
@@ -356,6 +379,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
+    [Scene.BillingSection]: {
+        name: 'Billing',
+        hideProjectNotice: true,
+        organizationBased: true,
+    },
     [Scene.BillingAuthorizationStatus]: {
         hideProjectNotice: true,
         organizationBased: true,
@@ -408,21 +436,68 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Heatmaps',
     },
+    [Scene.Links]: {
+        projectBased: true,
+        name: 'Links',
+    },
+    [Scene.Link]: {
+        projectBased: true,
+    },
     [Scene.SessionAttributionExplorer]: {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
     },
-    [Scene.MessagingBroadcasts]: {
+    [Scene.Wizard]: {
         projectBased: true,
-        name: 'Broadcasts',
+        name: 'Wizard',
+        layout: 'plain',
     },
-    [Scene.MessagingProviders]: {
+    [Scene.StartupProgram]: {
+        name: 'PostHog for Startups',
+        organizationBased: true,
+        layout: 'app-container',
+    },
+    [Scene.OAuthAuthorize]: {
+        name: 'Authorize',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+        allowUnauthenticated: true,
+    },
+    [Scene.HogFunction]: {
         projectBased: true,
-        name: 'Providers',
+        name: 'Hog function',
     },
+    [Scene.DataPipelines]: {
+        projectBased: true,
+        name: 'Data pipelines',
+    },
+    [Scene.DataPipelinesNew]: {
+        projectBased: true,
+        name: 'New data pipeline',
+    },
+    [Scene.DataWarehouseSource]: {
+        projectBased: true,
+        name: 'Data warehouse source',
+    },
+    [Scene.DataWarehouseSourceNew]: {
+        projectBased: true,
+        name: 'New data warehouse source',
+    },
+    [Scene.LegacyPlugin]: {
+        projectBased: true,
+        name: 'Legacy plugin',
+    },
+    [Scene.Game368]: {
+        name: '368 Hedgehogs',
+        projectBased: true,
+    },
+    ...productConfiguration,
 }
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
+// NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
+export const forwardedRedirectQueryParams: string[] = ['invite_modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -435,6 +510,7 @@ export const redirects: Record<
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
+    '/activity': urls.activity(),
     '/events': urls.activity(),
     '/events/actions': urls.actions(),
     '/events/stats': urls.eventDefinitions(),
@@ -449,10 +525,10 @@ export const redirects: Record<
         ])
         try {
             const timestamp = decodeURIComponent(_)
-            const after = dayjs(timestamp).subtract(1, 'second').startOf('second').toISOString()
-            const before = dayjs(timestamp).add(1, 'second').startOf('second').toISOString()
+            const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
+            const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
             Object.assign(query.source as EventsQuery, { before, after })
-        } catch (e) {
+        } catch {
             lemonToast.error('Invalid event timestamp')
         }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
@@ -464,6 +540,7 @@ export const redirects: Record<
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
+    '/recordings/settings': () => urls.replaySettings(),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -481,135 +558,155 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/pipeline': urls.pipeline(),
     '/instance': urls.instanceStatus(),
+    '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.pipeline(PipelineTab.Sources),
     '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
     '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
     '/batch_exports': urls.pipeline(PipelineTab.Destinations),
     '/apps': urls.pipeline(PipelineTab.Overview),
     '/apps/:id': ({ id }) => urls.pipelineNode(PipelineStage.Transformation, id),
-    '/messaging': urls.messagingBroadcasts(),
+    '/messaging': urls.messaging('campaigns'),
+    '/settings/organization-rbac': urls.settings('organization-roles'),
+    '/data-pipelines': urls.dataPipelines('overview'),
+    '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    ...productRedirects,
 }
 
-export const routes: Record<string, Scene> = {
-    [urls.dashboards()]: Scene.Dashboards,
-    [urls.dashboard(':id')]: Scene.Dashboard,
-    [urls.dashboardTextTile(':id', ':textTileId')]: Scene.Dashboard,
-    [urls.dashboardSharing(':id')]: Scene.Dashboard,
-    [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
-    [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
-    [urls.createAction()]: Scene.Action,
-    [urls.duplicateAction(null)]: Scene.Action,
-    [urls.action(':id')]: Scene.Action,
-    [urls.ingestionWarnings()]: Scene.DataManagement,
-    [urls.insightNew()]: Scene.Insight,
-    [urls.insightEdit(':shortId' as InsightShortId)]: Scene.Insight,
-    [urls.insightView(':shortId' as InsightShortId)]: Scene.Insight,
-    [urls.insightSubcriptions(':shortId' as InsightShortId)]: Scene.Insight,
-    [urls.insightSubcription(':shortId' as InsightShortId, ':itemId')]: Scene.Insight,
-    [urls.alert(':shortId')]: Scene.SavedInsights,
-    [urls.alerts()]: Scene.SavedInsights,
-    [urls.insightAlerts(':shortId' as InsightShortId)]: Scene.Insight,
-    [urls.insightSharing(':shortId' as InsightShortId)]: Scene.Insight,
-    [urls.savedInsights()]: Scene.SavedInsights,
-    [urls.webAnalytics()]: Scene.WebAnalytics,
-    [urls.actions()]: Scene.DataManagement,
-    [urls.eventDefinitions()]: Scene.DataManagement,
-    [urls.eventDefinition(':id')]: Scene.EventDefinition,
-    [urls.eventDefinitionEdit(':id')]: Scene.EventDefinitionEdit,
-    [urls.propertyDefinitions()]: Scene.DataManagement,
-    [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
-    [urls.propertyDefinitionEdit(':id')]: Scene.PropertyDefinitionEdit,
-    [urls.dataManagementHistory()]: Scene.DataManagement,
-    [urls.database()]: Scene.DataManagement,
-    [urls.activity(':tab')]: Scene.Activity,
-    [urls.replay()]: Scene.Replay,
+export const routes: Record<string, [Scene | string, string]> = {
+    [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
+    [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
+    [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
+    [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
+    [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
+    [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
+    [urls.createAction()]: [Scene.Action, 'createAction'],
+    [urls.duplicateAction(null)]: [Scene.Action, 'duplicateAction'],
+    [urls.action(':id')]: [Scene.Action, 'action'],
+    [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
+    [urls.insightNew()]: [Scene.Insight, 'insightNew'],
+    [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
+    [urls.insightView(':shortId' as InsightShortId)]: [Scene.Insight, 'insightView'],
+    [urls.insightSubcriptions(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSubcriptions'],
+    [urls.insightSubcription(':shortId' as InsightShortId, ':itemId')]: [Scene.Insight, 'insightSubcription'],
+    [urls.alert(':shortId')]: [Scene.SavedInsights, 'alert'],
+    [urls.alerts()]: [Scene.SavedInsights, 'alerts'],
+    [urls.insightAlerts(':shortId' as InsightShortId)]: [Scene.Insight, 'insightAlerts'],
+    [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
+    [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
+    [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
+    [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
+    [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
+    [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
+    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
+    [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
+    [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
+    [urls.actions()]: [Scene.DataManagement, 'actions'],
+    [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
+    [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
+    [urls.eventDefinitionEdit(':id')]: [Scene.EventDefinitionEdit, 'eventDefinitionEdit'],
+    [urls.propertyDefinitions()]: [Scene.DataManagement, 'propertyDefinitions'],
+    [urls.propertyDefinition(':id')]: [Scene.PropertyDefinition, 'propertyDefinition'],
+    [urls.propertyDefinitionEdit(':id')]: [Scene.PropertyDefinitionEdit, 'propertyDefinitionEdit'],
+    [urls.dataManagementHistory()]: [Scene.DataManagement, 'dataManagementHistory'],
+    [urls.database()]: [Scene.DataManagement, 'database'],
+    [urls.activity(':tab')]: [Scene.Activity, 'activity'],
+    [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
     ...Object.values(ReplayTabs).reduce((acc, tab) => {
-        acc[urls.replay(tab)] = Scene.Replay
+        acc[urls.replay(tab)] = [Scene.Replay, `replay:${tab}`]
         return acc
-    }, {} as Record<string, Scene>),
-    [urls.replayFilePlayback()]: Scene.ReplayFilePlayback,
-    [urls.replaySingle(':id')]: Scene.ReplaySingle,
-    [urls.replayPlaylist(':id')]: Scene.ReplayPlaylist,
-    [urls.personByDistinctId('*', false)]: Scene.Person,
-    [urls.personByUUID('*', false)]: Scene.Person,
-    [urls.persons()]: Scene.PersonsManagement,
-    [urls.pipelineNodeNew(':stage')]: Scene.PipelineNodeNew,
-    [urls.pipelineNodeNew(':stage', ':id')]: Scene.PipelineNodeNew,
-    [urls.pipeline(':tab')]: Scene.Pipeline,
-    [urls.pipelineNode(':stage', ':id', ':nodeTab')]: Scene.PipelineNode,
-    [urls.pipelineNode(':stage', ':id')]: Scene.PipelineNode,
-    [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
-    [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
-    [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
-    [urls.cohort(':id')]: Scene.Cohort,
-    [urls.cohorts()]: Scene.PersonsManagement,
-    [urls.experiments()]: Scene.Experiments,
-    [urls.experiment(':id')]: Scene.Experiment,
-    [urls.earlyAccessFeatures()]: Scene.EarlyAccessFeatures,
-    [urls.earlyAccessFeature(':id')]: Scene.EarlyAccessFeature,
-    [urls.errorTracking()]: Scene.ErrorTracking,
-    [urls.errorTrackingGroup(':fingerprint')]: Scene.ErrorTrackingGroup,
-    [urls.surveys()]: Scene.Surveys,
-    [urls.survey(':id')]: Scene.Survey,
-    [urls.surveyTemplates()]: Scene.SurveyTemplates,
-    [urls.dataModel()]: Scene.DataModel,
-    [urls.dataWarehouse()]: Scene.DataWarehouse,
-    [urls.dataWarehouseView(':id')]: Scene.DataWarehouse,
-    [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
-    [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
-    [urls.sqlEditor()]: Scene.SQLEditor,
-    [urls.featureFlags()]: Scene.FeatureFlags,
-    [urls.featureFlag(':id')]: Scene.FeatureFlag,
-    [urls.annotations()]: Scene.DataManagement,
-    [urls.annotation(':id')]: Scene.DataManagement,
-    [urls.projectHomepage()]: Scene.ProjectHomepage,
-    [urls.max()]: Scene.Max,
-    [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
-    [urls.organizationBilling()]: Scene.Billing,
-    [urls.billingAuthorizationStatus()]: Scene.BillingAuthorizationStatus,
-    [urls.organizationCreateFirst()]: Scene.OrganizationCreateFirst,
-    [urls.organizationCreationConfirm()]: Scene.OrganizationCreationConfirm,
-    [urls.instanceStatus()]: Scene.SystemStatus,
-    [urls.instanceSettings()]: Scene.SystemStatus,
-    [urls.instanceStaffUsers()]: Scene.SystemStatus,
-    [urls.instanceKafkaInspector()]: Scene.SystemStatus,
-    [urls.instanceMetrics()]: Scene.SystemStatus,
-    [urls.asyncMigrations()]: Scene.AsyncMigrations,
-    [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
-    [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
-    [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
-    [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
-    [urls.site(':url')]: Scene.Site,
-    // Onboarding / setup routes
-    [urls.login()]: Scene.Login,
-    [urls.login2FA()]: Scene.Login2FA,
-    [urls.preflight()]: Scene.PreflightCheck,
-    [urls.signup()]: Scene.Signup,
-    [urls.inviteSignup(':id')]: Scene.InviteSignup,
-    [urls.passwordReset()]: Scene.PasswordReset,
-    [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
-    [urls.products()]: Scene.Products,
-    [urls.onboarding(':productKey')]: Scene.Onboarding,
-    [urls.verifyEmail()]: Scene.VerifyEmail,
-    [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
-    [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
-    [urls.unsubscribe()]: Scene.Unsubscribe,
-    [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
-    [urls.debugQuery()]: Scene.DebugQuery,
-    [urls.debugHog()]: Scene.DebugHog,
-    [urls.notebook(':shortId')]: Scene.Notebook,
-    [urls.notebooks()]: Scene.Notebooks,
-    [urls.canvas()]: Scene.Canvas,
-    [urls.settings(':section' as any)]: Scene.Settings,
-    [urls.moveToPostHogCloud()]: Scene.MoveToPostHogCloud,
-    [urls.heatmaps()]: Scene.Heatmaps,
-    [urls.sessionAttributionExplorer()]: Scene.SessionAttributionExplorer,
-    [urls.messagingProviders()]: Scene.MessagingProviders,
-    [urls.messagingProvider(':id')]: Scene.MessagingProviders,
-    [urls.messagingProviderNew()]: Scene.MessagingProviders,
-    [urls.messagingProviderNew(':template')]: Scene.MessagingProviders,
-    [urls.messagingBroadcasts()]: Scene.MessagingBroadcasts,
-    [urls.messagingBroadcast(':id')]: Scene.MessagingBroadcasts,
-    [urls.messagingBroadcastNew()]: Scene.MessagingBroadcasts,
+    }, {} as Record<string, [Scene, string]>),
+    [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
+    [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
+    [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
+    [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
+    [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
+    [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
+    [urls.persons()]: [Scene.PersonsManagement, 'persons'],
+    [urls.pipelineNodeNew(':stage')]: [Scene.PipelineNodeNew, 'pipelineNodeNew'],
+    [urls.pipelineNodeNew(':stage', { id: ':id' })]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
+    [urls.pipeline(':tab')]: [Scene.Pipeline, 'pipeline'],
+    [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
+    [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
+    [urls.customCss()]: [Scene.CustomCss, 'customCss'],
+    [urls.groups(':groupTypeIndex')]: [Scene.PersonsManagement, 'groups'],
+    [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
+    [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
+    [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
+    [urls.cohorts()]: [Scene.PersonsManagement, 'cohorts'],
+    [urls.experiments()]: [Scene.Experiments, 'experiments'],
+    [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
+    [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
+    [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
+    [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
+    [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
+    [urls.surveys()]: [Scene.Surveys, 'surveys'],
+    [urls.survey(':id')]: [Scene.Survey, 'survey'],
+    [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
+    [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
+    [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
+    [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
+    [urls.annotations()]: [Scene.DataManagement, 'annotations'],
+    [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
+    [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.max()]: [Scene.Max, 'max'],
+    [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
+    [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
+    [urls.organizationBillingSection(':section' as BillingSectionId)]: [
+        Scene.BillingSection,
+        'organizationBillingSection',
+    ],
+    [urls.billingAuthorizationStatus()]: [Scene.BillingAuthorizationStatus, 'billingAuthorizationStatus'],
+    [urls.organizationCreateFirst()]: [Scene.OrganizationCreateFirst, 'organizationCreateFirst'],
+    [urls.organizationCreationConfirm()]: [Scene.OrganizationCreationConfirm, 'organizationCreationConfirm'],
+    [urls.instanceStatus()]: [Scene.SystemStatus, 'instanceStatus'],
+    [urls.instanceSettings()]: [Scene.SystemStatus, 'instanceSettings'],
+    [urls.instanceStaffUsers()]: [Scene.SystemStatus, 'instanceStaffUsers'],
+    [urls.instanceKafkaInspector()]: [Scene.SystemStatus, 'instanceKafkaInspector'],
+    [urls.instanceMetrics()]: [Scene.SystemStatus, 'instanceMetrics'],
+    [urls.asyncMigrations()]: [Scene.AsyncMigrations, 'asyncMigrations'],
+    [urls.asyncMigrationsFuture()]: [Scene.AsyncMigrations, 'asyncMigrationsFuture'],
+    [urls.asyncMigrationsSettings()]: [Scene.AsyncMigrations, 'asyncMigrationsSettings'],
+    [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
+    [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
+    [urls.site(':url')]: [Scene.Site, 'site'],
+    [urls.login()]: [Scene.Login, 'login'],
+    [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
+    [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
+    [urls.signup()]: [Scene.Signup, 'signup'],
+    [urls.inviteSignup(':id')]: [Scene.InviteSignup, 'inviteSignup'],
+    [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],
+    [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
+    [urls.products()]: [Scene.Products, 'products'],
+    [urls.onboarding(':productKey')]: [Scene.Onboarding, 'onboarding'],
+    [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
+    [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
+    [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
+    [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
+    [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
+    [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
+    [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
+    [urls.canvas()]: [Scene.Canvas, 'canvas'],
+    [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
+    [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
+    [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
+    [urls.links()]: [Scene.Links, 'links'],
+    [urls.link(':id')]: [Scene.Link, 'link'],
+    [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
+    [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
+    [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
+    [urls.dataPipelines(':kind')]: [Scene.DataPipelines, 'dataPipelines'],
+    [urls.dataPipelinesNew(':kind')]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
+    [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
+    [urls.dataWarehouseSource(':id', ':tab')]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
+    [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
+    [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
+    [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
+    [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
+    [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
+    ...productRoutes,
 }

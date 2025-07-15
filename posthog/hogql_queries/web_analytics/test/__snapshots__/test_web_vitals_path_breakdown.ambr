@@ -1,0 +1,280 @@
+# serializer version: 1
+# name: TestWebVitalsPathBreakdownQueryRunner.test_data_correctly_split_between_bands
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_no_crash_when_no_data
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_metric
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_period
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.1
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.9)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.2
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.99)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), 1))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestWebVitalsPathBreakdownQueryRunner.test_properties_are_applied
+  '''
+  SELECT band AS band,
+         path AS path,
+                 value AS value
+  FROM
+    (SELECT multiIf(ifNull(lessOrEquals(value, 100.0), 0), 'good', ifNull(lessOrEquals(value, 200.0), 0), 'needs_improvements', 'poor') AS band,
+            path AS path,
+                    value AS value
+     FROM
+       (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS path,
+               quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$web_vitals_INP_value'), ''), 'null'), '^"|"$', ''), 'Float64')) AS value
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$web_vitals'), isNotNull(path), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-15 23:59:59', 'UTC')))), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', ''), '/path1'), 0)))
+        GROUP BY path
+        HAVING ifNull(greaterOrEquals(value, 0), 0)))
+  ORDER BY value ASC,
+           path ASC
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---

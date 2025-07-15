@@ -12,13 +12,15 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
 
 import { NewActionButton } from '../../actions/NewActionButton'
@@ -29,7 +31,7 @@ export function ActionsTable(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { actionsLoading } = useValues(actionsModel({ params: 'include_count=1' }))
     const { loadActions, pinAction, unpinAction } = useActions(actionsModel)
-
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { filterType, searchTerm, actionsFiltered, shouldShowEmptyState } = useValues(actionsLogic)
     const { setFilterType, setSearchTerm } = useActions(actionsLogic)
 
@@ -52,7 +54,7 @@ export function ActionsTable(): JSX.Element {
                 trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             },
         }
-        return urls.insightNew(undefined, undefined, query)
+        return urls.insightNew({ query })
     }
 
     const columns: LemonTableColumns<ActionType> = [
@@ -206,6 +208,13 @@ export function ActionsTable(): JSX.Element {
                                             ],
                                         },
                                     })}
+                                    onClick={() => {
+                                        addProductIntentForCrossSell({
+                                            from: ProductKey.ACTIONS,
+                                            to: ProductKey.SESSION_REPLAY,
+                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
+                                        })
+                                    }}
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"
@@ -218,13 +227,15 @@ export function ActionsTable(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
-                                    onClick={() =>
-                                        void deleteWithUndo({
+                                    onClick={() => {
+                                        deleteWithUndo({
                                             endpoint: api.actions.determineDeleteEndpoint(),
                                             object: action,
                                             callback: loadActions,
+                                        }).catch((e: any) => {
+                                            lemonToast.error(`Error deleting action: ${e.detail}`)
                                         })
-                                    }
+                                    }}
                                     fullWidth
                                 >
                                     Delete action

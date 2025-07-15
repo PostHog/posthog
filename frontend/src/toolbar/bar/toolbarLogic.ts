@@ -6,16 +6,26 @@ import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/uti
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { inBounds, TOOLBAR_ID } from '~/toolbar/utils'
+import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
 
-export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger' | 'experiments'
+export type MenuState =
+    | 'none'
+    | 'heatmap'
+    | 'actions'
+    | 'flags'
+    | 'inspect'
+    | 'hedgehog'
+    | 'debugger'
+    | 'experiments'
+    | 'web-vitals'
+
 export type ToolbarPositionType =
     | 'top-left'
     | 'top-center'
@@ -45,7 +55,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['showButtonExperiments'],
             elementsLogic,
             ['enableInspect', 'disableInspect', 'createAction'],
-            heatmapLogic,
+            heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
                 'disableHeatmap',
@@ -290,6 +300,10 @@ export const toolbarLogic = kea<toolbarLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setVisibleMenu: ({ visibleMenu }) => {
+            actions.disableInspect()
+            actions.disableHeatmap()
+            actions.hideButtonActions()
+
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
                 values.hedgehogActor?.setOnFire(1)
@@ -304,11 +318,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
             } else if (visibleMenu === 'inspect') {
                 actions.enableInspect()
                 values.hedgehogActor?.setAnimation('inspect')
-            } else {
-                actions.disableInspect()
-                actions.disableHeatmap()
-                actions.hideButtonActions()
-                actions.selectAction(null)
             }
         },
 
@@ -403,17 +412,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
         createAction: () => {
             actions.setVisibleMenu('actions')
         },
-        loadHeatmap: () => {
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADING }, '*')
-        },
-        loadHeatmapSuccess: () => {
-            // if embedded we need to signal start and finish of heatmap loading to the parent
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_LOADED }, '*')
-        },
-        loadHeatmapFailure: () => {
-            // if embedded we need to signal start and finish of heatmap loading to the parent
-            window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_HEATMAP_FAILED }, '*')
-        },
         actionCreatedSuccess: (action) => {
             // if embedded, we need to tell the parent window that a new action was created
             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_NEW_ACTION_CREATED, payload: action }, '*')
@@ -431,8 +429,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
-            const shouldBeBlurred = (e.target as HTMLElement)?.id !== TOOLBAR_ID
-            if (shouldBeBlurred && !values.isBlurred) {
+            const target = e.target as HTMLElement
+            const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
+            if (!clickIsInToolbar && !values.isBlurred) {
                 actions.setIsBlurred(true)
             }
         }
@@ -469,21 +468,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     actions.setCommonFilters(e.data.payload.commonFilters)
                     actions.toggleClickmapsEnabled(false)
                     window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_CONFIG:
-                    actions.enableHeatmap()
-                    return
-                case PostHogAppToolbarEvent.PH_PATCH_HEATMAP_FILTERS:
-                    actions.patchHeatmapFilters(e.data.payload.filters)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_FIXED_POSITION_MODE:
-                    actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_COLOR_PALETTE:
-                    actions.setHeatmapColorPalette(e.data.payload.colorPalette)
-                    return
-                case PostHogAppToolbarEvent.PH_HEATMAPS_COMMON_FILTERS:
-                    actions.setCommonFilters(e.data.payload.commonFilters)
                     return
                 case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
                     if (e.data.payload.enabled) {

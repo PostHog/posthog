@@ -1,0 +1,19 @@
+{
+    "name": "Property Filter",
+    "url": "https://github.com/posthog/property-filter-plugin",
+    "description": "This plugin will set all configured properties to null inside an ingested event.",
+    "main": "index.js",
+    "config": [
+        {
+            "markdown": "\n\n# Important!\nThis plugin will only work on events ingested **after** the plugin was enabled. This means it **will** register events as being the first if there were events that occured **before** it was enabled. To mitigate this, you could consider renaming the relevant events and creating an [action](https://posthog.com/docs/features/actions) that matches both the old event name and the new one.\n"
+        },
+        {
+            "key": "properties",
+            "name": "List of properties to filter out:",
+            "type": "string",
+            "default": "",
+            "hint": "Separate properties with commas, without using spaces, like so: `foo,bar,baz`",
+            "required": true
+        }
+    ]
+}

@@ -4,13 +4,17 @@
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
-    --scene-padding-bottom: var(--scene-padding);
+    --scene-padding-bottom: 4rem;
+
+    // These are used in SceneLayout.css
+    --scene-layout-panel-width: 300px;
+    --scene-layout-header-height: 42px;
 
     display: flex;
     width: 100%;
     height: 100vh;
     overflow: hidden;
-    background: var(--bg-3000);
+    background: var(--bg-primary);
 
     .storybook-test-runner & {
         height: auto;
@@ -19,7 +23,7 @@
     > main {
         flex: 1;
         min-width: 0;
-        overflow: auto;
+        overflow: hidden auto;
     }
 
     .BridgePage {
@@ -37,6 +41,11 @@
     @media screen and (max-width: $lg) {
         --scene-padding: 0.5rem;
     }
+}
+
+// If flag is enabled, we use the scene header height for the breadcrumbs height
+.Navigation3000--minimal-scene-layout {
+    --breadcrumbs-height-compact: var(--scene-layout-header-height);
 }
 
 .Navigation3000__scene {
@@ -61,14 +70,6 @@
         display: flex;
         flex-direction: column;
         height: 100vh;
-    }
-
-    &.Navigation3000__scene--canvas {
-        --scene-padding: 0px;
-
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
     }
 }
 
@@ -105,7 +106,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--accent-3000);
+        background: var(--bg-surface-secondary);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
@@ -175,20 +176,20 @@
 .Sidebar3000 {
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
-    --sidebar-row-height: 2.5rem;
-    --sidebar-background: var(--bg-3000);
+    --sidebar-row-height: 3rem;
+    --sidebar-background: var(--bg-primary);
 
     position: relative;
     box-sizing: content-box;
-    flex: 0 0 var(--sidebar-width);
-    height: 100vh;
+    flex: 1 0 var(--sidebar-width);
+    height: 100%;
 
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--accent-3000);
+        --sidebar-background: var(--bg-surface-primary);
     }
 
     &.Sidebar3000--resizing {
@@ -231,6 +232,7 @@
 
     .LemonInput--type-search {
         max-width: none;
+        height: 100%;
         border-color: transparent; // Only show border on focus here
         border-radius: 0;
         transition: none;
@@ -238,21 +240,18 @@
 }
 
 .Sidebar3000__content {
-    position: fixed;
-    top: 0;
     box-sizing: content-box;
     display: flex;
     flex-direction: column;
     align-items: stretch;
     width: var(--sidebar-width);
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
     font-size: 0.6875rem;
     white-space: nowrap;
-    background: var(--sidebar-background);
 
     // Extend the border into viewport overscroll
-    border-right: min(1px, var(--sidebar-width)) solid var(--border);
+    border-right: min(1px, var(--sidebar-width)) solid var(--border-primary);
 
     .Sidebar3000--resizing & {
         will-change: width;
@@ -281,7 +280,7 @@
     padding: 0 var(--sidebar-horizontal-padding);
     font-weight: 500;
     user-select: none;
-    background: var(--bg-3000);
+    background: var(--bg-primary);
     border-top-width: 1px;
 }
 
@@ -312,7 +311,7 @@
     }
 
     &::before {
-        background: var(--border);
+        background: var(--border-primary);
         transition: 100ms ease transform;
     }
 
@@ -349,9 +348,9 @@
 
 .Accordion {
     --accordion-arrow-size: 1rem;
-    --accordion-row-height: 1.75rem;
+    --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--accent-3000);
+    --accordion-header-background: var(--bg-surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -361,7 +360,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--bg-3000);
+        --accordion-header-background: var(--bg-primary);
     }
 
     &[aria-expanded] {
@@ -386,10 +385,6 @@
             background: var(--accordion-header-background);
         }
     }
-
-    &:not([aria-busy='true']) .Accordion__header .LemonIcon {
-        visibility: hidden;
-    }
 }
 
 .Accordion__header {
@@ -400,11 +395,10 @@
     padding: 0 var(--sidebar-horizontal-padding);
     cursor: pointer;
     user-select: none;
-    background: var(--accordion-header-background);
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
     }
 
     > .LemonIcon {
@@ -419,15 +413,76 @@
     }
 }
 
+// New scoped accordion styles
+.SidebarListItemAccordion {
+    --accordion-arrow-size: 1rem;
+    --accordion-inset-expandable: 1.25rem;
+    --accordion-header-background: var(--bg-surface-primary);
+    --accordion-inset: 0rem;
+
+    display: flex;
+    flex-basis: 0;
+    flex-direction: column;
+    flex-shrink: 0;
+    height: 100%;
+
+    [theme='dark'] & {
+        --accordion-header-background: var(--bg-primary);
+    }
+
+    &[role='region'] {
+        // This means: if accordion is expandable
+        --accordion-inset: var(--accordion-inset-expandable);
+    }
+
+    &:not([aria-expanded='false']) {
+        flex-grow: 1;
+
+        &:not(:last-child) {
+            border-bottom-width: 1px;
+        }
+    }
+}
+
+.SidebarListItemAccordion__header {
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
+    cursor: pointer;
+    user-select: none;
+    border-bottom-width: 1px;
+
+    &:hover {
+        background: var(--border-primary);
+    }
+
+    > .LemonIcon {
+        flex-shrink: 0;
+        margin-right: calc(var(--accordion-inset-expandable) - var(--accordion-arrow-size));
+        font-size: var(--accordion-arrow-size);
+        transition: 50ms ease transform;
+
+        .SidebarListItemAccordion[aria-expanded='true'] & {
+            transform: rotate(90deg);
+        }
+    }
+
+    .SidebarListItemAccordion__icon {
+        margin-right: 4px;
+    }
+}
+
 .SidebarListItem {
-    --sidebar-list-item-status-color: var(--muted);
+    --sidebar-list-item-status-color: var(--text-secondary);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     --sidebar-list-item-background: var(--sidebar-background);
 
     position: relative;
     line-height: 1.125rem;
-    color: var(--muted);
+    color: var(--text-secondary);
     list-style: none;
     background: var(--sidebar-list-item-background);
     border-bottom-width: 1px;
@@ -436,7 +491,7 @@
     &:hover:not([aria-disabled='true']),
     &[aria-current='page'],
     &.SidebarListItem--is-renaming {
-        --sidebar-list-item-background: var(--border-3000);
+        --sidebar-list-item-background: var(--border-primary);
 
         opacity: 1;
     }
@@ -533,44 +588,55 @@
 
     position: relative;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
     width: 100%;
     height: 100%;
-    color: inherit;
+    color: var(--text-3000);
 
     &:focus-visible::after {
         position: absolute;
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border-3000);
+        border: 1px solid var(--border-primary);
     }
 }
 
 .SidebarListItem__link {
+    flex-direction: column;
     row-gap: 1px;
+    justify-content: center;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
-    color: inherit !important; // Disable link color
+
     .SidebarListItem[aria-disabled='true'] & {
         cursor: default;
     }
 }
 
 .SidebarListItem__button {
+    flex-direction: row;
+    gap: 0.25rem;
     row-gap: 1px;
-    padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
-    color: inherit !important; // Disable link color
+    align-items: center;
+    padding: 0 var(--sidebar-horizontal-padding) 0
+        calc(0.25rem + var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
+    font-size: 1.125rem; // Make icons bigger
     cursor: pointer;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
+    }
+
+    .SidebarListItem__icon {
+        flex-shrink: 0;
     }
 }
 
 .SidebarListItem__rename {
+    flex-direction: column;
+    justify-content: center;
+
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--bg-light);
+    background: var(--bg-surface-primary);
 
     input {
         width: 100%;
@@ -587,7 +653,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-primary);
 
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);

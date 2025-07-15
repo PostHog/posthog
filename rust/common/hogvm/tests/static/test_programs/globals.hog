@@ -1,0 +1,24 @@
+
+// Globals are accessed using double-quotes strings,
+// like how rows are referenced in sql queries.
+assert_eq("test", 'value')
+assert_eq("an_array", [1, 2, 3])
+assert_eq("a_string", 'Hello, World!')
+assert_eq("a_boolean", true)
+assert_eq("a_number", 42)
+assert_eq("a_null", null)
+assert_eq("a_nested_object"."nested_key", 'nested_value')
+
+// You can also access globals using bare identifiers.
+assert_eq(test, 'value')
+assert_eq(an_array, [1, 2, 3])
+assert_eq(a_string, 'Hello, World!')
+assert_eq(a_boolean, true)
+assert_eq(a_number, 42)
+assert_eq(a_null, null)
+assert_eq(a_nested_object.nested_key, 'nested_value')
+
+// Nested globals not found are treated as nulls, rather than throwing an error.
+assert_eq(a_nested_object.an_unknown_global, null)
+
+return true

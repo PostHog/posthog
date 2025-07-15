@@ -1,5 +1,8 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -7,9 +10,20 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
+    getTrendDatasetKey,
+    getTrendResultCustomizationColorToken,
 } from 'scenes/insights/utils'
 
-import { EventsNode, InsightQueryNode, LifecycleQuery, MathType, TrendsFilter, TrendsQuery } from '~/queries/schema'
+import {
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    LifecycleQuery,
+    MathType,
+    TrendsFilter,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
+import { isValidBreakdown } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,
@@ -45,7 +59,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'insightDataLoading',
                 'series',
                 'formula',
+                'formulaNodes',
                 'display',
+                'goalLines',
                 'compareFilter',
                 'interval',
                 'enabledIntervals',
@@ -59,7 +75,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'lifecycleFilter',
                 'stickinessFilter',
                 'isTrends',
-                'isDataWarehouseSeries',
+                'hasDataWarehouseSeries',
                 'isLifecycle',
                 'isStickiness',
                 'isNonTimeSeriesDisplay',
@@ -68,6 +84,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showLegend',
                 'vizSpecificOptions',
                 'yAxisScaleType',
+                'showMultipleYAxes',
+                'resultCustomizationBy',
+                'getTheme',
+                'theme',
             ],
         ],
         actions: [
@@ -91,7 +111,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
     }),
 
-    selectors(({ values }) => ({
+    selectors(({ values, props }) => ({
         /** series within the trend insight on which user can set alerts */
         alertSeries: [
             (s) => [s.querySource],
@@ -122,6 +142,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
                 return !!insightData.hasMore
             },
+        ],
+
+        isBreakdownValid: [
+            (s) => [s.breakdownFilter],
+            (breakdownFilter: BreakdownFilter | null) => isValidBreakdown(breakdownFilter),
         ],
 
         indexedResults: [
@@ -164,10 +189,11 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
                 /** Unique series in the results, determined by `item.label` and `item.action.order`. */
                 const uniqSeries = Array.from(
-                    // :TRICKY: Stickiness insights don't have an `action` object, despite
-                    // types here not reflecting that.
                     new Set(
-                        indexedResults.map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
+                        indexedResults
+                            .slice()
+                            .sort((a, b) => (a.action?.order ?? 0) - (b.action?.order ?? 0))
+                            .map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
                     )
                 )
 
@@ -185,7 +211,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.series, s.querySource, s.isLifecycle],
             (series, querySource, isLifecycle): 'people' | 'none' | number => {
                 // Find the commonly shared aggregation group index if there is one.
-                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined
+                let firstAggregationGroupTypeIndex: 'people' | 'none' | number | undefined | null
                 if (isLifecycle) {
                     firstAggregationGroupTypeIndex = (querySource as LifecycleQuery)?.aggregation_group_type_index
                 } else {
@@ -244,6 +270,58 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.trendsFilter, s.stickinessFilter],
             (trendsFilter, stickinessFilter): number[] => {
                 return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
+            },
+        ],
+        resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+        getTrendsColorToken: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
+            (resultCustomizationBy, resultCustomizations, getTheme, breakdownFilter, querySource) => {
+                return (dataset: IndexedTrendResult): [DataColorTheme | null, DataColorToken | null] => {
+                    // stringified breakdown value
+                    const key = getTrendDatasetKey(dataset)
+                    let breakdownValue = JSON.parse(key)['breakdown_value']
+                    breakdownValue = Array.isArray(breakdownValue) ? breakdownValue.join('::') : breakdownValue
+
+                    // dashboard color overrides
+                    const logic = dashboardLogic.findMounted({ id: props.dashboardId })
+                    const dashboardBreakdownColors = logic?.values.temporaryBreakdownColors
+                    const colorOverride = dashboardBreakdownColors?.find(
+                        (config) =>
+                            config.breakdownValue === breakdownValue &&
+                            config.breakdownType === (breakdownFilter?.breakdown_type ?? 'event')
+                    )
+
+                    if (colorOverride?.colorToken) {
+                        // use the dashboard theme, or fallback to the default theme
+                        const dashboardTheme = logic?.values.dataColorTheme || getTheme(undefined)
+                        return [dashboardTheme, colorOverride.colorToken]
+                    }
+
+                    // use the dashboard theme, or fallback to the insight theme, or the default theme
+                    const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
+                    if (!theme) {
+                        return [null, null]
+                    }
+
+                    return [
+                        theme,
+                        getTrendResultCustomizationColorToken(
+                            resultCustomizationBy,
+                            resultCustomizations,
+                            theme,
+                            dataset
+                        ),
+                    ]
+                }
+            },
+        ],
+        getTrendsColor: [
+            (s) => [s.getTrendsColorToken],
+            (getTrendsColorToken) => {
+                return (dataset: IndexedTrendResult) => {
+                    const [colorTheme, colorToken] = getTrendsColorToken(dataset)
+                    return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
+                }
             },
         ],
     })),

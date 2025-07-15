@@ -26,6 +26,28 @@ const getIncrementalSyncSupported = (
     }
 }
 
+const getAppendOnlySyncSupported = (
+    schema: ExternalDataSourceSyncSchema
+): { disabled: true; disabledReason: string } | { disabled: false } => {
+    if (!schema.append_available) {
+        return {
+            disabled: true,
+            disabledReason: "Append only replication isn't supported on this table",
+        }
+    }
+
+    if (schema.incremental_fields.length === 0) {
+        return {
+            disabled: true,
+            disabledReason: 'No incremental fields found on table',
+        }
+    }
+
+    return {
+        disabled: false,
+    }
+}
+
 interface SyncMethodFormProps {
     schema: ExternalDataSourceSyncSchema
     onClose: () => void
@@ -35,28 +57,10 @@ interface SyncMethodFormProps {
         incrementalFieldType: string | null
     ) => void
     saveButtonIsLoading?: boolean
-    showRefreshMessageOnChange?: boolean
-}
-
-const hasInputChanged = (
-    newSchemaSyncType: ExternalDataSourceSyncSchema['sync_type'],
-    newSchemaIncrementalField: string | null,
-    originalSchemaSyncType: ExternalDataSourceSyncSchema['sync_type'],
-    originalSchemaIncrementalField: string | null
-): boolean => {
-    if (originalSchemaSyncType !== newSchemaSyncType) {
-        return true
-    }
-
-    if (newSchemaSyncType === 'incremental' && newSchemaIncrementalField !== originalSchemaIncrementalField) {
-        return true
-    }
-
-    return false
 }
 
 const getSaveDisabledReason = (
-    syncType: 'full_refresh' | 'incremental' | undefined,
+    syncType: 'full_refresh' | 'incremental' | 'append' | undefined,
     incrementalField: string | null
 ): string | undefined => {
     if (!syncType) {
@@ -68,33 +72,21 @@ const getSaveDisabledReason = (
     }
 }
 
-export const SyncMethodForm = ({
-    schema,
-    onClose,
-    onSave,
-    saveButtonIsLoading,
-    showRefreshMessageOnChange,
-}: SyncMethodFormProps): JSX.Element => {
-    const [originalSchemaSyncType] = useState(schema.sync_type ?? null)
-    const [originalSchemaIncrementalField] = useState(schema.incremental_field ?? null)
+export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }: SyncMethodFormProps): JSX.Element => {
+    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
+    const appendSyncSupported = getAppendOnlySyncSupported(schema)
 
-    const [radioValue, setRadioValue] = useState(schema.sync_type ?? undefined)
+    const [radioValue, setRadioValue] = useState(
+        schema.sync_type ?? (!incrementalSyncSupported.disabled ? 'incremental' : undefined)
+    )
     const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
+    const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
 
     useEffect(() => {
-        setRadioValue(schema.sync_type ?? undefined)
+        setRadioValue(schema.sync_type ?? (!incrementalSyncSupported.disabled ? 'incremental' : undefined))
         setIncrementalFieldValue(schema.incremental_field ?? null)
+        setAppendFieldValue(schema.incremental_field ?? null)
     }, [schema.table])
-
-    const incrementalSyncSupported = getIncrementalSyncSupported(schema)
-
-    const inputChanged = hasInputChanged(
-        radioValue ?? null,
-        incrementalFieldValue,
-        originalSchemaSyncType,
-        originalSchemaIncrementalField
-    )
-    const showRefreshMessage = inputChanged && showRefreshMessageOnChange
 
     return (
         <>
@@ -107,39 +99,83 @@ export const SyncMethodForm = ({
                         disabledReason:
                             (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
                         label: (
-                            <div className="mb-6 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-2.5">
-                                    <h2 className="mb-0 mr-2">Incremental replication</h2>
+                            <div className="mb-4 font-normal">
+                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                    <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
                                     {!incrementalSyncSupported.disabled && (
                                         <LemonTag type="success">Recommended</LemonTag>
                                     )}
                                 </div>
-                                <p>
+                                <p className="mb-2">
                                     When using incremental replication, we'll store the max value of the below field on
                                     each sync and only sync rows with greater or equal value on the next run.
                                 </p>
-                                <p>
+                                <p className="mb-2">
                                     You should pick a field that increments or updates each time the row is updated,
                                     such as a <code>updated_at</code> timestamp.
                                 </p>
-                                <LemonSelect
-                                    value={incrementalFieldValue}
-                                    onChange={(newValue) => setIncrementalFieldValue(newValue)}
-                                    options={
-                                        schema.incremental_fields.map((n) => ({
-                                            value: n.field,
-                                            label: (
-                                                <>
-                                                    <span className="leading-5">{n.label}</span>
-                                                    <LemonTag className="ml-2" type="success">
-                                                        {n.type}
-                                                    </LemonTag>
-                                                </>
-                                            ),
-                                        })) ?? []
-                                    }
-                                    disabledReason={incrementalSyncSupported.disabled ? '' : undefined}
-                                />
+                                {!incrementalSyncSupported.disabled && (
+                                    <LemonSelect
+                                        value={incrementalFieldValue}
+                                        onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                        options={
+                                            schema.incremental_fields.map((n) => ({
+                                                value: n.field,
+                                                label: (
+                                                    <>
+                                                        <span className="leading-5">{n.label}</span>
+                                                        <LemonTag className="ml-2" type="success">
+                                                            {n.type}
+                                                        </LemonTag>
+                                                    </>
+                                                ),
+                                            })) ?? []
+                                        }
+                                    />
+                                )}
+                            </div>
+                        ),
+                    },
+                    {
+                        value: 'append',
+                        disabledReason:
+                            (appendSyncSupported.disabled && appendSyncSupported.disabledReason) || undefined,
+                        label: (
+                            <div className="mb-4 font-normal">
+                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                    <h4 className="mb-0 mr-2 text-base font-semibold">Append only replication</h4>
+                                </div>
+                                <p className="mb-2">
+                                    When using append only replication, similar to incremental above, we'll store the
+                                    max value of the below field on each sync and only sync rows with greater or equal
+                                    value on the next run. But unlike incremental replication, we'll append the rows as
+                                    opposed to merge them into the existing table, meaning you can have duplicate data
+                                    if the value for the below field changes on a row. You should only use append only
+                                    replication for sources that don't support incremental.
+                                </p>
+                                <p className="mb-2">
+                                    You should pick a field that doesn't change each time the row is updated, such as a{' '}
+                                    <code>created_at</code> timestamp.
+                                </p>
+                                {!appendSyncSupported.disabled && (
+                                    <LemonSelect
+                                        value={appendFieldValue}
+                                        onChange={(newValue) => setAppendFieldValue(newValue)}
+                                        options={
+                                            schema.incremental_fields.map((n) => ({
+                                                value: n.field,
+                                                label: (
+                                                    <>
+                                                        <span className="leading-5">{n.label}</span>
+                                                        <LemonTag className="ml-2" type="success">
+                                                            {n.type}
+                                                        </LemonTag>
+                                                    </>
+                                                ),
+                                            })) ?? []
+                                        }
+                                    />
+                                )}
                             </div>
                         ),
                     },
@@ -147,10 +183,10 @@ export const SyncMethodForm = ({
                         value: 'full_refresh',
                         label: (
                             <div className="mb-6 font-normal">
-                                <div className="items-center flex leading-[normal] overflow-hidden mb-2.5">
-                                    <h2 className="mb-0 mr-2">Full table replication</h2>
+                                <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                                    <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
                                 </div>
-                                <p>
+                                <p className="m-0">
                                     We'll replicate the whole table on every sync. This can take longer to sync and
                                     increase your monthly billing.
                                 </p>
@@ -160,11 +196,6 @@ export const SyncMethodForm = ({
                 ]}
                 onChange={(newValue) => setRadioValue(newValue)}
             />
-            {showRefreshMessage && (
-                <p className="text-danger">
-                    Note: Changing the sync type or incremental replication field will trigger a full table refresh
-                </p>
-            )}
             <div className="flex flex-row justify-end w-full">
                 <LemonButton className="mr-3" type="secondary" onClick={onClose}>
                     Close
@@ -184,6 +215,14 @@ export const SyncMethodForm = ({
                             }
 
                             onSave('incremental', incrementalFieldValue, fieldSelected.field_type)
+                        } else if (radioValue === 'append') {
+                            const fieldSelected = schema.incremental_fields.find((n) => n.field === appendFieldValue)
+                            if (!fieldSelected) {
+                                lemonToast.error('Selected field for append replication not found')
+                                return
+                            }
+
+                            onSave('append', appendFieldValue, fieldSelected.field_type)
                         } else {
                             onSave('full_refresh', null, null)
                         }

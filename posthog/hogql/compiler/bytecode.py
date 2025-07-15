@@ -1,19 +1,19 @@
 import dataclasses
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any, Optional, cast, TYPE_CHECKING
+from typing import Any, Optional, cast, TYPE_CHECKING, Literal
 from collections.abc import Callable
 
-from hogvm.python.execute import execute_bytecode, BytecodeResult
-from hogvm.python.stl import STL
-from hogvm.python.stl.bytecode import BYTECODE_STL
+from common.hogvm.python.execute import execute_bytecode, BytecodeResult
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
-from hogvm.python.operation import (
+from common.hogvm.python.operation import (
     Operation,
     HOGQL_BYTECODE_IDENTIFIER,
     HOGQL_BYTECODE_VERSION,
@@ -105,6 +105,8 @@ def create_bytecode(
 
 
 class BytecodeCompiler(Visitor):
+    mode: Literal["hog", "ast"]
+
     def __init__(
         self,
         supported_functions: Optional[set[str]] = None,
@@ -116,6 +118,7 @@ class BytecodeCompiler(Visitor):
     ):
         super().__init__()
         self.enclosing = enclosing
+        self.mode = enclosing.mode if enclosing else "hog"
         self.supported_functions = supported_functions or set()
         self.in_repl = in_repl
         self.locals: list[Local] = locals or []
@@ -156,6 +159,14 @@ class BytecodeCompiler(Visitor):
 
         self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
         return len(self.locals) - 1
+
+    def visit(self, node: ast.AST | None):
+        # In "hog" mode we compile AST nodes to bytecode.
+        # In "ast" mode we pass through as they are.
+        # You may enter "ast" mode with `sql()` or `(select ...)`
+        if self.mode == "hog" or isinstance(node, ast.Placeholder):
+            return super().visit(node)
+        return self._visit_hog_ast(node)
 
     def visit_and(self, node: ast.And):
         response = []
@@ -339,6 +350,14 @@ class BytecodeCompiler(Visitor):
             response.extend([Operation.JUMP_IF_STACK_NOT_NULL, len(if_null) + 1])
             response.extend([Operation.POP])
             response.extend(if_null)
+            return response
+        if node.name == "sql" and len(node.args) == 1:
+            prev_mode = self.mode
+            self.mode = "ast"
+            try:
+                response = self.visit(node.args[0])
+            finally:
+                self.mode = prev_mode
             return response
 
         # HogQL functions can have two sets of parameters: asd(args) or asd(params)(args)
@@ -839,6 +858,27 @@ class BytecodeCompiler(Visitor):
         response.append(len(node.attributes) + 1)
         return response
 
+    def _visit_hog_ast(self, node: ast.AST | None):
+        if node is None:
+            return [Operation.NULL]
+        response = []
+        # We consider any object with the element "__hx_ast" to be a HogQLX AST node
+        response.extend([Operation.STRING, "__hx_ast"])
+        response.extend([Operation.STRING, node.__class__.__name__])
+        fields = 1
+        for field in dataclasses.fields(node):
+            if field.name in ["start", "end", "type"]:
+                continue
+            value = getattr(node, field.name)
+            if value is None:
+                continue
+            response.extend([Operation.STRING, field.name])
+            response.extend(self._visit_hogqlx_value(value))
+            fields += 1
+        response.append(Operation.DICT)
+        response.append(fields)
+        return response
+
     def _visit_hogqlx_value(self, value: Any) -> list[Any]:
         if isinstance(value, AST):
             return self.visit(value)
@@ -853,6 +893,18 @@ class BytecodeCompiler(Visitor):
                 elems.extend(self._visit_hogqlx_value(k))
                 elems.extend(self._visit_hogqlx_value(v))
             return [*elems, Operation.DICT, len(value.items())]
+        if isinstance(value, ast.AST):
+            if isinstance(value, ast.Placeholder):
+                if self.mode == "hog":
+                    raise QueryError("Placeholders are not allowed in this context")
+                prev_mode = self.mode
+                self.mode = "hog"
+                try:
+                    response = self.visit(value.expr)
+                finally:
+                    self.mode = prev_mode
+                return response
+            return self._visit_hog_ast(value)
         if isinstance(value, StrEnum):
             return [Operation.STRING, value.value]
         if isinstance(value, int):
@@ -866,6 +918,36 @@ class BytecodeCompiler(Visitor):
         if value is False:
             return [Operation.FALSE]
         return [Operation.NULL]
+
+    def visit_placeholder(self, node: ast.Placeholder):
+        if self.mode == "ast":
+            self.mode = "hog"
+            try:
+                result = self.visit(node.expr)
+            finally:
+                self.mode = "ast"
+            return result
+        raise QueryError("Placeholders are not allowed in this context")
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        # Select queries always takes us into "ast" mode
+        prev_mode = self.mode
+        self.mode = "ast"
+        try:
+            response = self._visit_hog_ast(node)
+        finally:
+            self.mode = prev_mode
+        return response
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        # Select queries always takes us into "ast" mode
+        prev_mode = self.mode
+        self.mode = "ast"
+        try:
+            response = self._visit_hog_ast(node)
+        finally:
+            self.mode = prev_mode
+        return response
 
 
 def execute_hog(

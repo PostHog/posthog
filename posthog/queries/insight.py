@@ -2,7 +2,7 @@ from typing import Optional
 
 from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.client import query_with_columns, sync_execute
+from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.errors import ExposedCHQueryError
 from posthog.types import FilterType
 

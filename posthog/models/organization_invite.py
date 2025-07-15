@@ -7,8 +7,10 @@ from django.utils import timezone
 from rest_framework import exceptions
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
+from posthog.helpers.email_utils import EmailValidationHelper, EmailNormalizer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel, sane_repr
@@ -79,11 +81,13 @@ class OrganizationInvite(UUIDModel):
         invite_email: Optional[str] = None,
         request_path: Optional[str] = None,
     ) -> None:
-        from .user import User
-
         _email = email or getattr(user, "email", None)
 
-        if _email and _email != self.target_email:
+        if (
+            _email
+            and self.target_email
+            and EmailNormalizer.normalize(_email) != EmailNormalizer.normalize(self.target_email)
+        ):
             raise exceptions.ValidationError(
                 "This invite is intended for another email address.",
                 code="invalid_recipient",
@@ -92,7 +96,7 @@ class OrganizationInvite(UUIDModel):
         if self.is_expired():
             raise InviteExpiredException()
 
-        if user is None and User.objects.filter(email=invite_email).exists():
+        if user is None and invite_email and EmailValidationHelper.user_exists(invite_email):
             raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
@@ -101,9 +105,12 @@ class OrganizationInvite(UUIDModel):
                 code="user_already_member",
             )
 
-        if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email
-        ).exists():
+        if (
+            self.target_email
+            and OrganizationMembership.objects.filter(
+                organization=self.organization, user__email__iexact=self.target_email
+            ).exists()
+        ):
             raise exceptions.ValidationError(
                 "Another user with this email address already belongs to this organization.",
                 code="existing_email_address",
@@ -123,13 +130,23 @@ class OrganizationInvite(UUIDModel):
             except self.organization.teams.model.DoesNotExist:
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
-            if not team.access_control:
-                continue
-            ExplicitTeamMembership.objects.create(
-                team=team,
-                parent_membership=parent_membership,
-                level=item["level"],
-            )
+
+            # This path is deprecated, and will be removed soon
+            if team.access_control:
+                ExplicitTeamMembership.objects.create(
+                    team=team,
+                    parent_membership=parent_membership,
+                    level=item["level"],
+                )
+            else:
+                # New access control
+                AccessControl.objects.create(
+                    team=team,
+                    resource="team",
+                    resource_id=str(team.id),
+                    organization_member=parent_membership,
+                    access_level="admin" if item["level"] == OrganizationMembership.Level.ADMIN else "member",
+                )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join

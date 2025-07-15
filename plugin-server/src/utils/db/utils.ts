@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
-import { ProducerRecord } from 'kafkajs'
 import { Counter } from 'prom-client'
+
+import { TopicMessage } from '~/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -14,11 +14,15 @@ import {
     RawPerson,
     TimestampFormat,
 } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
-    return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
+    return {
+        ...(person as BasePerson),
+        ...(person.created_at ? { created_at: person.created_at.toISO() ?? undefined } : {}),
+    }
 }
 
 export function escapeQuotes(input: string): string {
@@ -40,13 +44,17 @@ export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000,
-    sendToSentry = true
+    sendException = true,
+    reportMetric?: () => void
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
-        status.warn('⌛', message, ctx)
-        if (sendToSentry) {
-            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+        logger.warn('⌛', message, ctx)
+        if (sendException) {
+            captureException(message, ctx ? { extra: ctx } : undefined)
+        }
+        if (reportMetric) {
+            reportMetric()
         }
     }, timeout)
 }
@@ -74,6 +82,8 @@ export const campaignParams = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
+    'irclid', // impact
+    '_kx', // klaviyo
 ])
 
 export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))
@@ -97,6 +107,11 @@ export const eventToPersonProperties = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
 
     ...campaignParams,
 ])
@@ -176,7 +191,7 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
     return !areMapsEqual(setOnce, filteredSetOnce)
 }
 
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
     return {
         topic: KAFKA_PERSON,
         messages: [

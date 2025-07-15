@@ -31,6 +31,13 @@
             <readonly>1</readonly>
         </readonly>
 
+        <api>
+            <profile>default</profile>
+        </api>
+
+        <app>
+            <profile>default</profile>
+        </app>
     </profiles>
 
     <!-- Users and ACL. -->
@@ -117,6 +124,30 @@
             <!-- User can create other users and grant rights to them. -->
             <!-- <access_management>1</access_management> -->
         </default>
+
+        <api>
+            <password>apipass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>api</profile>
+
+            <quota>default</quota>
+        </api>
+
+        <app>
+            <password>apppass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>app</profile>
+
+            <quota>default</quota>
+        </app>
     </users>
 
     <!-- Quotas. -->

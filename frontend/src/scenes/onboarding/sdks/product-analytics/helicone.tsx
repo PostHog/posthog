@@ -17,7 +17,7 @@ export function ProductAnalyticsHeliconeInstructions(): JSX.Element {
                 supports most popular LLM models and you can bring your Helicone data into PostHog for analysis. To get
                 started:
             </p>
-            <ol className="space-y-4">
+            <ol className="deprecated-space-y-4">
                 <li>
                     Sign up to{' '}
                     <Link to="https://www.helicone.ai/" target="_blank">

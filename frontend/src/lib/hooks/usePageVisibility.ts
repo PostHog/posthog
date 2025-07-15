@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 /**
  *
@@ -12,7 +12,7 @@ import { useEffect } from 'react'
  *
  * @param callback when page visibility changes this is called with true if the page is visible and false otherwise
  */
-export function usePageVisibility(callback: (pageIsVisible: boolean) => void): void {
+export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void): void {
     useEffect(() => {
         // adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example
         // Opera 12.10 and Firefox 18 and later support
@@ -37,5 +37,15 @@ export function usePageVisibility(callback: (pageIsVisible: boolean) => void): v
         return function cleanUp() {
             document.removeEventListener(visibilityChange, onVisibilityChange)
         }
-    }, [])
+    }, [callback])
+}
+
+export function usePageVisibility(): { isVisible: boolean } {
+    const [isVisible, setIsVisible] = useState<boolean>(!document.hidden)
+
+    usePageVisibilityCb((pageIsVisible) => {
+        setIsVisible(pageIsVisible)
+    })
+
+    return { isVisible }
 }

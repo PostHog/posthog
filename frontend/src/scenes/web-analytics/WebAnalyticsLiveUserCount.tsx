@@ -1,39 +1,72 @@
-import { IconLive } from '@posthog/icons'
-import { useValues } from 'kea'
+import './WebAnalyticsLiveUserCount.scss'
+
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
+import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
-import { liveEventsTableLogic } from 'scenes/web-analytics/liveWebAnalyticsLogic'
+import { liveWebAnalyticsLogic } from 'scenes/web-analytics/liveWebAnalyticsLogic'
 
-export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
-    const { liveUserCount, liveUserUpdatedSecondsAgo } = useValues(liveEventsTableLogic)
+const TooltipContent = (): JSX.Element | null => {
     const { currentTeam } = useValues(teamLogic)
+    const { liveUserUpdatedSecondsAgo, liveUserCount } = useValues(liveWebAnalyticsLogic)
+    const { setIsHovering } = useActions(liveWebAnalyticsLogic)
+
+    // This is only rendered when the tooltip is open, so we will let the Kea interval knows
+    // when we're rendered and when we're not
+    useEffect(() => {
+        setIsHovering(true)
+        return () => setIsHovering(false)
+    }, [setIsHovering])
 
     if (liveUserCount == null) {
-        // No data yet, or feature flag disabled
         return null
     }
 
     const usersOnlineString = `${humanFriendlyNumber(liveUserCount)} ${
-        liveUserCount === 1 ? 'user is' : 'users are'
-    } online`
+        liveUserCount === 1 ? 'user has' : 'users have'
+    } been seen recently`
     const inTeamString = currentTeam ? ` in ${currentTeam.name}` : ''
-    const updatedAgoString =
+    const updatedString =
         liveUserUpdatedSecondsAgo === 0
-            ? ' (updated just now)'
+            ? 'updated just now'
             : liveUserUpdatedSecondsAgo == null
             ? ''
-            : ` (updated ${liveUserUpdatedSecondsAgo} seconds ago)`
-    const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
+            : `updated ${liveUserUpdatedSecondsAgo} seconds ago`
 
     return (
-        <div className="flex-row">
-            <Tooltip title={tooltip}>
-                <span>
-                    <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
-                </span>
-            </Tooltip>
-            <div className="bg-border h-px w-full mt-2" />
+        <div>
+            <div>
+                {usersOnlineString}
+                {inTeamString}
+            </div>
+            {updatedString && <div>({updatedString})</div>}
         </div>
+    )
+}
+
+export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
+    const { liveUserCount } = useValues(liveWebAnalyticsLogic)
+
+    // No data yet, or feature flag disabled
+    if (liveUserCount == null) {
+        return null
+    }
+
+    return (
+        <Tooltip
+            title={<TooltipContent />}
+            interactive={true}
+            delayMs={0}
+            docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+        >
+            <div className="flex flex-row items-center justify-center">
+                <div className={clsx('live-user-indicator', liveUserCount > 0 ? 'online' : 'offline')} />
+                <span className="whitespace-nowrap" data-attr="web-analytics-live-user-count">
+                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> recently online
+                </span>
+            </div>
+        </Tooltip>
     )
 }

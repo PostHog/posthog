@@ -61,7 +61,8 @@ describe('Shared dashboard', () => {
         })
 
         cy.get('.InsightCard').should('have.length', 6)
+
         // Make sure no element with text "There are no matching events for this query" exists
-        cy.get('.insight-empty-state').should('not.exist')
+        cy.get('[data-attr="insight-empty-state"]').should('not.exist')
     })
 })

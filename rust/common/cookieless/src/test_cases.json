@@ -1,0 +1,236 @@
+{
+    "//": "This file contains test cases for doHash(salt: Uint8Array, teamId: number, ip: string, rootDomain: string, userAgent: string, n: number, hashExtra: string) so that we can verify that the hash function gives the same result across Rust and TS. If porting this to another language, ensure that these tests still pass.",
+    "test_cases":[
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "jZfBjkLcdjlQTVmIKIhC3Q=="
+        },
+        {
+            "salt": "BBBBBBBBBBBBBBBBBBBBBA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "+enbKKNpXkdkAyA7u+VkRA=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 3000,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "BiC9Zpcr2Ctyc6mvZh4+lg=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "5.6.7.8",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "kmHSjAz71inr4axAIDUN1A=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "other.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "HSTgvTovdKSCZxOWE0fiOA=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Smart Fridge",
+            "n": 0,
+            "hash_extra": "",
+            "expected": "sjSJh5qV4gsbEAc2DG6w7g=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 1,
+            "hash_extra": "",
+            "expected": "igaaEDUIUxmCqAaPyFWP7Q=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "Sphinx of Black Quartz, Judge My Vow. This is a pretty long extra string - it is exactly 100 chars!!",
+            "expected": "lPLnR7N4qR683u8oyGmTGg=="
+        },
+        {
+            "salt": "AQIDBAUGBwgJCgsMDQ4PEA==",
+            "team_id": 1,
+            "ip": "1.2.3.4",
+            "root_domain": "example.com",
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+            "n": 0,
+            "hash_extra": "Sphinx of Black Quartz, Judge My Vow. This is a pretty long extra string - it is exactly 100 chars!!! Actually no, it's longer, to make sure that this is truncated properly",
+            "expected": "lPLnR7N4qR683u8oyGmTGg=="
+        },
+        {
+              "salt": "ymdOUMYgo0sM6RlAEjs6qQ==",
+              "team_id": 1,
+              "ip": "127.0.0.1",
+              "root_domain": "127.0.0.1:3000",
+             "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:136.0) Gecko/20100101 Firefox/136.0",
+              "n": 0,
+              "hash_extra": "",
+            "expected": "/R98LDV5ssv0VIx1j8n8aQ=="
+
+        }
+    ],
+    "hash_to_distinct_id_tests": [
+        {
+            "//": "Test case for hash_to_distinct_id function",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "expected_distinct_id": "cookieless_jZfBjkLcdjlQTVmIKIhC3Q"
+        }
+    ],
+    "redis_identifies_key_tests": [
+        {
+            "//": "Test case for get_redis_identifies_key function",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "team_id": 42,
+            "expected_identifies_key": "cklsi:42:jZfBjkLcdjlQTVmIKIhC3Q"
+        },
+        {
+            "//": "Test case with team_id=0",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "team_id": 0,
+            "expected_identifies_key": "cklsi:0:jZfBjkLcdjlQTVmIKIhC3Q"
+        },
+        {
+            "//": "Test case with max i32 team_id",
+            "hash": "jZfBjkLcdjlQTVmIKIhC3Q==",
+            "team_id": 2147483647, 
+            "expected_identifies_key": "cklsi:2147483647:jZfBjkLcdjlQTVmIKIhC3Q"
+        }
+    ],
+    "extract_root_domain_tests": [
+        {
+            "//": "Test cases for extract_root_domain function",
+            "host": "https://test.example.com/foo",
+            "expected_root_domain": "example.com"
+        },
+        {
+            "host": "https://test.example.co.uk/foo",
+            "expected_root_domain": "example.co.uk"
+        },
+        {
+            "host": "http://localhost:3000",
+            "expected_root_domain": "127.0.0.1:3000"
+        },
+        {
+            "host": "http://127.0.0.1:3000",
+            "expected_root_domain": "127.0.0.1:3000"
+        },
+            {
+            "host": "http://127.0.0.1:3000/foo",
+            "expected_root_domain": "127.0.0.1:3000"
+        },
+        {
+            "host": "http://127.0.0.1:3000#foo",
+            "expected_root_domain": "127.0.0.1:3000"
+        },
+        {
+            "host": "1.2.3.4",
+            "expected_root_domain": "1.2.3.4"
+        },
+        {
+            "host": "1.2.3.4:5000",
+            "expected_root_domain": "1.2.3.4:5000"
+        },
+        {
+            "host": "example.co.uk",
+            "expected_root_domain": "example.co.uk"
+        },
+        {
+            "host": "sub.example.com",
+            "expected_root_domain": "example.com"
+        },
+        {
+            "host": "http://example.com:8000",
+            "expected_root_domain": "example.com:8000"
+        },
+        {
+            "host": "https://user:pass@example.com",
+            "expected_root_domain": "example.com"
+        },
+        {
+            "host": "https://example.com?param=value",
+            "expected_root_domain": "example.com"
+        },
+        {
+            "host": "https://example.com#fragment",
+            "expected_root_domain": "example.com"
+        },
+        {
+            "host": "localhost",
+            "expected_root_domain": "127.0.0.1"
+        },
+        {
+            "host": "",
+            "expected_root_domain": ""
+        },
+        {
+            "host": "example.com:8080",
+            "expected_root_domain": "example.com:8080"
+        },
+        {
+            "host": "sub.example.co.uk:8080",
+            "expected_root_domain": "example.co.uk:8080"
+        },
+        {
+            "host": "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+            "expected_root_domain": "[2001:db8:85a3::8a2e:370:7334]"
+        },
+        {
+            "host": "http://[2001:0db8:85a3:0000:0000:8a2e:0370:7334]",
+            "expected_root_domain": "[2001:db8:85a3::8a2e:370:7334]"
+        },
+        {
+            "host": "[2001:0db8:85a3:0000:0000:8a2e:0370:7334]:8080",
+            "expected_root_domain": "[2001:db8:85a3::8a2e:370:7334]:8080"
+        },
+        {
+            "host": "http://[2001:0db8:85a3::8a2e:0370:7334]:8080",
+            "expected_root_domain": "[2001:db8:85a3::8a2e:370:7334]:8080"
+        },
+        {
+            "host": "[::1]",
+            "expected_root_domain": "[::1]"
+        },
+        {
+            "host": "[::1]:8080",
+            "expected_root_domain": "[::1]:8080"
+        },
+        {
+            "host": "::1",
+            "expected_root_domain": "[::1]"
+        }
+    ]
+}

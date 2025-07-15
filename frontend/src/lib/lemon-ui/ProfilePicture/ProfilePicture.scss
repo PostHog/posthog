@@ -77,7 +77,7 @@
     align-items: center;
 
     > * {
-        outline: 0.125rem solid var(--bg-light);
+        outline: 0.125rem solid var(--bg-surface-primary);
     }
 
     > :not(:first-child) {
@@ -97,6 +97,6 @@
     color: #fff;
     letter-spacing: -0.05em;
     user-select: none;
-    background: var(--primary-3000);
+    background: var(--accent);
     border-radius: 50%;
 }

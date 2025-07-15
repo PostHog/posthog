@@ -8,9 +8,9 @@ import {
     metaEvent,
     mutationData,
     removedNodeMutation,
-} from '@rrweb/types'
-import { captureMessage } from '@sentry/react'
+} from '@posthog/rrweb-types'
 import { isObject } from 'lib/utils'
+import posthog from 'posthog-js'
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
 
 import {
@@ -153,7 +153,7 @@ export const makeCustomEvent = (
                     },
                 })
             } else {
-                captureMessage('Failed to create keyboard placeholder', { extra: { mobileCustomEvent } })
+                posthog.captureException(new Error('Failed to create keyboard placeholder'), { mobileCustomEvent })
             }
         } else {
             removes.push({
@@ -1299,7 +1299,7 @@ export const makeFullEvent = (
     // we can restart the id sequence on each full snapshot
     globalIdSequence = ids()
 
-    if (!('wireframes' in mobileEvent.data)) {
+    if (!(isObject(mobileEvent.data) && 'wireframes' in mobileEvent.data)) {
         return mobileEvent as unknown as fullSnapshotEvent & {
             timestamp: number
             delay?: number

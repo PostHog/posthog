@@ -3,7 +3,7 @@ import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constant
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { DashboardBasicType } from '~/types'
+import { AccessControlLevel, DashboardBasicType } from '~/types'
 
 import { dashboardsModel, nameCompareFunction } from './dashboardsModel'
 
@@ -48,12 +48,15 @@ const basicDashboard: DashboardBasicType = {
     pinned: false,
     created_at: new Date().toISOString(),
     created_by: null,
+    last_accessed_at: null,
     is_shared: false,
     deleted: false,
     creation_mode: 'default',
     restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
     effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
     effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
+    user_access_level: AccessControlLevel.Editor,
+    access_control_version: 'v1',
 }
 
 describe('the dashboards model', () => {

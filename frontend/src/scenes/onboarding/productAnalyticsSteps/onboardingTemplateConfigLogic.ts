@@ -7,9 +7,9 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { DashboardTemplateType, DashboardType } from '~/types'
+import { DashboardTemplateType, DashboardType, OnboardingStepKey } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 import type { onboardingTemplateConfigLogicType } from './onboardingTemplateConfigLogicType'
 
 // TODO: We should have a variables logic that is keyed for each variable and can handle its state independently.
@@ -17,7 +17,7 @@ import type { onboardingTemplateConfigLogicType } from './onboardingTemplateConf
 
 export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicType>([
     path(['scenes', 'onboarding', 'productAnalyticsSteps', 'onboardingTemplateConfigLogic']),
-    connect({
+    connect(() => ({
         values: [newDashboardLogic, ['activeDashboardTemplate'], dashboardTemplateVariablesLogic, ['activeVariable']],
         actions: [
             newDashboardLogic,
@@ -34,7 +34,7 @@ export const onboardingTemplateConfigLogic = kea<onboardingTemplateConfigLogicTy
             sidePanelStateLogic,
             ['closeSidePanel'],
         ],
-    }),
+    })),
     actions({
         setDashboardCreatedDuringOnboarding: (dashboard: DashboardType | null) => ({ dashboard }),
         showCustomEventField: true,

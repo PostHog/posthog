@@ -79,7 +79,7 @@ class TestClickhouseStickiness(
             properties={},
         )
 
-        p1, p2, p3, p4 = self._create_multiple_people(
+        self._create_multiple_people(
             period=timedelta(weeks=1),
             event_properties=lambda i: {
                 "$group_0": f"org:{i}",
@@ -111,15 +111,6 @@ class TestClickhouseStickiness(
         assert data["watched movie"][1].value == 1
         assert data["watched movie"][2].value == 0
         assert data["watched movie"][3].value == 1
-
-        with freeze_time("2020-02-15T13:01:01Z"):
-            week1_actors = get_people_from_url_ok(self.client, data["watched movie"][1].person_url)
-            week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].person_url)
-            week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].person_url)
-
-        assert sorted([p["id"] for p in week1_actors]) == sorted([str(p1.uuid)])
-        assert sorted([p["id"] for p in week2_actors]) == sorted([])
-        assert sorted([p["id"] for p in week3_actors]) == sorted([str(p3.uuid)])
 
     @snapshot_clickhouse_queries
     def test_aggregate_by_groups(self):
@@ -168,15 +159,6 @@ class TestClickhouseStickiness(
         assert data["watched movie"][1].value == 2
         assert data["watched movie"][2].value == 0
         assert data["watched movie"][3].value == 1
-
-        with freeze_time("2020-02-15T13:01:01Z"):
-            week1_actors = get_people_from_url_ok(self.client, data["watched movie"][1].person_url)
-            week2_actors = get_people_from_url_ok(self.client, data["watched movie"][2].person_url)
-            week3_actors = get_people_from_url_ok(self.client, data["watched movie"][3].person_url)
-
-        assert sorted([p["id"] for p in week1_actors]) == sorted(["org:0", "org:2"])
-        assert sorted([p["id"] for p in week2_actors]) == sorted([])
-        assert sorted([p["id"] for p in week3_actors]) == sorted(["org:1"])
 
     @snapshot_clickhouse_queries
     def test_timezones(self):

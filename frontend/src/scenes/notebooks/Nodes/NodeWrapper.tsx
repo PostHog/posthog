@@ -83,7 +83,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
 
     const setRefs = useCallback(
-        (node) => {
+        (node: HTMLDivElement | null) => {
             setRef(node)
             inViewRef(node)
         },
@@ -213,7 +213,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 <NotebookNodeTitle />
                                             </div>
 
-                                            <div className="flex space-x-1">
+                                            <div className="flex deprecated-space-x-1">
                                                 {parsedHref && (
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />
                                                 )}

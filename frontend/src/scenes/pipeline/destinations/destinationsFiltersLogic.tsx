@@ -1,5 +1,5 @@
 import { LemonDialog, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -7,27 +7,34 @@ import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
+import { HogFunctionTypeType } from '~/types'
+
 import { PipelineBackend } from '../types'
 import type { destinationsFiltersLogicType } from './destinationsFiltersLogicType'
 
 export type DestinationsFilters = {
     search?: string
     kind?: PipelineBackend | null
-    sub_template?: string
     showPaused?: boolean
+}
+
+export interface DestinationsFiltersLogicProps {
+    types: HogFunctionTypeType[]
 }
 
 export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
-    connect({
+    props({} as DestinationsFiltersLogicProps),
+    key((props) => props.types.join(',') ?? ''),
+    connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<DestinationsFilters>) => ({ filters }),
         resetFilters: true,
         openFeedbackDialog: true,
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         filters: [
             {} as DestinationsFilters,
             {
@@ -40,6 +47,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
                 }),
             },
         ],
+        types: [props.types, {}],
     })),
 
     listeners(({ values }) => ({
@@ -51,26 +59,31 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
         },
 
         openFeedbackDialog: async (_, breakpoint) => {
+            const isTransformation = values.types.includes('transformation')
+            const itemType = isTransformation ? 'transformation' : 'destination'
+
             await breakpoint(100)
             LemonDialog.openForm({
-                title: 'What destination would you like to see?',
+                title: `What ${itemType} would you like to see?`,
                 initialValues: { destination_name: values.filters.search },
                 errors: {
                     destination_name: (x) => (!x ? 'Required' : undefined),
                 },
                 description: undefined,
                 content: (
-                    <div className="space-y-2">
-                        <LemonField name="destination_name" label="Destination">
-                            <LemonInput placeholder="What destination would you like to see?" autoFocus />
+                    <div className="deprecated-space-y-2">
+                        <LemonField name="destination_name" label={isTransformation ? 'Transformation' : 'Destination'}>
+                            <LemonInput placeholder={`What ${itemType} would you like to see?`} autoFocus />
                         </LemonField>
                         <LemonField name="destination_details" label="Additional information" showOptional>
-                            <LemonTextArea placeholder="Any extra details about what you would need this destination to do or your overall goal" />
+                            <LemonTextArea
+                                placeholder={`Any extra details about what you would need this ${itemType} to do or your overall goal`}
+                            />
                         </LemonField>
                     </div>
                 ),
                 onSubmit: async (values) => {
-                    posthog.capture('cdp destination feedback', { ...values })
+                    posthog.capture(`cdp ${itemType} feedback`, { ...values })
                     lemonToast.success('Thank you for your feedback!')
                 },
             })

@@ -5,9 +5,9 @@ import type { shortcutsLogicType } from './shortcutsLogicType'
 
 export const shortcutsLogic = kea<shortcutsLogicType>([
     path(['lib', 'components', 'CommandBar', 'shortcutsLogic']),
-    connect({
+    connect(() => ({
         actions: [commandBarLogic, ['hideCommandBar']],
-    }),
+    })),
     afterMount(({ actions, cache }) => {
         // register keyboard shortcuts
         cache.onKeyDown = (event: KeyboardEvent) => {

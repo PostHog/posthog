@@ -22,43 +22,125 @@
                     table_type: {
                       table: {
                         fields: {
-                          $group_0: {},
-                          $group_1: {},
-                          $group_2: {},
-                          $group_3: {},
-                          $group_4: {},
-                          $session_id: {},
-                          $window_id: {},
-                          created_at: {},
-                          distinct_id: {},
-                          elements_chain: {},
-                          elements_chain_elements: {},
-                          elements_chain_href: {},
-                          elements_chain_ids: {},
-                          elements_chain_texts: {},
-                          event: {},
-                          event_person_id: {},
-                          goe_0: {},
-                          goe_1: {},
-                          goe_2: {},
-                          goe_3: {},
-                          goe_4: {},
-                          group_0: {},
-                          group_1: {},
-                          group_2: {},
-                          group_3: {},
-                          group_4: {},
-                          override: {},
-                          pdi: {},
-                          person: {},
-                          person_id: {},
-                          poe: {},
-                          properties: {},
-                          session: {},
-                          team_id: {},
-                          timestamp: {},
-                          uuid: {}
-                        }
+                          $group_0: {
+                            hidden: False
+                          },
+                          $group_1: {
+                            hidden: False
+                          },
+                          $group_2: {
+                            hidden: False
+                          },
+                          $group_3: {
+                            hidden: False
+                          },
+                          $group_4: {
+                            hidden: False
+                          },
+                          $session_id: {
+                            hidden: False
+                          },
+                          $window_id: {
+                            hidden: False
+                          },
+                          created_at: {
+                            hidden: False
+                          },
+                          distinct_id: {
+                            hidden: False
+                          },
+                          elements_chain: {
+                            hidden: False
+                          },
+                          elements_chain_elements: {
+                            hidden: False
+                          },
+                          elements_chain_href: {
+                            hidden: False
+                          },
+                          elements_chain_ids: {
+                            hidden: False
+                          },
+                          elements_chain_texts: {
+                            hidden: False
+                          },
+                          event: {
+                            hidden: False
+                          },
+                          event_issue_id: {
+                            hidden: False
+                          },
+                          event_person_id: {
+                            hidden: False
+                          },
+                          exception_issue_override: {
+                            hidden: False
+                          },
+                          goe_0: {
+                            hidden: False
+                          },
+                          goe_1: {
+                            hidden: False
+                          },
+                          goe_2: {
+                            hidden: False
+                          },
+                          goe_3: {
+                            hidden: False
+                          },
+                          goe_4: {
+                            hidden: False
+                          },
+                          group_0: {
+                            hidden: False
+                          },
+                          group_1: {
+                            hidden: False
+                          },
+                          group_2: {
+                            hidden: False
+                          },
+                          group_3: {
+                            hidden: False
+                          },
+                          group_4: {
+                            hidden: False
+                          },
+                          issue_id: {
+                            hidden: False
+                          },
+                          override: {
+                            hidden: False
+                          },
+                          pdi: {
+                            hidden: False
+                          },
+                          person: {
+                            hidden: False
+                          },
+                          person_id: {
+                            hidden: False
+                          },
+                          poe: {
+                            hidden: False
+                          },
+                          properties: {
+                            hidden: False
+                          },
+                          session: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          },
+                          timestamp: {
+                            hidden: False
+                          },
+                          uuid: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
                       }
                     }
                   }
@@ -161,11 +243,51 @@
                     table_type: <recursion ...>
                   }
                 },
+                event_issue_id: {
+                  alias: "event_issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: True
+                      }
+                    ]
+                    name: "toUUID"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                },
                 event_person_id: {
                   alias: "event_person_id"
                   type: {
                     name: "event_person_id"
                     table_type: <recursion ...>
+                  }
+                },
+                issue_id: {
+                  alias: "issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      },
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    ]
+                    name: "if"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
                   }
                 },
                 person_id: {
@@ -549,6 +671,40 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          chain: [
+            "event_issue_id"
+          ]
+          type: {
+            name: "event_issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          chain: [
+            "issue_id"
+          ]
+          type: {
+            name: "issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -676,14 +832,24 @@
                                   from_field: [
                                     "distinct_id"
                                   ],
+                                  hidden: False,
                                   join_function: <function>,
                                   join_table: {
                                     fields: {
-                                      distinct_id: {},
-                                      person: {},
-                                      person_id: {},
-                                      team_id: {}
-                                    }
+                                      distinct_id: {
+                                        hidden: False
+                                      },
+                                      person: {
+                                        hidden: False
+                                      },
+                                      person_id: {
+                                        hidden: False
+                                      },
+                                      team_id: {
+                                        hidden: False
+                                      }
+                                    },
+                                    hidden: False
                                   },
                                   to_field: None
                                 }
@@ -740,14 +906,24 @@
                           from_field: [
                             "distinct_id"
                           ],
+                          hidden: False,
                           join_function: <function>,
                           join_table: {
                             fields: {
-                              distinct_id: {},
-                              person: {},
-                              person_id: {},
-                              team_id: {}
-                            }
+                              distinct_id: {
+                                hidden: False
+                              },
+                              person: {
+                                hidden: False
+                              },
+                              person_id: {
+                                hidden: False
+                              },
+                              team_id: {
+                                hidden: False
+                              }
+                            },
+                            hidden: False
                           },
                           to_field: None
                         }
@@ -895,6 +1071,226 @@
             }
             hidden: True
             type: <recursion ...>
+          },
+          {
+            alias: "event_issue_id"
+            expr: {
+              args: [
+                {
+                  alias: "$exception_issue_id"
+                  expr: {
+                    chain: [
+                      "properties",
+                      "$exception_issue_id"
+                    ]
+                    end: 37
+                    start: 7
+                    type: {
+                      chain: [
+                        "$exception_issue_id"
+                      ]
+                      field_type: {
+                        name: "properties"
+                        table_type: <recursion ...>
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "$exception_issue_id"
+                    type: <recursion ...>
+                  }
+                }
+              ]
+              distinct: False
+              end: 38
+              name: "toUUID"
+              start: 0
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "issue_id"
+            expr: {
+              args: [
+                {
+                  args: [
+                    {
+                      args: [
+                        {
+                          alias: "issue_id"
+                          expr: {
+                            chain: [
+                              "exception_issue_override",
+                              "issue_id"
+                            ]
+                            type: {
+                              name: "issue_id"
+                              table_type: {
+                                field: "exception_issue_override"
+                                lazy_join: {
+                                  from_field: [
+                                    "fingerprint"
+                                  ],
+                                  hidden: False,
+                                  join_function: <function>,
+                                  join_table: {
+                                    fields: {
+                                      fingerprint: {
+                                        hidden: False
+                                      },
+                                      issue_id: {
+                                        hidden: False
+                                      },
+                                      team_id: {
+                                        hidden: False
+                                      }
+                                    },
+                                    hidden: False
+                                  },
+                                  to_field: None
+                                }
+                                table_type: <recursion ...>
+                              }
+                            }
+                          }
+                          hidden: True
+                          type: {
+                            alias: "issue_id"
+                            type: <recursion ...>
+                          }
+                        }
+                      ]
+                      distinct: False
+                      name: "empty"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "str"
+                            nullable: False
+                          }
+                        ]
+                        name: "empty"
+                        return_type: {
+                          data_type: "unknown"
+                          nullable: True
+                        }
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "not"
+                  type: {
+                    arg_types: [
+                      <recursion ...>
+                    ]
+                    name: "not"
+                    return_type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "issue_id"
+                  expr: {
+                    chain: [
+                      "exception_issue_override",
+                      "issue_id"
+                    ]
+                    type: {
+                      name: "issue_id"
+                      table_type: {
+                        field: "exception_issue_override"
+                        lazy_join: {
+                          from_field: [
+                            "fingerprint"
+                          ],
+                          hidden: False,
+                          join_function: <function>,
+                          join_table: {
+                            fields: {
+                              fingerprint: {
+                                hidden: False
+                              },
+                              issue_id: {
+                                hidden: False
+                              },
+                              team_id: {
+                                hidden: False
+                              }
+                            },
+                            hidden: False
+                          },
+                          to_field: None
+                        }
+                        table_type: <recursion ...>
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "issue_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "event_issue_id"
+                  expr: {
+                    args: [
+                      {
+                        alias: "$exception_issue_id"
+                        expr: {
+                          chain: [
+                            "properties",
+                            "$exception_issue_id"
+                          ]
+                          end: 37
+                          start: 7
+                          type: {
+                            chain: [
+                              "$exception_issue_id"
+                            ]
+                            field_type: {
+                              name: "properties"
+                              table_type: <recursion ...>
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "$exception_issue_id"
+                          type: <recursion ...>
+                        }
+                      }
+                    ]
+                    distinct: False
+                    end: 38
+                    name: "toUUID"
+                    start: 0
+                    type: {
+                      arg_types: [
+                        {
+                          data_type: "str"
+                          nullable: True
+                        }
+                      ]
+                      name: "toUUID"
+                      return_type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "event_issue_id"
+                    type: <recursion ...>
+                  }
+                }
+              ]
+              distinct: False
+              name: "if"
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
           }
         ]
         select_from: {
@@ -931,7 +1327,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -958,44 +1356,128 @@
             table_type: {
               table: {
                 fields: {
-                  $group_0: {},
-                  $group_1: {},
-                  $group_2: {},
-                  $group_3: {},
-                  $group_4: {},
-                  $session_id: {},
-                  $window_id: {},
-                  created_at: {},
-                  distinct_id: {},
-                  elements_chain: {},
-                  elements_chain_elements: {},
-                  elements_chain_href: {},
-                  elements_chain_ids: {},
-                  elements_chain_texts: {},
-                  event: {},
-                  event_person_id: {},
-                  goe_0: {},
-                  goe_1: {},
-                  goe_2: {},
-                  goe_3: {},
-                  goe_4: {},
-                  group_0: {},
-                  group_1: {},
-                  group_2: {},
-                  group_3: {},
-                  group_4: {},
-                  hidden_field: {},
-                  override: {},
-                  pdi: {},
-                  person: {},
-                  person_id: {},
-                  poe: {},
-                  properties: {},
-                  session: {},
-                  team_id: {},
-                  timestamp: {},
-                  uuid: {}
-                }
+                  $group_0: {
+                    hidden: False
+                  },
+                  $group_1: {
+                    hidden: False
+                  },
+                  $group_2: {
+                    hidden: False
+                  },
+                  $group_3: {
+                    hidden: False
+                  },
+                  $group_4: {
+                    hidden: False
+                  },
+                  $session_id: {
+                    hidden: False
+                  },
+                  $window_id: {
+                    hidden: False
+                  },
+                  created_at: {
+                    hidden: False
+                  },
+                  distinct_id: {
+                    hidden: False
+                  },
+                  elements_chain: {
+                    hidden: False
+                  },
+                  elements_chain_elements: {
+                    hidden: False
+                  },
+                  elements_chain_href: {
+                    hidden: False
+                  },
+                  elements_chain_ids: {
+                    hidden: False
+                  },
+                  elements_chain_texts: {
+                    hidden: False
+                  },
+                  event: {
+                    hidden: False
+                  },
+                  event_issue_id: {
+                    hidden: False
+                  },
+                  event_person_id: {
+                    hidden: False
+                  },
+                  exception_issue_override: {
+                    hidden: False
+                  },
+                  goe_0: {
+                    hidden: False
+                  },
+                  goe_1: {
+                    hidden: False
+                  },
+                  goe_2: {
+                    hidden: False
+                  },
+                  goe_3: {
+                    hidden: False
+                  },
+                  goe_4: {
+                    hidden: False
+                  },
+                  group_0: {
+                    hidden: False
+                  },
+                  group_1: {
+                    hidden: False
+                  },
+                  group_2: {
+                    hidden: False
+                  },
+                  group_3: {
+                    hidden: False
+                  },
+                  group_4: {
+                    hidden: False
+                  },
+                  hidden_field: {
+                    hidden: True
+                  },
+                  issue_id: {
+                    hidden: False
+                  },
+                  override: {
+                    hidden: False
+                  },
+                  pdi: {
+                    hidden: False
+                  },
+                  person: {
+                    hidden: False
+                  },
+                  person_id: {
+                    hidden: False
+                  },
+                  poe: {
+                    hidden: False
+                  },
+                  properties: {
+                    hidden: False
+                  },
+                  session: {
+                    hidden: False
+                  },
+                  team_id: {
+                    hidden: False
+                  },
+                  timestamp: {
+                    hidden: False
+                  },
+                  uuid: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }
@@ -1165,14 +1647,24 @@
                               from_field: [
                                 "distinct_id"
                               ],
+                              hidden: False,
                               join_function: <function>,
                               join_table: {
                                 fields: {
-                                  distinct_id: {},
-                                  person: {},
-                                  person_id: {},
-                                  team_id: {}
-                                }
+                                  distinct_id: {
+                                    hidden: False
+                                  },
+                                  person: {
+                                    hidden: False
+                                  },
+                                  person_id: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False
                               },
                               to_field: None
                             }
@@ -1232,14 +1724,24 @@
                       from_field: [
                         "distinct_id"
                       ],
+                      hidden: False,
                       join_function: <function>,
                       join_table: {
                         fields: {
-                          distinct_id: {},
-                          person: {},
-                          person_id: {},
-                          team_id: {}
-                        }
+                          distinct_id: {
+                            hidden: False
+                          },
+                          person: {
+                            hidden: False
+                          },
+                          person_id: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
                       },
                       to_field: None
                     }
@@ -1467,6 +1969,264 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          args: [
+            {
+              alias: "$exception_issue_id"
+              expr: {
+                chain: [
+                  "properties",
+                  "$exception_issue_id"
+                ]
+                end: 37
+                start: 7
+                type: {
+                  chain: [
+                    "$exception_issue_id"
+                  ]
+                  field_type: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "$exception_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          end: 38
+          name: "toUUID"
+          start: 0
+          type: {
+            arg_types: [
+              {
+                data_type: "str"
+                nullable: True
+              }
+            ]
+            name: "toUUID"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "issue_id"
+                      expr: {
+                        chain: [
+                          "exception_issue_override",
+                          "issue_id"
+                        ]
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "exception_issue_override"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "issue_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                chain: [
+                  "exception_issue_override",
+                  "issue_id"
+                ]
+                type: {
+                  name: "issue_id"
+                  table_type: {
+                    field: "exception_issue_override"
+                    lazy_join: {
+                      from_field: [
+                        "fingerprint"
+                      ],
+                      hidden: False,
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          fingerprint: {
+                            hidden: False
+                          },
+                          issue_id: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "issue_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: {
+                  arg_types: [
+                    {
+                      data_type: "str"
+                      nullable: True
+                    }
+                  ]
+                  name: "toUUID"
+                  return_type: {
+                    data_type: "unknown"
+                    nullable: True
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              <recursion ...>
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -1497,7 +2257,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -1529,31 +2291,83 @@
               table_type: {
                 table: {
                   fields: {
-                    active_milliseconds: {},
-                    click_count: {},
-                    console_error_count: {},
-                    console_log_count: {},
-                    console_logs: {},
-                    console_warn_count: {},
-                    distinct_id: {},
-                    end_time: {},
-                    event_count: {},
-                    events: {},
-                    first_url: {},
-                    keypress_count: {},
-                    message_count: {},
-                    mouse_activity_count: {},
-                    pdi: {},
-                    person: {},
-                    person_id: {},
-                    properties: {},
-                    session: {},
-                    session_id: {},
-                    size: {},
-                    snapshot_source: {},
-                    start_time: {},
-                    team_id: {}
-                  }
+                    active_milliseconds: {
+                      hidden: False
+                    },
+                    all_urls: {
+                      hidden: False
+                    },
+                    click_count: {
+                      hidden: False
+                    },
+                    console_error_count: {
+                      hidden: False
+                    },
+                    console_log_count: {
+                      hidden: False
+                    },
+                    console_logs: {
+                      hidden: False
+                    },
+                    console_warn_count: {
+                      hidden: False
+                    },
+                    distinct_id: {
+                      hidden: False
+                    },
+                    end_time: {
+                      hidden: False
+                    },
+                    event_count: {
+                      hidden: False
+                    },
+                    events: {
+                      hidden: False
+                    },
+                    first_url: {
+                      hidden: False
+                    },
+                    keypress_count: {
+                      hidden: False
+                    },
+                    message_count: {
+                      hidden: False
+                    },
+                    mouse_activity_count: {
+                      hidden: False
+                    },
+                    pdi: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    properties: {
+                      hidden: False
+                    },
+                    session: {
+                      hidden: False
+                    },
+                    session_id: {
+                      hidden: False
+                    },
+                    size: {
+                      hidden: False
+                    },
+                    snapshot_source: {
+                      hidden: False
+                    },
+                    start_time: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 }
               }
             }
@@ -1598,6 +2412,24 @@
         hidden: True
         type: {
           alias: "first_url"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "all_urls"
+        expr: {
+          chain: [
+            "e",
+            "all_urls"
+          ]
+          type: {
+            name: "all_urls"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "all_urls"
           type: <recursion ...>
         }
       },
@@ -1857,40 +2689,152 @@
                     table_type: {
                       table: {
                         fields: {
-                          $autocapture_count: {},
-                          $channel_type: {},
-                          $end_current_url: {},
-                          $end_pathname: {},
-                          $end_timestamp: {},
-                          $entry_current_url: {},
-                          $entry_gad_source: {},
-                          $entry_gclid: {},
-                          $entry_pathname: {},
-                          $entry_referring_domain: {},
-                          $entry_utm_campaign: {},
-                          $entry_utm_content: {},
-                          $entry_utm_medium: {},
-                          $entry_utm_source: {},
-                          $entry_utm_term: {},
-                          $exit_current_url: {},
-                          $exit_pathname: {},
-                          $is_bounce: {},
-                          $last_external_click_url: {},
-                          $num_uniq_urls: {},
-                          $page_screen_autocapture_count_up_to: {},
-                          $pageview_count: {},
-                          $screen_count: {},
-                          $session_duration: {},
-                          $start_timestamp: {},
-                          $urls: {},
-                          $vitals_lcp: {},
-                          distinct_id: {},
-                          duration: {},
-                          id: {},
-                          session_id: {},
-                          session_id_v7: {},
-                          team_id: {}
-                        }
+                          $autocapture_count: {
+                            hidden: False
+                          },
+                          $channel_type: {
+                            hidden: False
+                          },
+                          $end_current_url: {
+                            hidden: False
+                          },
+                          $end_hostname: {
+                            hidden: False
+                          },
+                          $end_pathname: {
+                            hidden: False
+                          },
+                          $end_timestamp: {
+                            hidden: False
+                          },
+                          $entry__kx: {
+                            hidden: False
+                          },
+                          $entry_current_url: {
+                            hidden: False
+                          },
+                          $entry_dclid: {
+                            hidden: False
+                          },
+                          $entry_fbclid: {
+                            hidden: False
+                          },
+                          $entry_gad_source: {
+                            hidden: False
+                          },
+                          $entry_gbraid: {
+                            hidden: False
+                          },
+                          $entry_gclid: {
+                            hidden: False
+                          },
+                          $entry_gclsrc: {
+                            hidden: False
+                          },
+                          $entry_hostname: {
+                            hidden: False
+                          },
+                          $entry_igshid: {
+                            hidden: False
+                          },
+                          $entry_irclid: {
+                            hidden: False
+                          },
+                          $entry_li_fat_id: {
+                            hidden: False
+                          },
+                          $entry_mc_cid: {
+                            hidden: False
+                          },
+                          $entry_msclkid: {
+                            hidden: False
+                          },
+                          $entry_pathname: {
+                            hidden: False
+                          },
+                          $entry_referring_domain: {
+                            hidden: False
+                          },
+                          $entry_ttclid: {
+                            hidden: False
+                          },
+                          $entry_twclid: {
+                            hidden: False
+                          },
+                          $entry_utm_campaign: {
+                            hidden: False
+                          },
+                          $entry_utm_content: {
+                            hidden: False
+                          },
+                          $entry_utm_medium: {
+                            hidden: False
+                          },
+                          $entry_utm_source: {
+                            hidden: False
+                          },
+                          $entry_utm_term: {
+                            hidden: False
+                          },
+                          $entry_wbraid: {
+                            hidden: False
+                          },
+                          $exit_current_url: {
+                            hidden: False
+                          },
+                          $exit_pathname: {
+                            hidden: False
+                          },
+                          $is_bounce: {
+                            hidden: False
+                          },
+                          $last_external_click_url: {
+                            hidden: False
+                          },
+                          $num_uniq_urls: {
+                            hidden: False
+                          },
+                          $page_screen_autocapture_count_up_to: {
+                            hidden: False
+                          },
+                          $pageview_count: {
+                            hidden: False
+                          },
+                          $screen_count: {
+                            hidden: False
+                          },
+                          $session_duration: {
+                            hidden: False
+                          },
+                          $start_timestamp: {
+                            hidden: False
+                          },
+                          $urls: {
+                            hidden: False
+                          },
+                          $vitals_lcp: {
+                            hidden: False
+                          },
+                          distinct_id: {
+                            hidden: False
+                          },
+                          duration: {
+                            hidden: False
+                          },
+                          id: {
+                            hidden: False
+                          },
+                          session_id: {
+                            hidden: False
+                          },
+                          session_id_v7: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
                       }
                     }
                   }
@@ -1949,6 +2893,7 @@
       anonymous_tables: []
       columns: {
         active_milliseconds: <recursion ...>,
+        all_urls: <recursion ...>,
         click_count: <recursion ...>,
         console_error_count: <recursion ...>,
         console_log_count: <recursion ...>,
@@ -2209,43 +3154,125 @@
                     table_type: {
                       table: {
                         fields: {
-                          $group_0: {},
-                          $group_1: {},
-                          $group_2: {},
-                          $group_3: {},
-                          $group_4: {},
-                          $session_id: {},
-                          $window_id: {},
-                          created_at: {},
-                          distinct_id: {},
-                          elements_chain: {},
-                          elements_chain_elements: {},
-                          elements_chain_href: {},
-                          elements_chain_ids: {},
-                          elements_chain_texts: {},
-                          event: {},
-                          event_person_id: {},
-                          goe_0: {},
-                          goe_1: {},
-                          goe_2: {},
-                          goe_3: {},
-                          goe_4: {},
-                          group_0: {},
-                          group_1: {},
-                          group_2: {},
-                          group_3: {},
-                          group_4: {},
-                          override: {},
-                          pdi: {},
-                          person: {},
-                          person_id: {},
-                          poe: {},
-                          properties: {},
-                          session: {},
-                          team_id: {},
-                          timestamp: {},
-                          uuid: {}
-                        }
+                          $group_0: {
+                            hidden: False
+                          },
+                          $group_1: {
+                            hidden: False
+                          },
+                          $group_2: {
+                            hidden: False
+                          },
+                          $group_3: {
+                            hidden: False
+                          },
+                          $group_4: {
+                            hidden: False
+                          },
+                          $session_id: {
+                            hidden: False
+                          },
+                          $window_id: {
+                            hidden: False
+                          },
+                          created_at: {
+                            hidden: False
+                          },
+                          distinct_id: {
+                            hidden: False
+                          },
+                          elements_chain: {
+                            hidden: False
+                          },
+                          elements_chain_elements: {
+                            hidden: False
+                          },
+                          elements_chain_href: {
+                            hidden: False
+                          },
+                          elements_chain_ids: {
+                            hidden: False
+                          },
+                          elements_chain_texts: {
+                            hidden: False
+                          },
+                          event: {
+                            hidden: False
+                          },
+                          event_issue_id: {
+                            hidden: False
+                          },
+                          event_person_id: {
+                            hidden: False
+                          },
+                          exception_issue_override: {
+                            hidden: False
+                          },
+                          goe_0: {
+                            hidden: False
+                          },
+                          goe_1: {
+                            hidden: False
+                          },
+                          goe_2: {
+                            hidden: False
+                          },
+                          goe_3: {
+                            hidden: False
+                          },
+                          goe_4: {
+                            hidden: False
+                          },
+                          group_0: {
+                            hidden: False
+                          },
+                          group_1: {
+                            hidden: False
+                          },
+                          group_2: {
+                            hidden: False
+                          },
+                          group_3: {
+                            hidden: False
+                          },
+                          group_4: {
+                            hidden: False
+                          },
+                          issue_id: {
+                            hidden: False
+                          },
+                          override: {
+                            hidden: False
+                          },
+                          pdi: {
+                            hidden: False
+                          },
+                          person: {
+                            hidden: False
+                          },
+                          person_id: {
+                            hidden: False
+                          },
+                          poe: {
+                            hidden: False
+                          },
+                          properties: {
+                            hidden: False
+                          },
+                          session: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          },
+                          timestamp: {
+                            hidden: False
+                          },
+                          uuid: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
                       }
                     }
                   }
@@ -2348,11 +3375,51 @@
                     table_type: <recursion ...>
                   }
                 },
+                event_issue_id: {
+                  alias: "event_issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: True
+                      }
+                    ]
+                    name: "toUUID"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                },
                 event_person_id: {
                   alias: "event_person_id"
                   type: {
                     name: "event_person_id"
                     table_type: <recursion ...>
+                  }
+                },
+                issue_id: {
+                  alias: "issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      },
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    ]
+                    name: "if"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
                   }
                 },
                 person_id: {
@@ -2736,6 +3803,40 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          chain: [
+            "event_issue_id"
+          ]
+          type: {
+            name: "event_issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          chain: [
+            "issue_id"
+          ]
+          type: {
+            name: "issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -2864,14 +3965,24 @@
                                     from_field: [
                                       "distinct_id"
                                     ],
+                                    hidden: False,
                                     join_function: <function>,
                                     join_table: {
                                       fields: {
-                                        distinct_id: {},
-                                        person: {},
-                                        person_id: {},
-                                        team_id: {}
-                                      }
+                                        distinct_id: {
+                                          hidden: False
+                                        },
+                                        person: {
+                                          hidden: False
+                                        },
+                                        person_id: {
+                                          hidden: False
+                                        },
+                                        team_id: {
+                                          hidden: False
+                                        }
+                                      },
+                                      hidden: False
                                     },
                                     to_field: None
                                   }
@@ -2928,14 +4039,24 @@
                             from_field: [
                               "distinct_id"
                             ],
+                            hidden: False,
                             join_function: <function>,
                             join_table: {
                               fields: {
-                                distinct_id: {},
-                                person: {},
-                                person_id: {},
-                                team_id: {}
-                              }
+                                distinct_id: {
+                                  hidden: False
+                                },
+                                person: {
+                                  hidden: False
+                                },
+                                person_id: {
+                                  hidden: False
+                                },
+                                team_id: {
+                                  hidden: False
+                                }
+                              },
+                              hidden: False
                             },
                             to_field: None
                           }
@@ -3083,6 +4204,226 @@
               }
               hidden: True
               type: <recursion ...>
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                args: [
+                  {
+                    args: [
+                      {
+                        args: [
+                          {
+                            alias: "issue_id"
+                            expr: {
+                              chain: [
+                                "exception_issue_override",
+                                "issue_id"
+                              ]
+                              type: {
+                                name: "issue_id"
+                                table_type: {
+                                  field: "exception_issue_override"
+                                  lazy_join: {
+                                    from_field: [
+                                      "fingerprint"
+                                    ],
+                                    hidden: False,
+                                    join_function: <function>,
+                                    join_table: {
+                                      fields: {
+                                        fingerprint: {
+                                          hidden: False
+                                        },
+                                        issue_id: {
+                                          hidden: False
+                                        },
+                                        team_id: {
+                                          hidden: False
+                                        }
+                                      },
+                                      hidden: False
+                                    },
+                                    to_field: None
+                                  }
+                                  table_type: <recursion ...>
+                                }
+                              }
+                            }
+                            hidden: True
+                            type: {
+                              alias: "issue_id"
+                              type: <recursion ...>
+                            }
+                          }
+                        ]
+                        distinct: False
+                        name: "empty"
+                        type: {
+                          arg_types: [
+                            {
+                              data_type: "str"
+                              nullable: False
+                            }
+                          ]
+                          name: "empty"
+                          return_type: {
+                            data_type: "unknown"
+                            nullable: True
+                          }
+                        }
+                      }
+                    ]
+                    distinct: False
+                    name: "not"
+                    type: {
+                      arg_types: [
+                        <recursion ...>
+                      ]
+                      name: "not"
+                      return_type: <recursion ...>
+                    }
+                  },
+                  {
+                    alias: "issue_id"
+                    expr: {
+                      chain: [
+                        "exception_issue_override",
+                        "issue_id"
+                      ]
+                      type: {
+                        name: "issue_id"
+                        table_type: {
+                          field: "exception_issue_override"
+                          lazy_join: {
+                            from_field: [
+                              "fingerprint"
+                            ],
+                            hidden: False,
+                            join_function: <function>,
+                            join_table: {
+                              fields: {
+                                fingerprint: {
+                                  hidden: False
+                                },
+                                issue_id: {
+                                  hidden: False
+                                },
+                                team_id: {
+                                  hidden: False
+                                }
+                              },
+                              hidden: False
+                            },
+                            to_field: None
+                          }
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "issue_id"
+                      type: <recursion ...>
+                    }
+                  },
+                  {
+                    alias: "event_issue_id"
+                    expr: {
+                      args: [
+                        {
+                          alias: "$exception_issue_id"
+                          expr: {
+                            chain: [
+                              "properties",
+                              "$exception_issue_id"
+                            ]
+                            end: 37
+                            start: 7
+                            type: {
+                              chain: [
+                                "$exception_issue_id"
+                              ]
+                              field_type: {
+                                name: "properties"
+                                table_type: <recursion ...>
+                              }
+                            }
+                          }
+                          hidden: True
+                          type: {
+                            alias: "$exception_issue_id"
+                            type: <recursion ...>
+                          }
+                        }
+                      ]
+                      distinct: False
+                      end: 38
+                      name: "toUUID"
+                      start: 0
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "str"
+                            nullable: True
+                          }
+                        ]
+                        name: "toUUID"
+                        return_type: <recursion ...>
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "event_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                name: "if"
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
             }
           ]
           select_from: {
@@ -3111,43 +4452,125 @@
                       table_type: {
                         table: {
                           fields: {
-                            $group_0: {},
-                            $group_1: {},
-                            $group_2: {},
-                            $group_3: {},
-                            $group_4: {},
-                            $session_id: {},
-                            $window_id: {},
-                            created_at: {},
-                            distinct_id: {},
-                            elements_chain: {},
-                            elements_chain_elements: {},
-                            elements_chain_href: {},
-                            elements_chain_ids: {},
-                            elements_chain_texts: {},
-                            event: {},
-                            event_person_id: {},
-                            goe_0: {},
-                            goe_1: {},
-                            goe_2: {},
-                            goe_3: {},
-                            goe_4: {},
-                            group_0: {},
-                            group_1: {},
-                            group_2: {},
-                            group_3: {},
-                            group_4: {},
-                            override: {},
-                            pdi: {},
-                            person: {},
-                            person_id: {},
-                            poe: {},
-                            properties: {},
-                            session: {},
-                            team_id: {},
-                            timestamp: {},
-                            uuid: {}
-                          }
+                            $group_0: {
+                              hidden: False
+                            },
+                            $group_1: {
+                              hidden: False
+                            },
+                            $group_2: {
+                              hidden: False
+                            },
+                            $group_3: {
+                              hidden: False
+                            },
+                            $group_4: {
+                              hidden: False
+                            },
+                            $session_id: {
+                              hidden: False
+                            },
+                            $window_id: {
+                              hidden: False
+                            },
+                            created_at: {
+                              hidden: False
+                            },
+                            distinct_id: {
+                              hidden: False
+                            },
+                            elements_chain: {
+                              hidden: False
+                            },
+                            elements_chain_elements: {
+                              hidden: False
+                            },
+                            elements_chain_href: {
+                              hidden: False
+                            },
+                            elements_chain_ids: {
+                              hidden: False
+                            },
+                            elements_chain_texts: {
+                              hidden: False
+                            },
+                            event: {
+                              hidden: False
+                            },
+                            event_issue_id: {
+                              hidden: False
+                            },
+                            event_person_id: {
+                              hidden: False
+                            },
+                            exception_issue_override: {
+                              hidden: False
+                            },
+                            goe_0: {
+                              hidden: False
+                            },
+                            goe_1: {
+                              hidden: False
+                            },
+                            goe_2: {
+                              hidden: False
+                            },
+                            goe_3: {
+                              hidden: False
+                            },
+                            goe_4: {
+                              hidden: False
+                            },
+                            group_0: {
+                              hidden: False
+                            },
+                            group_1: {
+                              hidden: False
+                            },
+                            group_2: {
+                              hidden: False
+                            },
+                            group_3: {
+                              hidden: False
+                            },
+                            group_4: {
+                              hidden: False
+                            },
+                            issue_id: {
+                              hidden: False
+                            },
+                            override: {
+                              hidden: False
+                            },
+                            pdi: {
+                              hidden: False
+                            },
+                            person: {
+                              hidden: False
+                            },
+                            person_id: {
+                              hidden: False
+                            },
+                            poe: {
+                              hidden: False
+                            },
+                            properties: {
+                              hidden: False
+                            },
+                            session: {
+                              hidden: False
+                            },
+                            team_id: {
+                              hidden: False
+                            },
+                            timestamp: {
+                              hidden: False
+                            },
+                            uuid: {
+                              hidden: False
+                            }
+                          },
+                          hidden: False
                         }
                       }
                     }
@@ -3317,14 +4740,24 @@
                                         from_field: [
                                           "distinct_id"
                                         ],
+                                        hidden: False,
                                         join_function: <function>,
                                         join_table: {
                                           fields: {
-                                            distinct_id: {},
-                                            person: {},
-                                            person_id: {},
-                                            team_id: {}
-                                          }
+                                            distinct_id: {
+                                              hidden: False
+                                            },
+                                            person: {
+                                              hidden: False
+                                            },
+                                            person_id: {
+                                              hidden: False
+                                            },
+                                            team_id: {
+                                              hidden: False
+                                            }
+                                          },
+                                          hidden: False
                                         },
                                         to_field: None
                                       }
@@ -3384,14 +4817,24 @@
                                 from_field: [
                                   "distinct_id"
                                 ],
+                                hidden: False,
                                 join_function: <function>,
                                 join_table: {
                                   fields: {
-                                    distinct_id: {},
-                                    person: {},
-                                    person_id: {},
-                                    team_id: {}
-                                  }
+                                    distinct_id: {
+                                      hidden: False
+                                    },
+                                    person: {
+                                      hidden: False
+                                    },
+                                    person_id: {
+                                      hidden: False
+                                    },
+                                    team_id: {
+                                      hidden: False
+                                    }
+                                  },
+                                  hidden: False
                                 },
                                 to_field: None
                               }
@@ -3619,6 +5062,264 @@
                     alias: "event_person_id"
                     type: <recursion ...>
                   }
+                },
+                {
+                  alias: "event_issue_id"
+                  expr: {
+                    args: [
+                      {
+                        alias: "$exception_issue_id"
+                        expr: {
+                          chain: [
+                            "properties",
+                            "$exception_issue_id"
+                          ]
+                          end: 37
+                          start: 7
+                          type: {
+                            chain: [
+                              "$exception_issue_id"
+                            ]
+                            field_type: {
+                              name: "properties"
+                              table_type: <recursion ...>
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "$exception_issue_id"
+                          type: <recursion ...>
+                        }
+                      }
+                    ]
+                    distinct: False
+                    end: 38
+                    name: "toUUID"
+                    start: 0
+                    type: {
+                      arg_types: [
+                        {
+                          data_type: "str"
+                          nullable: True
+                        }
+                      ]
+                      name: "toUUID"
+                      return_type: {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "event_issue_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "issue_id"
+                  expr: {
+                    args: [
+                      {
+                        args: [
+                          {
+                            args: [
+                              {
+                                alias: "issue_id"
+                                expr: {
+                                  chain: [
+                                    "exception_issue_override",
+                                    "issue_id"
+                                  ]
+                                  type: {
+                                    name: "issue_id"
+                                    table_type: {
+                                      field: "exception_issue_override"
+                                      lazy_join: {
+                                        from_field: [
+                                          "fingerprint"
+                                        ],
+                                        hidden: False,
+                                        join_function: <function>,
+                                        join_table: {
+                                          fields: {
+                                            fingerprint: {
+                                              hidden: False
+                                            },
+                                            issue_id: {
+                                              hidden: False
+                                            },
+                                            team_id: {
+                                              hidden: False
+                                            }
+                                          },
+                                          hidden: False
+                                        },
+                                        to_field: None
+                                      }
+                                      table_type: <recursion ...>
+                                    }
+                                  }
+                                }
+                                hidden: True
+                                type: {
+                                  alias: "issue_id"
+                                  type: <recursion ...>
+                                }
+                              }
+                            ]
+                            distinct: False
+                            name: "empty"
+                            type: {
+                              arg_types: [
+                                {
+                                  data_type: "str"
+                                  nullable: False
+                                }
+                              ]
+                              name: "empty"
+                              return_type: {
+                                data_type: "unknown"
+                                nullable: True
+                              }
+                            }
+                          }
+                        ]
+                        distinct: False
+                        name: "not"
+                        type: {
+                          arg_types: [
+                            <recursion ...>
+                          ]
+                          name: "not"
+                          return_type: {
+                            data_type: "unknown"
+                            nullable: True
+                          }
+                        }
+                      },
+                      {
+                        alias: "issue_id"
+                        expr: {
+                          chain: [
+                            "exception_issue_override",
+                            "issue_id"
+                          ]
+                          type: {
+                            name: "issue_id"
+                            table_type: {
+                              field: "exception_issue_override"
+                              lazy_join: {
+                                from_field: [
+                                  "fingerprint"
+                                ],
+                                hidden: False,
+                                join_function: <function>,
+                                join_table: {
+                                  fields: {
+                                    fingerprint: {
+                                      hidden: False
+                                    },
+                                    issue_id: {
+                                      hidden: False
+                                    },
+                                    team_id: {
+                                      hidden: False
+                                    }
+                                  },
+                                  hidden: False
+                                },
+                                to_field: None
+                              }
+                              table_type: <recursion ...>
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "issue_id"
+                          type: <recursion ...>
+                        }
+                      },
+                      {
+                        alias: "event_issue_id"
+                        expr: {
+                          args: [
+                            {
+                              alias: "$exception_issue_id"
+                              expr: {
+                                chain: [
+                                  "properties",
+                                  "$exception_issue_id"
+                                ]
+                                end: 37
+                                start: 7
+                                type: {
+                                  chain: [
+                                    "$exception_issue_id"
+                                  ]
+                                  field_type: {
+                                    name: "properties"
+                                    table_type: <recursion ...>
+                                  }
+                                }
+                              }
+                              hidden: True
+                              type: {
+                                alias: "$exception_issue_id"
+                                type: <recursion ...>
+                              }
+                            }
+                          ]
+                          distinct: False
+                          end: 38
+                          name: "toUUID"
+                          start: 0
+                          type: {
+                            arg_types: [
+                              {
+                                data_type: "str"
+                                nullable: True
+                              }
+                            ]
+                            name: "toUUID"
+                            return_type: {
+                              data_type: "unknown"
+                              nullable: True
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "event_issue_id"
+                          type: <recursion ...>
+                        }
+                      }
+                    ]
+                    distinct: False
+                    name: "if"
+                    type: {
+                      arg_types: [
+                        <recursion ...>,
+                        {
+                          data_type: "str"
+                          nullable: False
+                        },
+                        <recursion ...>
+                      ]
+                      name: "if"
+                      return_type: {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "issue_id"
+                    type: <recursion ...>
+                  }
                 }
               ]
               select_from: {
@@ -3649,7 +5350,9 @@
                   elements_chain_ids: <recursion ...>,
                   elements_chain_texts: <recursion ...>,
                   event: <recursion ...>,
+                  event_issue_id: <recursion ...>,
                   event_person_id: <recursion ...>,
+                  issue_id: <recursion ...>,
                   person_id: <recursion ...>,
                   properties: <recursion ...>,
                   timestamp: <recursion ...>,
@@ -3694,7 +5397,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -3935,43 +5640,125 @@
             table_type: {
               table: {
                 fields: {
-                  $group_0: {},
-                  $group_1: {},
-                  $group_2: {},
-                  $group_3: {},
-                  $group_4: {},
-                  $session_id: {},
-                  $window_id: {},
-                  created_at: {},
-                  distinct_id: {},
-                  elements_chain: {},
-                  elements_chain_elements: {},
-                  elements_chain_href: {},
-                  elements_chain_ids: {},
-                  elements_chain_texts: {},
-                  event: {},
-                  event_person_id: {},
-                  goe_0: {},
-                  goe_1: {},
-                  goe_2: {},
-                  goe_3: {},
-                  goe_4: {},
-                  group_0: {},
-                  group_1: {},
-                  group_2: {},
-                  group_3: {},
-                  group_4: {},
-                  override: {},
-                  pdi: {},
-                  person: {},
-                  person_id: {},
-                  poe: {},
-                  properties: {},
-                  session: {},
-                  team_id: {},
-                  timestamp: {},
-                  uuid: {}
-                }
+                  $group_0: {
+                    hidden: False
+                  },
+                  $group_1: {
+                    hidden: False
+                  },
+                  $group_2: {
+                    hidden: False
+                  },
+                  $group_3: {
+                    hidden: False
+                  },
+                  $group_4: {
+                    hidden: False
+                  },
+                  $session_id: {
+                    hidden: False
+                  },
+                  $window_id: {
+                    hidden: False
+                  },
+                  created_at: {
+                    hidden: False
+                  },
+                  distinct_id: {
+                    hidden: False
+                  },
+                  elements_chain: {
+                    hidden: False
+                  },
+                  elements_chain_elements: {
+                    hidden: False
+                  },
+                  elements_chain_href: {
+                    hidden: False
+                  },
+                  elements_chain_ids: {
+                    hidden: False
+                  },
+                  elements_chain_texts: {
+                    hidden: False
+                  },
+                  event: {
+                    hidden: False
+                  },
+                  event_issue_id: {
+                    hidden: False
+                  },
+                  event_person_id: {
+                    hidden: False
+                  },
+                  exception_issue_override: {
+                    hidden: False
+                  },
+                  goe_0: {
+                    hidden: False
+                  },
+                  goe_1: {
+                    hidden: False
+                  },
+                  goe_2: {
+                    hidden: False
+                  },
+                  goe_3: {
+                    hidden: False
+                  },
+                  goe_4: {
+                    hidden: False
+                  },
+                  group_0: {
+                    hidden: False
+                  },
+                  group_1: {
+                    hidden: False
+                  },
+                  group_2: {
+                    hidden: False
+                  },
+                  group_3: {
+                    hidden: False
+                  },
+                  group_4: {
+                    hidden: False
+                  },
+                  issue_id: {
+                    hidden: False
+                  },
+                  override: {
+                    hidden: False
+                  },
+                  pdi: {
+                    hidden: False
+                  },
+                  person: {
+                    hidden: False
+                  },
+                  person_id: {
+                    hidden: False
+                  },
+                  poe: {
+                    hidden: False
+                  },
+                  properties: {
+                    hidden: False
+                  },
+                  session: {
+                    hidden: False
+                  },
+                  team_id: {
+                    hidden: False
+                  },
+                  timestamp: {
+                    hidden: False
+                  },
+                  uuid: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }
@@ -4141,14 +5928,24 @@
                               from_field: [
                                 "distinct_id"
                               ],
+                              hidden: False,
                               join_function: <function>,
                               join_table: {
                                 fields: {
-                                  distinct_id: {},
-                                  person: {},
-                                  person_id: {},
-                                  team_id: {}
-                                }
+                                  distinct_id: {
+                                    hidden: False
+                                  },
+                                  person: {
+                                    hidden: False
+                                  },
+                                  person_id: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False
                               },
                               to_field: None
                             }
@@ -4208,14 +6005,24 @@
                       from_field: [
                         "distinct_id"
                       ],
+                      hidden: False,
                       join_function: <function>,
                       join_table: {
                         fields: {
-                          distinct_id: {},
-                          person: {},
-                          person_id: {},
-                          team_id: {}
-                        }
+                          distinct_id: {
+                            hidden: False
+                          },
+                          person: {
+                            hidden: False
+                          },
+                          person_id: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
                       },
                       to_field: None
                     }
@@ -4441,6 +6248,264 @@
         hidden: True
         type: {
           alias: "event_person_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          args: [
+            {
+              alias: "$exception_issue_id"
+              expr: {
+                chain: [
+                  "properties",
+                  "$exception_issue_id"
+                ]
+                end: 37
+                start: 7
+                type: {
+                  chain: [
+                    "$exception_issue_id"
+                  ]
+                  field_type: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "$exception_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          end: 38
+          name: "toUUID"
+          start: 0
+          type: {
+            arg_types: [
+              {
+                data_type: "str"
+                nullable: True
+              }
+            ]
+            name: "toUUID"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "issue_id"
+                      expr: {
+                        chain: [
+                          "exception_issue_override",
+                          "issue_id"
+                        ]
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "exception_issue_override"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "issue_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                chain: [
+                  "exception_issue_override",
+                  "issue_id"
+                ]
+                type: {
+                  name: "issue_id"
+                  table_type: {
+                    field: "exception_issue_override"
+                    lazy_join: {
+                      from_field: [
+                        "fingerprint"
+                      ],
+                      hidden: False,
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          fingerprint: {
+                            hidden: False
+                          },
+                          issue_id: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "issue_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: {
+                  arg_types: [
+                    {
+                      data_type: "str"
+                      nullable: True
+                    }
+                  ]
+                  name: "toUUID"
+                  return_type: {
+                    data_type: "unknown"
+                    nullable: True
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              <recursion ...>
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
           type: <recursion ...>
         }
       }
@@ -4473,7 +6538,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -4504,43 +6571,125 @@
               table_type: {
                 table: {
                   fields: {
-                    $group_0: {},
-                    $group_1: {},
-                    $group_2: {},
-                    $group_3: {},
-                    $group_4: {},
-                    $session_id: {},
-                    $window_id: {},
-                    created_at: {},
-                    distinct_id: {},
-                    elements_chain: {},
-                    elements_chain_elements: {},
-                    elements_chain_href: {},
-                    elements_chain_ids: {},
-                    elements_chain_texts: {},
-                    event: {},
-                    event_person_id: {},
-                    goe_0: {},
-                    goe_1: {},
-                    goe_2: {},
-                    goe_3: {},
-                    goe_4: {},
-                    group_0: {},
-                    group_1: {},
-                    group_2: {},
-                    group_3: {},
-                    group_4: {},
-                    override: {},
-                    pdi: {},
-                    person: {},
-                    person_id: {},
-                    poe: {},
-                    properties: {},
-                    session: {},
-                    team_id: {},
-                    timestamp: {},
-                    uuid: {}
-                  }
+                    $group_0: {
+                      hidden: False
+                    },
+                    $group_1: {
+                      hidden: False
+                    },
+                    $group_2: {
+                      hidden: False
+                    },
+                    $group_3: {
+                      hidden: False
+                    },
+                    $group_4: {
+                      hidden: False
+                    },
+                    $session_id: {
+                      hidden: False
+                    },
+                    $window_id: {
+                      hidden: False
+                    },
+                    created_at: {
+                      hidden: False
+                    },
+                    distinct_id: {
+                      hidden: False
+                    },
+                    elements_chain: {
+                      hidden: False
+                    },
+                    elements_chain_elements: {
+                      hidden: False
+                    },
+                    elements_chain_href: {
+                      hidden: False
+                    },
+                    elements_chain_ids: {
+                      hidden: False
+                    },
+                    elements_chain_texts: {
+                      hidden: False
+                    },
+                    event: {
+                      hidden: False
+                    },
+                    event_issue_id: {
+                      hidden: False
+                    },
+                    event_person_id: {
+                      hidden: False
+                    },
+                    exception_issue_override: {
+                      hidden: False
+                    },
+                    goe_0: {
+                      hidden: False
+                    },
+                    goe_1: {
+                      hidden: False
+                    },
+                    goe_2: {
+                      hidden: False
+                    },
+                    goe_3: {
+                      hidden: False
+                    },
+                    goe_4: {
+                      hidden: False
+                    },
+                    group_0: {
+                      hidden: False
+                    },
+                    group_1: {
+                      hidden: False
+                    },
+                    group_2: {
+                      hidden: False
+                    },
+                    group_3: {
+                      hidden: False
+                    },
+                    group_4: {
+                      hidden: False
+                    },
+                    issue_id: {
+                      hidden: False
+                    },
+                    override: {
+                      hidden: False
+                    },
+                    pdi: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    poe: {
+                      hidden: False
+                    },
+                    properties: {
+                      hidden: False
+                    },
+                    session: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    },
+                    timestamp: {
+                      hidden: False
+                    },
+                    uuid: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 }
               }
             }
@@ -4711,14 +6860,24 @@
                               from_field: [
                                 "distinct_id"
                               ],
+                              hidden: False,
                               join_function: <function>,
                               join_table: {
                                 fields: {
-                                  distinct_id: {},
-                                  person: {},
-                                  person_id: {},
-                                  team_id: {}
-                                }
+                                  distinct_id: {
+                                    hidden: False
+                                  },
+                                  person: {
+                                    hidden: False
+                                  },
+                                  person_id: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False
                               },
                               to_field: None
                             }
@@ -4778,14 +6937,24 @@
                       from_field: [
                         "distinct_id"
                       ],
+                      hidden: False,
                       join_function: <function>,
                       join_table: {
                         fields: {
-                          distinct_id: {},
-                          person: {},
-                          person_id: {},
-                          team_id: {}
-                        }
+                          distinct_id: {
+                            hidden: False
+                          },
+                          person: {
+                            hidden: False
+                          },
+                          person_id: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
                       },
                       to_field: None
                     }
@@ -5011,6 +7180,264 @@
         hidden: True
         type: {
           alias: "event_person_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          args: [
+            {
+              alias: "$exception_issue_id"
+              expr: {
+                chain: [
+                  "properties",
+                  "$exception_issue_id"
+                ]
+                end: 37
+                start: 7
+                type: {
+                  chain: [
+                    "$exception_issue_id"
+                  ]
+                  field_type: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "$exception_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          end: 38
+          name: "toUUID"
+          start: 0
+          type: {
+            arg_types: [
+              {
+                data_type: "str"
+                nullable: True
+              }
+            ]
+            name: "toUUID"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "issue_id"
+                      expr: {
+                        chain: [
+                          "exception_issue_override",
+                          "issue_id"
+                        ]
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "exception_issue_override"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "issue_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                chain: [
+                  "exception_issue_override",
+                  "issue_id"
+                ]
+                type: {
+                  name: "issue_id"
+                  table_type: {
+                    field: "exception_issue_override"
+                    lazy_join: {
+                      from_field: [
+                        "fingerprint"
+                      ],
+                      hidden: False,
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          fingerprint: {
+                            hidden: False
+                          },
+                          issue_id: {
+                            hidden: False
+                          },
+                          team_id: {
+                            hidden: False
+                          }
+                        },
+                        hidden: False
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "issue_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: {
+                  arg_types: [
+                    {
+                      data_type: "str"
+                      nullable: True
+                    }
+                  ]
+                  name: "toUUID"
+                  return_type: {
+                    data_type: "unknown"
+                    nullable: True
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              <recursion ...>
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
           type: <recursion ...>
         }
       }
@@ -5044,7 +7471,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -5075,43 +7504,125 @@
                 table_type: {
                   table: {
                     fields: {
-                      $group_0: {},
-                      $group_1: {},
-                      $group_2: {},
-                      $group_3: {},
-                      $group_4: {},
-                      $session_id: {},
-                      $window_id: {},
-                      created_at: {},
-                      distinct_id: {},
-                      elements_chain: {},
-                      elements_chain_elements: {},
-                      elements_chain_href: {},
-                      elements_chain_ids: {},
-                      elements_chain_texts: {},
-                      event: {},
-                      event_person_id: {},
-                      goe_0: {},
-                      goe_1: {},
-                      goe_2: {},
-                      goe_3: {},
-                      goe_4: {},
-                      group_0: {},
-                      group_1: {},
-                      group_2: {},
-                      group_3: {},
-                      group_4: {},
-                      override: {},
-                      pdi: {},
-                      person: {},
-                      person_id: {},
-                      poe: {},
-                      properties: {},
-                      session: {},
-                      team_id: {},
-                      timestamp: {},
-                      uuid: {}
-                    }
+                      $group_0: {
+                        hidden: False
+                      },
+                      $group_1: {
+                        hidden: False
+                      },
+                      $group_2: {
+                        hidden: False
+                      },
+                      $group_3: {
+                        hidden: False
+                      },
+                      $group_4: {
+                        hidden: False
+                      },
+                      $session_id: {
+                        hidden: False
+                      },
+                      $window_id: {
+                        hidden: False
+                      },
+                      created_at: {
+                        hidden: False
+                      },
+                      distinct_id: {
+                        hidden: False
+                      },
+                      elements_chain: {
+                        hidden: False
+                      },
+                      elements_chain_elements: {
+                        hidden: False
+                      },
+                      elements_chain_href: {
+                        hidden: False
+                      },
+                      elements_chain_ids: {
+                        hidden: False
+                      },
+                      elements_chain_texts: {
+                        hidden: False
+                      },
+                      event: {
+                        hidden: False
+                      },
+                      event_issue_id: {
+                        hidden: False
+                      },
+                      event_person_id: {
+                        hidden: False
+                      },
+                      exception_issue_override: {
+                        hidden: False
+                      },
+                      goe_0: {
+                        hidden: False
+                      },
+                      goe_1: {
+                        hidden: False
+                      },
+                      goe_2: {
+                        hidden: False
+                      },
+                      goe_3: {
+                        hidden: False
+                      },
+                      goe_4: {
+                        hidden: False
+                      },
+                      group_0: {
+                        hidden: False
+                      },
+                      group_1: {
+                        hidden: False
+                      },
+                      group_2: {
+                        hidden: False
+                      },
+                      group_3: {
+                        hidden: False
+                      },
+                      group_4: {
+                        hidden: False
+                      },
+                      issue_id: {
+                        hidden: False
+                      },
+                      override: {
+                        hidden: False
+                      },
+                      pdi: {
+                        hidden: False
+                      },
+                      person: {
+                        hidden: False
+                      },
+                      person_id: {
+                        hidden: False
+                      },
+                      poe: {
+                        hidden: False
+                      },
+                      properties: {
+                        hidden: False
+                      },
+                      session: {
+                        hidden: False
+                      },
+                      team_id: {
+                        hidden: False
+                      },
+                      timestamp: {
+                        hidden: False
+                      },
+                      uuid: {
+                        hidden: False
+                      }
+                    },
+                    hidden: False
                   }
                 }
               }
@@ -5152,7 +7663,9 @@
     type: {
       aliases: {}
       anonymous_tables: []
-      columns: {}
+      columns: {
+        max(timestamp): <recursion ...>
+      }
       ctes: {}
       tables: {
         events: <recursion ...>
@@ -5180,44 +7693,128 @@
                 table_type: {
                   table: {
                     fields: {
-                      $group_0: {},
-                      $group_1: {},
-                      $group_2: {},
-                      $group_3: {},
-                      $group_4: {},
-                      $session_id: {},
-                      $window_id: {},
-                      created_at: {},
-                      distinct_id: {},
-                      elements_chain: {},
-                      elements_chain_elements: {},
-                      elements_chain_href: {},
-                      elements_chain_ids: {},
-                      elements_chain_texts: {},
-                      event: {},
-                      event_person_id: {},
-                      goe_0: {},
-                      goe_1: {},
-                      goe_2: {},
-                      goe_3: {},
-                      goe_4: {},
-                      group_0: {},
-                      group_1: {},
-                      group_2: {},
-                      group_3: {},
-                      group_4: {},
-                      override: {},
-                      pdi: {},
-                      person: {},
-                      person_id: {},
-                      poe: {},
-                      properties: {},
-                      session: {},
-                      some_expr: {},
-                      team_id: {},
-                      timestamp: {},
-                      uuid: {}
-                    }
+                      $group_0: {
+                        hidden: False
+                      },
+                      $group_1: {
+                        hidden: False
+                      },
+                      $group_2: {
+                        hidden: False
+                      },
+                      $group_3: {
+                        hidden: False
+                      },
+                      $group_4: {
+                        hidden: False
+                      },
+                      $session_id: {
+                        hidden: False
+                      },
+                      $window_id: {
+                        hidden: False
+                      },
+                      created_at: {
+                        hidden: False
+                      },
+                      distinct_id: {
+                        hidden: False
+                      },
+                      elements_chain: {
+                        hidden: False
+                      },
+                      elements_chain_elements: {
+                        hidden: False
+                      },
+                      elements_chain_href: {
+                        hidden: False
+                      },
+                      elements_chain_ids: {
+                        hidden: False
+                      },
+                      elements_chain_texts: {
+                        hidden: False
+                      },
+                      event: {
+                        hidden: False
+                      },
+                      event_issue_id: {
+                        hidden: False
+                      },
+                      event_person_id: {
+                        hidden: False
+                      },
+                      exception_issue_override: {
+                        hidden: False
+                      },
+                      goe_0: {
+                        hidden: False
+                      },
+                      goe_1: {
+                        hidden: False
+                      },
+                      goe_2: {
+                        hidden: False
+                      },
+                      goe_3: {
+                        hidden: False
+                      },
+                      goe_4: {
+                        hidden: False
+                      },
+                      group_0: {
+                        hidden: False
+                      },
+                      group_1: {
+                        hidden: False
+                      },
+                      group_2: {
+                        hidden: False
+                      },
+                      group_3: {
+                        hidden: False
+                      },
+                      group_4: {
+                        hidden: False
+                      },
+                      issue_id: {
+                        hidden: False
+                      },
+                      override: {
+                        hidden: False
+                      },
+                      pdi: {
+                        hidden: False
+                      },
+                      person: {
+                        hidden: False
+                      },
+                      person_id: {
+                        hidden: False
+                      },
+                      poe: {
+                        hidden: False
+                      },
+                      properties: {
+                        hidden: False
+                      },
+                      session: {
+                        hidden: False
+                      },
+                      some_expr: {
+                        hidden: False
+                      },
+                      team_id: {
+                        hidden: False
+                      },
+                      timestamp: {
+                        hidden: False
+                      },
+                      uuid: {
+                        hidden: False
+                      }
+                    },
+                    hidden: False
                   }
                 }
               }
@@ -5250,17 +7847,36 @@
                 table_type: {
                   table: {
                     fields: {
-                      $virt_initial_channel_type: {},
-                      $virt_initial_referring_domain_type: {},
-                      created_at: {},
-                      id: {},
-                      is_identified: {},
-                      pdi: {},
-                      properties: {},
-                      some_expr: {},
-                      team_id: {}
+                      $virt_initial_channel_type: {
+                        hidden: False
+                      },
+                      $virt_initial_referring_domain_type: {
+                        hidden: False
+                      },
+                      created_at: {
+                        hidden: False
+                      },
+                      id: {
+                        hidden: False
+                      },
+                      is_identified: {
+                        hidden: False
+                      },
+                      pdi: {
+                        hidden: False
+                      },
+                      properties: {
+                        hidden: False
+                      },
+                      some_expr: {
+                        hidden: False
+                      },
+                      team_id: {
+                        hidden: False
+                      }
                     },
-                    filter: None
+                    filter: None,
+                    hidden: False
                   }
                 }
               }
@@ -5565,43 +8181,125 @@
             table_type: {
               table: {
                 fields: {
-                  $group_0: {},
-                  $group_1: {},
-                  $group_2: {},
-                  $group_3: {},
-                  $group_4: {},
-                  $session_id: {},
-                  $window_id: {},
-                  created_at: {},
-                  distinct_id: {},
-                  elements_chain: {},
-                  elements_chain_elements: {},
-                  elements_chain_href: {},
-                  elements_chain_ids: {},
-                  elements_chain_texts: {},
-                  event: {},
-                  event_person_id: {},
-                  goe_0: {},
-                  goe_1: {},
-                  goe_2: {},
-                  goe_3: {},
-                  goe_4: {},
-                  group_0: {},
-                  group_1: {},
-                  group_2: {},
-                  group_3: {},
-                  group_4: {},
-                  override: {},
-                  pdi: {},
-                  person: {},
-                  person_id: {},
-                  poe: {},
-                  properties: {},
-                  session: {},
-                  team_id: {},
-                  timestamp: {},
-                  uuid: {}
-                }
+                  $group_0: {
+                    hidden: False
+                  },
+                  $group_1: {
+                    hidden: False
+                  },
+                  $group_2: {
+                    hidden: False
+                  },
+                  $group_3: {
+                    hidden: False
+                  },
+                  $group_4: {
+                    hidden: False
+                  },
+                  $session_id: {
+                    hidden: False
+                  },
+                  $window_id: {
+                    hidden: False
+                  },
+                  created_at: {
+                    hidden: False
+                  },
+                  distinct_id: {
+                    hidden: False
+                  },
+                  elements_chain: {
+                    hidden: False
+                  },
+                  elements_chain_elements: {
+                    hidden: False
+                  },
+                  elements_chain_href: {
+                    hidden: False
+                  },
+                  elements_chain_ids: {
+                    hidden: False
+                  },
+                  elements_chain_texts: {
+                    hidden: False
+                  },
+                  event: {
+                    hidden: False
+                  },
+                  event_issue_id: {
+                    hidden: False
+                  },
+                  event_person_id: {
+                    hidden: False
+                  },
+                  exception_issue_override: {
+                    hidden: False
+                  },
+                  goe_0: {
+                    hidden: False
+                  },
+                  goe_1: {
+                    hidden: False
+                  },
+                  goe_2: {
+                    hidden: False
+                  },
+                  goe_3: {
+                    hidden: False
+                  },
+                  goe_4: {
+                    hidden: False
+                  },
+                  group_0: {
+                    hidden: False
+                  },
+                  group_1: {
+                    hidden: False
+                  },
+                  group_2: {
+                    hidden: False
+                  },
+                  group_3: {
+                    hidden: False
+                  },
+                  group_4: {
+                    hidden: False
+                  },
+                  issue_id: {
+                    hidden: False
+                  },
+                  override: {
+                    hidden: False
+                  },
+                  pdi: {
+                    hidden: False
+                  },
+                  person: {
+                    hidden: False
+                  },
+                  person_id: {
+                    hidden: False
+                  },
+                  poe: {
+                    hidden: False
+                  },
+                  properties: {
+                    hidden: False
+                  },
+                  session: {
+                    hidden: False
+                  },
+                  team_id: {
+                    hidden: False
+                  },
+                  timestamp: {
+                    hidden: False
+                  },
+                  uuid: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }
@@ -5704,43 +8402,125 @@
               table_type: {
                 table: {
                   fields: {
-                    $group_0: {},
-                    $group_1: {},
-                    $group_2: {},
-                    $group_3: {},
-                    $group_4: {},
-                    $session_id: {},
-                    $window_id: {},
-                    created_at: {},
-                    distinct_id: {},
-                    elements_chain: {},
-                    elements_chain_elements: {},
-                    elements_chain_href: {},
-                    elements_chain_ids: {},
-                    elements_chain_texts: {},
-                    event: {},
-                    event_person_id: {},
-                    goe_0: {},
-                    goe_1: {},
-                    goe_2: {},
-                    goe_3: {},
-                    goe_4: {},
-                    group_0: {},
-                    group_1: {},
-                    group_2: {},
-                    group_3: {},
-                    group_4: {},
-                    override: {},
-                    pdi: {},
-                    person: {},
-                    person_id: {},
-                    poe: {},
-                    properties: {},
-                    session: {},
-                    team_id: {},
-                    timestamp: {},
-                    uuid: {}
-                  }
+                    $group_0: {
+                      hidden: False
+                    },
+                    $group_1: {
+                      hidden: False
+                    },
+                    $group_2: {
+                      hidden: False
+                    },
+                    $group_3: {
+                      hidden: False
+                    },
+                    $group_4: {
+                      hidden: False
+                    },
+                    $session_id: {
+                      hidden: False
+                    },
+                    $window_id: {
+                      hidden: False
+                    },
+                    created_at: {
+                      hidden: False
+                    },
+                    distinct_id: {
+                      hidden: False
+                    },
+                    elements_chain: {
+                      hidden: False
+                    },
+                    elements_chain_elements: {
+                      hidden: False
+                    },
+                    elements_chain_href: {
+                      hidden: False
+                    },
+                    elements_chain_ids: {
+                      hidden: False
+                    },
+                    elements_chain_texts: {
+                      hidden: False
+                    },
+                    event: {
+                      hidden: False
+                    },
+                    event_issue_id: {
+                      hidden: False
+                    },
+                    event_person_id: {
+                      hidden: False
+                    },
+                    exception_issue_override: {
+                      hidden: False
+                    },
+                    goe_0: {
+                      hidden: False
+                    },
+                    goe_1: {
+                      hidden: False
+                    },
+                    goe_2: {
+                      hidden: False
+                    },
+                    goe_3: {
+                      hidden: False
+                    },
+                    goe_4: {
+                      hidden: False
+                    },
+                    group_0: {
+                      hidden: False
+                    },
+                    group_1: {
+                      hidden: False
+                    },
+                    group_2: {
+                      hidden: False
+                    },
+                    group_3: {
+                      hidden: False
+                    },
+                    group_4: {
+                      hidden: False
+                    },
+                    issue_id: {
+                      hidden: False
+                    },
+                    override: {
+                      hidden: False
+                    },
+                    pdi: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    poe: {
+                      hidden: False
+                    },
+                    properties: {
+                      hidden: False
+                    },
+                    session: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    },
+                    timestamp: {
+                      hidden: False
+                    },
+                    uuid: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 }
               }
             }
@@ -5847,43 +8627,125 @@
                 table_type: {
                   table: {
                     fields: {
-                      $group_0: {},
-                      $group_1: {},
-                      $group_2: {},
-                      $group_3: {},
-                      $group_4: {},
-                      $session_id: {},
-                      $window_id: {},
-                      created_at: {},
-                      distinct_id: {},
-                      elements_chain: {},
-                      elements_chain_elements: {},
-                      elements_chain_href: {},
-                      elements_chain_ids: {},
-                      elements_chain_texts: {},
-                      event: {},
-                      event_person_id: {},
-                      goe_0: {},
-                      goe_1: {},
-                      goe_2: {},
-                      goe_3: {},
-                      goe_4: {},
-                      group_0: {},
-                      group_1: {},
-                      group_2: {},
-                      group_3: {},
-                      group_4: {},
-                      override: {},
-                      pdi: {},
-                      person: {},
-                      person_id: {},
-                      poe: {},
-                      properties: {},
-                      session: {},
-                      team_id: {},
-                      timestamp: {},
-                      uuid: {}
-                    }
+                      $group_0: {
+                        hidden: False
+                      },
+                      $group_1: {
+                        hidden: False
+                      },
+                      $group_2: {
+                        hidden: False
+                      },
+                      $group_3: {
+                        hidden: False
+                      },
+                      $group_4: {
+                        hidden: False
+                      },
+                      $session_id: {
+                        hidden: False
+                      },
+                      $window_id: {
+                        hidden: False
+                      },
+                      created_at: {
+                        hidden: False
+                      },
+                      distinct_id: {
+                        hidden: False
+                      },
+                      elements_chain: {
+                        hidden: False
+                      },
+                      elements_chain_elements: {
+                        hidden: False
+                      },
+                      elements_chain_href: {
+                        hidden: False
+                      },
+                      elements_chain_ids: {
+                        hidden: False
+                      },
+                      elements_chain_texts: {
+                        hidden: False
+                      },
+                      event: {
+                        hidden: False
+                      },
+                      event_issue_id: {
+                        hidden: False
+                      },
+                      event_person_id: {
+                        hidden: False
+                      },
+                      exception_issue_override: {
+                        hidden: False
+                      },
+                      goe_0: {
+                        hidden: False
+                      },
+                      goe_1: {
+                        hidden: False
+                      },
+                      goe_2: {
+                        hidden: False
+                      },
+                      goe_3: {
+                        hidden: False
+                      },
+                      goe_4: {
+                        hidden: False
+                      },
+                      group_0: {
+                        hidden: False
+                      },
+                      group_1: {
+                        hidden: False
+                      },
+                      group_2: {
+                        hidden: False
+                      },
+                      group_3: {
+                        hidden: False
+                      },
+                      group_4: {
+                        hidden: False
+                      },
+                      issue_id: {
+                        hidden: False
+                      },
+                      override: {
+                        hidden: False
+                      },
+                      pdi: {
+                        hidden: False
+                      },
+                      person: {
+                        hidden: False
+                      },
+                      person_id: {
+                        hidden: False
+                      },
+                      poe: {
+                        hidden: False
+                      },
+                      properties: {
+                        hidden: False
+                      },
+                      session: {
+                        hidden: False
+                      },
+                      team_id: {
+                        hidden: False
+                      },
+                      timestamp: {
+                        hidden: False
+                      },
+                      uuid: {
+                        hidden: False
+                      }
+                    },
+                    hidden: False
                   }
                 }
               }
@@ -6026,43 +8888,125 @@
                         table_type: {
                           table: {
                             fields: {
-                              $group_0: {},
-                              $group_1: {},
-                              $group_2: {},
-                              $group_3: {},
-                              $group_4: {},
-                              $session_id: {},
-                              $window_id: {},
-                              created_at: {},
-                              distinct_id: {},
-                              elements_chain: {},
-                              elements_chain_elements: {},
-                              elements_chain_href: {},
-                              elements_chain_ids: {},
-                              elements_chain_texts: {},
-                              event: {},
-                              event_person_id: {},
-                              goe_0: {},
-                              goe_1: {},
-                              goe_2: {},
-                              goe_3: {},
-                              goe_4: {},
-                              group_0: {},
-                              group_1: {},
-                              group_2: {},
-                              group_3: {},
-                              group_4: {},
-                              override: {},
-                              pdi: {},
-                              person: {},
-                              person_id: {},
-                              poe: {},
-                              properties: {},
-                              session: {},
-                              team_id: {},
-                              timestamp: {},
-                              uuid: {}
-                            }
+                              $group_0: {
+                                hidden: False
+                              },
+                              $group_1: {
+                                hidden: False
+                              },
+                              $group_2: {
+                                hidden: False
+                              },
+                              $group_3: {
+                                hidden: False
+                              },
+                              $group_4: {
+                                hidden: False
+                              },
+                              $session_id: {
+                                hidden: False
+                              },
+                              $window_id: {
+                                hidden: False
+                              },
+                              created_at: {
+                                hidden: False
+                              },
+                              distinct_id: {
+                                hidden: False
+                              },
+                              elements_chain: {
+                                hidden: False
+                              },
+                              elements_chain_elements: {
+                                hidden: False
+                              },
+                              elements_chain_href: {
+                                hidden: False
+                              },
+                              elements_chain_ids: {
+                                hidden: False
+                              },
+                              elements_chain_texts: {
+                                hidden: False
+                              },
+                              event: {
+                                hidden: False
+                              },
+                              event_issue_id: {
+                                hidden: False
+                              },
+                              event_person_id: {
+                                hidden: False
+                              },
+                              exception_issue_override: {
+                                hidden: False
+                              },
+                              goe_0: {
+                                hidden: False
+                              },
+                              goe_1: {
+                                hidden: False
+                              },
+                              goe_2: {
+                                hidden: False
+                              },
+                              goe_3: {
+                                hidden: False
+                              },
+                              goe_4: {
+                                hidden: False
+                              },
+                              group_0: {
+                                hidden: False
+                              },
+                              group_1: {
+                                hidden: False
+                              },
+                              group_2: {
+                                hidden: False
+                              },
+                              group_3: {
+                                hidden: False
+                              },
+                              group_4: {
+                                hidden: False
+                              },
+                              issue_id: {
+                                hidden: False
+                              },
+                              override: {
+                                hidden: False
+                              },
+                              pdi: {
+                                hidden: False
+                              },
+                              person: {
+                                hidden: False
+                              },
+                              person_id: {
+                                hidden: False
+                              },
+                              poe: {
+                                hidden: False
+                              },
+                              properties: {
+                                hidden: False
+                              },
+                              session: {
+                                hidden: False
+                              },
+                              team_id: {
+                                hidden: False
+                              },
+                              timestamp: {
+                                hidden: False
+                              },
+                              uuid: {
+                                hidden: False
+                              }
+                            },
+                            hidden: False
                           }
                         }
                       }
@@ -6210,43 +9154,125 @@
             table_type: {
               table: {
                 fields: {
-                  $group_0: {},
-                  $group_1: {},
-                  $group_2: {},
-                  $group_3: {},
-                  $group_4: {},
-                  $session_id: {},
-                  $window_id: {},
-                  created_at: {},
-                  distinct_id: {},
-                  elements_chain: {},
-                  elements_chain_elements: {},
-                  elements_chain_href: {},
-                  elements_chain_ids: {},
-                  elements_chain_texts: {},
-                  event: {},
-                  event_person_id: {},
-                  goe_0: {},
-                  goe_1: {},
-                  goe_2: {},
-                  goe_3: {},
-                  goe_4: {},
-                  group_0: {},
-                  group_1: {},
-                  group_2: {},
-                  group_3: {},
-                  group_4: {},
-                  override: {},
-                  pdi: {},
-                  person: {},
-                  person_id: {},
-                  poe: {},
-                  properties: {},
-                  session: {},
-                  team_id: {},
-                  timestamp: {},
-                  uuid: {}
-                }
+                  $group_0: {
+                    hidden: False
+                  },
+                  $group_1: {
+                    hidden: False
+                  },
+                  $group_2: {
+                    hidden: False
+                  },
+                  $group_3: {
+                    hidden: False
+                  },
+                  $group_4: {
+                    hidden: False
+                  },
+                  $session_id: {
+                    hidden: False
+                  },
+                  $window_id: {
+                    hidden: False
+                  },
+                  created_at: {
+                    hidden: False
+                  },
+                  distinct_id: {
+                    hidden: False
+                  },
+                  elements_chain: {
+                    hidden: False
+                  },
+                  elements_chain_elements: {
+                    hidden: False
+                  },
+                  elements_chain_href: {
+                    hidden: False
+                  },
+                  elements_chain_ids: {
+                    hidden: False
+                  },
+                  elements_chain_texts: {
+                    hidden: False
+                  },
+                  event: {
+                    hidden: False
+                  },
+                  event_issue_id: {
+                    hidden: False
+                  },
+                  event_person_id: {
+                    hidden: False
+                  },
+                  exception_issue_override: {
+                    hidden: False
+                  },
+                  goe_0: {
+                    hidden: False
+                  },
+                  goe_1: {
+                    hidden: False
+                  },
+                  goe_2: {
+                    hidden: False
+                  },
+                  goe_3: {
+                    hidden: False
+                  },
+                  goe_4: {
+                    hidden: False
+                  },
+                  group_0: {
+                    hidden: False
+                  },
+                  group_1: {
+                    hidden: False
+                  },
+                  group_2: {
+                    hidden: False
+                  },
+                  group_3: {
+                    hidden: False
+                  },
+                  group_4: {
+                    hidden: False
+                  },
+                  issue_id: {
+                    hidden: False
+                  },
+                  override: {
+                    hidden: False
+                  },
+                  pdi: {
+                    hidden: False
+                  },
+                  person: {
+                    hidden: False
+                  },
+                  person_id: {
+                    hidden: False
+                  },
+                  poe: {
+                    hidden: False
+                  },
+                  properties: {
+                    hidden: False
+                  },
+                  session: {
+                    hidden: False
+                  },
+                  team_id: {
+                    hidden: False
+                  },
+                  timestamp: {
+                    hidden: False
+                  },
+                  uuid: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }
@@ -6273,6 +9299,7 @@
                 from_field: [
                   "person_id"
                 ],
+                hidden: False,
                 join_function: <function>,
                 join_table: "persons",
                 to_field: None
@@ -6283,14 +9310,24 @@
                   from_field: [
                     "distinct_id"
                   ],
+                  hidden: False,
                   join_function: <function>,
                   join_table: {
                     fields: {
-                      distinct_id: {},
-                      person: {},
-                      person_id: {},
-                      team_id: {}
-                    }
+                      distinct_id: {
+                        hidden: False
+                      },
+                      person: {
+                        hidden: False
+                      },
+                      person_id: {
+                        hidden: False
+                      },
+                      team_id: {
+                        hidden: False
+                      }
+                    },
+                    hidden: False
                   },
                   to_field: None
                 }
@@ -6347,43 +9384,125 @@
               table_type: {
                 table: {
                   fields: {
-                    $group_0: {},
-                    $group_1: {},
-                    $group_2: {},
-                    $group_3: {},
-                    $group_4: {},
-                    $session_id: {},
-                    $window_id: {},
-                    created_at: {},
-                    distinct_id: {},
-                    elements_chain: {},
-                    elements_chain_elements: {},
-                    elements_chain_href: {},
-                    elements_chain_ids: {},
-                    elements_chain_texts: {},
-                    event: {},
-                    event_person_id: {},
-                    goe_0: {},
-                    goe_1: {},
-                    goe_2: {},
-                    goe_3: {},
-                    goe_4: {},
-                    group_0: {},
-                    group_1: {},
-                    group_2: {},
-                    group_3: {},
-                    group_4: {},
-                    override: {},
-                    pdi: {},
-                    person: {},
-                    person_id: {},
-                    poe: {},
-                    properties: {},
-                    session: {},
-                    team_id: {},
-                    timestamp: {},
-                    uuid: {}
-                  }
+                    $group_0: {
+                      hidden: False
+                    },
+                    $group_1: {
+                      hidden: False
+                    },
+                    $group_2: {
+                      hidden: False
+                    },
+                    $group_3: {
+                      hidden: False
+                    },
+                    $group_4: {
+                      hidden: False
+                    },
+                    $session_id: {
+                      hidden: False
+                    },
+                    $window_id: {
+                      hidden: False
+                    },
+                    created_at: {
+                      hidden: False
+                    },
+                    distinct_id: {
+                      hidden: False
+                    },
+                    elements_chain: {
+                      hidden: False
+                    },
+                    elements_chain_elements: {
+                      hidden: False
+                    },
+                    elements_chain_href: {
+                      hidden: False
+                    },
+                    elements_chain_ids: {
+                      hidden: False
+                    },
+                    elements_chain_texts: {
+                      hidden: False
+                    },
+                    event: {
+                      hidden: False
+                    },
+                    event_issue_id: {
+                      hidden: False
+                    },
+                    event_person_id: {
+                      hidden: False
+                    },
+                    exception_issue_override: {
+                      hidden: False
+                    },
+                    goe_0: {
+                      hidden: False
+                    },
+                    goe_1: {
+                      hidden: False
+                    },
+                    goe_2: {
+                      hidden: False
+                    },
+                    goe_3: {
+                      hidden: False
+                    },
+                    goe_4: {
+                      hidden: False
+                    },
+                    group_0: {
+                      hidden: False
+                    },
+                    group_1: {
+                      hidden: False
+                    },
+                    group_2: {
+                      hidden: False
+                    },
+                    group_3: {
+                      hidden: False
+                    },
+                    group_4: {
+                      hidden: False
+                    },
+                    issue_id: {
+                      hidden: False
+                    },
+                    override: {
+                      hidden: False
+                    },
+                    pdi: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    poe: {
+                      hidden: False
+                    },
+                    properties: {
+                      hidden: False
+                    },
+                    session: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    },
+                    timestamp: {
+                      hidden: False
+                    },
+                    uuid: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 }
               }
             }
@@ -6412,6 +9531,7 @@
                 from_field: [
                   "person_id"
                 ],
+                hidden: False,
                 join_function: <function>,
                 join_table: "persons",
                 to_field: None
@@ -6422,14 +9542,24 @@
                   from_field: [
                     "distinct_id"
                   ],
+                  hidden: False,
                   join_function: <function>,
                   join_table: {
                     fields: {
-                      distinct_id: {},
-                      person: {},
-                      person_id: {},
-                      team_id: {}
-                    }
+                      distinct_id: {
+                        hidden: False
+                      },
+                      person: {
+                        hidden: False
+                      },
+                      person_id: {
+                        hidden: False
+                      },
+                      team_id: {
+                        hidden: False
+                      }
+                    },
+                    hidden: False
                   },
                   to_field: None
                 }
@@ -6485,43 +9615,125 @@
             table_type: {
               table: {
                 fields: {
-                  $group_0: {},
-                  $group_1: {},
-                  $group_2: {},
-                  $group_3: {},
-                  $group_4: {},
-                  $session_id: {},
-                  $window_id: {},
-                  created_at: {},
-                  distinct_id: {},
-                  elements_chain: {},
-                  elements_chain_elements: {},
-                  elements_chain_href: {},
-                  elements_chain_ids: {},
-                  elements_chain_texts: {},
-                  event: {},
-                  event_person_id: {},
-                  goe_0: {},
-                  goe_1: {},
-                  goe_2: {},
-                  goe_3: {},
-                  goe_4: {},
-                  group_0: {},
-                  group_1: {},
-                  group_2: {},
-                  group_3: {},
-                  group_4: {},
-                  override: {},
-                  pdi: {},
-                  person: {},
-                  person_id: {},
-                  poe: {},
-                  properties: {},
-                  session: {},
-                  team_id: {},
-                  timestamp: {},
-                  uuid: {}
-                }
+                  $group_0: {
+                    hidden: False
+                  },
+                  $group_1: {
+                    hidden: False
+                  },
+                  $group_2: {
+                    hidden: False
+                  },
+                  $group_3: {
+                    hidden: False
+                  },
+                  $group_4: {
+                    hidden: False
+                  },
+                  $session_id: {
+                    hidden: False
+                  },
+                  $window_id: {
+                    hidden: False
+                  },
+                  created_at: {
+                    hidden: False
+                  },
+                  distinct_id: {
+                    hidden: False
+                  },
+                  elements_chain: {
+                    hidden: False
+                  },
+                  elements_chain_elements: {
+                    hidden: False
+                  },
+                  elements_chain_href: {
+                    hidden: False
+                  },
+                  elements_chain_ids: {
+                    hidden: False
+                  },
+                  elements_chain_texts: {
+                    hidden: False
+                  },
+                  event: {
+                    hidden: False
+                  },
+                  event_issue_id: {
+                    hidden: False
+                  },
+                  event_person_id: {
+                    hidden: False
+                  },
+                  exception_issue_override: {
+                    hidden: False
+                  },
+                  goe_0: {
+                    hidden: False
+                  },
+                  goe_1: {
+                    hidden: False
+                  },
+                  goe_2: {
+                    hidden: False
+                  },
+                  goe_3: {
+                    hidden: False
+                  },
+                  goe_4: {
+                    hidden: False
+                  },
+                  group_0: {
+                    hidden: False
+                  },
+                  group_1: {
+                    hidden: False
+                  },
+                  group_2: {
+                    hidden: False
+                  },
+                  group_3: {
+                    hidden: False
+                  },
+                  group_4: {
+                    hidden: False
+                  },
+                  issue_id: {
+                    hidden: False
+                  },
+                  override: {
+                    hidden: False
+                  },
+                  pdi: {
+                    hidden: False
+                  },
+                  person: {
+                    hidden: False
+                  },
+                  person_id: {
+                    hidden: False
+                  },
+                  poe: {
+                    hidden: False
+                  },
+                  properties: {
+                    hidden: False
+                  },
+                  session: {
+                    hidden: False
+                  },
+                  team_id: {
+                    hidden: False
+                  },
+                  timestamp: {
+                    hidden: False
+                  },
+                  uuid: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }
@@ -6547,14 +9759,24 @@
                 from_field: [
                   "distinct_id"
                 ],
+                hidden: False,
                 join_function: <function>,
                 join_table: {
                   fields: {
-                    distinct_id: {},
-                    person: {},
-                    person_id: {},
-                    team_id: {}
-                  }
+                    distinct_id: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 },
                 to_field: None
               }
@@ -6610,43 +9832,125 @@
               table_type: {
                 table: {
                   fields: {
-                    $group_0: {},
-                    $group_1: {},
-                    $group_2: {},
-                    $group_3: {},
-                    $group_4: {},
-                    $session_id: {},
-                    $window_id: {},
-                    created_at: {},
-                    distinct_id: {},
-                    elements_chain: {},
-                    elements_chain_elements: {},
-                    elements_chain_href: {},
-                    elements_chain_ids: {},
-                    elements_chain_texts: {},
-                    event: {},
-                    event_person_id: {},
-                    goe_0: {},
-                    goe_1: {},
-                    goe_2: {},
-                    goe_3: {},
-                    goe_4: {},
-                    group_0: {},
-                    group_1: {},
-                    group_2: {},
-                    group_3: {},
-                    group_4: {},
-                    override: {},
-                    pdi: {},
-                    person: {},
-                    person_id: {},
-                    poe: {},
-                    properties: {},
-                    session: {},
-                    team_id: {},
-                    timestamp: {},
-                    uuid: {}
-                  }
+                    $group_0: {
+                      hidden: False
+                    },
+                    $group_1: {
+                      hidden: False
+                    },
+                    $group_2: {
+                      hidden: False
+                    },
+                    $group_3: {
+                      hidden: False
+                    },
+                    $group_4: {
+                      hidden: False
+                    },
+                    $session_id: {
+                      hidden: False
+                    },
+                    $window_id: {
+                      hidden: False
+                    },
+                    created_at: {
+                      hidden: False
+                    },
+                    distinct_id: {
+                      hidden: False
+                    },
+                    elements_chain: {
+                      hidden: False
+                    },
+                    elements_chain_elements: {
+                      hidden: False
+                    },
+                    elements_chain_href: {
+                      hidden: False
+                    },
+                    elements_chain_ids: {
+                      hidden: False
+                    },
+                    elements_chain_texts: {
+                      hidden: False
+                    },
+                    event: {
+                      hidden: False
+                    },
+                    event_issue_id: {
+                      hidden: False
+                    },
+                    event_person_id: {
+                      hidden: False
+                    },
+                    exception_issue_override: {
+                      hidden: False
+                    },
+                    goe_0: {
+                      hidden: False
+                    },
+                    goe_1: {
+                      hidden: False
+                    },
+                    goe_2: {
+                      hidden: False
+                    },
+                    goe_3: {
+                      hidden: False
+                    },
+                    goe_4: {
+                      hidden: False
+                    },
+                    group_0: {
+                      hidden: False
+                    },
+                    group_1: {
+                      hidden: False
+                    },
+                    group_2: {
+                      hidden: False
+                    },
+                    group_3: {
+                      hidden: False
+                    },
+                    group_4: {
+                      hidden: False
+                    },
+                    issue_id: {
+                      hidden: False
+                    },
+                    override: {
+                      hidden: False
+                    },
+                    pdi: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    poe: {
+                      hidden: False
+                    },
+                    properties: {
+                      hidden: False
+                    },
+                    session: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    },
+                    timestamp: {
+                      hidden: False
+                    },
+                    uuid: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 }
               }
             }
@@ -6674,14 +9978,24 @@
                 from_field: [
                   "distinct_id"
                 ],
+                hidden: False,
                 join_function: <function>,
                 join_table: {
                   fields: {
-                    distinct_id: {},
-                    person: {},
-                    person_id: {},
-                    team_id: {}
-                  }
+                    distinct_id: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 },
                 to_field: None
               }
@@ -6736,11 +10050,20 @@
             table_type: {
               table: {
                 fields: {
-                  distinct_id: {},
-                  person: {},
-                  person_id: {},
-                  team_id: {}
-                }
+                  distinct_id: {
+                    hidden: False
+                  },
+                  person: {
+                    hidden: False
+                  },
+                  person_id: {
+                    hidden: False
+                  },
+                  team_id: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }
@@ -6766,6 +10089,7 @@
                 from_field: [
                   "person_id"
                 ],
+                hidden: False,
                 join_function: <function>,
                 join_table: "persons",
                 to_field: None
@@ -6821,43 +10145,125 @@
               table_type: {
                 table: {
                   fields: {
-                    $group_0: {},
-                    $group_1: {},
-                    $group_2: {},
-                    $group_3: {},
-                    $group_4: {},
-                    $session_id: {},
-                    $window_id: {},
-                    created_at: {},
-                    distinct_id: {},
-                    elements_chain: {},
-                    elements_chain_elements: {},
-                    elements_chain_href: {},
-                    elements_chain_ids: {},
-                    elements_chain_texts: {},
-                    event: {},
-                    event_person_id: {},
-                    goe_0: {},
-                    goe_1: {},
-                    goe_2: {},
-                    goe_3: {},
-                    goe_4: {},
-                    group_0: {},
-                    group_1: {},
-                    group_2: {},
-                    group_3: {},
-                    group_4: {},
-                    override: {},
-                    pdi: {},
-                    person: {},
-                    person_id: {},
-                    poe: {},
-                    properties: {},
-                    session: {},
-                    team_id: {},
-                    timestamp: {},
-                    uuid: {}
-                  }
+                    $group_0: {
+                      hidden: False
+                    },
+                    $group_1: {
+                      hidden: False
+                    },
+                    $group_2: {
+                      hidden: False
+                    },
+                    $group_3: {
+                      hidden: False
+                    },
+                    $group_4: {
+                      hidden: False
+                    },
+                    $session_id: {
+                      hidden: False
+                    },
+                    $window_id: {
+                      hidden: False
+                    },
+                    created_at: {
+                      hidden: False
+                    },
+                    distinct_id: {
+                      hidden: False
+                    },
+                    elements_chain: {
+                      hidden: False
+                    },
+                    elements_chain_elements: {
+                      hidden: False
+                    },
+                    elements_chain_href: {
+                      hidden: False
+                    },
+                    elements_chain_ids: {
+                      hidden: False
+                    },
+                    elements_chain_texts: {
+                      hidden: False
+                    },
+                    event: {
+                      hidden: False
+                    },
+                    event_issue_id: {
+                      hidden: False
+                    },
+                    event_person_id: {
+                      hidden: False
+                    },
+                    exception_issue_override: {
+                      hidden: False
+                    },
+                    goe_0: {
+                      hidden: False
+                    },
+                    goe_1: {
+                      hidden: False
+                    },
+                    goe_2: {
+                      hidden: False
+                    },
+                    goe_3: {
+                      hidden: False
+                    },
+                    goe_4: {
+                      hidden: False
+                    },
+                    group_0: {
+                      hidden: False
+                    },
+                    group_1: {
+                      hidden: False
+                    },
+                    group_2: {
+                      hidden: False
+                    },
+                    group_3: {
+                      hidden: False
+                    },
+                    group_4: {
+                      hidden: False
+                    },
+                    issue_id: {
+                      hidden: False
+                    },
+                    override: {
+                      hidden: False
+                    },
+                    pdi: {
+                      hidden: False
+                    },
+                    person: {
+                      hidden: False
+                    },
+                    person_id: {
+                      hidden: False
+                    },
+                    poe: {
+                      hidden: False
+                    },
+                    properties: {
+                      hidden: False
+                    },
+                    session: {
+                      hidden: False
+                    },
+                    team_id: {
+                      hidden: False
+                    },
+                    timestamp: {
+                      hidden: False
+                    },
+                    uuid: {
+                      hidden: False
+                    }
+                  },
+                  hidden: False
                 }
               }
             }
@@ -6923,43 +10329,125 @@
                   table_type: {
                     table: {
                       fields: {
-                        $group_0: {},
-                        $group_1: {},
-                        $group_2: {},
-                        $group_3: {},
-                        $group_4: {},
-                        $session_id: {},
-                        $window_id: {},
-                        created_at: {},
-                        distinct_id: {},
-                        elements_chain: {},
-                        elements_chain_elements: {},
-                        elements_chain_href: {},
-                        elements_chain_ids: {},
-                        elements_chain_texts: {},
-                        event: {},
-                        event_person_id: {},
-                        goe_0: {},
-                        goe_1: {},
-                        goe_2: {},
-                        goe_3: {},
-                        goe_4: {},
-                        group_0: {},
-                        group_1: {},
-                        group_2: {},
-                        group_3: {},
-                        group_4: {},
-                        override: {},
-                        pdi: {},
-                        person: {},
-                        person_id: {},
-                        poe: {},
-                        properties: {},
-                        session: {},
-                        team_id: {},
-                        timestamp: {},
-                        uuid: {}
-                      }
+                        $group_0: {
+                          hidden: False
+                        },
+                        $group_1: {
+                          hidden: False
+                        },
+                        $group_2: {
+                          hidden: False
+                        },
+                        $group_3: {
+                          hidden: False
+                        },
+                        $group_4: {
+                          hidden: False
+                        },
+                        $session_id: {
+                          hidden: False
+                        },
+                        $window_id: {
+                          hidden: False
+                        },
+                        created_at: {
+                          hidden: False
+                        },
+                        distinct_id: {
+                          hidden: False
+                        },
+                        elements_chain: {
+                          hidden: False
+                        },
+                        elements_chain_elements: {
+                          hidden: False
+                        },
+                        elements_chain_href: {
+                          hidden: False
+                        },
+                        elements_chain_ids: {
+                          hidden: False
+                        },
+                        elements_chain_texts: {
+                          hidden: False
+                        },
+                        event: {
+                          hidden: False
+                        },
+                        event_issue_id: {
+                          hidden: False
+                        },
+                        event_person_id: {
+                          hidden: False
+                        },
+                        exception_issue_override: {
+                          hidden: False
+                        },
+                        goe_0: {
+                          hidden: False
+                        },
+                        goe_1: {
+                          hidden: False
+                        },
+                        goe_2: {
+                          hidden: False
+                        },
+                        goe_3: {
+                          hidden: False
+                        },
+                        goe_4: {
+                          hidden: False
+                        },
+                        group_0: {
+                          hidden: False
+                        },
+                        group_1: {
+                          hidden: False
+                        },
+                        group_2: {
+                          hidden: False
+                        },
+                        group_3: {
+                          hidden: False
+                        },
+                        group_4: {
+                          hidden: False
+                        },
+                        issue_id: {
+                          hidden: False
+                        },
+                        override: {
+                          hidden: False
+                        },
+                        pdi: {
+                          hidden: False
+                        },
+                        person: {
+                          hidden: False
+                        },
+                        person_id: {
+                          hidden: False
+                        },
+                        poe: {
+                          hidden: False
+                        },
+                        properties: {
+                          hidden: False
+                        },
+                        session: {
+                          hidden: False
+                        },
+                        team_id: {
+                          hidden: False
+                        },
+                        timestamp: {
+                          hidden: False
+                        },
+                        uuid: {
+                          hidden: False
+                        }
+                      },
+                      hidden: False
                     }
                   }
                 }
@@ -7037,43 +10525,125 @@
             table_type: {
               table: {
                 fields: {
-                  $group_0: {},
-                  $group_1: {},
-                  $group_2: {},
-                  $group_3: {},
-                  $group_4: {},
-                  $session_id: {},
-                  $window_id: {},
-                  created_at: {},
-                  distinct_id: {},
-                  elements_chain: {},
-                  elements_chain_elements: {},
-                  elements_chain_href: {},
-                  elements_chain_ids: {},
-                  elements_chain_texts: {},
-                  event: {},
-                  event_person_id: {},
-                  goe_0: {},
-                  goe_1: {},
-                  goe_2: {},
-                  goe_3: {},
-                  goe_4: {},
-                  group_0: {},
-                  group_1: {},
-                  group_2: {},
-                  group_3: {},
-                  group_4: {},
-                  override: {},
-                  pdi: {},
-                  person: {},
-                  person_id: {},
-                  poe: {},
-                  properties: {},
-                  session: {},
-                  team_id: {},
-                  timestamp: {},
-                  uuid: {}
-                }
+                  $group_0: {
+                    hidden: False
+                  },
+                  $group_1: {
+                    hidden: False
+                  },
+                  $group_2: {
+                    hidden: False
+                  },
+                  $group_3: {
+                    hidden: False
+                  },
+                  $group_4: {
+                    hidden: False
+                  },
+                  $session_id: {
+                    hidden: False
+                  },
+                  $window_id: {
+                    hidden: False
+                  },
+                  created_at: {
+                    hidden: False
+                  },
+                  distinct_id: {
+                    hidden: False
+                  },
+                  elements_chain: {
+                    hidden: False
+                  },
+                  elements_chain_elements: {
+                    hidden: False
+                  },
+                  elements_chain_href: {
+                    hidden: False
+                  },
+                  elements_chain_ids: {
+                    hidden: False
+                  },
+                  elements_chain_texts: {
+                    hidden: False
+                  },
+                  event: {
+                    hidden: False
+                  },
+                  event_issue_id: {
+                    hidden: False
+                  },
+                  event_person_id: {
+                    hidden: False
+                  },
+                  exception_issue_override: {
+                    hidden: False
+                  },
+                  goe_0: {
+                    hidden: False
+                  },
+                  goe_1: {
+                    hidden: False
+                  },
+                  goe_2: {
+                    hidden: False
+                  },
+                  goe_3: {
+                    hidden: False
+                  },
+                  goe_4: {
+                    hidden: False
+                  },
+                  group_0: {
+                    hidden: False
+                  },
+                  group_1: {
+                    hidden: False
+                  },
+                  group_2: {
+                    hidden: False
+                  },
+                  group_3: {
+                    hidden: False
+                  },
+                  group_4: {
+                    hidden: False
+                  },
+                  issue_id: {
+                    hidden: False
+                  },
+                  override: {
+                    hidden: False
+                  },
+                  pdi: {
+                    hidden: False
+                  },
+                  person: {
+                    hidden: False
+                  },
+                  person_id: {
+                    hidden: False
+                  },
+                  poe: {
+                    hidden: False
+                  },
+                  properties: {
+                    hidden: False
+                  },
+                  session: {
+                    hidden: False
+                  },
+                  team_id: {
+                    hidden: False
+                  },
+                  timestamp: {
+                    hidden: False
+                  },
+                  uuid: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }
@@ -7098,10 +10668,23 @@
               table_type: <recursion ...>
               virtual_table: {
                 fields: {
-                  created_at: {},
-                  id: {},
-                  properties: {}
-                }
+                  $virt_initial_channel_type: {
+                    hidden: False
+                  },
+                  $virt_initial_referring_domain_type: {
+                    hidden: False
+                  },
+                  created_at: {
+                    hidden: False
+                  },
+                  id: {
+                    hidden: False
+                  },
+                  properties: {
+                    hidden: False
+                  }
+                },
+                hidden: False
               }
             }
           }

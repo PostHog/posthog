@@ -13,11 +13,13 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
         {} as {
             groupTypeIndex: number | null
             id: string
+            type?: 'person' | 'group'
+            limit?: number
         }
     ),
     key((props) => `${props.groupTypeIndex ?? 'person'}-${props.id}`),
     path(['scenes', 'groups', 'relatedGroupsLogic']),
-    connect({ values: [teamLogic, ['currentTeamId']] }),
+    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions(() => ({
         loadRelatedActors: true,
     })),
@@ -26,11 +28,18 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
             [] as ActorType[],
             {
                 loadRelatedActors: async () => {
-                    const url = `api/projects/${values.currentTeamId}/groups/related?${toParams({
+                    const url = `api/environments/${values.currentTeamId}/groups/related?${toParams({
                         group_type_index: props.groupTypeIndex,
                         id: props.id,
                     })}`
-                    return await api.get(url)
+                    let response = await api.get(url)
+                    if (props.type) {
+                        response = response.filter((actor: ActorType) => actor.type === props.type)
+                    }
+                    if (props.limit) {
+                        response = response.slice(0, props.limit)
+                    }
+                    return response
                 },
                 setGroup: () => [],
             },

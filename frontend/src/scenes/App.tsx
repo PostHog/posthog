@@ -4,6 +4,7 @@ import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Slide, ToastContainer } from 'react-toastify'
 import { appScenes } from 'scenes/appScenes'
@@ -17,8 +18,6 @@ import { GlobalModals } from '~/layout/GlobalModals'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { actionsModel } from '~/models/actionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
 
 import type { appLogicType } from './AppType'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -28,7 +27,7 @@ window.process = MOCK_NODE_PROCESS
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic, actionsModel, cohortsModel]),
+    connect([teamLogic, organizationLogic]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -72,6 +71,7 @@ export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
+    useMountedLogic(eventIngestionRestrictionLogic)
     useThemedHtml()
 
     if (showApp) {
@@ -135,7 +135,7 @@ function AppScene(): JSX.Element | null {
     }
 
     const wrappedSceneElement = (
-        <ErrorBoundary key={activeScene} tags={{ feature: activeScene }}>
+        <ErrorBoundary key={activeScene} exceptionProps={{ feature: activeScene }}>
             {activeLoadedScene?.logic ? (
                 <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
                     {sceneElement}

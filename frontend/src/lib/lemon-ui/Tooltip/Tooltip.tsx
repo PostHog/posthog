@@ -22,9 +22,15 @@ import clsx from 'clsx'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import React, { useRef, useState } from 'react'
 
-export interface TooltipProps {
-    title: string | React.ReactNode | (() => string)
-    children: JSX.Element
+import { Link } from '../Link'
+
+export type TooltipTitle = string | React.ReactNode | (() => string)
+
+export interface TooltipProps extends BaseTooltipProps {
+    title?: TooltipTitle
+}
+
+interface BaseTooltipProps {
     delayMs?: number
     closeDelayMs?: number
     offset?: number
@@ -32,7 +38,18 @@ export interface TooltipProps {
     placement?: Placement
     className?: string
     visible?: boolean
+    /**
+     * Defaults to true if docLink is provided
+     */
+    interactive?: boolean
+    docLink?: string
 }
+
+export type RequiredTooltipProps = (
+    | { title: TooltipTitle; docLink?: string }
+    | { title?: TooltipTitle; docLink: string }
+) &
+    BaseTooltipProps
 
 export function Tooltip({
     children,
@@ -42,14 +59,18 @@ export function Tooltip({
     offset = 8,
     arrowOffset,
     delayMs = 500,
-    closeDelayMs = 0, // Set this to some delay to ensure the content stays open when hovered
+    closeDelayMs = 100, // Slight delay to ensure smooth transition
+    interactive = false,
     visible: controlledOpen,
-}: TooltipProps): JSX.Element {
+    docLink,
+}: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+    const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
+    const [isPressingReference, setIsPressingReference] = useState(false) // Track reference hover state
     const caretRef = useRef(null)
     const floatingContainer = useFloatingContainer()
 
-    const open = controlledOpen ?? uncontrolledOpen
+    const open = controlledOpen ?? (uncontrolledOpen || isHoveringTooltip)
 
     const { context, refs } = useFloating({
         placement,
@@ -65,6 +86,7 @@ export function Tooltip({
     })
 
     const hover = useHover(context, {
+        enabled: !isPressingReference, // Need to disable esp. for elements where the tooltip is a dragging handle
         move: false,
         delay: {
             open: delayMs,
@@ -72,7 +94,9 @@ export function Tooltip({
         },
     })
     const focus = useFocus(context)
-    const dismiss = useDismiss(context)
+    const dismiss = useDismiss(context, {
+        referencePress: true, // referencePress closes tooltip on click
+    })
     const role = useRole(context, { role: 'tooltip' })
 
     const { getFloatingProps, getReferenceProps } = useInteractions([hover, focus, dismiss, role])
@@ -101,12 +125,26 @@ export function Tooltip({
     const clonedChild = React.cloneElement(
         child,
         getReferenceProps({
-            ref: triggerRef,
             ...child.props,
+            ref: triggerRef,
+            onMouseDown: () => {
+                setIsPressingReference(true)
+                child.props.onMouseEnter?.()
+            },
+            onMouseUp: () => {
+                setIsPressingReference(false)
+                child.props.onMouseUp?.()
+            },
         })
     )
 
-    return title ? (
+    if (!title && !docLink) {
+        return <>{child}</>
+    }
+
+    const isInteractive = interactive || !!docLink
+
+    return (
         <>
             {clonedChild}
             {open && (
@@ -116,31 +154,45 @@ export function Tooltip({
                         className="Tooltip max-w-sm"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
-                        {...getFloatingProps()}
+                        {...getFloatingProps({
+                            onMouseEnter: () => isInteractive && setIsHoveringTooltip(true), // Keep tooltip open
+                            onMouseLeave: () => isInteractive && setIsHoveringTooltip(false), // Allow closing
+                        })}
                     >
                         <div
                             className={clsx(
-                                'bg-[var(--tooltip-bg)] py-1.5 px-2 break-words rounded text-start text-white',
+                                'bg-surface-tooltip text-primary-inverse py-1.5 px-2 break-words rounded text-start',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ ...transitionStyles }}
                         >
                             {typeof title === 'function' ? title() : title}
+                            {docLink && (
+                                <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
+                                    <Link
+                                        to={docLink}
+                                        target="_blank"
+                                        className="text-xs"
+                                        data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
+                                        data-ph-capture-attribute-doclink={docLink}
+                                    >
+                                        Read the docs
+                                    </Link>
+                                </p>
+                            )}
                             <FloatingArrow
                                 ref={caretRef}
                                 context={context}
                                 width={8}
                                 height={4}
                                 staticOffset={arrowOffset}
-                                fill="var(--tooltip-bg)"
+                                fill="var(--bg-surface-tooltip)"
                             />
                         </div>
                     </div>
                 </FloatingPortal>
             )}
         </>
-    ) : (
-        children
     )
 }

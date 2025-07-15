@@ -1,0 +1,18 @@
+packages:
+    - '.'
+    - common/esbuilder
+    - common/hogvm/typescript
+    - common/plugin_transpiler
+    - common/storybook
+    - common/tailwind
+    - cypress
+    - ee/frontend
+    - frontend
+    - playwright
+    - plugin-server
+    - products/*
+    - rust/cyclotron-node
+
+catalog:
+    posthog-js: ^1.255.1
+    posthog-js-lite: ^3.6.0

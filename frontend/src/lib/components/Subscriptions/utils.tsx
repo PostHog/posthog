@@ -15,7 +15,7 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     if (insightShortId) {
         return urls.insightSubcriptions(insightShortId)
     } else if (dashboardId) {
-        return urls.dashboardSubcriptions(dashboardId)
+        return urls.dashboardSubscriptions(dashboardId)
     }
     return ''
 }
@@ -27,7 +27,7 @@ export const urlForSubscription = (
     if (insightShortId) {
         return urls.insightSubcription(insightShortId, id.toString())
     } else if (dashboardId) {
-        return urls.dashboardSubcription(dashboardId, id.toString())
+        return urls.dashboardSubscription(dashboardId, id.toString())
     }
     return ''
 }

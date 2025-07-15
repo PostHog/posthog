@@ -1,7 +1,8 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template_user: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
+    free=False,
     type="destination",
     id="template-klaviyo-user",
     name="Klaviyo",
@@ -143,7 +144,8 @@ if (res.status == 409 and not empty(res.body.errors.1.meta.duplicate_profile_id)
 )
 
 template_event: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
+    free=False,
     type="destination",
     id="template-klaviyo-event",
     name="Klaviyo",

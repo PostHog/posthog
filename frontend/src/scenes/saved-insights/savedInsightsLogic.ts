@@ -16,6 +16,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -26,11 +27,7 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
 
-export interface InsightsResult {
-    results: QueryBasedInsightModel[]
-    count: number
-    previous?: string
-    next?: string
+export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsightModel> {
     /* not in the API response */
     filters?: SavedInsightFilters | null
     /* not in the API response */
@@ -50,7 +47,7 @@ export interface SavedInsightFilters {
     dashboardId: number | undefined | null
 }
 
-function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
+export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
@@ -88,6 +85,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
         closeAlertModal: true,
+        setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -121,7 +119,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                             filters,
                             offset: params.offset,
                         } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
-                    } catch (e) {
+                    } catch {
                         // no insight with this ID found, discard
                     }
                 }
@@ -181,6 +179,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             {
                 openAlertModal: (_, { alertId }) => alertId,
                 closeAlertModal: () => null,
+            },
+        ],
+        dashboardUpdatesInProgress: [
+            {} as Record<number, boolean>,
+            {
+                setDashboardUpdateLoading: (state, { insightId, loading }) => {
+                    return { ...state, [insightId]: loading }
+                },
             },
         ],
     }),
@@ -244,6 +250,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     pageSize: INSIGHTS_PER_PAGE,
                     currentPage: filters.page,
                     entryCount: count,
+                }
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => {
+                return {
+                    discussions_disabled: true,
                 }
             },
         ],
@@ -369,7 +383,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     router.actions.replace(
                         hashParams.edit ? urls.insightEdit(insight.short_id) : urls.insightView(insight.short_id)
                     )
-                } catch (e) {
+                } catch {
                     lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
                 }

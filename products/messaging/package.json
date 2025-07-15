@@ -1,0 +1,20 @@
+{
+    "name": "@posthog/products-messaging",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@types/react": "*",
+        "@xyflow/react": "*",
+        "clsx": "*",
+        "elkjs": "*",
+        "fast-deep-equal": "*",
+        "fuse.js": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-subscriptions": "*",
+        "kea-router": "*",
+        "posthog-js": "*",
+        "react": "*",
+        "zod": "*"
+    }
+}

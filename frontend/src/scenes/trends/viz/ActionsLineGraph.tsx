@@ -1,7 +1,6 @@
-import { ChartType, defaults, LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
-import { Chart } from 'lib/Chart'
+import { Chart, ChartType, defaults, LegendOptions } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -36,11 +35,13 @@ export function ActionsLineGraph({
         trendsFilter,
         isLifecycle,
         isStickiness,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         showLegend,
         hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
+        showMultipleYAxes,
+        goalLines,
     } = useValues(trendsDataLogic(insightProps))
 
     const { alertThresholdLines } = useValues(
@@ -92,9 +93,11 @@ export function ActionsLineGraph({
             trendsFilter={trendsFilter}
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
+            showPercentView={isStickiness}
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
             yAxisScaleType={yAxisScaleType}
+            showMultipleYAxes={showMultipleYAxes}
             tooltip={
                 isLifecycle
                     ? {
@@ -106,17 +109,20 @@ export function ActionsLineGraph({
                               return shortenLifecycleLabels(datum.label)
                           },
                       }
-                    : undefined
+                    : {
+                          groupTypeLabel: context?.groupTypeLabel,
+                      }
             }
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
-            alertLines={alertThresholdLines}
+            hideAnnotations={inSharedMode}
+            goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
-                !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
-                    ? undefined
-                    : (payload) => {
+                context?.onDataPointClick ||
+                (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
+                    ? (payload) => {
                           const { index, points } = payload
 
                           const dataset = points.referencePoint.dataset
@@ -126,6 +132,18 @@ export function ActionsLineGraph({
 
                           const day = dataset.action?.days?.[index] ?? dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
+
+                          if (context?.onDataPointClick) {
+                              context.onDataPointClick(
+                                  {
+                                      breakdown: dataset.breakdownValues?.[index],
+                                      compare: dataset.compareLabels?.[index],
+                                      day,
+                                  },
+                                  indexedResults[0]
+                              )
+                              return
+                          }
 
                           const title = isStickiness ? (
                               <>
@@ -153,6 +171,7 @@ export function ActionsLineGraph({
                               orderBy: isLifecycle || isStickiness ? undefined : ['event_count DESC, actor_id DESC'],
                           })
                       }
+                    : undefined
             }
         />
     )

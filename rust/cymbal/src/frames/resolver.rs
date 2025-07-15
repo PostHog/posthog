@@ -6,13 +6,15 @@ use sqlx::PgPool;
 use crate::{
     config::Config,
     error::UnhandledError,
+    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES},
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
-use super::{records::ErrorTrackingStackFrame, Frame, RawFrame};
+use super::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame};
 
 pub struct Resolver {
     cache: Cache<String, ErrorTrackingStackFrame>,
+    result_ttl: chrono::Duration,
 }
 
 impl Resolver {
@@ -21,7 +23,9 @@ impl Resolver {
             .time_to_live(Duration::from_secs(config.frame_cache_ttl_seconds))
             .build();
 
-        Self { cache }
+        let result_ttl = chrono::Duration::minutes(config.frame_result_ttl_minutes as i64);
+
+        Self { cache, result_ttl }
     }
 
     pub async fn resolve(
@@ -32,17 +36,26 @@ impl Resolver {
         catalog: &Catalog,
     ) -> Result<Frame, UnhandledError> {
         if let Some(result) = self.cache.get(&frame.frame_id()) {
+            metrics::counter!(FRAME_CACHE_HITS).increment(1);
+            return Ok(result.contents);
+        }
+        metrics::counter!(FRAME_CACHE_MISSES).increment(1);
+
+        if let Some(mut result) =
+            ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id(), self.result_ttl).await?
+        {
+            // We don't serialise release information on the frame, so we have to reload it if we fetched
+            // the saved result from the DB
+            result.contents = add_release_info(pool, result.contents, frame, team_id).await?;
+            self.cache.insert(frame.frame_id(), result.clone());
+            metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(result.contents);
         }
 
-        if let Some(result) =
-            ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id()).await?
-        {
-            self.cache.insert(frame.frame_id(), result.clone());
-            return Ok(result.contents);
-        }
+        metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
+        let resolved = add_release_info(pool, resolved, frame, team_id).await?;
 
         let set = if let Some(set_ref) = frame.symbol_set_ref() {
             SymbolSetRecord::load(pool, team_id, &set_ref).await?
@@ -66,8 +79,22 @@ impl Resolver {
     }
 }
 
+async fn add_release_info(
+    pool: &PgPool,
+    mut resolved: Frame,
+    raw: &RawFrame,
+    team_id: i32,
+) -> Result<Frame, UnhandledError> {
+    if let Some(set_ref) = raw.symbol_set_ref() {
+        resolved.release = ReleaseRecord::for_symbol_set(pool, set_ref, team_id).await?;
+    }
+    Ok(resolved)
+}
+
 #[cfg(test)]
 mod test {
+
+    use std::sync::Arc;
 
     use common_types::ClickHouseEvent;
     use httpmock::MockServer;
@@ -79,6 +106,7 @@ mod test {
         config::Config,
         frames::{records::ErrorTrackingStackFrame, resolver::Resolver, RawFrame},
         symbol_store::{
+            chunk_id::ChunkIdFetcher,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
             Catalog, S3Client,
@@ -116,11 +144,19 @@ mod test {
 
         let client = s3_init(&config, client);
 
-        let smp = SourcemapProvider::new(&config);
+        let client = Arc::new(client);
+
+        let chunk_id_smp = ChunkIdFetcher::new(
+            SourcemapProvider::new(&config),
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
         let saving_smp = Saving::new(
-            smp,
-            pool,
-            client,
+            chunk_id_smp,
+            pool.clone(),
+            client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
@@ -143,12 +179,16 @@ mod test {
         // We're going to pretend out stack consists exclusively of JS frames whose source
         // we have locally
         test_stack.retain(|s| {
-            let RawFrame::JavaScript(s) = s;
+            let RawFrame::JavaScriptWeb(s) = s else {
+                return false;
+            };
             s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
         });
 
         for frame in test_stack.iter_mut() {
-            let RawFrame::JavaScript(frame) = frame;
+            let RawFrame::JavaScriptWeb(frame) = frame else {
+                panic!("Expected a JavaScript frame")
+            };
             // Our test data contains our /actual/ source urls - we need to swap that to localhost
             // When I first wrote this test, I forgot to do this, and it took me a while to figure out
             // why the test was passing before I'd even set up the mockserver - which was pretty cool, tbh
@@ -233,10 +273,11 @@ mod test {
 
         // get the frame
         let frame_id = frame.frame_id();
-        let frame = ErrorTrackingStackFrame::load(&pool, 0, &frame_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let frame =
+            ErrorTrackingStackFrame::load(&pool, 0, &frame_id, chrono::Duration::minutes(30))
+                .await
+                .unwrap()
+                .unwrap();
 
         assert_eq!(frame.symbol_set_id.unwrap(), set.id);
 

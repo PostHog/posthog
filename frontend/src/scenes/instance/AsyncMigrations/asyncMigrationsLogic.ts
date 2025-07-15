@@ -71,9 +71,9 @@ export interface AsyncMigrationModalProps {
 
 export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
     path(['scenes', 'instance', 'AsyncMigrations', 'asyncMigrationsLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight']],
-    }),
+    })),
     actions({
         triggerMigration: (migration: AsyncMigration) => ({ migration }),
         resumeMigration: (migration: AsyncMigration) => ({ migration }),

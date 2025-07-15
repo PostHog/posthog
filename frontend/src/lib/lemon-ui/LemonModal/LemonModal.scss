@@ -22,7 +22,7 @@
         backdrop-filter: blur(0);
     }
 
-    @each $i in (1061, 1062, 1066, 1067, 1068, 1069) {
+    @each $i in (1161, 1162, 1166, 1167, 1168, 1169) {
         &.LemonModal__overlay--z-#{$i} {
             z-index: #{$i};
         }
@@ -38,7 +38,7 @@
     max-width: 90%;
     max-height: 90%;
     margin: 1rem auto;
-    background-color: var(--bg-light);
+    background-color: var(--bg-surface-primary);
     border: 1px solid var(--border-bold);
     border-radius: var(--radius);
     box-shadow: var(--modal-shadow-elevation);
@@ -103,7 +103,7 @@
     padding-bottom: 1rem;
     margin: 1rem;
     margin-bottom: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-primary);
 
     h3 {
         margin-right: 2.5rem;
@@ -128,7 +128,7 @@
     margin: 1rem;
     margin-top: 0;
     white-space: nowrap;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-primary);
 }
 
 .LemonModal__header + .LemonModal__footer {

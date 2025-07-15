@@ -1,159 +1,35 @@
-from typing import Any, Optional
-from collections.abc import Callable
+from enum import Enum
+from typing import Any, Literal
 
-from django.utils.timezone import now
+from django.db.models import Q, QuerySet
+from django.dispatch import receiver
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from statshog.defaults.django import statsd
-import posthoganalytics
 
-from ee.clickhouse.queries.experiments.funnel_experiment_result import (
-    ClickhouseFunnelExperimentResult,
-)
-from ee.clickhouse.queries.experiments.secondary_experiment_result import (
-    ClickhouseSecondaryExperimentResult,
-)
-from ee.clickhouse.queries.experiments.trend_experiment_result import (
-    ClickhouseTrendExperimentResult,
-)
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.clickhouse.views.experiment_saved_metrics import (
+    ExperimentToSavedMetricSerializer,
+)
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.caching.insight_cache import update_cached_state
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.constants import INSIGHT_TRENDS
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+)
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
-from posthog.utils import generate_cache_key, get_safe_cache
-
-EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
-
-
-def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):
-    # :TRICKY: Don't run any filter simplification on the experiment filter yet
-    filter = Filter({**experiment.filters, "is_simplified": True}, team=experiment.team)
-
-    exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-    exposure_filter = None
-    if exposure_filter_data:
-        exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
-
-    if filter.insight == INSIGHT_TRENDS:
-        calculate_func = lambda: ClickhouseTrendExperimentResult(
-            filter,
-            experiment.team,
-            experiment.feature_flag,
-            experiment.start_date,
-            experiment.end_date,
-            holdout=experiment.holdout,
-            custom_exposure_filter=exposure_filter,
-        ).get_results()
-    else:
-        calculate_func = lambda: ClickhouseFunnelExperimentResult(
-            filter,
-            experiment.team,
-            experiment.feature_flag,
-            experiment.start_date,
-            experiment.end_date,
-            holdout=experiment.holdout,
-        ).get_results()
-
-    return _experiment_results_cached(
-        experiment,
-        "primary",
-        filter,
-        calculate_func,
-        refresh=refresh,
-        exposure_filter=exposure_filter,
-    )
-
-
-def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int, refresh: bool = False):
-    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
-
-    calculate_func = lambda: ClickhouseSecondaryExperimentResult(
-        filter,
-        experiment.team,
-        experiment.feature_flag,
-        experiment.start_date,
-        experiment.end_date,
-    ).get_results()
-    return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
-
-
-def _experiment_results_cached(
-    experiment: Experiment,
-    results_type: str,
-    filter: Filter,
-    calculate_func: Callable,
-    refresh: bool,
-    exposure_filter: Optional[Filter] = None,
-):
-    cache_filter = filter.shallow_clone(
-        {
-            "date_from": experiment.start_date,
-            "date_to": experiment.end_date if experiment.end_date else None,
-        }
-    )
-
-    exposure_suffix = "" if not exposure_filter else f"_{exposure_filter.toJSON()}"
-
-    cache_key = generate_cache_key(
-        f"experiment_{results_type}_{cache_filter.toJSON()}_{experiment.team.pk}_{experiment.pk}{exposure_suffix}"
-    )
-
-    tag_queries(cache_key=cache_key)
-
-    cached_result_package = get_safe_cache(cache_key)
-
-    if cached_result_package and cached_result_package.get("result") and not refresh:
-        cached_result_package["is_cached"] = True
-        statsd.incr(
-            "posthog_cached_function_cache_hit",
-            tags={"route": "/projects/:id/experiments/:experiment_id/results"},
-        )
-        return cached_result_package
-
-    statsd.incr(
-        "posthog_cached_function_cache_miss",
-        tags={"route": "/projects/:id/experiments/:experiment_id/results"},
-    )
-
-    result = calculate_func()
-
-    timestamp = now()
-    fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
-
-    # Event to detect experiment significance flip-flopping
-    posthoganalytics.capture(
-        experiment.created_by.email,
-        "experiment result calculated",
-        properties={
-            "experiment_id": experiment.id,
-            "name": experiment.name,
-            "goal_type": experiment.filters.get("insight", "FUNNELS"),
-            "significant": result.get("significant"),
-            "significance_code": result.get("significance_code"),
-            "probability": result.get("probability"),
-        },
-    )
-
-    update_cached_state(
-        experiment.team.pk,
-        cache_key,
-        timestamp,
-        fresh_result_package,
-        ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL,
-    )
-
-    return fresh_result_package
+from posthog.models.signals import model_activity_signal
+from posthog.models.team.team import Team
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.schema import ExperimentEventExposureConfig
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -165,9 +41,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
         queryset=ExperimentHoldout.objects.all(), source="holdout", required=False, allow_null=True
     )
     saved_metrics = ExperimentToSavedMetricSerializer(many=True, source="experimenttosavedmetric_set", read_only=True)
-    saved_metrics_ids = serializers.ListField(
-        child=serializers.JSONField(), write_only=True, required=False, allow_null=True
-    )
+    saved_metrics_ids = serializers.ListField(child=serializers.JSONField(), required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Experiment
@@ -188,12 +63,18 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "saved_metrics_ids",
             "filters",
             "archived",
+            "deleted",
             "created_by",
             "created_at",
             "updated_at",
             "type",
+            "exposure_criteria",
             "metrics",
             "metrics_secondary",
+            "stats_config",
+            "_create_in_folder",
+            "conclusion",
+            "conclusion_comment",
         ]
         read_only_fields = [
             "id",
@@ -205,6 +86,30 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "holdout",
             "saved_metrics",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Normalize query date ranges to the experiment's current range
+        # Cribbed from ExperimentTrendsQuery
+        new_date_range = {
+            "date_from": data["start_date"] if data["start_date"] else "",
+            "date_to": data["end_date"] if data["end_date"] else "",
+            "explicitDate": True,
+        }
+        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+            for metric in metrics_list:
+                if metric.get("count_query", {}).get("dateRange"):
+                    metric["count_query"]["dateRange"] = new_date_range
+                if metric.get("funnels_query", {}).get("dateRange"):
+                    metric["funnels_query"]["dateRange"] = new_date_range
+
+        for saved_metric in data.get("saved_metrics", []):
+            if saved_metric.get("query", {}).get("count_query", {}).get("dateRange"):
+                saved_metric["query"]["count_query"]["dateRange"] = new_date_range
+            if saved_metric.get("query", {}).get("funnels_query", {}).get("dateRange"):
+                saved_metric["query"]["funnels_query"]["dateRange"] = new_date_range
+
+        return data
 
     def validate_saved_metrics_ids(self, value):
         if value is None:
@@ -235,9 +140,51 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_metrics(self, value):
-        # TODO 2024-11-15: commented code will be addressed when persistent metrics are implemented.
-
+        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
+        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
+            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics")
         return value
+
+    def validate_metrics_secondary(self, value):
+        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
+        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
+            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics")
+        return value
+
+    def validate(self, data):
+        # Validate that total metrics (regular + shared) don't exceed limits
+        metrics = data.get("metrics", [])
+        metrics_secondary = data.get("metrics_secondary", [])
+        saved_metrics_ids = data.get("saved_metrics_ids", [])
+
+        if saved_metrics_ids:
+            EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
+            primary_shared_count = len([m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "primary"])
+            secondary_shared_count = len(
+                [m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "secondary"]
+            )
+
+            total_primary = len(metrics) + primary_shared_count
+            total_secondary = len(metrics_secondary) + secondary_shared_count
+
+            if total_primary > EXPERIMENT_METRIC_QTY_LIMIT:
+                raise ValidationError(
+                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics (including shared metrics)"
+                )
+            if total_secondary > EXPERIMENT_METRIC_QTY_LIMIT:
+                raise ValidationError(
+                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics (including shared metrics)"
+                )
+
+        # Validate start/end dates
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        # Only validate if both dates are present
+        if start_date and end_date and start_date >= end_date:
+            raise ValidationError("End date must be after start date")
+
+        return super().validate(data)
 
     def validate_parameters(self, value):
         if not value:
@@ -245,13 +192,39 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = value.get("feature_flag_variants", [])
 
-        if len(variants) >= 11:
-            raise ValidationError("Feature flag variants must be less than 11")
+        if len(variants) >= 21:
+            raise ValidationError("Feature flag variants must be less than 21")
         elif len(variants) > 0:
             if "control" not in [variant["key"] for variant in variants]:
                 raise ValidationError("Feature flag variants must contain a control variant")
 
         return value
+
+    def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
+        variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
+
+        if len(variants) and len(variants) > 1:
+            if variants[0].get("key") != "control":
+                raise ValidationError("Feature flag must have control as the first variant.")
+            return True
+
+        raise ValidationError("Feature flag is not eligible for experiments.")
+
+    def validate_exposure_criteria(self, exposure_criteria: dict | None):
+        if not exposure_criteria:
+            return exposure_criteria
+
+        if "filterTestAccounts" in exposure_criteria and not isinstance(exposure_criteria["filterTestAccounts"], bool):
+            raise ValidationError("filterTestAccounts must be a boolean")
+
+        if "exposure_config" in exposure_criteria:
+            try:
+                ExperimentEventExposureConfig.model_validate(exposure_criteria["exposure_config"])
+                return exposure_criteria
+            except Exception:
+                raise ValidationError("Invalid exposure criteria")
+
+        return exposure_criteria
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
@@ -263,44 +236,69 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         variants = []
         aggregation_group_type_index = None
-        if validated_data["parameters"]:
-            variants = validated_data["parameters"].get("feature_flag_variants", [])
-            aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
+        if "parameters" in validated_data:
+            if validated_data["parameters"] is not None:
+                variants = validated_data["parameters"].get("feature_flag_variants", [])
+                aggregation_group_type_index = validated_data["parameters"].get("aggregation_group_type_index")
 
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
-        holdout_groups = None
-        if validated_data.get("holdout"):
-            holdout_groups = validated_data["holdout"].filters
+        existing_feature_flag = FeatureFlag.objects.filter(
+            key=feature_flag_key, team_id=self.context["team_id"], deleted=False
+        ).first()
+        if existing_feature_flag:
+            self.validate_existing_feature_flag_for_experiment(existing_feature_flag)
+            feature_flag = existing_feature_flag
+        else:
+            holdout_groups = None
+            if validated_data.get("holdout"):
+                holdout_groups = validated_data["holdout"].filters
 
-        default_variants = [
-            {"key": "control", "name": "Control Group", "rollout_percentage": 50},
-            {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
-        ]
+            default_variants = [
+                {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+            ]
 
-        feature_flag_filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": {"variants": variants or default_variants},
-            "aggregation_group_type_index": aggregation_group_type_index,
-            "holdout_groups": holdout_groups,
-        }
+            feature_flag_filters = {
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": variants or default_variants},
+                "aggregation_group_type_index": aggregation_group_type_index,
+                "holdout_groups": holdout_groups,
+            }
 
-        feature_flag_serializer = FeatureFlagSerializer(
-            data={
+            feature_flag_data = {
                 "key": feature_flag_key,
-                "name": f'Feature Flag for Experiment {validated_data["name"]}',
+                "name": f"Feature Flag for Experiment {validated_data['name']}",
                 "filters": feature_flag_filters,
                 "active": not is_draft,
                 "creation_context": "experiments",
-            },
-            context=self.context,
-        )
+            }
 
-        feature_flag_serializer.is_valid(raise_exception=True)
-        feature_flag = feature_flag_serializer.save()
+            # Pass ensure_experience_continuity from experiment parameters
+            parameters = validated_data.get("parameters") or {}
+            if parameters.get("ensure_experience_continuity") is not None:
+                feature_flag_data["ensure_experience_continuity"] = parameters["ensure_experience_continuity"]
+            if validated_data.get("_create_in_folder") is not None:
+                feature_flag_data["_create_in_folder"] = validated_data["_create_in_folder"]
+            feature_flag_serializer = FeatureFlagSerializer(
+                data=feature_flag_data,
+                context=self.context,
+            )
+
+            feature_flag_serializer.is_valid(raise_exception=True)
+            feature_flag = feature_flag_serializer.save()
+
+        # Ensure stats_config has a method set, preserving any other fields passed from frontend
+        stats_config = validated_data.get("stats_config", {})
+        if not stats_config.get("method"):
+            # Get organization's default stats method setting
+            team = Team.objects.get(id=self.context["team_id"])
+            default_method = team.organization.default_experiment_stats_method
+            stats_config["method"] = default_method
+            validated_data["stats_config"] = stats_config
 
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
@@ -339,6 +337,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         # if (
         #     not instance.filters.get("events")
         #     and not instance.filters.get("actions")
+        #     and not instance.filters.get("data_warehouse")
         #     and validated_data.get("start_date")
         #     and not validated_data.get("filters")
         # ):
@@ -373,10 +372,15 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "filters",
             "parameters",
             "archived",
+            "deleted",
             "secondary_metrics",
             "holdout",
+            "exposure_criteria",
             "metrics",
             "metrics_secondary",
+            "stats_config",
+            "conclusion",
+            "conclusion_comment",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -428,16 +432,15 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
                 ]
 
-                filters = {
-                    "groups": [{"properties": properties, "rollout_percentage": 100}],
-                    "multivariate": {"variants": variants or default_variants},
-                    "aggregation_group_type_index": aggregation_group_type_index,
-                    "holdout_groups": holdout_groups,
-                }
+                feature_flag_filters = feature_flag.filters
+                feature_flag_filters["groups"] = feature_flag.filters.get("groups", [])
+                feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
+                feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
+                feature_flag_filters["holdout_groups"] = holdout_groups
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": filters},
+                    data={"filters": feature_flag_filters},
                     partial=True,
                     context=self.context,
                 )
@@ -465,64 +468,67 @@ class ExperimentSerializer(serializers.ModelSerializer):
             return super().update(instance, validated_data)
 
 
-class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment"
+class ExperimentStatus(str, Enum):
+    DRAFT = "draft"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    ALL = "all"
+
+
+class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object: Literal["experiment"] = "experiment"
     serializer_class = ExperimentSerializer
     queryset = Experiment.objects.prefetch_related(
         "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
     ).all()
     ordering = "-created_at"
 
-    # ******************************************
-    # /projects/:id/experiments/:experiment_id/results
-    #
-    # Returns current results of an experiment, and graphs
-    # 1. Probability of success
-    # 2. Funnel breakdown graph to display
-    # ******************************************
-    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
-    def results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment: Experiment = self.get_object()
+    def safely_get_queryset(self, queryset) -> QuerySet:
+        """Override to filter out deleted experiments and apply filters."""
+        queryset = queryset.exclude(deleted=True)
 
-        refresh = request.query_params.get("refresh") is not None
+        # Only apply filters for list view, not detail view
+        if self.action == "list":
+            # filtering by status
+            status = self.request.query_params.get("status")
+            if status:
+                try:
+                    status_enum = ExperimentStatus(status.lower())
+                except ValueError:
+                    status_enum = None
 
-        if not experiment.filters:
-            raise ValidationError("Experiment has no target metric")
+                if status_enum and status_enum != ExperimentStatus.ALL:
+                    if status_enum == ExperimentStatus.DRAFT:
+                        queryset = queryset.filter(start_date__isnull=True)
+                    elif status_enum == ExperimentStatus.RUNNING:
+                        queryset = queryset.filter(start_date__isnull=False, end_date__isnull=True)
+                    elif status_enum == ExperimentStatus.COMPLETE:
+                        queryset = queryset.filter(end_date__isnull=False)
 
-        result = _calculate_experiment_results(experiment, refresh)
+            # filtering by creator id
+            created_by_id = self.request.query_params.get("created_by_id")
+            if created_by_id:
+                queryset = queryset.filter(created_by_id=created_by_id)
 
-        return Response(result)
+            # archived
+            archived = self.request.query_params.get("archived")
+            if archived is not None:
+                archived_bool = archived.lower() == "true"
+                queryset = queryset.filter(archived=archived_bool)
+            else:
+                queryset = queryset.filter(archived=False)
 
-    # ******************************************
-    # /projects/:id/experiments/:experiment_id/secondary_results?id=<secondary_metric_id>
-    #
-    # Returns values for secondary experiment metrics, broken down by variants
-    # ******************************************
-    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
-    def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment: Experiment = self.get_object()
+        # search by name
+        search = self.request.query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search))
 
-        refresh = request.query_params.get("refresh") is not None
+        # Ordering
+        order = self.request.query_params.get("order")
+        if order:
+            queryset = queryset.order_by(order)
 
-        if not experiment.secondary_metrics:
-            raise ValidationError("Experiment has no secondary metrics")
-
-        metric_id = request.query_params.get("id")
-
-        if not metric_id:
-            raise ValidationError("Secondary metric id is required")
-
-        try:
-            parsed_id = int(metric_id)
-        except ValueError:
-            raise ValidationError("Secondary metric id must be an integer")
-
-        if parsed_id > len(experiment.secondary_metrics):
-            raise ValidationError("Invalid metric ID")
-
-        result = _calculate_secondary_experiment_results(experiment, parsed_id, refresh)
-
-        return Response(result)
+        return queryset
 
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation
@@ -624,3 +630,21 @@ class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+
+@receiver(model_activity_signal, sender=Experiment)
+def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.created_by
+        if activity == "created"
+        else getattr(after_update, "last_modified_by", after_update.created_by),
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
+        ),
+    )

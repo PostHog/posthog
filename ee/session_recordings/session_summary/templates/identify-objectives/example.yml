@@ -1,0 +1,56 @@
+segments:
+    - index: 0
+      start_event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
+      end_event_id: 'vbgs1287' # Must be copied EXACTLY from event data, never invented
+      name: 'Example Segment'
+    - index: 1
+      start_event_id: 'gfgz6242'
+      end_event_id: 'stuv9012'
+      name: 'Another Example Segment'
+    # Note: The actual number of segments should be based on your analysis of the session timeline.
+
+key_actions:
+    - segment_index: 0 # Must match EXACTLY with a segments.index value
+      events:
+          - event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
+            abandonment: false # true or false
+            confusion: false # true or false
+            exception: null # null if no exception, `blocking` or `non-blocking` if exception
+            description: 'First significant action in this segment'
+          - event_id: 'defg4567'
+            abandonment: false
+            confusion: false
+            exception: null
+            description: 'Second action in this segment'
+          # Note: The actual number of events should be based on your analysis of the current segment events in the session data.
+    - segment_index: 1
+      events:
+          - event_id: 'ghij7890'
+            abandonment: false
+            confusion: false
+            exception: null
+            description: 'Significant action in this segment'
+          - event_id: 'mnop3456'
+            abandonment: false
+            confusion: true
+            exception: 'blocking'
+            description: 'User repeatedly attempted to perform an action but encountered an error'
+          - event_id: 'stuv9012'
+            abandonment: false
+            confusion: false
+            exception: null
+            description: 'Final action in this chronological segment'
+    # Note: Each segment should have key actions.
+
+segment_outcomes:
+    - segment_index: 0
+      success: true
+      summary: 'Detailed description incorporating key action insights'
+    - segment_index: 1
+      success: false
+      summary: 'Description highlighting encountered failures and their impact'
+    # Note: Each segment should have a segment outcome.
+
+session_outcome:
+    success: true
+    description: 'Concise session outcome description focusing on conversion attempts, feature usage, and critical issues'

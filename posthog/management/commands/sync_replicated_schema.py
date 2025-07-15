@@ -7,7 +7,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.clickhouse.schema import CREATE_TABLE_QUERIES, get_table_name
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 
 logger = structlog.get_logger(__name__)

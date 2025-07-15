@@ -12,7 +12,7 @@ from posthog.schema import (
 )
 
 try:
-    from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+    from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 except ImportError:
     CORE_FILTER_DEFINITIONS_BY_GROUP = {}
 

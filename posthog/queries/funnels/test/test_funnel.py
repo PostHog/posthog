@@ -6,7 +6,7 @@ from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, Element
 from posthog.models.cohort import Cohort
@@ -3055,10 +3055,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid])
 
         def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
-            """
-            failing test for https://sentry.io/organizations/posthog/issues/2807609211/?project=1899813&referrer=slack
-            """
-
             filter_with_breakdown = {
                 "events": [{"id": "with one entity", "type": "events", "order": 0}],
                 "breakdown": "something",

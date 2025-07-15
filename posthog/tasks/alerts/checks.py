@@ -1,21 +1,20 @@
-import time
 import traceback
 
 from datetime import datetime, timedelta, UTC
 from typing import cast
+from collections.abc import Callable
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
 from celery.canvas import chain
 from django.db import transaction
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 import structlog
-from sentry_sdk import capture_exception, set_tag
+from posthog.clickhouse.query_tagging import tag_queries
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    conversion_to_query_based,
-)
-from posthog.models import AlertConfiguration
+from posthog.exceptions_capture import capture_exception
+from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 from posthog.schema import (
@@ -24,18 +23,19 @@ from posthog.schema import (
     AlertState,
 )
 from posthog.utils import get_from_dict_or_attr
-from prometheus_client import Counter, Gauge
 from django.db.models import Q, F
 from collections import defaultdict
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     calculation_interval_to_order,
+    next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
+    skip_because_of_weekend,
     WRAPPER_NODE_KINDS,
-    alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
+from posthog.ph_client import ph_scoped_capture
 
 
 logger = structlog.get_logger(__name__)
@@ -43,7 +43,7 @@ logger = structlog.get_logger(__name__)
 
 class AlertCheckException(Exception):
     """
-    Required for custom exceptions to pass stack trace to sentry.
+    Required for custom exceptions to pass stack trace to error tracking.
     Subclassing through other ways doesn't transfer the traceback.
     https://stackoverflow.com/a/69963663/5540417
     """
@@ -52,25 +52,7 @@ class AlertCheckException(Exception):
         self.__traceback__ = err.__traceback__
 
 
-HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
-    "hourly_alerts_backlog",
-    "Number of hourly alerts that are not being checked in the last hour.",
-)
-
-DAILY_ALERTS_BACKLOG_GAUGE = Gauge(
-    "daily_alerts_backlog",
-    "Number of daily alerts that are not being checked in the last 24 hours.",
-)
-
-ALERT_CHECK_ERROR_COUNTER = Counter(
-    "alerts_check_failures",
-    "Number of alert check errors that don't notify the user",
-)
-
-ALERT_COMPUTED_COUNTER = Counter(
-    "alerts_computed",
-    "Number of alerts we calculated",
-)
+ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
 @shared_task(ignore_result=True)
@@ -98,8 +80,6 @@ def alerts_backlog_task() -> None:
         )
     ).count()
 
-    HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
-
     now = datetime.now(UTC)
 
     daily_alerts_breaching_sla = AlertConfiguration.objects.filter(
@@ -110,10 +90,24 @@ def alerts_backlog_task() -> None:
         )
     ).count()
 
-    DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
+    with ph_scoped_capture() as capture_ph_event:
+        capture_ph_event(
+            distinct_id=ANIRUDH_DISTINCT_ID,
+            event="alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.DAILY,
+                "backlog": daily_alerts_breaching_sla,
+            },
+        )
 
-    # sleeping 30s for prometheus to pick up the metrics sent during task
-    time.sleep(30)
+        capture_ph_event(
+            distinct_id=ANIRUDH_DISTINCT_ID,
+            event="alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.HOURLY,
+                "backlog": hourly_alerts_breaching_sla,
+            },
+        )
 
 
 @shared_task(
@@ -194,10 +188,11 @@ def check_alerts_task() -> None:
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
 def check_alert_task(alert_id: str) -> None:
-    check_alert(alert_id)
+    with ph_scoped_capture() as capture_ph_event:
+        check_alert(alert_id, capture_ph_event)
 
 
-def check_alert(alert_id: str) -> None:
+def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -221,6 +216,17 @@ def check_alert(alert_id: str) -> None:
         )
         return
 
+    if skip_because_of_weekend(alert):
+        logger.info(
+            "Skipping alert check because weekend checking is disabled",
+            alert=alert,
+        )
+
+        # ignore alert check until due again
+        alert.next_check_at = next_check_time(alert)
+        alert.save()
+        return
+
     if alert.snoozed_until:
         if alert.snoozed_until > now:
             logger.info(
@@ -240,14 +246,24 @@ def check_alert(alert_id: str) -> None:
     alert.save()
 
     try:
-        check_alert_and_notify_atomically(alert)
+        check_alert_and_notify_atomically(alert, capture_ph_event)
     except Exception as err:
-        ALERT_CHECK_ERROR_COUNTER.inc()
+        user = cast(User, alert.created_by)
+
+        capture_ph_event(
+            distinct_id=user.distinct_id,
+            event="alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": f"AlertCheckError: {err}",
+                "traceback": traceback.format_exc(),
+            },
+        )
 
         logger.exception(AlertCheckException(err))
         capture_exception(
             AlertCheckException(err),
-            tags={
+            additional_properties={
                 "alert_configuration_id": alert_id,
             },
         )
@@ -266,16 +282,26 @@ def check_alert(alert_id: str) -> None:
 
 
 @transaction.atomic
-def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_event: Callable) -> None:
     """
     Computes insight results, checks alert for breaches and notifies user.
     Only commits updates to alert state if all of the above complete successfully.
     TODO: Later separate notification mechanism from alert checking mechanism (when we move to CDP)
         so we can retry notification without re-computing insight.
     """
-    set_tag("alert_config_id", alert.id)
+    tag_queries(alert_config_id=str(alert.id))
+    user = cast(User, alert.created_by)
 
-    ALERT_COMPUTED_COUNTER.inc()
+    # Event to count alert checks
+    capture_ph_event(
+        distinct_id=user.distinct_id,
+        event="alert check",
+        properties={
+            "alert_id": alert.id,
+            "calculation_interval": alert.calculation_interval,
+        },
+    )
+
     value = breaches = error = None
 
     # 1. Evaluate insight and get alert value
@@ -288,8 +314,19 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         # as celery task can be retried according to config
         raise
     except Exception as err:
-        logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
-        set_tag("evaluation_error_message", traceback.format_exc())
+        error_message = f"Alert id = {alert.id}, failed to evaluate"
+
+        capture_ph_event(
+            distinct_id=user.distinct_id,
+            event="alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": error_message,
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+        logger.exception(error_message, exc_info=err)
         capture_exception(AlertCheckException(err))
 
         # error can be on user side (incorrectly configured insight/alert)
@@ -309,7 +346,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
                 logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
                 logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
-                # TODO: uncomment this after checking errors sent
                 send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
@@ -317,8 +353,6 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
         logger.exception(error_message, exc_info=err)
-
-        set_tag("evaluation_error_message", traceback.format_exc())
         capture_exception(Exception(error_message))
 
         # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)
@@ -333,7 +367,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """
     insight = alert.insight
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         query = insight.query
         kind = get_from_dict_or_attr(query, "kind")
 
@@ -370,9 +404,7 @@ def add_alert_check(
 
     # IMPORTANT: update next_check_at according to interval
     # ensure we don't recheck alert until the next interval is due
-    alert.next_check_at = (alert.next_check_at or now) + alert_calculation_interval_to_relativedelta(
-        cast(AlertCalculationInterval, alert.calculation_interval)
-    )
+    alert.next_check_at = next_check_time(alert)
 
     if notify:
         alert.last_notified_at = now

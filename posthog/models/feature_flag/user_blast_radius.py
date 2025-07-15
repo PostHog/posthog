@@ -2,7 +2,7 @@ from typing import Optional
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
@@ -77,7 +77,7 @@ def get_user_blast_radius(
 
         if len(cohort_filters) == 1:
             try:
-                target_cohort = Cohort.objects.get(id=cohort_filters[0].value, team=team)
+                target_cohort = Cohort.objects.get(id=cohort_filters[0].value, team__project_id=team.project_id)
             except Cohort.DoesNotExist:
                 pass
             finally:

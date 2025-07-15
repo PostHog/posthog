@@ -3,8 +3,10 @@ from django.db import models
 from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
 
+from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 
 class PropertyType(models.TextChoices):
@@ -43,6 +45,7 @@ class PropertyDefinition(UUIDModel):
         related_name="property_definitions",
         related_query_name="team",
     )
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(
         default=False
@@ -69,6 +72,8 @@ class PropertyDefinition(UUIDModel):
 
     class Meta:
         indexes = [
+            # Index on project_id foreign key
+            models.Index(fields=["project"], name="posthog_prop_proj_id_d3eb982d"),
             # This indexes the query in api/property_definition.py
             # :KLUDGE: django ORM typing is off here
             models.Index(
@@ -79,9 +84,23 @@ class PropertyDefinition(UUIDModel):
                 F("name").asc(),
                 name="index_property_def_query",
             ),
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("query_usage_30_day").desc(nulls_last=True),
+                F("name").asc(),
+                name="index_property_def_query_proj",
+            ),
             # creates an index pganalyze identified as missing
             # https://app.pganalyze.com/servers/i35ydkosi5cy5n7tly45vkjcqa/checks/index_advisor/missing_index/15282978
             models.Index(fields=["team_id", "type", "is_numerical"]),
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("type"),
+                F("is_numerical"),
+                name="posthog_pro_project_3583d2_idx",
+            ),
             GinIndex(
                 name="index_property_definition_name",
                 fields=["name"],
@@ -98,8 +117,9 @@ class PropertyDefinition(UUIDModel):
                 check=~models.Q(type=3) | models.Q(group_type_index__isnull=False),
             ),
             UniqueConstraintByExpression(
-                name="posthog_propertydefinition_uniq",
-                expression="(team_id, name, type, coalesce(group_type_index, -1))",
+                concurrently=True,
+                name="posthog_propdef_proj_uniq",
+                expression="(coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1))",
             ),
         ]
 
@@ -109,3 +129,38 @@ class PropertyDefinition(UUIDModel):
     # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
     def is_seen_on_filtered_events(self) -> None:
         return None
+
+
+# ClickHouse Table DDL
+
+PROPERTY_DEFINITIONS_TABLE_SQL = (
+    lambda: f"""
+CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`
+(
+    -- Team and project relationships
+    team_id UInt32,
+    project_id UInt32 NULL,
+
+    -- Core property fields
+    name String,
+    property_type String NULL,
+    event String NULL, -- Only null for non-event types
+    group_type_index UInt8 NULL,
+
+    -- Type enum (1=event, 2=person, 3=group, 4=session)
+    type UInt8 DEFAULT 1,
+
+    -- Metadata
+    last_seen_at DateTime,
+
+    -- A composite version number that prioritizes property_type presence over timestamp
+    -- We negate isNull() so rows WITH property_type get higher preference
+    version UInt64 MATERIALIZED (bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at)))
+)
+ENGINE = {ReplacingMergeTree("property_definitions", replication_scheme=ReplicationScheme.REPLICATED, ver="version")}
+ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
+SETTINGS index_granularity = 8192
+"""
+)
+
+DROP_PROPERTY_DEFINITIONS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`"

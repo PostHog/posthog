@@ -12,6 +12,7 @@ export const fromNodeTypeToLabel: Omit<
     | NotebookNodeType.Map
     | NotebookNodeType.Mention
     | NotebookNodeType.Embed
+    | NotebookNodeType.Latex
 > = {
     [NotebookNodeType.FeatureFlag]: 'Feature flags',
     [NotebookNodeType.FeatureFlagCodeExample]: 'Feature flag Code Examples',

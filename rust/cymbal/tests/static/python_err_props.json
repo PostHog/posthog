@@ -1,0 +1,735 @@
+{
+    "$exception_list": [
+        {
+            "type": "ConnectionRefusedError",
+            "value": "[Errno 111] Connection refused",
+            "mechanism": {
+                "handled": true,
+                "type": "generic"
+            },
+            "stacktrace": {
+                "type": "raw",
+                "frames": [
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/connection.py",
+                        "context_line": "            conn = connection.create_connection(",
+                        "filename": "urllib3/connection.py",
+                        "function": "_new_conn",
+                        "lineno": 174,
+                        "module": "urllib3.connection",
+                        "pre_context": [
+                            "",
+                            "        if self.socket_options:",
+                            "            extra_kw[\"socket_options\"] = self.socket_options",
+                            "",
+                            "        try:"
+                        ],
+                        "post_context": [
+                            "                (self._dns_host, self.port), self.timeout, **extra_kw",
+                            "            )",
+                            "",
+                            "        except SocketTimeout:",
+                            "            raise ConnectTimeoutError("
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/util/connection.py",
+                        "context_line": "        raise err",
+                        "filename": "urllib3/util/connection.py",
+                        "function": "create_connection",
+                        "lineno": 95,
+                        "module": "urllib3.util.connection",
+                        "pre_context": [
+                            "            if sock is not None:",
+                            "                sock.close()",
+                            "                sock = None",
+                            "",
+                            "    if err is not None:"
+                        ],
+                        "post_context": [
+                            "",
+                            "    raise socket.error(\"getaddrinfo returns an empty list\")",
+                            "",
+                            "",
+                            "def _set_socket_options(sock, options):"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/util/connection.py",
+                        "context_line": "            sock.connect(sa)",
+                        "filename": "urllib3/util/connection.py",
+                        "function": "create_connection",
+                        "lineno": 85,
+                        "module": "urllib3.util.connection",
+                        "pre_context": [
+                            "",
+                            "            if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:",
+                            "                sock.settimeout(timeout)",
+                            "            if source_address:",
+                            "                sock.bind(source_address)"
+                        ],
+                        "post_context": [
+                            "            return sock",
+                            "",
+                            "        except socket.error as e:",
+                            "            err = e",
+                            "            if sock is not None:"
+                        ],
+                        "in_app": false
+                    }
+                ]
+            }
+        },
+        {
+            "type": "NewConnectionError",
+            "value": "<urllib3.connection.HTTPConnection object at 0x7fbdc0bef290>: Failed to establish a new connection: [Errno 111] Connection refused",
+            "mechanism": {
+                "handled": true,
+                "type": "generic"
+            },
+            "module": "urllib3.exceptions",
+            "stacktrace": {
+                "type": "raw",
+                "frames": [
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/connectionpool.py",
+                        "context_line": "            httplib_response = self._make_request(",
+                        "filename": "urllib3/connectionpool.py",
+                        "function": "urlopen",
+                        "lineno": 715,
+                        "module": "urllib3.connectionpool",
+                        "pre_context": [
+                            "            )",
+                            "            if is_new_proxy_conn and http_tunnel_required:",
+                            "                self._prepare_proxy(conn)",
+                            "",
+                            "            # Make the request on the httplib connection object."
+                        ],
+                        "post_context": [
+                            "                conn,",
+                            "                method,",
+                            "                url,",
+                            "                timeout=timeout_obj,",
+                            "                body=body,"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/connectionpool.py",
+                        "context_line": "                conn.request(method, url, **httplib_request_kw)",
+                        "filename": "urllib3/connectionpool.py",
+                        "function": "_make_request",
+                        "lineno": 416,
+                        "module": "urllib3.connectionpool",
+                        "pre_context": [
+                            "        # urllib3.request. It also calls makefile (recv) on the socket.",
+                            "        try:",
+                            "            if chunked:",
+                            "                conn.request_chunked(method, url, **httplib_request_kw)",
+                            "            else:"
+                        ],
+                        "post_context": [
+                            "",
+                            "        # We are swallowing BrokenPipeError (errno.EPIPE) since the server is",
+                            "        # legitimately able to close the connection after sending a valid response.",
+                            "        # With this behaviour, the received response is still readable.",
+                            "        except BrokenPipeError:"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/connection.py",
+                        "context_line": "        super(HTTPConnection, self).request(method, url, body=body, headers=headers)",
+                        "filename": "urllib3/connection.py",
+                        "function": "request",
+                        "lineno": 244,
+                        "module": "urllib3.connection",
+                        "pre_context": [
+                            "        else:",
+                            "            # Avoid modifying the headers passed into .request()",
+                            "            headers = headers.copy()",
+                            "        if \"user-agent\" not in (six.ensure_str(k.lower()) for k in headers):",
+                            "            headers[\"User-Agent\"] = _get_default_user_agent()"
+                        ],
+                        "post_context": [
+                            "",
+                            "    def request_chunked(self, method, url, body=None, headers=None):",
+                            "        \"\"\"",
+                            "        Alternative to the common request method, which sends the",
+                            "        body with chunked encoding and not as one block"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/usr/local/lib/python3.11/http/client.py",
+                        "context_line": "        self._send_request(method, url, body, headers, encode_chunked)",
+                        "filename": "http/client.py",
+                        "function": "request",
+                        "lineno": 1298,
+                        "module": "http.client",
+                        "pre_context": [
+                            "        self._send_output(message_body, encode_chunked=encode_chunked)",
+                            "",
+                            "    def request(self, method, url, body=None, headers={}, *,",
+                            "                encode_chunked=False):",
+                            "        \"\"\"Send a complete request to the server.\"\"\""
+                        ],
+                        "post_context": [
+                            "",
+                            "    def _send_request(self, method, url, body, headers, encode_chunked):",
+                            "        # Honor explicitly requested Host: and Accept-Encoding: headers.",
+                            "        header_names = frozenset(k.lower() for k in headers)",
+                            "        skips = {}"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/usr/local/lib/python3.11/http/client.py",
+                        "context_line": "        self.endheaders(body, encode_chunked=encode_chunked)",
+                        "filename": "http/client.py",
+                        "function": "_send_request",
+                        "lineno": 1344,
+                        "module": "http.client",
+                        "pre_context": [
+                            "            self.putheader(hdr, value)",
+                            "        if isinstance(body, str):",
+                            "            # RFC 2616 Section 3.7.1 says that text default has a",
+                            "            # default charset of iso-8859-1.",
+                            "            body = _encode(body, 'body')"
+                        ],
+                        "post_context": [
+                            "",
+                            "    def getresponse(self):",
+                            "        \"\"\"Get the response from the server.",
+                            "",
+                            "        If the HTTPConnection is in the correct state, returns an"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/usr/local/lib/python3.11/http/client.py",
+                        "context_line": "        self._send_output(message_body, encode_chunked=encode_chunked)",
+                        "filename": "http/client.py",
+                        "function": "endheaders",
+                        "lineno": 1293,
+                        "module": "http.client",
+                        "pre_context": [
+                            "        \"\"\"",
+                            "        if self.__state == _CS_REQ_STARTED:",
+                            "            self.__state = _CS_REQ_SENT",
+                            "        else:",
+                            "            raise CannotSendHeader()"
+                        ],
+                        "post_context": [
+                            "",
+                            "    def request(self, method, url, body=None, headers={}, *,",
+                            "                encode_chunked=False):",
+                            "        \"\"\"Send a complete request to the server.\"\"\"",
+                            "        self._send_request(method, url, body, headers, encode_chunked)"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/usr/local/lib/python3.11/http/client.py",
+                        "context_line": "        self.send(msg)",
+                        "filename": "http/client.py",
+                        "function": "_send_output",
+                        "lineno": 1052,
+                        "module": "http.client",
+                        "pre_context": [
+                            "        A message_body may be specified, to be appended to the request.",
+                            "        \"\"\"",
+                            "        self._buffer.extend((b\"\", b\"\"))",
+                            "        msg = b\"\\r\\n\".join(self._buffer)",
+                            "        del self._buffer[:]"
+                        ],
+                        "post_context": [
+                            "",
+                            "        if message_body is not None:",
+                            "",
+                            "            # create a consistent interface to message_body",
+                            "            if hasattr(message_body, 'read'):"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/usr/local/lib/python3.11/http/client.py",
+                        "context_line": "                self.connect()",
+                        "filename": "http/client.py",
+                        "function": "send",
+                        "lineno": 990,
+                        "module": "http.client",
+                        "pre_context": [
+                            "        file-like object that supports a .read() method, or an iterable object.",
+                            "        \"\"\"",
+                            "",
+                            "        if self.sock is None:",
+                            "            if self.auto_open:"
+                        ],
+                        "post_context": [
+                            "            else:",
+                            "                raise NotConnected()",
+                            "",
+                            "        if self.debuglevel > 0:",
+                            "            print(\"send:\", repr(data))"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/connection.py",
+                        "context_line": "        conn = self._new_conn()",
+                        "filename": "urllib3/connection.py",
+                        "function": "connect",
+                        "lineno": 205,
+                        "module": "urllib3.connection",
+                        "pre_context": [
+                            "            self._tunnel()",
+                            "            # Mark this connection as not reusable",
+                            "            self.auto_open = 0",
+                            "",
+                            "    def connect(self):"
+                        ],
+                        "post_context": [
+                            "        self._prepare_conn(conn)",
+                            "",
+                            "    def putrequest(self, method, url, *args, **kwargs):",
+                            "        \"\"\" \"\"\"",
+                            "        # Empty docstring because the indentation of CPython's implementation"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/connection.py",
+                        "context_line": "            raise NewConnectionError(",
+                        "filename": "urllib3/connection.py",
+                        "function": "_new_conn",
+                        "lineno": 186,
+                        "module": "urllib3.connection",
+                        "pre_context": [
+                            "                \"Connection to %s timed out. (connect timeout=%s)\"",
+                            "                % (self.host, self.timeout),",
+                            "            )",
+                            "",
+                            "        except SocketError as e:"
+                        ],
+                        "post_context": [
+                            "                self, \"Failed to establish a new connection: %s\" % e",
+                            "            )",
+                            "",
+                            "        return conn",
+                            ""
+                        ],
+                        "in_app": false
+                    }
+                ]
+            }
+        },
+        {
+            "type": "MaxRetryError",
+            "value": "HTTPConnectionPool(host='clickhouse', port=8123): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fbdc0bef290>: Failed to establish a new connection: [Errno 111] Connection refused'))",
+            "mechanism": {
+                "handled": true,
+                "type": "generic"
+            },
+            "module": "urllib3.exceptions",
+            "stacktrace": {
+                "type": "raw",
+                "frames": [
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/requests/adapters.py",
+                        "context_line": "            resp = conn.urlopen(",
+                        "filename": "requests/adapters.py",
+                        "function": "send",
+                        "lineno": 564,
+                        "module": "requests.adapters",
+                        "pre_context": [
+                            "            pass",
+                            "        else:",
+                            "            timeout = TimeoutSauce(connect=timeout, read=timeout)",
+                            "",
+                            "        try:"
+                        ],
+                        "post_context": [
+                            "                method=request.method,",
+                            "                url=url,",
+                            "                body=request.body,",
+                            "                headers=request.headers,",
+                            "                redirect=False,"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/connectionpool.py",
+                        "context_line": "            retries = retries.increment(",
+                        "filename": "urllib3/connectionpool.py",
+                        "function": "urlopen",
+                        "lineno": 799,
+                        "module": "urllib3.connectionpool",
+                        "pre_context": [
+                            "            elif isinstance(e, (SocketError, NewConnectionError)) and self.proxy:",
+                            "                e = ProxyError(\"Cannot connect to proxy.\", e)",
+                            "            elif isinstance(e, (SocketError, HTTPException)):",
+                            "                e = ProtocolError(\"Connection aborted.\", e)",
+                            ""
+                        ],
+                        "post_context": [
+                            "                method, url, error=e, _pool=self, _stacktrace=sys.exc_info()[2]",
+                            "            )",
+                            "            retries.sleep()",
+                            "",
+                            "            # Keep track of the error for the retry warning."
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/urllib3/util/retry.py",
+                        "context_line": "            raise MaxRetryError(_pool, url, error or ResponseError(cause))",
+                        "filename": "urllib3/util/retry.py",
+                        "function": "increment",
+                        "lineno": 592,
+                        "module": "urllib3.util.retry",
+                        "pre_context": [
+                            "            other=other,",
+                            "            history=history,",
+                            "        )",
+                            "",
+                            "        if new_retry.is_exhausted():"
+                        ],
+                        "post_context": [
+                            "",
+                            "        log.debug(\"Incremented Retry for (url='%s'): %r\", url, new_retry)",
+                            "",
+                            "        return new_retry",
+                            ""
+                        ],
+                        "in_app": false
+                    }
+                ]
+            }
+        },
+        {
+            "type": "ConnectionError",
+            "value": "HTTPConnectionPool(host='clickhouse', port=8123): Max retries exceeded with url: / (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fbdc0bef290>: Failed to establish a new connection: [Errno 111] Connection refused'))",
+            "mechanism": {
+                "handled": true,
+                "type": "generic"
+            },
+            "module": "requests.exceptions",
+            "stacktrace": {
+                "type": "raw",
+                "frames": [
+                    {
+                        "platform": "python",
+                        "filename": "manage.py",
+                        "in_app": true,
+                        "function": "<module>"
+                    },
+                    {
+                        "platform": "python",
+                        "filename": "manage.py",
+                        "in_app": true,
+                        "function": "main"
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/django/core/management/__init__.py",
+                        "context_line": "    utility.execute()",
+                        "filename": "django/core/management/__init__.py",
+                        "function": "execute_from_command_line",
+                        "lineno": 442,
+                        "module": "django.core.management",
+                        "pre_context": [
+                            "",
+                            "",
+                            "def execute_from_command_line(argv=None):",
+                            "    \"\"\"Run a ManagementUtility.\"\"\"",
+                            "    utility = ManagementUtility(argv)"
+                        ],
+                        "post_context": [],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/django/core/management/__init__.py",
+                        "context_line": "            self.fetch_command(subcommand).run_from_argv(self.argv)",
+                        "filename": "django/core/management/__init__.py",
+                        "function": "execute",
+                        "lineno": 436,
+                        "module": "django.core.management",
+                        "pre_context": [
+                            "        elif subcommand == \"version\" or self.argv[1:] == [\"--version\"]:",
+                            "            sys.stdout.write(django.get_version() + \"\\n\")",
+                            "        elif self.argv[1:] in ([\"--help\"], [\"-h\"]):",
+                            "            sys.stdout.write(self.main_help_text() + \"\\n\")",
+                            "        else:"
+                        ],
+                        "post_context": [
+                            "",
+                            "",
+                            "def execute_from_command_line(argv=None):",
+                            "    \"\"\"Run a ManagementUtility.\"\"\"",
+                            "    utility = ManagementUtility(argv)"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/django/core/management/base.py",
+                        "context_line": "            self.execute(*args, **cmd_options)",
+                        "filename": "django/core/management/base.py",
+                        "function": "run_from_argv",
+                        "lineno": 412,
+                        "module": "django.core.management.base",
+                        "pre_context": [
+                            "        cmd_options = vars(options)",
+                            "        # Move positional args out of options to mimic legacy optparse",
+                            "        args = cmd_options.pop(\"args\", ())",
+                            "        handle_default_options(options)",
+                            "        try:"
+                        ],
+                        "post_context": [
+                            "        except CommandError as e:",
+                            "            if options.traceback:",
+                            "                raise",
+                            "",
+                            "            # SystemCheckError takes care of its own formatting."
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/django/core/management/base.py",
+                        "context_line": "        output = self.handle(*args, **options)",
+                        "filename": "django/core/management/base.py",
+                        "function": "execute",
+                        "lineno": 458,
+                        "module": "django.core.management.base",
+                        "pre_context": [
+                            "                self.check()",
+                            "            else:",
+                            "                self.check(tags=self.requires_system_checks)",
+                            "        if self.requires_migrations_checks:",
+                            "            self.check_migrations()"
+                        ],
+                        "post_context": [
+                            "        if output:",
+                            "            if self.output_transaction:",
+                            "                connection = connections[options.get(\"database\", DEFAULT_DB_ALIAS)]",
+                            "                output = \"%s\\n%s\\n%s\" % (",
+                            "                    self.style.SQL_KEYWORD(connection.ops.start_transaction_sql()),"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "filename": "posthog/management/commands/migrate_clickhouse.py",
+                        "in_app": true,
+                        "function": "handle"
+                    },
+                    {
+                        "platform": "python",
+                        "filename": "posthog/management/commands/migrate_clickhouse.py",
+                        "in_app": true,
+                        "function": "migrate"
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/infi/clickhouse_orm/database.py",
+                        "context_line": "        self.db_exists = self._is_existing_database()",
+                        "filename": "/python-runtime/infi/clickhouse_orm/database.py",
+                        "function": "__init__",
+                        "lineno": 118,
+                        "module": "infi.clickhouse_orm.database",
+                        "pre_context": [
+                            "            self.request_session.auth = (username, password or '')",
+                            "        self.log_statements = log_statements",
+                            "        self.randomize_replica_paths = randomize_replica_paths",
+                            "        self.settings = {}",
+                            "        self.db_exists = False # this is required before running _is_existing_database"
+                        ],
+                        "post_context": [
+                            "        if readonly:",
+                            "            if not self.db_exists:",
+                            "                raise DatabaseException('Database does not exist, and cannot be created under readonly connection')",
+                            "            self.connection_readonly = self._is_connection_readonly()",
+                            "            self.readonly = True"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/infi/clickhouse_orm/database.py",
+                        "context_line": "        r = self._send(\"SELECT count() FROM system.databases WHERE name = '%s'\" % self.db_name)",
+                        "filename": "/python-runtime/infi/clickhouse_orm/database.py",
+                        "function": "_is_existing_database",
+                        "lineno": 440,
+                        "module": "infi.clickhouse_orm.database",
+                        "pre_context": [
+                            "        # :TRICKY: Altinity cloud uses a non-numeric suffix for the version, which this removes.",
+                            "        ver = re.sub(r\"[.\\D]+$\", '', ver)",
+                            "        return tuple(int(n) for n in ver.split('.')) if as_tuple else ver",
+                            "",
+                            "    def _is_existing_database(self):"
+                        ],
+                        "post_context": [
+                            "        return r.text.strip() == '1'",
+                            "",
+                            "    def _is_connection_readonly(self):",
+                            "        r = self._send(\"SELECT value FROM system.settings WHERE name = 'readonly'\")",
+                            "        return r.text.strip() != '0'"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/infi/clickhouse_orm/database.py",
+                        "context_line": "        r = self.request_session.post(self.db_url, params=params, data=data, stream=stream, timeout=self.timeout)",
+                        "filename": "/python-runtime/infi/clickhouse_orm/database.py",
+                        "function": "_send",
+                        "lineno": 391,
+                        "module": "infi.clickhouse_orm.database",
+                        "pre_context": [
+                            "        if isinstance(data, str):",
+                            "            data = data.encode('utf-8')",
+                            "            if self.log_statements:",
+                            "                logger.info(data)",
+                            "        params = self._build_params(settings)"
+                        ],
+                        "post_context": [
+                            "        if r.status_code != 200:",
+                            "            raise ServerError(r.text)",
+                            "        return r",
+                            "",
+                            "    def _build_params(self, settings):"
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/requests/sessions.py",
+                        "context_line": "        return self.request(\"POST\", url, data=data, json=json, **kwargs)",
+                        "filename": "requests/sessions.py",
+                        "function": "post",
+                        "lineno": 637,
+                        "module": "requests.sessions",
+                        "pre_context": [
+                            "        :param json: (optional) json to send in the body of the :class:`Request`.",
+                            "        :param \\*\\*kwargs: Optional arguments that ``request`` takes.",
+                            "        :rtype: requests.Response",
+                            "        \"\"\"",
+                            ""
+                        ],
+                        "post_context": [
+                            "",
+                            "    def put(self, url, data=None, **kwargs):",
+                            "        r\"\"\"Sends a PUT request. Returns :class:`Response` object.",
+                            "",
+                            "        :param url: URL for the new :class:`Request` object."
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/requests/sessions.py",
+                        "context_line": "        resp = self.send(prep, **send_kwargs)",
+                        "filename": "requests/sessions.py",
+                        "function": "request",
+                        "lineno": 589,
+                        "module": "requests.sessions",
+                        "pre_context": [
+                            "        send_kwargs = {",
+                            "            \"timeout\": timeout,",
+                            "            \"allow_redirects\": allow_redirects,",
+                            "        }",
+                            "        send_kwargs.update(settings)"
+                        ],
+                        "post_context": [
+                            "",
+                            "        return resp",
+                            "",
+                            "    def get(self, url, **kwargs):",
+                            "        r\"\"\"Sends a GET request. Returns :class:`Response` object."
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/requests/sessions.py",
+                        "context_line": "        r = adapter.send(request, **kwargs)",
+                        "filename": "requests/sessions.py",
+                        "function": "send",
+                        "lineno": 703,
+                        "module": "requests.sessions",
+                        "pre_context": [
+                            "",
+                            "        # Start time (approximately) of the request",
+                            "        start = preferred_clock()",
+                            "",
+                            "        # Send the request"
+                        ],
+                        "post_context": [
+                            "",
+                            "        # Total elapsed time of the request (approximately)",
+                            "        elapsed = preferred_clock() - start",
+                            "        r.elapsed = timedelta(seconds=elapsed)",
+                            ""
+                        ],
+                        "in_app": false
+                    },
+                    {
+                        "platform": "python",
+                        "abs_path": "/python-runtime/requests/adapters.py",
+                        "context_line": "            raise ConnectionError(e, request=request)",
+                        "filename": "requests/adapters.py",
+                        "function": "send",
+                        "lineno": 597,
+                        "module": "requests.adapters",
+                        "pre_context": [
+                            "",
+                            "            if isinstance(e.reason, _SSLError):",
+                            "                # This branch is for urllib3 v1.22 and later.",
+                            "                raise SSLError(e, request=request)",
+                            ""
+                        ],
+                        "post_context": [
+                            "",
+                            "        except ClosedPoolError as e:",
+                            "            raise ConnectionError(e, request=request)",
+                            "",
+                            "        except _ProxyError as e:"
+                        ],
+                        "in_app": false
+                    }
+                ]
+            }
+        }
+    ],
+    "$plugins_failed": [],
+    "$geoip_disable": true,
+    "$lib_version__patch": 6,
+    "$lib_version": "3.6.6",
+    "$plugins_succeeded": ["posthog-semver-flattener (12449)"],
+    "$exception_personURL": "https://us.i.posthog.com/project/sTMFPsFhdP1Ssg/person/python-exceptions",
+    "$ip": "185.140.230.43",
+    "$lib_version__minor": 6,
+    "$lib": "posthog-python",
+    "$lib_version__major": 3
+}

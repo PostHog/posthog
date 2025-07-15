@@ -153,6 +153,11 @@ const surveyActionsMapping: Record<
                 description: [<>stopped</>],
             }
         }
+        if (change?.before !== null && change?.after === null) {
+            return {
+                description: [<>resumed</>],
+            }
+        }
         return null
     },
     appearance: function onAppearance(change) {
@@ -184,6 +189,14 @@ const surveyActionsMapping: Record<
             widgetLabel: 'widget label',
             widgetColor: 'widget color',
             zIndex: 'survey form zIndex',
+            fontFamily: 'font family',
+            disabledButtonOpacity: 'disabled button opacity',
+            boxPadding: 'box padding',
+            boxShadow: 'box shadow',
+            borderRadius: 'border radius',
+            maxWidth: 'max width',
+            textSubtleColor: 'text subtle color',
+            inputBackground: 'input background',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {

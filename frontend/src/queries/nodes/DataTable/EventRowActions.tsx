@@ -1,13 +1,13 @@
-import { useActions } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconWarning } from '@posthog/icons'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import React from 'react'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +18,6 @@ interface EventActionProps {
 }
 
 export function EventRowActions({ event }: EventActionProps): JSX.Element {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const insightUrl = insightUrlForEvent(event)
 
     return (
@@ -32,7 +31,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                                     getCurrentTeamId(),
                                     event,
                                     0,
-                                    teamLogic.findMounted()?.values.currentTeam?.data_attributes || []
+                                    teamLogic.findMounted()?.values.currentTeam?.data_attributes || [],
+                                    'Unfiled/Actions'
                                 )
                             }
                             fullWidth
@@ -41,40 +41,28 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Create action from event
                         </LemonButton>
                     )}
-                    {event.uuid && event.timestamp && (
+                    {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
+                    <ViewRecordingButton
+                        fullWidth
+                        inModal
+                        sessionId={event.properties.$session_id}
+                        recordingStatus={event.properties.$recording_status}
+                        timestamp={event.timestamp}
+                        data-attr="events-table-usage"
+                    />
+                    {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                         <LemonButton
                             fullWidth
-                            sideIcon={<IconLink />}
-                            data-attr="events-table-event-link"
-                            onClick={() =>
-                                void copyToClipboard(
-                                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
-                                    'link to event'
-                                )
-                            }
+                            sideIcon={<IconWarning />}
+                            data-attr="events-table-issue-link"
+                            to={urls.errorTrackingIssue(
+                                event.properties.$exception_issue_id,
+                                event.properties.$exception_fingerprint
+                            )}
                         >
-                            Copy link to event
+                            Visit issue
                         </LemonButton>
-                    )}
-                    {!!event.properties?.$session_id && (
-                        <LemonButton
-                            to={urls.replaySingle(event.properties.$session_id)}
-                            onClick={(e) => {
-                                e.preventDefault()
-                                if (event.properties.$session_id) {
-                                    openSessionPlayer(
-                                        { id: event.properties.$session_id },
-                                        dayjs(event.timestamp).valueOf()
-                                    )
-                                }
-                            }}
-                            fullWidth
-                            sideIcon={<IconPlayCircle />}
-                            data-attr="events-table-usage"
-                        >
-                            View recording
-                        </LemonButton>
-                    )}
+                    ) : null}
                     {insightUrl && (
                         <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
                             Try out in Insights
@@ -85,3 +73,25 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
         />
     )
 }
+
+export const EventCopyLinkButton = React.forwardRef<
+    HTMLButtonElement,
+    { event: Pick<EventType, 'uuid' | 'timestamp'> }
+>(function EventCopyLinkButton({ event }, ref) {
+    return (
+        <LemonButton
+            ref={ref}
+            fullWidth
+            sideIcon={<IconLink />}
+            data-attr="events-table-event-link"
+            onClick={() =>
+                void copyToClipboard(
+                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                    'link to event'
+                )
+            }
+        >
+            Copy link to event
+        </LemonButton>
+    )
+})

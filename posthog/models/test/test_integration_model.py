@@ -1,13 +1,19 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import time
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.db import connection
 from freezegun import freeze_time
 import pytest
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.integration import Integration, OauthIntegration, SlackIntegration, GoogleCloudIntegration
+from posthog.models.integration import (
+    Integration,
+    OauthIntegration,
+    SlackIntegration,
+    GoogleCloudIntegration,
+    GitHubIntegration,
+)
 from posthog.test.base import BaseTest
 
 
@@ -89,8 +95,8 @@ class TestOauthIntegrationModel(BaseTest):
         "SALESFORCE_CONSUMER_SECRET": "salesforce-client-secret",
         "HUBSPOT_APP_CLIENT_ID": "hubspot-client-id",
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
-        "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY": "google-client-id",
-        "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET": "google-client-secret",
+        "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
+        "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
     }
 
     def create_integration(
@@ -105,22 +111,22 @@ class TestOauthIntegrationModel(BaseTest):
 
     def test_authorize_url_raises_if_not_configured(self):
         with pytest.raises(NotImplementedError):
-            OauthIntegration.authorize_url("salesforce", next="/projects/test")
+            OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
 
     def test_authorize_url(self):
         with self.settings(**self.mock_settings):
-            url = OauthIntegration.authorize_url("salesforce", next="/projects/test")
+            url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
             assert (
                 url
-                == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full+refresh_token&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest"
+                == "https://login.salesforce.com/services/oauth2/authorize?client_id=salesforce-client-id&scope=full+refresh_token&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fsalesforce%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token"
             )
 
     def test_authorize_url_with_additional_authorize_params(self):
         with self.settings(**self.mock_settings):
-            url = OauthIntegration.authorize_url("google-ads", next="/projects/test")
+            url = OauthIntegration.authorize_url("google-ads", token="state_token", next="/projects/test")
             assert (
                 url
-                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+email&redirect_uri=https%3A%2F%2Flocalhost%3A8000%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest&access_type=offline&prompt=consent"
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")
@@ -199,6 +205,10 @@ class TestOauthIntegrationModel(BaseTest):
                 "user": "user",
                 "user_id": "user_id",
                 "should_not": "be_saved",
+                "scopes": [
+                    "crm.objects.contacts.read",
+                    "crm.objects.contacts.write",
+                ],
             }
 
             with freeze_time("2024-01-01T12:00:00Z"):
@@ -219,6 +229,10 @@ class TestOauthIntegrationModel(BaseTest):
                 "user": "user",
                 "user_id": "user_id",
                 "refreshed_at": 1704110400,
+                "scopes": [
+                    "crm.objects.contacts.read",
+                    "crm.objects.contacts.write",
+                ],
             }
             assert integration.sensitive_config == {
                 "access_token": "FAKES_ACCESS_TOKEN",
@@ -295,6 +309,122 @@ class TestOauthIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
         mock_reload.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_integration_without_expires_in_initial_response(self, mock_post):
+        """Test that Salesforce integrations without expires_in get default 1 hour expiry"""
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKES_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "instance_url": "https://fake.salesforce.com",
+                # Note: no expires_in field
+            }
+
+            with freeze_time("2024-01-01T12:00:00Z"):
+                integration = OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {
+                        "code": "code",
+                        "state": "next=/projects/test",
+                    },
+                )
+
+            # Should have default 1 hour (3600 seconds) expiry
+            assert integration.config["expires_in"] == 3600
+            assert integration.config["refreshed_at"] == 1704110400
+
+    def test_salesforce_access_token_expired_without_expires_in(self):
+        """Test that Salesforce tokens without expires_in info use 1 hour default"""
+        now = datetime.now()
+        with freeze_time(now):
+            # Create integration without expires_in
+            integration = self.create_integration(
+                kind="salesforce",
+                config={"refreshed_at": int(time.time())},  # No expires_in
+                sensitive_config={"refresh_token": "REFRESH"},
+            )
+
+        oauth_integration = OauthIntegration(integration)
+
+        with freeze_time(now):
+            # Token should not be expired initially
+            assert not oauth_integration.access_token_expired()
+
+        with freeze_time(now + timedelta(minutes=29)):
+            # Should not be expired before 30 minutes (half of 1 hour default)
+            assert not oauth_integration.access_token_expired()
+
+        with freeze_time(now + timedelta(minutes=31)):
+            # Should be expired after 30 minutes (halfway point of 1 hour)
+            assert oauth_integration.access_token_expired()
+
+    def test_non_salesforce_access_token_expired_without_expires_in(self):
+        """Test that non-Salesforce integrations without expires_in return False"""
+        now = datetime.now()
+        with freeze_time(now):
+            # Create non-Salesforce integration without expires_in - override the default
+            integration = Integration.objects.create(
+                team=self.team,
+                kind="hubspot",
+                config={"refreshed_at": int(time.time())},  # No expires_in
+                sensitive_config={"refresh_token": "REFRESH"},
+            )
+
+        oauth_integration = OauthIntegration(integration)
+
+        with freeze_time(now + timedelta(hours=5)):
+            # Should never expire without expires_in for non-Salesforce
+            assert not oauth_integration.access_token_expired()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_salesforce_refresh_access_token_without_expires_in_response(self, mock_post, mock_reload):
+        """Test that Salesforce refresh without expires_in in response gets 1 hour default"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            # Note: no expires_in field in refresh response
+        }
+
+        integration = self.create_integration(kind="salesforce", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        # Should have default 1 hour (3600 seconds) expiry
+        assert integration.config["expires_in"] == 3600
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_non_salesforce_refresh_access_token_preserves_none_expires_in(self, mock_post, mock_reload):
+        """Test that non-Salesforce integrations preserve None expires_in from refresh response"""
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "REFRESHED_ACCESS_TOKEN",
+            # Note: no expires_in field in refresh response
+        }
+
+        integration = self.create_integration(kind="hubspot", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        # Should preserve None for non-Salesforce
+        assert integration.config["expires_in"] is None
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
 
 
 class TestGoogleCloudIntegrationModel(BaseTest):
@@ -379,4 +509,56 @@ class TestGoogleCloudIntegrationModel(BaseTest):
             "access_token": "ACCESS_TOKEN",
             "refreshed_at": 1704110400 + 3600 * 2,
             "expires_in": 3600,
+        }
+
+
+class TestGitHubIntegrationModel(BaseTest):
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_github_integration_refresh_token(self, mock_client_request):
+        def mock_github_client_request(endpoint, method="GET"):
+            mock_response = MagicMock()
+            dt = datetime.now(UTC) + timedelta(hours=1)
+            iso_time = dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+            if method == "POST":
+                mock_response.status_code = 201
+                mock_response.json.return_value = {
+                    "token": "ACCESS_TOKEN",
+                    "repository_selection": "all",
+                    "expires_at": iso_time,
+                }
+            else:
+                mock_response.status_code = 200
+                mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
+            return mock_response
+
+        mock_client_request.side_effect = mock_github_client_request
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = GitHubIntegration.integration_from_installation_id(
+                "INSTALLATION_ID",
+                self.team.id,
+                self.user,
+            )
+
+            assert GitHubIntegration(integration).access_token_expired() is False
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            assert GitHubIntegration(integration).access_token_expired() is True
+
+            GitHubIntegration(integration).refresh_access_token()
+            assert GitHubIntegration(integration).access_token_expired() is False
+
+        assert integration.config == {
+            "installation_id": "INSTALLATION_ID",
+            "account": {
+                "name": "PostHog",
+                "type": "Organization",
+            },
+            "repository_selection": "all",
+            "refreshed_at": 1704117600,
+            "expires_in": 3600,
+        }
+
+        assert integration.sensitive_config == {
+            "access_token": "ACCESS_TOKEN",
         }

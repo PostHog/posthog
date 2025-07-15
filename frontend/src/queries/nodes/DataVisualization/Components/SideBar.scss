@@ -1,14 +1,21 @@
-@import '../../../../styles/mixins';
-
 .DataVisualization {
     .LemonTabs .LemonTabs__bar {
-        margin-bottom: 0;
+        margin-bottom: 1px;
+
+        /* Prevent vertical scrolling behavior on the tabs */
+        overflow-y: hidden;
+
+        /* Hide the scrollbar */
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
     }
 
     .SideBar {
         min-width: 18rem;
         max-width: 18rem;
-        min-height: var(--viz-min-height);
         border-radius: var(--radius);
 
         .LemonInput.LemonInput--medium {

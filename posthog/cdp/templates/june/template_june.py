@@ -1,7 +1,8 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="stable",
+    free=False,
     type="destination",
     id="template-june",
     name="June.so",

@@ -12,7 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema'
+import { DataTableNode, HogQLQuery, SessionAttributionGroupBy } from '~/queries/schema/schema-general'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
@@ -25,6 +25,7 @@ export function SessionAttributionExplorerScene(): JSX.Element {
 export const scene: SceneExport = {
     component: SessionAttributionExplorerScene,
     logic: sessionAttributionExplorerLogic,
+    settingSectionId: 'environment-web-analytics',
 }
 
 const ExpandableDataCell: QueryContextColumnComponent = ({ value }: { value: unknown }): JSX.Element => {

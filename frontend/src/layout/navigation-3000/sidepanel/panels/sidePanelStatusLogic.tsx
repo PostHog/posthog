@@ -92,12 +92,13 @@ export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),
-    connect({
+    connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
-    }),
+    })),
 
     actions({
         loadStatusPage: true,
+        setPageVisibility: (visible: boolean) => ({ visible }),
     }),
 
     reducers(() => ({
@@ -143,13 +144,27 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
             clearTimeout(cache.timeout)
             cache.timeout = setTimeout(() => actions.loadStatusPage(), REFRESH_INTERVAL)
         },
+        setPageVisibility: ({ visible }) => {
+            if (visible && !cache.timeout) {
+                actions.loadStatusPage()
+            } else {
+                clearTimeout(cache.timeout)
+                cache.timeout = null
+            }
+        },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadStatusPage()
+        cache.onVisibilityChange = () => {
+            actions.setPageVisibility(document.visibilityState === 'visible')
+        }
+        document.addEventListener('visibilitychange', cache.onVisibilityChange)
     }),
 
     beforeUnmount(({ cache }) => {
         clearTimeout(cache.timeout)
+        cache.timeout = null
+        document.removeEventListener('visibilitychange', cache.onVisibilityChange)
     }),
 ])

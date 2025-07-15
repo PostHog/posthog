@@ -63,7 +63,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
-        events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
+        events_query = self._get_events_subquery(False, breakdown=breakdown)
 
         if self._trends_display.is_total_value():
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
@@ -126,7 +126,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return parse_expr(
             """
             arrayMap(
-                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
+                number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
                 range(
                     0,
                     coalesce(
@@ -139,24 +139,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             ) as date
         """,
-            placeholders={
-                **self.query_date_range.to_placeholders(),
-                "plus_interval": self.query_date_range.number_interval_periods(),
-            },
+            placeholders=self.query_date_range.to_placeholders(),
         )
 
     def _get_events_subquery(
         self,
         no_modifications: Optional[bool],
-        is_actors_query: bool,
         breakdown: Breakdown,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
             ignore_breakdowns=False,
             breakdown=breakdown,
-            is_actors_query=is_actors_query,
-            actors_query_time_frame=actors_query_time_frame,
         )
 
         default_query = ast.SelectQuery(
@@ -294,9 +287,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             return wrapper
         # Just complex series aggregation
-        elif (
-            self._aggregation_operation.requires_query_orchestration()
-            and self._aggregation_operation.is_first_time_ever_math()
+        elif self._aggregation_operation.requires_query_orchestration() and (
+            self._aggregation_operation.is_first_time_ever_math()
         ):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
@@ -499,7 +491,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(no_modifications=False, is_actors_query=False, breakdown=breakdown),
+                    expr=self._get_events_subquery(no_modifications=False, breakdown=breakdown),
                     cte_type="subquery",
                 )
             }
@@ -531,7 +523,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 if isinstance(breakdown_alias.get("histogram_bin_count"), int)
             ]
 
-            query.select.extend(
+            assert query.select_from is not None and isinstance(query.select_from.table, ast.SelectQuery)
+            query.select_from.table.select.extend(
                 [
                     # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
                     # If cardinality is high it'd blow up memory
@@ -663,14 +656,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _events_filter(
         self,
-        is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_series = isinstance(series, DataWarehouseNode)
+        is_data_warehouse_event_series = (
+            isinstance(series, DataWarehouseNode)
+            and self.modifiers.dataWarehouseEventsModifiers is not None
+            and any(
+                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
+            )
+        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -697,11 +694,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                if is_data_warehouse_event_series:
+                    property_clone = property.copy()
+                    if property_clone["type"] in ("event", "person"):
+                        if property_clone["type"] == "event":
+                            property_clone["key"] = f"events.properties.{property_clone['key']}"
+                        elif property_clone["type"] == "person":
+                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
+                        property_clone["type"] = "data_warehouse"
+                    expr = property_to_expr(property_clone, self.team)
+                    if (
+                        property_clone["type"] in ("group", "element")
+                        and isinstance(expr, ast.CompareOperation)
+                        and isinstance(expr.left, ast.Field)
+                    ):
+                        expr.left.chain = ["events", *expr.left.chain]
+                    filters.append(expr)
+                else:
+                    filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            if is_data_warehouse_series:
+            if is_data_warehouse_event_series:
                 data_warehouse_properties = [
                     p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
                 ]

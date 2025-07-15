@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import fetch, { FetchError } from 'node-fetch'
+import { fetch } from 'undici'
 
 import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
@@ -31,13 +31,11 @@ describe('hooks', () => {
                 target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
-                format_text: null,
             }
             hookCommander = new HookCommander(
                 {} as any,
                 {} as any,
-                {} as any,
-                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) },
+                { enqueueIfEnabledForTeam: async () => Promise.resolve(false) } as any,
                 { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
                 20000
             )
@@ -47,30 +45,22 @@ describe('hooks', () => {
             await hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, hook)
 
             expect(fetch).toHaveBeenCalledTimes(1)
-            expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
-                  "https://example.com/",
-                  Object {
-                    "body": "{
-                    \\"hook\\": {
-                        \\"id\\": \\"id\\",
-                        \\"event\\": \\"foo\\",
-                        \\"target\\": \\"https://example.com/\\"
+
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
+                "{
+                    "hook": {
+                        "id": "id",
+                        "event": "foo",
+                        "target": "https://example.com/"
                     },
-                    \\"data\\": {
-                        \\"event\\": \\"foo\\",
-                        \\"properties\\": {},
-                        \\"elementsList\\": [],
-                        \\"person\\": {}
+                    "data": {
+                        "event": "foo",
+                        "properties": {},
+                        "elementsList": [],
+                        "person": {}
                     }
-                }",
-                    "headers": Object {
-                      "Content-Type": "application/json",
-                    },
-                    "method": "POST",
-                    "timeout": 20000,
-                  },
-                ]
+                }"
             `)
         })
 
@@ -78,6 +68,7 @@ describe('hooks', () => {
             const now = DateTime.utc(2024, 1, 1).toISO()
             const uuid = '018f39d3-d94c-0000-eeef-df4a793f8844'
             await hookCommander.postWebhook(
+                // @ts-expect-error TODO: Fix underlying type
                 {
                     eventUuid: uuid,
                     distinctId: 'WALL-E',
@@ -94,52 +85,48 @@ describe('hooks', () => {
                 hook
             )
             expect(fetch).toHaveBeenCalledTimes(1)
-            expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
-                  "https://example.com/",
-                  Object {
-                    "body": "{
-                    \\"hook\\": {
-                        \\"id\\": \\"id\\",
-                        \\"event\\": \\"foo\\",
-                        \\"target\\": \\"https://example.com/\\"
+
+            expect(jest.mocked(fetch).mock.calls[0][0]).toMatchInlineSnapshot(`"https://example.com/"`)
+            expect(jest.mocked(fetch).mock.calls[0][1]?.body).toMatchInlineSnapshot(`
+                "{
+                    "hook": {
+                        "id": "id",
+                        "event": "foo",
+                        "target": "https://example.com/"
                     },
-                    \\"data\\": {
-                        \\"eventUuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
-                        \\"event\\": \\"foo\\",
-                        \\"teamId\\": 1,
-                        \\"distinctId\\": \\"WALL-E\\",
-                        \\"properties\\": {},
-                        \\"timestamp\\": \\"2024-01-01T00:00:00.000Z\\",
-                        \\"elementsList\\": [],
-                        \\"person\\": {
-                            \\"uuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
-                            \\"properties\\": {
-                                \\"foo\\": \\"bar\\"
+                    "data": {
+                        "eventUuid": "018f39d3-d94c-0000-eeef-df4a793f8844",
+                        "event": "foo",
+                        "teamId": 1,
+                        "distinctId": "WALL-E",
+                        "properties": {},
+                        "timestamp": "2024-01-01T00:00:00.000Z",
+                        "elementsList": [],
+                        "person": {
+                            "uuid": "018f39d3-d94c-0000-eeef-df4a793f8844",
+                            "properties": {
+                                "foo": "bar"
                             },
-                            \\"created_at\\": \\"2024-01-01T00:00:00.000Z\\"
+                            "created_at": "2024-01-01T00:00:00.000Z"
                         }
                     }
-                }",
-                    "headers": Object {
-                      "Content-Type": "application/json",
-                    },
-                    "method": "POST",
-                    "timeout": 20000,
-                  },
-                ]
+                }"
             `)
         })
 
         test('private IP hook forbidden in prod', async () => {
             process.env.NODE_ENV = 'production'
 
-            await expect(
-                hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
+            const err = await hookCommander
+                .postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
                     ...hook,
-                    target: 'http://127.0.0.1',
+                    target: 'http://localhost:8000',
                 })
-            ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
+                .catch((err) => err)
+
+            expect(err.name).toBe('TypeError')
+            expect(err.cause.name).toBe('SecureRequestError')
+            expect(err.cause.message).toContain('Hostname is not allowed')
         })
     })
 })

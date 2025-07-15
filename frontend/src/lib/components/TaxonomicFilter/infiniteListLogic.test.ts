@@ -182,11 +182,11 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({ count: 156 }),
                     localItems: partial({ count: 1 }),
-                    items: partial({ count: 101 }),
+                    items: partial({ count: 157 }),
                 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 100 })
-                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 99 })
-                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 100 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 156 })
+                expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 155 })
+                expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 156 })
                 expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 0 })
                 expectLogic(logic, () => logic.actions.moveDown()).toMatchValues({ index: 1 })
                 expectLogic(logic, () => logic.actions.moveUp()).toMatchValues({ index: 0 })
@@ -198,7 +198,7 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({ count: 156 }),
                     localItems: partial({ count: 1 }),
-                    items: partial({ count: 101 }),
+                    items: partial({ count: 157 }),
                 })
 
                 await expectLogic(logic, () =>
@@ -372,9 +372,9 @@ describe('infiniteListLogic', () => {
                     isExpandable: false,
                     isExpanded: true,
                     isExpandableButtonSelected: false,
-                    totalResultCount: 3,
+                    totalResultCount: 2,
                     totalExtraCount: 0,
-                    totalListCount: 3,
+                    totalListCount: 2,
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
@@ -398,7 +398,39 @@ describe('infiniteListLogic', () => {
         logicWithProps.mount()
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
-            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
+            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css', originalQuery: undefined },
+        })
+    })
+
+    it('swaps in query when url is sent', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-e-prop',
+            listGroupType: TaxonomicFilterGroupType.EventProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            showNumericalPropsOnly: false,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () =>
+            logicWithProps.actions.setSearchQuery('http://localhost:8010/project/1/replay/playlists')
+        ).toMatchValues({
+            swappedInQuery: '$current_url',
+        })
+    })
+
+    it('swaps in query when email is sent', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-e-prop',
+            listGroupType: TaxonomicFilterGroupType.PersonProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+            showNumericalPropsOnly: false,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () =>
+            logicWithProps.actions.setSearchQuery('test@example.com')
+        ).toMatchValues({
+            swappedInQuery: 'email',
         })
     })
 })

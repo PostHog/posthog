@@ -1,8 +1,7 @@
-import { captureException } from '@sentry/node'
 import crypto from 'crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
-import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
+import { CODES, features, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { buildIntegerMatcher } from '../../../config/config'
@@ -10,20 +9,18 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../../../config/kafka-topics'
-import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
-import { createKafkaProducer } from '../../../kafka/producer'
+import { KafkaConsumer } from '../../../kafka/consumer'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
-import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
-import { status } from '../../../utils/status'
-import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
-import { ObjectStorage } from '../../services/object_storage'
+import { logger } from '../../../utils/logger'
+import { ObjectStorage } from '../../../utils/object_storage'
+import { captureException } from '../../../utils/posthog'
 import { runInstrumentedFunction } from '../../utils'
-import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
+import { fetchTeamTokensWithRecordings } from '../session-recording-v2/teams/team-service'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
 import { OverflowManager } from './services/overflow-manager'
@@ -31,22 +28,11 @@ import { RealtimeManager } from './services/realtime-manager'
 import { ReplayEventsIngester } from './services/replay-events-ingester'
 import { BUCKETS_KB_WRITTEN, SessionManager } from './services/session-manager'
 import { IncomingRecordingMessage } from './types'
-import {
-    allSettledWithConcurrency,
-    bufferFileDir,
-    getPartitionsForTopic,
-    now,
-    parseKafkaBatch,
-    queryWatermarkOffsets,
-} from './utils'
-
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
+import { allSettledWithConcurrency, bufferFileDir, now, parseKafkaBatch } from './utils'
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
 const KAFKA_CONSUMER_GROUP_ID_OVERFLOW = 'session-recordings-blob-overflow'
-const KAFKA_CONSUMER_SESSION_TIMEOUT_MS = 90_000
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 30000
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
@@ -139,7 +125,7 @@ export class SessionRecordingIngester {
     overflowDetection?: OverflowManager
     replayEventsIngester?: ReplayEventsIngester
     consoleLogsIngester?: ConsoleLogsIngester
-    batchConsumer?: BatchConsumer
+    kafkaConsumer: KafkaConsumer
     partitionMetrics: Record<number, PartitionMetrics> = {}
     teamsRefresher: BackgroundRefresher<Record<string, TeamIDWithConfig>>
     latestOffsetsRefresher: BackgroundRefresher<Record<number, number | undefined>>
@@ -147,24 +133,11 @@ export class SessionRecordingIngester {
     consumerGroupId: string
     totalNumPartitions = 0
     isStopping = false
+    private metadataSwitchoverDate: Date | null = null
 
     private promises: Set<Promise<any>> = new Set()
-    // if ingestion is lagging on a single partition it is often hard to identify _why_,
-    // this allows us to output more information for that partition
-    private debugPartition: number | undefined = undefined
-
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
     private isDebugLoggingEnabled: ValueMatcher<number>
-
-    private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
-        // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
-        return {
-            ...this.config,
-            KAFKA_HOSTS: this.config.SESSION_RECORDING_KAFKA_HOSTS || this.config.KAFKA_HOSTS,
-            KAFKA_SECURITY_PROTOCOL:
-                this.config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || this.config.KAFKA_SECURITY_PROTOCOL,
-        }
-    }
 
     constructor(
         private config: PluginsServerConfig,
@@ -175,10 +148,33 @@ export class SessionRecordingIngester {
     ) {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
+        // Parse SESSION_RECORDING_V2_METADATA_SWITCHOVER as ISO datetime
+        if (config.SESSION_RECORDING_V2_METADATA_SWITCHOVER) {
+            const parsed = Date.parse(config.SESSION_RECORDING_V2_METADATA_SWITCHOVER)
+            if (!isNaN(parsed)) {
+                this.metadataSwitchoverDate = new Date(parsed)
+                logger.info('SESSION_RECORDING_V2_METADATA_SWITCHOVER enabled', {
+                    value: config.SESSION_RECORDING_V2_METADATA_SWITCHOVER,
+                    parsedDate: this.metadataSwitchoverDate.toISOString(),
+                })
+            } else {
+                throw new Error(
+                    'SESSION_RECORDING_V2_METADATA_SWITCHOVER is not a valid ISO datetime: ' +
+                        config.SESSION_RECORDING_V2_METADATA_SWITCHOVER
+                )
+            }
+        }
+
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: this.consumerGroupId,
+            topic: this.topic,
+            autoOffsetStore: false,
+            callEachBatchWhenEmpty: true,
+        })
 
         this.redisPool = createRedisPool(this.config, 'session-recording')
         this.realtimeManager = new RealtimeManager(this.redisPool, this.config)
@@ -194,12 +190,15 @@ export class SessionRecordingIngester {
             )
         }
 
+        const brokers = this.kafkaConsumer.getConfig()['metadata.broker.list']
+
+        if (!brokers) {
+            throw new Error('No brokers found')
+        }
+
         // We create a hash of the cluster to use as a unique identifier for the high-water marks
         // This enables us to swap clusters without having to worry about resetting the high-water marks
-        const kafkaClusterIdentifier = crypto
-            .createHash('md5')
-            .update(this.sessionRecordingKafkaConfig().KAFKA_HOSTS)
-            .digest('hex')
+        const kafkaClusterIdentifier = crypto.createHash('md5').update(brokers).digest('hex')
 
         this.sessionHighWaterMarker = new OffsetHighWaterMarker(
             this.redisPool,
@@ -213,10 +212,10 @@ export class SessionRecordingIngester {
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
-                status.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
+                logger.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
                 return await fetchTeamTokensWithRecordings(this.postgres)
             } catch (e) {
-                status.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
+                logger.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
                 captureException(e)
                 throw e
             }
@@ -225,12 +224,16 @@ export class SessionRecordingIngester {
         this.latestOffsetsRefresher = new BackgroundRefresher(async () => {
             const results = await Promise.all(
                 this.assignedTopicPartitions.map(({ partition }) =>
-                    queryWatermarkOffsets(this.connectedBatchConsumer, this.topic, partition).catch((err) => {
-                        // NOTE: This can error due to a timeout or the consumer being disconnected, not stop the process
-                        // as it is currently only used for reporting lag.
-                        captureException(err)
-                        return [undefined, undefined]
-                    })
+                    this.kafkaConsumer
+                        .queryWatermarkOffsets(this.topic, partition)
+                        .catch(() => {
+                            // NOTE: This can error due to a timeout or the consumer being disconnected, not stop the process
+                            // as it is currently only used for reporting lag.
+                            return [undefined, undefined]
+                        })
+                        .then(([_, highOffset]) => {
+                            return [partition, highOffset]
+                        })
                 )
             )
 
@@ -248,18 +251,11 @@ export class SessionRecordingIngester {
             id: 'session-recordings-blob-overflow',
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy() ?? false,
-            batchConsumer: this.batchConsumer,
         }
     }
 
-    private get connectedBatchConsumer(): KafkaConsumer | undefined {
-        // Helper to only use the batch consumer if we are actually connected to it - otherwise it will throw errors
-        const consumer = this.batchConsumer?.consumer
-        return consumer && consumer.isConnected() ? consumer : undefined
-    }
-
     private get assignedTopicPartitions(): TopicPartition[] {
-        return this.connectedBatchConsumer?.assignments() ?? []
+        return this.kafkaConsumer.assignments()
     }
 
     private get assignedPartitions(): TopicPartition['partition'][] {
@@ -285,12 +281,13 @@ export class SessionRecordingIngester {
         gaugeSessionsRevoked.reset()
 
         const { team_id, session_id } = event
+
         const key = `${team_id}-${session_id}`
 
         const { partition, highOffset } = event.metadata
         const isDebug = this.isDebugLoggingEnabled(partition)
         if (isDebug) {
-            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
+            logger.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
                 ...event.metadata,
                 team_id,
                 session_id,
@@ -305,7 +302,7 @@ export class SessionRecordingIngester {
                 })
                 .inc()
             if (isDebug) {
-                status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
+                logger.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
                     ...event.metadata,
                     dropCause,
                 })
@@ -349,11 +346,11 @@ export class SessionRecordingIngester {
         ])
     }
 
-    public async handleEachBatch(messages: Message[], heartbeat: () => void): Promise<void> {
-        heartbeat()
+    public async handleEachBatch(messages: Message[]): Promise<void> {
+        this.kafkaConsumer.heartbeat()
 
         if (messages.length !== 0) {
-            status.info('🔁', `blob_ingester_consumer - handling batch`, {
+            logger.info('🔁', `blob_ingester_consumer - handling batch`, {
                 size: messages.length,
                 partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
                 assignedPartitions: this.assignedPartitions,
@@ -362,7 +359,7 @@ export class SessionRecordingIngester {
 
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
+            sendException: false,
             func: async () => {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
@@ -393,7 +390,7 @@ export class SessionRecordingIngester {
                         }
                     },
                 })
-                heartbeat()
+                this.kafkaConsumer.heartbeat()
 
                 await this.reportPartitionMetrics()
 
@@ -413,7 +410,7 @@ export class SessionRecordingIngester {
                 await runInstrumentedFunction({
                     statsKey: `recordingingester.handleEachBatch.flushAllReadySessions`,
                     func: async () => {
-                        await this.flushAllReadySessions(heartbeat)
+                        await this.flushAllReadySessions()
                     },
                 })
 
@@ -431,7 +428,7 @@ export class SessionRecordingIngester {
                             await this.replayEventsIngester!.consumeBatch(recordingMessages)
                         },
                     })
-                    heartbeat()
+                    this.kafkaConsumer.heartbeat()
                 }
 
                 if (this.consoleLogsIngester) {
@@ -441,14 +438,14 @@ export class SessionRecordingIngester {
                             await this.consoleLogsIngester!.consumeBatch(recordingMessages)
                         },
                     })
-                    heartbeat()
+                    this.kafkaConsumer.heartbeat()
                 }
             },
         })
     }
 
     public async start(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer', {
+        logger.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer', {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
@@ -463,7 +460,7 @@ export class SessionRecordingIngester {
                 recursive: true,
             })
         } catch (e) {
-            status.error('🔥', 'Failed to recreate local buffer directory', e)
+            logger.error('🔥', 'Failed to recreate local buffer directory', e)
             captureException(e)
             throw e
         }
@@ -472,75 +469,42 @@ export class SessionRecordingIngester {
         await this.teamsRefresher.refresh()
 
         // NOTE: We use the standard config as we connect to the analytics kafka for producing
-        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
-        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.config)
-
-        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
-            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
-        )
-        this.sharedClusterProducerWrapper.producer.connect()
+        this.sharedClusterProducerWrapper = await KafkaProducerWrapper.create(this.config)
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
-                this.sharedClusterProducerWrapper.producer,
-                this.persistentHighWaterMarker
+                this.sharedClusterProducerWrapper,
+                this.persistentHighWaterMarker,
+                this.metadataSwitchoverDate
             )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
-                this.sharedClusterProducerWrapper.producer,
-                this.persistentHighWaterMarker
+                this.sharedClusterProducerWrapper,
+                this.persistentHighWaterMarker,
+                this.metadataSwitchoverDate
             )
         }
 
-        // Create a node-rdkafka consumer that fetches batches of messages, runs
-        // eachBatchWithContext, then commits offsets for the batch.
-        // the batch consumer reads from the session replay kafka cluster
-        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.sessionRecordingKafkaConfig())
-
-        this.batchConsumer = await startBatchConsumer({
-            connectionConfig: replayClusterConnectionConfig,
-            groupId: this.consumerGroupId,
-            topic: this.topic,
-            autoCommit: true,
-            autoOffsetStore: false, // We will use our own offset store logic
-            sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.config.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
-            // the largest size of a message that can be fetched by the consumer.
-            // the largest size our MSK cluster allows is 20MB
-            // we only use 9 or 10MB but there's no reason to limit this 🤷️
-            consumerMaxBytes: this.config.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.config.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            fetchMinBytes: this.config.SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES,
-            // our messages are very big, so we don't want to queue too many
-            queuedMinMessages: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE,
-            // we'll anyway never queue more than the value set here
-            // since we have large messages we'll need this to be a reasonable multiple
-            // of the likely message size times the fetchBatchSize
-            // or we'll always hit the batch timeout
-            queuedMaxMessagesKBytes: this.config.SESSION_RECORDING_KAFKA_QUEUE_SIZE_KB,
-            fetchBatchSize: this.config.SESSION_RECORDING_KAFKA_BATCH_SIZE,
-            consumerMaxWaitMs: this.config.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.config.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            batchingTimeoutMs: this.config.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.config.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            topicMetadataRefreshInterval: this.config.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
-            eachBatch: async (messages, { heartbeat }) => {
-                return await this.scheduleWork(this.handleEachBatch(messages, heartbeat))
-            },
-            callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
-            debug: this.config.SESSION_RECORDING_KAFKA_DEBUG,
-            kafkaStatisticIntervalMs: this.config.SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS,
-            maxHealthHeartbeatIntervalMs: KAFKA_CONSUMER_SESSION_TIMEOUT_MS * 2, // we don't want to proactively declare healthy - we'll let the broker do it
+        await this.kafkaConsumer.connect(async (messages) => {
+            return await runInstrumentedFunction({
+                statsKey: `recordingingester.handleEachBatch`,
+                sendException: false,
+                func: async () => {
+                    return await this.scheduleWork(this.handleEachBatch(messages))
+                },
+            })
         })
 
-        this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
+        this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
 
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
-
-        this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
-            status.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
+        this.kafkaConsumer.on('rebalance', async (err, topicPartitions) => {
+            logger.info('🔁', 'blob_ingester_consumer - rebalancing', {
+                err,
+                topicPartitions,
+                connected: this.kafkaConsumer.isHealthy(),
+            })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -559,32 +523,27 @@ export class SessionRecordingIngester {
             }
 
             // We had a "real" error
-            status.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
+            logger.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
             captureException(err)
             // TODO: immediately die? or just keep going?
         })
 
-        this.batchConsumer.consumer.on('disconnected', async (err) => {
-            // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
-            // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
-            await this.stop()
-        })
-
         // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
-        this.batchConsumer.consumer.on('event.stats', (stats) => {
-            status.info('🪵', 'blob_ingester_consumer - kafka stats', { stats })
+        this.kafkaConsumer.on('event.stats', (stats) => {
+            logger.info('🪵', 'blob_ingester_consumer - kafka stats', { stats })
         })
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
-        status.info('🔁', 'blob_ingester_consumer - stopping')
+        logger.info('🔁', 'blob_ingester_consumer - stopping')
         this.isStopping = true
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
         const assignedPartitions = this.assignedTopicPartitions
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        await this.batchConsumer?.stop()
+        logger.info('🔁', 'kafka consumer disconnecting')
+        await this.kafkaConsumer.disconnect()
+        logger.info('🔁', 'kafka consumer disconnected')
 
         // Simulate a revoke command to try and flush all sessions
         // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
@@ -601,14 +560,14 @@ export class SessionRecordingIngester {
         await this.redisPool.drain()
         await this.redisPool.clear()
 
-        status.info('👍', 'blob_ingester_consumer - stopped!')
+        logger.info('👍', 'blob_ingester_consumer - stopped!')
 
         return promiseResults
     }
 
     public isHealthy() {
         // TODO: Maybe extend this to check if we are shutting down so we don't get killed early.
-        return this.batchConsumer?.isHealthy()
+        return this.kafkaConsumer.isHealthy()
     }
 
     private async reportPartitionMetrics() {
@@ -693,7 +652,7 @@ export class SessionRecordingIngester {
             func: async () => {
                 if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
                     // Extend our claim on these partitions to give us time to flush
-                    status.info(
+                    logger.info(
                         '🔁',
                         `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`
                     )
@@ -721,15 +680,15 @@ export class SessionRecordingIngester {
         })
     }
 
-    async flushAllReadySessions(heartbeat: () => void): Promise<void> {
+    async flushAllReadySessions(): Promise<void> {
         const sessions = Object.entries(this.sessions)
 
         // NOTE: We want to avoid flushing too many sessions at once as it can cause a lot of disk backpressure stalling the consumer
-        await allSettledWithConcurrency(
+        const results = await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
             async ([key, sessionManager], ctx) => {
-                heartbeat()
+                this.kafkaConsumer.heartbeat()
 
                 if (this.isStopping) {
                     // We can end up with a large number of flushes. We want to stop early if we hit shutdown
@@ -744,7 +703,7 @@ export class SessionRecordingIngester {
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
                 const { lastMessageTimestamp, offsetLag } = this.partitionMetrics[sessionManager.partition] || {}
                 if (!lastMessageTimestamp) {
-                    status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
+                    logger.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
                         partition: sessionManager.partition,
                     })
                     return
@@ -753,7 +712,7 @@ export class SessionRecordingIngester {
                 await sessionManager
                     .flushIfSessionBufferIsOld(lastMessageTimestamp, offsetLag)
                     .catch((err) => {
-                        status.error(
+                        logger.error(
                             '🚽',
                             'session-replay-ingestion - failed trying to flush on idle session: ' +
                                 sessionManager.sessionId,
@@ -763,8 +722,9 @@ export class SessionRecordingIngester {
                             }
                         )
                         captureException(err, {
-                            tags: { session_id: sessionManager.sessionId },
+                            tags: { session_id: sessionManager.sessionId, error_context: 'failed-on-flush' },
                         })
+                        throw err
                     })
                     .then(async () => {
                         // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
@@ -774,6 +734,13 @@ export class SessionRecordingIngester {
                     })
             }
         )
+        const errors = results.filter((r) => !!r.error).map((r) => r.error)
+        if (errors.length) {
+            logger.error('🌶️', 'blob_ingester_consumer - failed to flush sessions', { errors })
+            throw new Error(
+                'Failed to flush sessions. With ' + errors.length + ' errors out of ' + results.length + ' sessions.'
+            )
+        }
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(
@@ -800,11 +767,6 @@ export class SessionRecordingIngester {
                     partition,
                 }
 
-                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                //     ...tp,
-                //     partitionBlockingSessions,
-                // })
-
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0
@@ -828,8 +790,8 @@ export class SessionRecordingIngester {
 
                 if (!highestOffsetToCommit) {
                     const partitionDebug = this.isDebugLoggingEnabled(partition)
-                    const logMethod = partitionDebug ? status.info : status.debug
-                    logMethod(
+
+                    const logArgs = [
                         '🤔',
                         `[blob_ingester_consumer]${
                             partitionDebug ? ' - [PARTITION DEBUG] - ' : ' - '
@@ -841,25 +803,25 @@ export class SessionRecordingIngester {
                             // committedHighOffset,
                             lastMessageOffset: metrics.lastMessageOffset,
                             highestOffsetToCommit,
-                        }
-                    )
+                        },
+                    ]
+                    partitionDebug ? logger.info(...logArgs) : logger.debug(...logArgs)
                     counterCommitSkippedDueToPotentiallyBlockingSession.inc()
                     histogramActiveSessionsWhenCommitIsBlocked.observe(activeSessionsOnThisPartition)
                     return
                 }
 
-                const result = this.connectedBatchConsumer?.offsetsStore([
+                const result = this.kafkaConsumer.offsetsStore([
                     {
                         ...tp,
                         offset: highestOffsetToCommit + 1,
                     },
                 ])
 
-                status.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
+                logger.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
                     ...tp,
                     highestOffsetToCommit,
                     result,
-                    consumerExists: !!this.connectedBatchConsumer,
                 })
 
                 // Store the committed offset to the persistent store to avoid rebalance issues

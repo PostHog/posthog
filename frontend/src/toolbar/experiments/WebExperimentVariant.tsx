@@ -1,4 +1,5 @@
 import { IconPlus } from '@posthog/icons'
+import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -16,31 +17,48 @@ interface WebExperimentVariantProps {
 export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JSX.Element {
     const { experimentForm, selectedExperimentId } = useValues(experimentsTabLogic)
     const [localTentativeValue, setLocalTentativeValue] = useState(variant)
-    const { addNewElement, setExperimentFormValue } = useActions(experimentsTabLogic)
+    const { addNewTransformation, setExperimentFormValue } = useActions(experimentsTabLogic)
     return (
-        <div className="flex flex-col">
+        <div className="deprecated-space-y-4">
             {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
-                <LemonInput
-                    key="variant-name-small"
-                    className="mb-2"
-                    value={localTentativeValue}
-                    onChange={(newName) => {
-                        setLocalTentativeValue(newName)
-                    }}
-                    onBlur={(e) => {
-                        e.stopPropagation()
-                        if (experimentForm.variants && localTentativeValue !== variant) {
-                            const webVariant = experimentForm.variants[variant]
-                            if (webVariant) {
-                                experimentForm.variants[localTentativeValue] = webVariant
-                                delete experimentForm.variants[variant]
-                                setExperimentFormValue('variants', experimentForm.variants)
+                <div>
+                    <LemonLabel>Variant key</LemonLabel>
+                    <LemonInput
+                        key="variant-name-small"
+                        className="mb-2"
+                        value={localTentativeValue}
+                        onChange={(newName) => {
+                            setLocalTentativeValue(newName)
+                        }}
+                        onBlur={(e) => {
+                            e.stopPropagation()
+                            if (experimentForm.variants && localTentativeValue !== variant) {
+                                const webVariant = experimentForm.variants[variant]
+                                if (webVariant) {
+                                    experimentForm.variants[localTentativeValue] = webVariant
+                                    delete experimentForm.variants[variant]
+                                    setExperimentFormValue('variants', experimentForm.variants)
+                                }
                             }
-                        }
-                    }}
-                    placeholder="Variant name"
-                />
+                        }}
+                        placeholder={`Example: "test-1"`}
+                    />
+                </div>
             )}
+            <div className="flex items-center justify-between mb-2">
+                <LemonLabel>Transformations</LemonLabel>
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    icon={<IconPlus />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        addNewTransformation(variant)
+                    }}
+                >
+                    Add transformation
+                </LemonButton>
+            </div>
             {experimentForm?.variants &&
             experimentForm?.variants[variant] &&
             experimentForm?.variants[variant].transforms &&
@@ -48,41 +66,29 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                 <LemonCollapse
                     size="small"
                     activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
-                    panels={experimentForm?.variants[variant].transforms.map((transform, tIndex) => {
+                    panels={experimentForm?.variants[variant].transforms.map((transform, transformIndex) => {
                         return {
-                            key: tIndex,
+                            key: transformIndex,
                             header: (
                                 <WebExperimentTransformHeader
                                     variant={variant}
-                                    transformIndex={tIndex}
+                                    transformIndex={transformIndex}
                                     transform={transform}
                                 />
                             ),
                             content: (
-                                <WebExperimentTransformField tIndex={tIndex} variant={variant} transform={transform} />
+                                <WebExperimentTransformField
+                                    transformIndex={transformIndex}
+                                    variant={variant}
+                                    transform={transform}
+                                />
                             ),
                         }
                     })}
                 />
             ) : (
-                <span className="m-2"> This experiment variant doesn't modify any elements. </span>
+                <span className="my-2"> This experiment variant doesn't modify any elements. </span>
             )}
-
-            <div className="grid grid-cols-3 gap-2 m-1">
-                <LemonButton
-                    icon={<IconPlus />}
-                    type="secondary"
-                    size="small"
-                    className="col-span-1"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        addNewElement(variant)
-                    }}
-                >
-                    Add element
-                </LemonButton>
-                <div className="col-span-1" />
-            </div>
         </div>
     )
 }

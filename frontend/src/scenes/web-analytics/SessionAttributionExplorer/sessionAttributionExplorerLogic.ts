@@ -10,11 +10,12 @@ import {
     NodeKind,
     SessionAttributionExplorerQuery,
     SessionAttributionGroupBy,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 
 import type { sessionAttributionExplorerLogicType } from './sessionAttributionExplorerLogicType'
+import { WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const initialProperties = [] as SessionPropertyFilter[]
 export const initialGroupBy = [
@@ -81,6 +82,7 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
                     kind: NodeKind.SessionAttributionExplorerQuery,
                     groupBy: groupBy,
                     filters: filters,
+                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                 }
 
                 return {

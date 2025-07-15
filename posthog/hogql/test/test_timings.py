@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 EPSILON = 1e-10
-counter_values = [0]
+counter_values: list[float] = [0]
 
 
 def fake_perf_counter():

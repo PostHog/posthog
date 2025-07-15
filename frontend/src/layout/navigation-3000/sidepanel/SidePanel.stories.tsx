@@ -1,6 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
@@ -13,11 +12,13 @@ import { SidePanelTab } from '~/types'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/SidePanels',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
+        pageUrl: urls.dashboards(),
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -27,6 +28,11 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/organizations/@current/pipeline_destinations/': { results: [] },
+                '/api/projects/:id/pipeline_destination_configs/': { results: [] },
+                '/api/projects/:id/batch_exports/': { results: [] },
+                '/api/projects/:id/surveys/': { results: [] },
+                '/api/projects/:id/surveys/responses_count/': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query': {},
@@ -39,7 +45,6 @@ export default meta
 const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     useEffect(() => {
-        router.actions.push(urls.dashboards())
         openSidePanel(props.panel)
     }, [])
 
@@ -62,12 +67,17 @@ export const SidePanelNotebooks: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Notebooks} />
 }
 
+export const SidePanelMax: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.Max} />
+}
+
 export const SidePanelSupportNoEmail: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Support} />
 }
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
     const { openEmailForm } = useActions(supportLogic)
+
     useStorybookMocks({
         get: {
             // TODO: setting available featues should be a decorator to make this easy
@@ -89,8 +99,10 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
             ],
         },
     })
+
     useEffect(() => {
         openEmailForm()
     }, [])
+
     return <BaseTemplate panel={SidePanelTab.Support} />
 }

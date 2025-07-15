@@ -1,4 +1,4 @@
-import { LemonButton, LemonCheckbox, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
@@ -6,6 +6,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from './verifyEmailLogic'
 
@@ -68,9 +69,9 @@ export const VerifyEmailHelpLinks = (): JSX.Element => {
     const allChecked = checklist.every((_, index) => checkListValues[index])
 
     return (
-        <div className="bg-bg-3000 p-4 rounded relative w-full max-w-160">
+        <div className="bg-primary p-4 rounded relative w-full max-w-160">
             <div className="flex flex-col justify-center">
-                <div className="space-y-2 text-left">
+                <div className="deprecated-space-y-2 text-left">
                     {checklist.map((item, index) => (
                         <LemonCheckbox
                             key={index}
@@ -155,7 +156,13 @@ export function VerifyEmail(): JSX.Element {
                                     <SurprisedHog className="w-full h-full" />
                                 </div>
                                 <p className="mb-6">Seems like that link isn't quite right. Try again?</p>
+
                                 <SupportButtons />
+
+                                <p className="text-xs text-muted mt-6">
+                                    If you've already verified your email, then{' '}
+                                    <Link to={urls.login()}>log in here</Link>.
+                                </p>
                             </>
                         ) : (
                             <Spinner className="text-4xl" />

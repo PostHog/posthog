@@ -9,7 +9,8 @@ import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationMemberType } from '~/types'
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
 
@@ -19,13 +20,14 @@ const PAGINATION_LIMIT = 200
 
 export const membersLogic = kea<membersLogicType>([
     path(['scenes', 'organization', 'membersLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         ensureAllMembersLoaded: true,
         loadAllMembers: true,
         loadMemberUpdates: true,
+        loadMemberScopedApiKeys: (member: OrganizationMemberType) => ({ member }),
         setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
@@ -100,6 +102,17 @@ export const membersLogic = kea<membersLogicType>([
                 return updatedMembers
             },
         },
+        scopedApiKeys: {
+            __default: null as OrganizationMemberScopedApiKeysResponse | null,
+            loadMemberScopedApiKeys: async ({ member }: { member: OrganizationMemberType }) => {
+                try {
+                    const res = await api.organizationMembers.scopedApiKeys.list(member.user.uuid)
+                    return res
+                } catch {
+                    return null
+                }
+            },
+        },
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -165,6 +178,11 @@ export const membersLogic = kea<membersLogicType>([
                 actions.loadAllMembers()
             } else {
                 actions.loadMemberUpdates()
+            }
+        },
+        loadAllMembersSuccess: ({ members }) => {
+            if (members && members.length > 1) {
+                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
             }
         },
     })),

@@ -5,10 +5,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -19,10 +19,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['another@gmail.com'], "pmat_email")
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['another@gmail.com'], "pmat_email")
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -79,10 +79,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -93,10 +93,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -537,10 +537,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -551,10 +551,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['another@gmail.com'], "pmat_email")
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['another@gmail.com'], "pmat_email")
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -611,10 +611,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
@@ -625,10 +625,10 @@
   SELECT id
   FROM person
   WHERE team_id = 99999
+    AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   GROUP BY id
   HAVING max(is_deleted) = 0
   AND argMax(person.created_at, version) < now() + INTERVAL 1 DAY
-  AND has(['inexistent'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY argMax(person.created_at, version) DESC, id DESC
   LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''

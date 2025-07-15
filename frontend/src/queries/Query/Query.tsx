@@ -1,12 +1,22 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import {
+    RevenueAnalyticsArpuNode,
+    RevenueAnalyticsCustomerCountNode,
+    RevenueAnalyticsGrowthRateNode,
+    RevenueAnalyticsOverviewNode,
+    RevenueAnalyticsRevenueNode,
+    RevenueAnalyticsTopCustomersNode,
+} from 'products/revenue_analytics/frontend/nodes'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
+import { WebActiveHoursHeatmap } from 'scenes/web-analytics/WebActiveHoursHeatmap/WebActiveHoursHeatmap'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
+import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
@@ -16,18 +26,28 @@ import {
     HogQLVariable,
     InsightVizNode,
     Node,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
+import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
 import {
+    isCalendarHeatmapQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsArpuQuery,
+    isRevenueAnalyticsCustomerCountQuery,
+    isRevenueAnalyticsGrowthRateQuery,
+    isRevenueAnalyticsOverviewQuery,
+    isRevenueAnalyticsRevenueQuery,
+    isRevenueAnalyticsTopCustomersQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
+    isWebVitalsPathBreakdownQuery,
+    isWebVitalsQuery,
 } from '../utils'
 
 export interface QueryProps<Q extends Node> {
@@ -53,6 +73,8 @@ export interface QueryProps<Q extends Node> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Passed down if implemented by the query type to e.g. set data attr on a LemonTable in a data table */
+    dataAttr?: string
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -64,6 +86,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         filtersOverride,
         variablesOverride,
         inSharedMode,
+        dataAttr,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -71,7 +94,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         if (propsQuery !== localQuery) {
             localSetQuery(propsQuery)
         }
-    }, [propsQuery])
+    }, [propsQuery]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = propsSetQuery ?? localSetQuery
@@ -93,7 +116,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         }
     }
 
-    let component
+    let component: JSX.Element
     if (isDataTableNode(query)) {
         component = (
             <DataTable
@@ -103,6 +126,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
+                dataAttr={dataAttr}
             />
         )
     } else if (isDataVisualizationNode(query)) {
@@ -133,39 +157,69 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 variablesOverride={variablesOverride}
             />
         )
+    } else if (isRevenueAnalyticsArpuQuery(query)) {
+        component = (
+            <RevenueAnalyticsArpuNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsCustomerCountQuery(query)) {
+        component = (
+            <RevenueAnalyticsCustomerCountNode
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isRevenueAnalyticsOverviewQuery(query)) {
+        component = (
+            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsRevenueQuery(query)) {
+        component = (
+            <RevenueAnalyticsRevenueNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
+    } else if (isRevenueAnalyticsTopCustomersQuery(query)) {
+        component = (
+            <RevenueAnalyticsTopCustomersNode
+                query={query}
+                cachedResults={props.cachedResults}
+                context={queryContext}
+            />
+        )
+    } else if (isRevenueAnalyticsGrowthRateQuery(query)) {
+        component = (
+            <RevenueAnalyticsGrowthRateNode query={query} cachedResults={props.cachedResults} context={queryContext} />
+        )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isWebVitalsQuery(query)) {
+        component = <WebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isWebVitalsPathBreakdownQuery(query)) {
+        component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
+    } else if (isCalendarHeatmapQuery(query)) {
+        component = <WebActiveHoursHeatmap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }
 
-    if (component) {
-        return (
-            <ErrorBoundary>
-                <>
-                    {props.context?.showQueryEditor ? (
-                        <>
-                            <QueryEditor
-                                query={JSON.stringify(query)}
-                                setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
-                                context={queryContext}
-                            />
-                            <div className="my-4">
-                                <LemonDivider />
-                            </div>
-                        </>
-                    ) : null}
-                    {component}
-                </>
-            </ErrorBoundary>
-        )
-    }
-
     return (
-        <div className="text-danger border border-danger p-2">
-            <strong>PostHoqQuery error:</strong> {query?.kind ? `Invalid node type "${query.kind}"` : 'Invalid query'}
-        </div>
+        <ErrorBoundary>
+            <>
+                {queryContext.showQueryEditor ? (
+                    <>
+                        <QueryEditor
+                            query={JSON.stringify(query)}
+                            setQuery={(stringQuery) => setQuery?.(JSON.parse(stringQuery), true)}
+                            context={queryContext}
+                        />
+                        <div className="my-4">
+                            <LemonDivider />
+                        </div>
+                    </>
+                ) : null}
+                {component}
+            </>
+        </ErrorBoundary>
     )
 }

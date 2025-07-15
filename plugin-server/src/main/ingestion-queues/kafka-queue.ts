@@ -1,16 +1,12 @@
-import * as Sentry from '@sentry/node'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub } from '../../types'
-import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { killGracefully } from '../../utils/utils'
-import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { addMetricsEventListeners } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -63,13 +59,13 @@ export class KafkaJSIngestionConsumer {
             addMetricsEventListeners(this.consumer)
 
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
-                status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
+                logger.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
                 this.consumerReady = true
                 clearTimeout(timeout)
                 resolve()
             })
             this.consumer.on(this.consumer.events.CRASH, ({ payload: { error } }) => reject(error))
-            status.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
+            logger.info('⏬', `Connecting Kafka consumer to ${this.pluginsServer.KAFKA_HOSTS}...`)
             this.wasConsumerRan = true
 
             await this.consumer.connect()
@@ -102,9 +98,9 @@ export class KafkaJSIngestionConsumer {
                 partitionInfo = `(partition ${partition})`
             }
 
-            status.info('⏳', `Pausing Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
+            logger.info('⏳', `Pausing Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
             this.consumer.pause([pausePayload])
-            status.info('⏸', `Kafka consumer for topic ${targetTopic} ${partitionInfo} paused!`)
+            logger.info('⏸', `Kafka consumer for topic ${targetTopic} ${partitionInfo} paused!`)
         }
         return Promise.resolve()
     }
@@ -117,9 +113,9 @@ export class KafkaJSIngestionConsumer {
                 resumePayload.partitions = [partition]
                 partitionInfo = `(partition ${partition}) `
             }
-            status.info('⏳', `Resuming Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
+            logger.info('⏳', `Resuming Kafka consumer for topic ${targetTopic} ${partitionInfo}...`)
             this.consumer.resume([resumePayload])
-            status.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo}resumed!`)
+            logger.info('▶️', `Kafka consumer for topic ${targetTopic} ${partitionInfo}resumed!`)
         }
     }
 
@@ -131,12 +127,12 @@ export class KafkaJSIngestionConsumer {
     }
 
     async stop(): Promise<void> {
-        status.info('⏳', 'Stopping Kafka queue...')
+        logger.info('⏳', 'Stopping Kafka queue...')
         try {
             await this.consumer.stop()
-            status.info('⏹', 'Kafka consumer stopped!')
+            logger.info('⏹', 'Kafka consumer stopped!')
         } catch (error) {
-            status.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
+            logger.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
         }
         try {
             await this.consumer.disconnect()
@@ -163,60 +159,6 @@ export class KafkaJSIngestionConsumer {
     }
 }
 
-type EachBatchFunction = (messages: Message[], queue: IngestionConsumer) => Promise<void>
-
-export class IngestionConsumer {
-    public pluginsServer: Hub
-    public topic: string
-    public consumerGroupId: string
-    public eachBatch: EachBatchFunction
-    public consumer?: BatchConsumer
-    public eventsProcessor: EventsProcessor
-
-    constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: EachBatchFunction) {
-        this.pluginsServer = pluginsServer
-        this.topic = topic
-        this.consumerGroupId = consumerGroupId
-        this.eachBatch = batchHandler
-        this.eventsProcessor = new EventsProcessor(pluginsServer)
-    }
-
-    async start(): Promise<BatchConsumer> {
-        this.consumer = await startBatchConsumer({
-            batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer as KafkaConfig),
-            topic: this.topic,
-            groupId: this.consumerGroupId,
-            autoCommit: true,
-            sessionTimeout: this.pluginsServer.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
-            consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            fetchBatchSize: this.pluginsServer.INGESTION_BATCH_SIZE,
-            topicCreationTimeoutMs: this.pluginsServer.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            topicMetadataRefreshInterval: this.pluginsServer.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
-            eachBatch: (payload) => this.eachBatchConsumer(payload),
-        })
-        return this.consumer
-    }
-
-    async eachBatchConsumer(messages: Message[]): Promise<void> {
-        await instrumentEachBatch(this.topic, (messages) => this.eachBatch(messages, this), messages)
-    }
-
-    async stop(): Promise<void> {
-        status.info('⏳', 'Stopping Kafka queue...')
-        try {
-            await this.consumer?.stop()
-            status.info('⏹', 'Kafka consumer stopped!')
-        } catch (error) {
-            status.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
-        }
-    }
-}
-
 export const setupEventHandlers = (consumer: Consumer): void => {
     const { GROUP_JOIN, CRASH, CONNECT, DISCONNECT, COMMIT_OFFSETS } = consumer.events
     let offsets: { [key: string]: string } = {} // Keep a record of offsets so we can report on process periodically
@@ -226,30 +168,30 @@ export const setupEventHandlers = (consumer: Consumer): void => {
     consumer.on(GROUP_JOIN, ({ payload }) => {
         offsets = {}
         groupId = payload.groupId
-        status.info('✅', `Kafka consumer joined group ${groupId}!`)
+        logger.info('✅', `Kafka consumer joined group ${groupId}!`)
         clearInterval(statusInterval)
         statusInterval = setInterval(() => {
-            status.info('ℹ️', 'consumer_status', { groupId, offsets })
+            logger.info('ℹ️', 'consumer_status', { groupId, offsets })
         }, 10000)
     })
     consumer.on(CRASH, ({ payload: { error, groupId } }) => {
         offsets = {}
-        status.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
+        logger.error('⚠️', `Kafka consumer group ${groupId} crashed:\n`, error)
         clearInterval(statusInterval)
-        Sentry.captureException(error, {
+        captureException(error, {
             extra: { detected_at: `kafka-queue.ts on consumer crash` },
         })
         killGracefully()
     })
     consumer.on(CONNECT, () => {
         offsets = {}
-        status.info('✅', 'Kafka consumer connected!')
+        logger.info('✅', 'Kafka consumer connected!')
     })
     consumer.on(DISCONNECT, () => {
-        status.info('ℹ️', 'consumer_status', { groupId, offsets })
+        logger.info('ℹ️', 'consumer_status', { groupId, offsets })
         offsets = {}
         clearInterval(statusInterval)
-        status.info('🛑', 'Kafka consumer disconnected!')
+        logger.info('🛑', 'Kafka consumer disconnected!')
     })
     consumer.on(COMMIT_OFFSETS, ({ payload: { topics } }) => {
         topics.forEach(({ topic, partitions }) => {
@@ -274,7 +216,7 @@ export const instrumentEachBatch = async (
     } catch (error) {
         const eventCount = messages.length
         kafkaConsumerEachBatchFailedCounter.labels({ topic_name: topic }).inc(eventCount)
-        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
+        logger.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
         throw error
     }
 }
@@ -291,15 +233,15 @@ export const instrumentEachBatchKafkaJS = async (
     } catch (error) {
         const eventCount = payload.batch.messages.length
         kafkaConsumerEachBatchFailedCounter.labels({ topic_name: topic }).inc(eventCount)
-        status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`, {
+        logger.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`, {
             stack: error.stack,
             error: error,
         })
         if (error.type === 'UNKNOWN_MEMBER_ID') {
-            status.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
+            logger.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
         }
         if (error.message) {
-            let logToSentry = true
+            let sendException = true
             const messagesToIgnore = {
                 'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
                 'Specified group generation id is not valid': 'generation_id_invalid',
@@ -308,11 +250,11 @@ export const instrumentEachBatchKafkaJS = async (
             }
             for (const [msg, _] of Object.entries(messagesToIgnore)) {
                 if (error.message.includes(msg)) {
-                    logToSentry = false
+                    sendException = false
                 }
             }
-            if (logToSentry) {
-                Sentry.captureException(error, {
+            if (sendException) {
+                captureException(error, {
                     extra: { detected_at: `kafka-queue.ts instrumentEachBatch` },
                 })
             }

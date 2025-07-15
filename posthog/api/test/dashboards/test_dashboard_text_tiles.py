@@ -29,6 +29,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "uuid": str(user.uuid),
             "is_email_verified": None,
             "hedgehog_config": None,
+            "role_at_organization": None,
         }
 
     def _expected_text(
@@ -69,6 +70,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         return {
             "id": tile_id,
             "layouts": {},
+            "order": 0,
             "color": color,
             "text": self._expected_text(
                 body,

@@ -1,5 +1,5 @@
+import { logger } from './logger'
 import { instrument } from './metrics'
-import { status } from './status'
 import { sleep } from './utils'
 
 export class PeriodicTask {
@@ -16,22 +16,22 @@ export class PeriodicTask {
 
         this.promise = new Promise(async (resolve, reject) => {
             try {
-                status.debug('🔄', `${this}: Starting...`)
+                logger.debug('🔄', `${this}: Starting...`)
                 while (!this.abortController.signal.aborted) {
                     const startTimeMs = Date.now()
                     await instrument({ metricName: this.name }, task)
                     const durationMs = Date.now() - startTimeMs
                     const waitTimeMs = Math.max(intervalMs - durationMs, minimumWaitMs)
-                    status.debug(
+                    logger.debug(
                         '🔄',
                         `${this}: Task completed in ${durationMs / 1000}s, next evaluation in ${waitTimeMs / 1000}s`
                     )
                     await Promise.race([sleep(waitTimeMs), abortRequested])
                 }
-                status.info('🔴', `${this}: Stopped by request.`)
+                logger.info('🔴', `${this}: Stopped by request.`)
                 resolve()
             } catch (error) {
-                status.warn('⚠️', `${this}: Unexpected error!`, { error })
+                logger.warn('⚠️', `${this}: Unexpected error!`, { error })
                 reject(error)
             } finally {
                 this.running = false
@@ -48,7 +48,7 @@ export class PeriodicTask {
     }
 
     public async stop(): Promise<void> {
-        status.info(`⏳`, `${this}: Stop requested...`)
+        logger.info(`⏳`, `${this}: Stop requested...`)
         this.abortController.abort()
         try {
             await this.promise

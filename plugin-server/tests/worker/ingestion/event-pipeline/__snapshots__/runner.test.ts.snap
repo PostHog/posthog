@@ -1,33 +1,52 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`EventPipelineRunner runEventPipeline() runs steps starting from populateTeamDataStep 1`] = `
-Array [
-  Array [
-    "populateTeamDataStep",
-    Array [
-      Object {
+exports[`EventPipelineRunner runEventPipeline() runs steps starting from pluginsProcessEventStep 1`] = `
+[
+  [
+    "dropOldEventsStep",
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": {},
         "site_url": "http://localhost",
-        "team_id": null,
+        "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
-        "token": "token1",
         "uuid": "uuid1",
+      },
+      {
+        "anonymize_ips": true,
+        "api_token": "token1",
+        "available_features": [],
+        "cookieless_server_hash_mode": null,
+        "drop_events_older_than_seconds": null,
+        "heatmaps_opt_in": null,
+        "id": 2,
+        "ingested_event": true,
+        "name": "2",
+        "organization_id": "2",
+        "person_display_name_properties": null,
+        "person_processing_opt_out": false,
+        "project_id": 2,
+        "session_recording_opt_in": true,
+        "slack_incoming_webhook": "slack_incoming_webhook",
+        "test_account_filters": null,
+        "timezone": "UTC",
+        "uuid": "<REPLACED-UUID-0>",
       },
     ],
   ],
-  Array [
+  [
     "pluginsProcessEventStep",
-    Array [
-      Object {
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {},
+        "properties": {},
         "site_url": "http://localhost",
         "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
@@ -35,41 +54,89 @@ Array [
       },
     ],
   ],
-  Array [
+  [
+    "transformEventStep",
+    [
+      null,
+    ],
+  ],
+  [
     "normalizeEventStep",
-    Array [
+    [
       true,
     ],
   ],
-  Array [
+  [
     "processPersonsStep",
-    Array [
-      Object {
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {
+        "properties": {
           "$ip": "127.0.0.1",
         },
         "site_url": "http://localhost",
         "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
         "uuid": "uuid1",
+      },
+      {
+        "anonymize_ips": true,
+        "api_token": "token1",
+        "available_features": [],
+        "cookieless_server_hash_mode": null,
+        "drop_events_older_than_seconds": null,
+        "heatmaps_opt_in": null,
+        "id": 2,
+        "ingested_event": true,
+        "name": "2",
+        "organization_id": "2",
+        "person_display_name_properties": null,
+        "person_processing_opt_out": false,
+        "project_id": 2,
+        "session_recording_opt_in": true,
+        "slack_incoming_webhook": "slack_incoming_webhook",
+        "test_account_filters": null,
+        "timezone": "UTC",
+        "uuid": "<REPLACED-UUID-0>",
       },
       "2020-02-23T02:15:00.000Z",
       true,
+      {
+        "cacheMetrics": {
+          "checkCacheHits": 0,
+          "checkCacheMisses": 0,
+          "updateCacheHits": 0,
+          "updateCacheMisses": 0,
+        },
+        "databaseOperationCountsPerDistinctId": {},
+        "db": {
+          "kafkaProducer": {},
+        },
+        "fetchPromisesForChecking": {},
+        "fetchPromisesForUpdate": {},
+        "methodCountsPerDistinctId": {},
+        "options": {
+          "personCacheEnabledForChecks": true,
+          "personCacheEnabledForUpdates": true,
+        },
+        "personCache": {},
+        "personCheckCache": {},
+        "updateLatencyPerDistinctIdSeconds": {},
+      },
     ],
   ],
-  Array [
+  [
     "prepareEventStep",
-    Array [
-      Object {
+    [
+      {
         "distinct_id": "my_id",
         "event": "default event",
         "ip": null,
         "now": "2020-02-23T02:15:00.000Z",
-        "properties": Object {
+        "properties": {
           "$ip": "127.0.0.1",
         },
         "site_url": "http://localhost",
@@ -80,58 +147,58 @@ Array [
       true,
     ],
   ],
-  Array [
+  [
     "extractHeatmapDataStep",
-    Array [
-      Object {
+    [
+      {
         "distinctId": "my_id",
-        "elementsList": Array [],
+        "elementsList": [],
         "event": "$pageview",
         "eventUuid": "uuid1",
         "ip": "127.0.0.1",
         "projectId": 1,
-        "properties": Object {},
+        "properties": {},
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
     ],
   ],
-  Array [
+  [
     "createEventStep",
-    Array [
-      Object {
+    [
+      {
         "distinctId": "my_id",
-        "elementsList": Array [],
+        "elementsList": [],
         "event": "$pageview",
         "eventUuid": "uuid1",
         "ip": "127.0.0.1",
         "projectId": 1,
-        "properties": Object {},
+        "properties": {},
         "teamId": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
       },
-      Object {
-        "person": Object {
+      {
+        "person": {
           "created_at": "2020-02-23T02:15:00.000Z",
           "id": 123,
           "is_identified": true,
           "is_user_id": 0,
-          "properties": Object {},
-          "properties_last_operation": Object {},
-          "properties_last_updated_at": Object {},
+          "properties": {},
+          "properties_last_operation": {},
+          "properties_last_updated_at": {},
           "team_id": 2,
           "uuid": "uuid",
           "version": 0,
         },
-        "personUpdateProperties": Object {},
+        "personUpdateProperties": {},
       },
       true,
     ],
   ],
-  Array [
+  [
     "emitEventStep",
-    Array [
-      Object {
+    [
+      {
         "created_at": "2024-11-18 14:54:33.606",
         "distinct_id": "my_id",
         "elements_chain": "",

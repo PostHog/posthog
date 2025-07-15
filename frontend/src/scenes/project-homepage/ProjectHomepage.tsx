@@ -15,16 +15,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
-import { WatchNextPanel } from 'scenes/project-homepage/WatchNextPanel'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
-import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
+import { PosthogStoriesContainer } from '~/layout/navigation/PosthogStories/PosthogStoriesContainer'
 import { DashboardPlacement } from '~/types'
-
-import { RecentInsights } from './RecentInsights'
-import { RecentPersons } from './RecentPersons'
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -37,13 +33,14 @@ export function ProjectHomepage(): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
+
+    // TODO: Remove this after AA test is over
     const { featureFlags } = useValues(featureFlagLogic)
+    const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
+    const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
 
     const headerButtons = (
         <>
-            {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
-                <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
-            )}
             <LemonButton
                 type="secondary"
                 size="small"
@@ -66,12 +63,11 @@ export function ProjectHomepage(): JSX.Element {
 
     return (
         <div className="ProjectHomepage">
-            <PageHeader delimited buttons={headerButtons} />
-            <div className="ProjectHomepage__lists">
-                <RecentInsights />
-                <RecentPersons />
-                <WatchNextPanel />
-            </div>
+            {/* TODO: Remove this after AA test is over. Just a hidden element. */}
+            <span className="hidden" data-attr="aa-test-flag-result">
+                AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}
+            </span>
+            <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
             ) : (
@@ -89,9 +85,11 @@ export function ProjectHomepage(): JSX.Element {
 
 function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: DashboardLogicProps }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
+            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
             <div className="ProjectHomepage__dashboardheader">
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}

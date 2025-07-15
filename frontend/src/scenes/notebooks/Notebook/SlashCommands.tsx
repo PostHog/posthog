@@ -5,7 +5,9 @@ import {
     IconLifecycle,
     IconPeople,
     IconRetention,
+    IconRetentionHeatmap,
     IconRewindPlay,
+    IconSquareRoot,
     IconStickiness,
     IconTrends,
     IconUpload,
@@ -18,14 +20,16 @@ import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
 
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
@@ -233,7 +237,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
             ),
     },
     {
-        title: 'HogQL',
+        title: 'SQL',
         search: 'sql',
         icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
@@ -261,6 +265,25 @@ order by count() desc
                             },
                         },
                     },
+                })
+            ),
+    },
+    {
+        title: 'Calendar Heatmap',
+        search: 'calendar heatmap insight',
+        icon: <IconRetentionHeatmap />,
+        command: (chain, pos) =>
+            chain.insertContentAt(
+                pos,
+                buildInsightVizQueryContent({
+                    kind: NodeKind.CalendarHeatmapQuery,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
                 })
             ),
     },
@@ -318,7 +341,7 @@ order by count() desc
                 if (files.length) {
                     return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })
                 }
-            } catch (e) {
+            } catch {
                 lemonToast.error('Something went wrong when trying to select a file.')
             }
 
@@ -333,6 +356,16 @@ order by count() desc
             return chain.insertContentAt(pos, buildNodeEmbed())
         },
     },
+    {
+        title: 'LaTeX',
+        search: 'latex math formula equation',
+        icon: <IconSquareRoot color="currentColor" />,
+        command: (chain, pos) =>
+            chain.insertContentAt(pos, {
+                type: NotebookNodeType.Latex,
+                attrs: { content: '' }, // Default empty content
+            }),
+    },
 ]
 
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
@@ -340,11 +373,17 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     ref
 ): JSX.Element | null {
     const { editor } = useValues(notebookLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
-    const allCommmands = [...TEXT_CONTROLS, ...SLASH_COMMANDS]
+    const calendarHeatmapInsightEnabled = featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
+    const slashCommands = SLASH_COMMANDS.filter(
+        (command) => calendarHeatmapInsightEnabled || command.title !== 'Calendar Heatmap'
+    )
+
+    const allCommmands = [...TEXT_CONTROLS, ...slashCommands]
 
     const fuse = useMemo(() => {
         return new Fuse(allCommmands, {
@@ -361,8 +400,8 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }, [query, fuse])
 
     const filteredSlashCommands = useMemo(
-        () => filteredCommands.filter((item) => SLASH_COMMANDS.includes(item)),
-        [filteredCommands]
+        () => filteredCommands.filter((item) => slashCommands.includes(item)),
+        [filteredCommands, slashCommands]
     )
 
     useEffect(() => {
@@ -400,7 +439,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
     }
     const onPressDown = (): void => {
-        setSelectedIndex(Math.min(selectedIndex + 1, SLASH_COMMANDS.length - 1))
+        setSelectedIndex(Math.min(selectedIndex + 1, slashCommands.length - 1))
     }
 
     const onPressLeft = (): void => {
@@ -456,7 +495,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }
 
     return (
-        <div className="space-y-px">
+        <div className="deprecated-space-y-px">
             <div className="flex items-center gap-1">
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
@@ -484,7 +523,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             ))}
 
             {filteredSlashCommands.length === 0 && (
-                <div className="text-muted-alt p-1">
+                <div className="text-secondary p-1">
                     Nothing matching <code>/{query}</code>
                 </div>
             )}
@@ -492,7 +531,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             {mode === 'add' && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="text-xs text-muted-alt p-1">
+                    <div className="text-xs text-secondary p-1">
                         You can trigger this menu by typing <KeyboardShortcut forwardslash />
                     </div>
                 </>

@@ -1,8 +1,8 @@
 import './AnnotationsOverlay.scss'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { Chart } from 'chart.js'
 import { BindLogic, useActions, useValues } from 'kea'
+import { Chart } from 'lib/Chart'
 import { dayjs } from 'lib/dayjs'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -16,7 +16,7 @@ import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
-import { AnnotationType, IntervalType } from '~/types'
+import { AnnotationScope, AnnotationType, IntervalType } from '~/types'
 
 import {
     annotationsOverlayLogic,
@@ -24,6 +24,8 @@ import {
     determineAnnotationsDateGroup,
 } from './annotationsOverlayLogic'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -247,10 +249,10 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     return (
         <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
-                <h5 className="grow m-0 text-muted">
+                <h5 className="grow m-0 text-secondary">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
-                    -level
+                    {annotation.scope === AnnotationScope.Recording ? ' comment' : '-level'}
                 </h5>
                 <LemonButton
                     size="small"
@@ -269,17 +271,32 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     noPadding
                 />
             </div>
-            <div className="mt-1">{annotation.content}</div>
-            <div className="leading-6 mt-2">
-                <ProfilePicture
-                    user={
-                        annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : annotation.created_by
-                    }
-                    showName
-                    size="md"
-                    type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
-                />{' '}
-                • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+            <div className="mt-1">
+                <TextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
+            </div>
+            <div className="leading-6 mt-2 flex flex-row items-center justify-between">
+                <div>
+                    <ProfilePicture
+                        user={
+                            annotation.creation_type === 'GIT'
+                                ? { first_name: 'GitHub automation' }
+                                : annotation.created_by
+                        }
+                        showName
+                        size="md"
+                        type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
+                    />{' '}
+                    • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
+                </div>
+                {annotation.scope === AnnotationScope.Recording &&
+                !!annotation.recording_id &&
+                !!annotation.date_marker ? (
+                    <ViewRecordingButton
+                        sessionId={annotation.recording_id}
+                        timestamp={annotation.date_marker}
+                        inModal={true}
+                    />
+                ) : null}
             </div>
         </li>
     )

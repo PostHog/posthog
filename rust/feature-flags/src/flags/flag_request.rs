@@ -1,18 +1,28 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use bytes::Bytes;
-use common_metrics::inc;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use tracing::instrument;
 
-use crate::{
-    api::errors::FlagError,
-    client::{database::Client as DatabaseClient, redis::Client as RedisClient},
-    flags::flag_models::FeatureFlagList,
-    metrics::metrics_consts::FLAG_CACHE_HIT_COUNTER,
-    team::team_models::Team,
-};
+use crate::api::errors::FlagError;
+
+fn deserialize_distinct_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(serde_json::Number),
+    }
+
+    let opt = Option::<StringOrNumber>::deserialize(deserializer)?;
+    Ok(opt.map(|val| match val {
+        StringOrNumber::String(s) => s,
+        StringOrNumber::Number(n) => n.to_string(),
+    }))
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum FlagRequestType {
@@ -28,40 +38,57 @@ pub struct FlagRequest {
         skip_serializing_if = "Option::is_none"
     )]
     pub token: Option<String>,
-    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        alias = "$distinct_id",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_distinct_id",
+        default
+    )]
     pub distinct_id: Option<String>,
     pub geoip_disable: Option<bool>,
+    // Web and mobile clients can configure this parameter to disable flags for a request.
+    // It's mostly used for folks who want to save money on flag evaluations while still using
+    // `/flags` to load the rest of their PostHog configuration.
+    pub disable_flags: Option<bool>,
     #[serde(default)]
     pub person_properties: Option<HashMap<String, Value>>,
     #[serde(default)]
     pub groups: Option<HashMap<String, Value>>,
-    // TODO: better type this since we know its going to be a nested json
     #[serde(default)]
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
     #[serde(alias = "$anon_distinct_id", skip_serializing_if = "Option::is_none")]
     pub anon_distinct_id: Option<String>,
     pub ip_address: Option<String>,
+    #[serde(default)]
+    pub flag_keys: Option<Vec<String>>,
+    #[serde(default)]
+    pub timezone: Option<String>,
+    #[serde(default)]
+    pub cookieless_hash_extra: Option<String>,
 }
 
 impl FlagRequest {
     /// Takes a request payload and tries to read it.
     /// Only supports base64 encoded payloads or uncompressed utf-8 as json.
-    #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
-        tracing::debug!(len = bytes.len(), "decoding new request");
+        // Handle UTF-8 conversion more gracefully, similar to form data handling
+        let payload = match String::from_utf8(bytes.to_vec()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::debug!(
+                    "Invalid UTF-8 in request body, using lossy conversion: {}",
+                    e
+                );
+                // Use lossy conversion as fallback - this handles Android clients that might
+                // send malformed UTF-8 sequences after decompression
+                String::from_utf8_lossy(&bytes).into_owned()
+            }
+        };
 
-        let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            tracing::error!("failed to decode body: {}", e);
-            FlagError::RequestDecodingError(String::from("invalid body encoding"))
-        })?;
-
-        tracing::debug!(json = payload, "decoded event data");
-
-        // Attempt to parse as JSON, rejecting invalid JSON
         match serde_json::from_str::<FlagRequest>(&payload) {
             Ok(request) => Ok(request),
             Err(e) => {
-                tracing::error!("failed to parse JSON: {}", e);
+                tracing::debug!("failed to parse JSON: {}", e);
                 Err(FlagError::RequestDecodingError(String::from(
                     "invalid JSON",
                 )))
@@ -69,63 +96,12 @@ impl FlagRequest {
         }
     }
 
-    /// Extracts the token from the request and verifies it against the cache.
-    /// If the token is not found in the cache, it will be verified against the database.
-    pub async fn extract_and_verify_token(
-        &self,
-        redis_client: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
-    ) -> Result<String, FlagError> {
-        let token = match self {
-            FlagRequest {
-                token: Some(token), ..
-            } => token.to_string(),
-            _ => return Err(FlagError::NoTokenError),
-        };
-
-        match Team::from_redis(redis_client.clone(), token.clone()).await {
-            Ok(_) => Ok(token),
-            Err(_) => {
-                // Fallback: Check PostgreSQL if not found in Redis
-                match Team::from_pg(pg_client, token.clone()).await {
-                    Ok(team) => {
-                        // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
-                        if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
-                            tracing::warn!("Failed to update Redis cache: {}", e);
-                        }
-                        Ok(token)
-                    }
-                    // TODO do we need a custom error here to track the fallback
-                    Err(_) => Err(FlagError::TokenValidationError),
-                }
-            }
-        }
-    }
-
-    /// Fetches the team from the cache or the database.
-    /// If the team is not found in the cache, it will be fetched from the database and stored in the cache.
-    /// Returns the team if found, otherwise an error.
-    pub async fn get_team_from_cache_or_pg(
-        &self,
-        token: &str,
-        redis_client: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
-    ) -> Result<Team, FlagError> {
-        match Team::from_redis(redis_client.clone(), token.to_owned()).await {
-            Ok(team) => Ok(team),
-            Err(_) => match Team::from_pg(pg_client, token.to_owned()).await {
-                Ok(team) => {
-                    // If we have the team in postgres, but not redis, update redis so we're faster next time
-                    // TODO: we have some counters in django for tracking these cache misses
-                    // we should probably do the same here
-                    if let Err(e) = Team::update_redis_cache(redis_client, &team).await {
-                        tracing::warn!("Failed to update Redis cache: {}", e);
-                    }
-                    Ok(team)
-                }
-                // TODO what kind of error should we return here?
-                Err(e) => Err(e),
-            },
+    /// Extracts the token from the request.
+    /// If the token is missing or empty, an error is returned.
+    pub fn extract_token(&self) -> Result<String, FlagError> {
+        match &self.token {
+            Some(token) if !token.is_empty() => Ok(token.clone()),
+            _ => Err(FlagError::NoTokenError),
         }
     }
 
@@ -146,7 +122,6 @@ impl FlagRequest {
 
     /// Extracts the properties from the request.
     /// If the request contains person_properties, they are returned.
-    // TODO do I even need this one?
     pub fn extract_properties(&self) -> HashMap<String, Value> {
         let mut properties = HashMap::new();
         if let Some(person_properties) = &self.person_properties {
@@ -155,51 +130,10 @@ impl FlagRequest {
         properties
     }
 
-    /// Fetches the flags from the cache or the database.
-    /// If the flags are not found in the cache, they will be fetched from the database and stored in the cache.
-    /// Returns the flags if found, otherwise an error.
-    pub async fn get_flags_from_cache_or_pg(
-        &self,
-        team_id: i32,
-        redis_client: &Arc<dyn RedisClient + Send + Sync>,
-        pg_client: &Arc<dyn DatabaseClient + Send + Sync>,
-    ) -> Result<FeatureFlagList, FlagError> {
-        let mut cache_hit = false;
-        let flags = match FeatureFlagList::from_redis(redis_client.clone(), team_id).await {
-            Ok(flags) => {
-                cache_hit = true;
-                Ok(flags)
-            }
-            Err(_) => match FeatureFlagList::from_pg(pg_client.clone(), team_id).await {
-                Ok(flags) => {
-                    if let Err(e) = FeatureFlagList::update_flags_in_redis(
-                        redis_client.clone(),
-                        team_id,
-                        &flags,
-                    )
-                    .await
-                    {
-                        tracing::warn!("Failed to update Redis cache: {}", e);
-                        // TODO add new metric category for this
-                    }
-                    Ok(flags)
-                }
-                // TODO what kind of error should we return here?  This should be postgres
-                // I guess it can be whatever the FlagError is
-                Err(e) => Err(e),
-            },
-        };
-
-        inc(
-            FLAG_CACHE_HIT_COUNTER,
-            &[
-                ("team_id".to_string(), team_id.to_string()),
-                ("cache_hit".to_string(), cache_hit.to_string()),
-            ],
-            1,
-        );
-
-        flags
+    /// Checks if feature flags should be disabled for this request.
+    /// Returns true if disable_flags is explicitly set to true.
+    pub fn is_flags_disabled(&self) -> bool {
+        matches!(self.disable_flags, Some(true))
     }
 }
 
@@ -208,13 +142,9 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::api::errors::FlagError;
-    use crate::flags::flag_models::{
-        FeatureFlag, FeatureFlagList, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX,
-    };
 
     use crate::flags::flag_request::FlagRequest;
-    use crate::properties::property_models::{OperatorType, PropertyFilter};
-    use crate::team::team_models::Team;
+    use crate::flags::flag_service::FlagService;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client,
     };
@@ -266,67 +196,45 @@ mod tests {
         };
     }
 
-    #[tokio::test]
-    async fn token_is_returned_correctly() {
-        let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_redis(redis_client.clone())
-            .await
-            .expect("Failed to insert new team in Redis");
-
+    #[test]
+    fn numeric_distinct_id_is_returned_correctly() {
         let json = json!({
-            "$distinct_id": "alakazam",
-            "token": team.api_token,
+            "$distinct_id": 8675309,
+            "token": "my_token1",
         });
         let bytes = Bytes::from(json.to_string());
 
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
 
-        match flag_payload
-            .extract_and_verify_token(redis_client, pg_client)
-            .await
-        {
-            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
-            Err(e) => panic!("Failed to extract and verify token: {:?}", e),
+        match flag_payload.extract_distinct_id() {
+            Ok(id) => assert_eq!(id, "8675309"),
+            _ => panic!("expected distinct id"),
         };
     }
 
-    #[tokio::test]
-    async fn test_get_team_from_cache_or_pg() {
-        let redis_client = setup_redis_client(None);
-        let pg_client = setup_pg_reader_client(None).await;
-        let team = insert_new_team_in_redis(redis_client.clone())
-            .await
-            .expect("Failed to insert new team in Redis");
+    #[test]
+    fn missing_distinct_id_is_handled_correctly() {
+        let json = json!({
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
 
-        let flag_request = FlagRequest {
-            token: Some(team.api_token.clone()),
-            ..Default::default()
-        };
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
 
-        // Test fetching from Redis
-        let result = flag_request
-            .get_team_from_cache_or_pg(&team.api_token, redis_client.clone(), pg_client.clone())
-            .await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().id, team.id);
+        // First verify the field is None
+        assert_eq!(flag_payload.distinct_id, Option::<String>::None);
+    }
 
-        // Test fetching from PostgreSQL (simulate Redis miss)
-        // First, remove the team from Redis
-        redis_client
-            .del(format!("team:{}", team.api_token))
-            .await
-            .expect("Failed to remove team from Redis");
+    #[test]
+    fn float_distinct_id_is_handled_correctly() {
+        let json = json!({
+            "$distinct_id": 123.45,
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
 
-        let result = flag_request
-            .get_team_from_cache_or_pg(&team.api_token, redis_client.clone(), pg_client.clone())
-            .await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().id, team.id);
-
-        // Verify that the team was re-added to Redis
-        let redis_team = Team::from_redis(redis_client.clone(), team.api_token.clone()).await;
-        assert!(redis_team.is_ok());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.distinct_id, Some("123.45".to_string()));
     }
 
     #[test]
@@ -345,167 +253,115 @@ mod tests {
         assert_eq!(properties.get("key2").unwrap(), &json!(42));
     }
 
+    #[test]
+    fn test_extract_token() {
+        let json = json!({
+            "distinct_id": "alakazam",
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        match flag_payload.extract_token() {
+            Ok(token) => assert_eq!(token, "my_token1"),
+            _ => panic!("expected token"),
+        };
+
+        let json = json!({
+            "distinct_id": "alakazam",
+            "token": "",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        match flag_payload.extract_token() {
+            Err(FlagError::NoTokenError) => (),
+            _ => panic!("expected empty token error"),
+        };
+
+        let json = json!({
+            "distinct_id": "alakazam",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        match flag_payload.extract_token() {
+            Err(FlagError::NoTokenError) => (),
+            _ => panic!("expected no token error"),
+        };
+    }
+
+    #[test]
+    fn test_disable_flags() {
+        // Test with disable_flags: true
+        let json = json!({
+            "distinct_id": "test_id",
+            "token": "test_token",
+            "disable_flags": true
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert!(flag_payload.is_flags_disabled());
+
+        // Test with disable_flags: false
+        let json = json!({
+            "distinct_id": "test_id",
+            "token": "test_token",
+            "disable_flags": false
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert!(!flag_payload.is_flags_disabled());
+
+        // Test without disable_flags field
+        let json = json!({
+            "distinct_id": "test_id",
+            "token": "test_token"
+        });
+        let bytes = Bytes::from(json.to_string());
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert!(!flag_payload.is_flags_disabled());
+    }
+
     #[tokio::test]
-    async fn test_get_flags_from_cache_or_pg() {
-        let redis_client = setup_redis_client(None);
+    async fn token_is_returned_correctly() {
+        let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
 
-        // Insert some mock flags into Redis
-        let mock_flags = FeatureFlagList {
-            flags: vec![
-                FeatureFlag {
-                    id: 1,
-                    team_id: team.id,
-                    name: Some("Beta Feature".to_string()),
-                    key: "beta_feature".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![FlagGroupType {
-                            properties: Some(vec![PropertyFilter {
-                                key: "country".to_string(),
-                                value: json!("US"),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: "person".to_string(),
-                                group_type_index: None,
-                                negation: None,
-                            }]),
-                            rollout_percentage: Some(50.0),
-                            variant: None,
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                    },
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: false,
-                },
-                FeatureFlag {
-                    id: 2,
-                    team_id: team.id,
-                    name: Some("New User Interface".to_string()),
-                    key: "new_ui".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                    },
-                    deleted: false,
-                    active: false,
-                    ensure_experience_continuity: false,
-                },
-                FeatureFlag {
-                    id: 3,
-                    team_id: team.id,
-                    name: Some("Premium Feature".to_string()),
-                    key: "premium_feature".to_string(),
-                    filters: FlagFilters {
-                        groups: vec![FlagGroupType {
-                            properties: Some(vec![PropertyFilter {
-                                key: "is_premium".to_string(),
-                                value: json!(true),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: "person".to_string(),
-                                group_type_index: None,
-                                negation: None,
-                            }]),
-                            rollout_percentage: Some(100.0),
-                            variant: None,
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                    },
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: false,
-                },
-            ],
+        let json = json!({
+            "$distinct_id": "alakazam",
+            "token": team.api_token,
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+
+        let token = flag_payload
+            .extract_token()
+            .expect("failed to extract token");
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            redis_client.clone(),
+            pg_client.clone(),
+        );
+
+        match flag_service.verify_token(&token).await {
+            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
+            Err(e) => panic!("Failed to extract and verify token: {:?}", e),
         };
-
-        FeatureFlagList::update_flags_in_redis(redis_client.clone(), team.id, &mock_flags)
-            .await
-            .expect("Failed to insert mock flags in Redis");
-
-        let flag_request = FlagRequest::default();
-
-        // Test fetching from Redis
-        let result = flag_request
-            .get_flags_from_cache_or_pg(team.id, &redis_client, &pg_client)
-            .await;
-        assert!(result.is_ok());
-        let fetched_flags = result.unwrap();
-        assert_eq!(fetched_flags.flags.len(), mock_flags.flags.len());
-
-        // Verify the contents of the fetched flags
-        let beta_feature = fetched_flags
-            .flags
-            .iter()
-            .find(|f| f.key == "beta_feature")
-            .unwrap();
-        assert!(beta_feature.active);
-        assert_eq!(
-            beta_feature.filters.groups[0].rollout_percentage,
-            Some(50.0)
-        );
-        assert_eq!(
-            beta_feature.filters.groups[0].properties.as_ref().unwrap()[0].key,
-            "country"
-        );
-
-        let new_ui = fetched_flags
-            .flags
-            .iter()
-            .find(|f| f.key == "new_ui")
-            .unwrap();
-        assert!(!new_ui.active);
-        assert!(new_ui.filters.groups.is_empty());
-
-        let premium_feature = fetched_flags
-            .flags
-            .iter()
-            .find(|f| f.key == "premium_feature")
-            .unwrap();
-        assert!(premium_feature.active);
-        assert_eq!(
-            premium_feature.filters.groups[0].rollout_percentage,
-            Some(100.0)
-        );
-        assert_eq!(
-            premium_feature.filters.groups[0]
-                .properties
-                .as_ref()
-                .unwrap()[0]
-                .key,
-            "is_premium"
-        );
-
-        // Test fetching from PostgreSQL (simulate Redis miss)
-        // First, remove the flags from Redis
-        redis_client
-            .del(format!("{}:{}", TEAM_FLAGS_CACHE_PREFIX, team.id))
-            .await
-            .expect("Failed to remove flags from Redis");
-
-        let result = flag_request
-            .get_flags_from_cache_or_pg(team.id, &redis_client, &pg_client)
-            .await;
-        assert!(result.is_ok());
-        // Verify that the flags were re-added to Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client.clone(), team.id).await;
-        assert!(redis_flags.is_ok());
-        assert_eq!(redis_flags.unwrap().flags.len(), mock_flags.flags.len());
     }
 
     #[tokio::test]
     async fn test_error_cases() {
-        let redis_client = setup_redis_client(None);
+        let redis_reader_client = setup_redis_client(None).await;
+        let redis_writer_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
 
         // Test invalid token
@@ -514,9 +370,18 @@ mod tests {
             ..Default::default()
         };
         let result = flag_request
-            .extract_and_verify_token(redis_client.clone(), pg_client.clone())
-            .await;
-        assert!(matches!(result, Err(FlagError::TokenValidationError)));
+            .extract_token()
+            .expect("failed to extract token");
+
+        let flag_service = FlagService::new(
+            redis_reader_client.clone(),
+            redis_writer_client.clone(),
+            pg_client.clone(),
+        );
+        assert!(matches!(
+            flag_service.verify_token(&result).await,
+            Err(FlagError::TokenValidationError)
+        ));
 
         // Test missing distinct_id
         let flag_request = FlagRequest {

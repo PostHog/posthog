@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -9,12 +9,16 @@ import { Theme, themes } from './themes'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
-    connect({
+    connect(() => ({
+        logic: [sceneLogic],
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
+        saveCustomCss: true,
+        setPersistedCustomCss: (css: string | null) => ({ css }),
+        setPreviewingCustomCss: (css: string | null) => ({ css }),
     }),
     reducers({
         darkModeSystemPreference: [
@@ -30,6 +34,20 @@ export const themeLogic = kea<themeLogicType>([
                 setTheme: (_, { theme }) => theme,
             },
         ],
+        persistedCustomCss: [
+            null as string | null,
+            { persist: true },
+            {
+                setPersistedCustomCss: (_, { css }) => css,
+            },
+        ],
+        previewingCustomCss: [
+            null as string | null,
+            { persist: true },
+            {
+                setPreviewingCustomCss: (_, { css }) => css,
+            },
+        ],
     }),
     selectors({
         theme: [
@@ -42,6 +60,14 @@ export const themeLogic = kea<themeLogicType>([
                     null
                 )
             },
+        ],
+        customCssEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.CUSTOM_CSS_THEMES],
+        ],
+        customCss: [
+            (s) => [s.persistedCustomCss, s.previewingCustomCss],
+            (persistedCustomCss, previewingCustomCss): string | null => previewingCustomCss || persistedCustomCss,
         ],
         isDarkModeOn: [
             (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig, s.theme],
@@ -57,12 +83,8 @@ export const themeLogic = kea<themeLogicType>([
                 if (theme) {
                     return !!theme?.dark
                 }
-                // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
-                if (
-                    sceneConfig?.layout === 'plain' ||
-                    sceneConfig?.allowUnauthenticated ||
-                    sceneConfig?.onlyUnauthenticated
-                ) {
+                // NOTE: Unauthenticated users always get the light mode until we have full support for dark mode there
+                if (sceneConfig?.allowUnauthenticated || sceneConfig?.onlyUnauthenticated) {
                     return false
                 }
 
@@ -70,6 +92,12 @@ export const themeLogic = kea<themeLogicType>([
             },
         ],
     }),
+    listeners(({ values, actions }) => ({
+        saveCustomCss() {
+            actions.setPersistedCustomCss(values.previewingCustomCss)
+            actions.setPreviewingCustomCss(null)
+        },
+    })),
     events(({ cache, actions }) => ({
         afterMount() {
             cache.prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')

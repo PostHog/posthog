@@ -1,27 +1,29 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import recordings from 'scenes/session-recordings/__mocks__/recordings.json'
+import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { ReplayTabs } from '~/types'
 
-import recording_playlists from './__mocks__/recording_playlists.json'
+import { recordingPlaylists } from './__mocks__/recording_playlists'
 
 const meta: Meta = {
-    title: 'Replay/Listings',
+    component: App,
+    title: 'Replay/Tabs/Collections',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.replay(ReplayTabs.Playlists),
+        featureFlags: [FEATURE_FLAGS.SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN],
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recording_playlists': recording_playlists,
+                '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
@@ -42,9 +44,5 @@ const meta: Meta = {
 }
 export default meta
 
-export function RecordingsPlayLists(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.replay(ReplayTabs.Playlists))
-    }, [])
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const RecordingsPlayLists: Story = {}

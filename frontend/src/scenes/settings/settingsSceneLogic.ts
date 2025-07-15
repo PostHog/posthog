@@ -1,8 +1,9 @@
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -10,7 +11,7 @@ import { Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
 import type { settingsSceneLogicType } from './settingsSceneLogicType'
-import { SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
+import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
@@ -43,22 +44,36 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
         ],
     }),
 
+    listeners(({ values }) => ({
+        async selectSetting({ setting }) {
+            const url = urls.absolute(
+                urls.currentProject(
+                    urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
+                )
+            )
+            await copyToClipboard(url)
+        },
+    })),
+
     urlToAction(({ actions, values }) => ({
         '/settings/:section': ({ section }) => {
             if (!section) {
                 return
             }
+
             // As of middle of September 2024, `details` and `danger-zone` are the only sections present
             // at both Environment and Project levels. Others we want to redirect based on the feature flag.
+            // This is just for URLs, since analogous logic for _rendering_ settings is already in settingsLogic.
             if (!section.endsWith('-details') && !section.endsWith('-danger-zone')) {
                 if (values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-                    section = section.replace('project-', 'environment-')
+                    section = section.replace(/^project/, 'environment')
                 } else {
-                    section = section.replace('environment-', 'project-')
+                    section = section.replace(/^environment/, 'project')
                 }
             }
+
             if (SettingLevelIds.includes(section as SettingLevelId)) {
-                if (section !== values.selectedLevel) {
+                if (section !== values.selectedLevel || values.selectedSectionId) {
                     actions.selectLevel(section as SettingLevelId)
                 }
             } else if (section !== values.selectedSectionId) {
@@ -71,16 +86,20 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
+        // Replacing history item instead of pushing, so that the environments<>project redirect doesn't affect history
         selectLevel({ level }) {
-            return [urls.settings(level), router.values.searchParams, router.values.hashParams]
+            return [urls.settings(level), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSection({ section }) {
-            return [urls.settings(section), router.values.searchParams, router.values.hashParams]
+            return [urls.settings(section), router.values.searchParams, router.values.hashParams, { replace: true }]
         },
         selectSetting({ setting }) {
-            const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting)
-
-            return [url]
+            return [
+                urls.settings(values.selectedSectionId ?? values.selectedLevel, setting),
+                undefined,
+                undefined,
+                { replace: true },
+            ]
         },
     })),
 ])

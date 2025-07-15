@@ -16,6 +16,7 @@ import { sessionRecordingFilePlaybackSceneLogic } from './sessionRecordingFilePl
 export const scene: SceneExport = {
     component: SessionRecordingFilePlaybackScene,
     logic: sessionRecordingFilePlaybackSceneLogic,
+    settingSectionId: 'environment-replay',
 }
 
 export function SessionRecordingFilePlaybackScene(): JSX.Element {
@@ -56,7 +57,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
             ) : (
                 <div
                     ref={dropRef}
-                    className="w-full border rounded p-20 text-muted-alt flex flex-col items-center justify-center"
+                    className="w-full border rounded p-20 text-secondary flex flex-col items-center justify-center"
                 >
                     <LemonFileInput
                         accept="application/json"
@@ -64,7 +65,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                         onChange={(files) => loadFromFile(files[0])}
                         alternativeDropTargetRef={dropRef}
                         callToAction={
-                            <div className="flex flex-col items-center justify-center space-y-2">
+                            <div className="flex flex-col items-center justify-center deprecated-space-y-2">
                                 <span className="flex items-center gap-2 font-semibold">
                                     <IconUploadFile className="text-2xl" /> Load recording
                                 </span>

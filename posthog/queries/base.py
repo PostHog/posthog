@@ -131,9 +131,12 @@ def match_property(property: Property, override_property_values: dict[str, Any])
         return str(value).lower() not in str(override_value).lower()
 
     if operator in ("regex", "not_regex"):
+        pattern = sanitize_regex_pattern(str(value))
         try:
-            pattern = re.compile(str(value))
-            match = pattern.search(str(override_value))
+            # Make the pattern more flexible by using DOTALL flag to allow . to match newlines
+            # Added IGNORECASE for more flexibility
+            compiled_pattern = re.compile(pattern, re.DOTALL | re.IGNORECASE)
+            match = compiled_pattern.search(str(override_value))
 
             if operator == "regex":
                 return match is not None
@@ -172,38 +175,62 @@ def match_property(property: Property, override_property_values: dict[str, Any])
         else:
             return compare(str(override_value), str(value), operator)
 
-    if operator in ["is_date_before", "is_date_after"]:
+    if operator in ["is_date_before", "is_date_after", "is_date_exact"]:
         parsed_date = determine_parsed_date_for_property_matching(value)
 
         if not parsed_date:
             return False
 
-        if isinstance(override_value, datetime.datetime):
-            override_date = convert_to_datetime_aware(override_value)
-            if operator == "is_date_before":
-                return override_date < parsed_date
-            else:
-                return override_date > parsed_date
-        elif isinstance(override_value, datetime.date):
-            if operator == "is_date_before":
-                return override_value < parsed_date.date()
-            else:
-                return override_value > parsed_date.date()
-        elif isinstance(override_value, str):
-            try:
-                override_date = parser.parse(override_value)
-                override_date = convert_to_datetime_aware(override_date)
-                if operator == "is_date_before":
-                    return override_date < parsed_date
-                else:
-                    return override_date > parsed_date
-            except Exception:
-                return False
+        parsed_override_date = determine_parsed_incoming_date(override_value)
+
+        if not parsed_override_date:
+            return False
+
+        if operator == "is_date_before":
+            return parsed_override_date < parsed_date
+        elif operator == "is_date_after":
+            return parsed_override_date > parsed_date
+        elif operator == "is_date_exact":
+            return parsed_override_date == parsed_date
 
     return False
 
 
-def determine_parsed_date_for_property_matching(value: ValueT):
+def determine_parsed_incoming_date(
+    value: ValueT | datetime.date | datetime.datetime | float,
+) -> datetime.datetime | None:
+    # This parses the incoming date value. The range of possibilities is only limited by our customers imagination, but usually
+    # take the form of a string, a unix timestamp, or a datetime object.
+    if isinstance(value, datetime.datetime):
+        return convert_to_datetime_aware(value)
+
+    if isinstance(value, datetime.date):
+        return convert_to_datetime_aware(datetime.datetime.combine(value, datetime.time.min))
+
+    if isinstance(value, int) or isinstance(value, float):
+        return datetime.datetime.fromtimestamp(value, tz=ZoneInfo("UTC"))
+    if isinstance(value, str):
+        try:
+            parsed = parser.parse(value)
+            return convert_to_datetime_aware(parsed)
+        except Exception:
+            try:
+                # This might be a Unix timestamp passed as a string in milliseconds
+                parsed_date = float(value)
+                return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
+            except Exception:
+                try:
+                    # This might be a Unix timestamp passed as a string in seconds
+                    parsed_date = int(value)
+                    return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
+                except Exception:
+                    pass
+
+    return None
+
+
+def determine_parsed_date_for_property_matching(value: ValueT) -> datetime.datetime | None:
+    # This parses the filter value we compare against. The range of possible values is limited by our UI.
     parsed_date = None
     try:
         parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
@@ -279,7 +306,7 @@ def lookup_q(key: str, value: Any) -> Q:
 
 
 def property_to_Q(
-    team_id: int,
+    project_id: int,
     property: Property,
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
@@ -298,7 +325,7 @@ def property_to_Q(
             if cohorts_cache.get(cohort_id) is None:
                 queried_cohort = (
                     Cohort.objects.db_manager(using_database)
-                    .filter(pk=cohort_id, team_id=team_id, deleted=False)
+                    .filter(pk=cohort_id, team__project_id=project_id, deleted=False)
                     .first()
                 )
                 cohorts_cache[cohort_id] = queried_cohort or ""
@@ -306,7 +333,9 @@ def property_to_Q(
             cohort = cohorts_cache[cohort_id]
         else:
             cohort = (
-                Cohort.objects.db_manager(using_database).filter(pk=cohort_id, team_id=team_id, deleted=False).first()
+                Cohort.objects.db_manager(using_database)
+                .filter(pk=cohort_id, team__project_id=project_id, deleted=False)
+                .first()
             )
 
         if not cohort:
@@ -329,7 +358,7 @@ def property_to_Q(
             # :TRICKY: This has potential to create an infinite loop if the cohort is recursive.
             # But, this shouldn't happen because we check for cyclic cohorts on creation.
             return property_group_to_Q(
-                team_id,
+                project_id,
                 cohort.properties,
                 override_property_values,
                 cohorts_cache,
@@ -389,7 +418,7 @@ def property_to_Q(
 
 
 def property_group_to_Q(
-    team_id: int,
+    project_id: int,
     property_group: PropertyGroup,
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
@@ -405,7 +434,7 @@ def property_group_to_Q(
     if isinstance(property_group.values[0], PropertyGroup):
         for group in property_group.values:
             group_filter = property_group_to_Q(
-                team_id,
+                project_id,
                 cast(PropertyGroup, group),
                 override_property_values,
                 cohorts_cache,
@@ -418,7 +447,9 @@ def property_group_to_Q(
     else:
         for property in property_group.values:
             property = cast(Property, property)
-            property_filter = property_to_Q(team_id, property, override_property_values, cohorts_cache, using_database)
+            property_filter = property_to_Q(
+                project_id, property, override_property_values, cohorts_cache, using_database
+            )
             if property_group.type == PropertyOperatorType.OR:
                 if property.negation:
                     filters |= ~property_filter
@@ -434,7 +465,7 @@ def property_group_to_Q(
 
 
 def properties_to_Q(
-    team_id: int,
+    project_id: int,
     properties: list[Property],
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
@@ -452,7 +483,7 @@ def properties_to_Q(
         return filters
 
     return property_group_to_Q(
-        team_id,
+        project_id,
         PropertyGroup(type=PropertyOperatorType.AND, values=properties),
         override_property_values,
         cohorts_cache,
@@ -469,6 +500,8 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
     )
 
 
+# Note: Any changes to this function need to be reflected in the rust version
+# rust/feature-flags/src/properties/relative_date.rs
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
     regex = r"^-?(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)
@@ -509,3 +542,51 @@ def sanitize_property_key(key: Any) -> str:
     # This is because we don't want to overwrite the value of key1 when we're trying to read key2
     hash_value = hashlib.sha1(string_key.encode("utf-8")).hexdigest()[:15]
     return f"{substitute}_{hash_value}"
+
+
+def sanitize_regex_pattern(pattern: str) -> str:
+    # If it doesn't look like a property match pattern, return it as-is
+    if not ('"' in pattern or "'" in pattern or ":" in pattern):
+        return pattern
+
+    # First, temporarily replace escaped quotes with markers
+    pattern = pattern.replace(r"\"", "__ESCAPED_DOUBLE_QUOTE__")
+    pattern = pattern.replace(r"\'", "__ESCAPED_SINGLE_QUOTE__")
+
+    # Replace unescaped quotes with a pattern that matches either quote type
+    pattern = pattern.replace('"', "['\"]")
+
+    # Add optional whitespace around colons to handle Python dict format
+    pattern = pattern.replace(":", r"\s*:\s*")
+
+    # Now restore the escaped quotes, but convert them to also match either quote type
+    pattern = pattern.replace("__ESCAPED_DOUBLE_QUOTE__", "['\"]")
+    pattern = pattern.replace("__ESCAPED_SINGLE_QUOTE__", "['\"]")
+
+    # If the pattern looks like a property match (key:value), convert it to use lookaheads
+    if "['\"]" in pattern:
+        # Split the pattern if it's trying to match multiple properties
+        parts = pattern.split("[^}]*")
+        converted_parts = []
+        for part in parts:
+            if "['\"]" in part:
+                # Extract the key and value from patterns like ['"]key['"]\s*:\s*['"]value['"]
+                try:
+                    # Use a non-capturing group for quotes and match the exact key name
+                    # This ensures we don't match partial keys or keys that are substrings of others
+                    key = re.search(r'\[\'"\]((?:[^\'"\s:}]+))\[\'"\]\\s\*:\\s\*\[\'"\](.*?)\[\'"\]', part)
+                    if key:
+                        key_name, value = key.groups()
+                        # Escape special regex characters in the key name
+                        escaped_key_name = re.escape(key_name)
+                        # Convert to a positive lookahead that matches the exact key-value pair
+                        converted = f"(?=.*['\"]?{escaped_key_name}['\"]?\\s*:\\s*['\"]?{value}['\"]?)"
+                        converted_parts.append(converted)
+                except Exception:
+                    # If we can't parse it, use the original pattern
+                    converted_parts.append(part)
+            else:
+                converted_parts.append(part)
+        pattern = "".join(converted_parts)
+
+    return pattern

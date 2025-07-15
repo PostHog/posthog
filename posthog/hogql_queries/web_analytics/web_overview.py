@@ -1,68 +1,126 @@
 from typing import Optional, Union
 import math
 
-from django.utils.timezone import datetime
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr, get_property_type, action_to_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
-from posthog.models import Action
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import (
+    WebOverviewPreAggregatedQueryBuilder,
+)
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
     WebOverviewQueryResponse,
     WebOverviewQuery,
-    ActionConversionGoal,
-    CustomEventConversionGoal,
-    SessionTableVersion,
+    HogQLQueryModifiers,
 )
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     query: WebOverviewQuery
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
+    preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
+
+    def to_query(self) -> ast.SelectQuery:
         return self.outer_select
 
-    def calculate(self):
-        response = execute_hogql_query(
-            query_type="overview_stats_pages_query",
-            query=self.to_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
+    def get_pre_aggregated_response(self):
+        should_use_preaggregated = (
+            self.modifiers
+            and self.modifiers.useWebAnalyticsPreAggregatedTables
+            and self.preaggregated_query_builder.can_use_preaggregated_tables()
         )
+
+        if not should_use_preaggregated:
+            return None
+
+        try:
+            # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
+            # to prevent HogQL from automatically converting DateTime fields to team timezone.
+            # We don't plot or show the actual bucket dates anywhere, so since this is just filtering,
+            # we can rely on the bucket aggregation to get the correct results for the time window.
+            pre_agg_modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            pre_agg_modifiers.convertToProjectTimezone = False
+
+            response = execute_hogql_query(
+                query_type="web_overview_preaggregated_query",
+                query=self.preaggregated_query_builder.get_query(),
+                team=self.team,
+                timings=self.timings,
+                modifiers=pre_agg_modifiers,
+                limit_context=self.limit_context,
+            )
+
+            # We could have a empty result in normal conditions but also when we're recreating the tables.
+            # While we're testing, if it is a empty result, let's  fallback on using the
+            # regular queries to be extra careful.
+            assert response.results
+
+            return response
+        except Exception as e:
+            logger.exception("Error getting pre-aggregated web_overview", error=e)
+            return None
+
+    def calculate(self) -> WebOverviewQueryResponse:
+        pre_aggregated_response = self.get_pre_aggregated_response()
+
+        response = (
+            execute_hogql_query(
+                query_type="web_overview_query",
+                query=self.to_query(),
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+            if not pre_aggregated_response
+            else pre_aggregated_response
+        )
+
         assert response.results
 
         row = response.results[0]
+        include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
+
+        def get_prev_val(idx, use_unsample=True):
+            if not include_previous:
+                return None
+            return self._unsample(row[idx]) if use_unsample else row[idx]
 
         if self.query.conversionGoal:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), self._unsample(row[1])),
-                to_data("total conversions", "unit", self._unsample(row[2]), self._unsample(row[3])),
-                to_data("unique conversions", "unit", self._unsample(row[4]), self._unsample(row[5])),
-                to_data("conversion rate", "percentage", row[6], row[7]),
+                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+                to_data("total conversions", "unit", self._unsample(row[2]), get_prev_val(3)),
+                to_data("unique conversions", "unit", self._unsample(row[4]), get_prev_val(5)),
+                to_data("conversion rate", "percentage", row[6], get_prev_val(7, False)),
             ]
         else:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), self._unsample(row[1])),
-                to_data("views", "unit", self._unsample(row[2]), self._unsample(row[3])),
-                to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
-                to_data("session duration", "duration_s", row[6], row[7]),
-                to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
+                to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+                to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
+                to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
+                to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
+                to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
             ]
-            if self.query.includeLCPScore:
-                results.append(
-                    to_data("lcp score", "duration_ms", row[10], row[11], is_increase_bad=True),
-                )
+
+        if self.query.includeRevenue:
+            if self.query.conversionGoal:
+                results.append(to_data("conversion revenue", "currency", row[8], get_prev_val(9, False)))
+            else:
+                results.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
 
         return WebOverviewQueryResponse(
             results=results,
@@ -70,141 +128,71 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-        )
-
-    @cached_property
-    def query_date_range(self):
-        return QueryDateRange(
-            date_range=self.query.dateRange,
-            team=self.team,
-            interval=None,
-            now=datetime.now(),
+            usedPreAggregatedTables=response == pre_aggregated_response,
         )
 
     def all_properties(self) -> ast.Expr:
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def event_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
-        ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
-    def session_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
-        ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
-    @cached_property
-    def conversion_goal_expr(self) -> ast.Expr:
-        if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
-            return action_to_expr(action)
-        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
-            return ast.CompareOperation(
-                left=ast.Field(chain=["events", "event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value=self.query.conversionGoal.customEventName),
-            )
-        else:
-            return ast.Constant(value=None)
-
-    @cached_property
-    def conversion_person_id_expr(self) -> ast.Expr:
-        if self.conversion_goal_expr:
-            return ast.Call(
-                name="any",
-                args=[
-                    ast.Call(
-                        name="if",
-                        args=[
-                            self.conversion_goal_expr,
-                            ast.Field(chain=["events", "person_id"]),
-                            ast.Constant(value=None),
-                        ],
-                    )
-                ],
-            )
-        else:
-            return ast.Constant(value=None)
-
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
-        if self.conversion_goal_expr:
-            return ast.Call(
-                name="countIf",
-                args=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["event"]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value="$pageview"),
-                    )
-                ],
-            )
-        else:
-            return ast.Call(name="count", args=[])
-
-    @cached_property
-    def conversion_count_expr(self) -> ast.Expr:
-        if self.conversion_goal_expr:
-            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
-        else:
-            return ast.Constant(value=None)
-
-    @cached_property
-    def event_type_expr(self) -> ast.Expr:
-        pageview_expr = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+        return ast.Call(
+            name="countIf",
+            args=[
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value="$pageview"),
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value="$screen"),
+                        ),
+                    ]
+                )
+            ],
         )
-
-        if self.conversion_goal_expr:
-            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
-        else:
-            return pageview_expr
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
-        start = self.query_date_range.previous_period_date_from_as_hogql()
-        mid = self.query_date_range.date_from_as_hogql()
-        end = self.query_date_range.date_to_as_hogql()
-
         parsed_select = parse_select(
             """
 SELECT
-    any(events.person_id) as person_id,
+    any(events.person_id) as session_person_id,
     session.session_id as session_id,
     min(session.$start_timestamp) as start_timestamp
 FROM events
 WHERE and(
-    events.`$session_id` IS NOT NULL,
+    {events_session_id} IS NOT NULL,
     {event_type_expr},
-    timestamp >= {date_range_start},
-    timestamp < {date_range_end},
-    {event_properties},
-    {session_properties}
+    {inside_timestamp_period},
+    {all_properties},
 )
 GROUP BY session_id
-HAVING and(
-    start_timestamp >= {date_range_start},
-    start_timestamp < {date_range_end}
-)
+HAVING {inside_start_timestamp_period}
         """,
             placeholders={
-                "date_range_start": start if self.query.compare else mid,
-                "date_range_end": end,
-                "event_properties": self.event_properties(),
-                "session_properties": self.session_properties(),
-                "conversion_person_id_expr": self.conversion_person_id_expr,
+                "all_properties": self.all_properties(),
                 "event_type_expr": self.event_type_expr,
+                "inside_timestamp_period": self._periods_expression("timestamp"),
+                "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
+                "events_session_id": self.events_session_property,
             },
         )
         assert isinstance(parsed_select, ast.SelectQuery)
 
-        if self.query.conversionGoal:
+        if self.conversion_count_expr and self.conversion_person_id_expr:
             parsed_select.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
             parsed_select.select.append(ast.Alias(alias="conversion_person_id", expr=self.conversion_person_id_expr))
+            if self.query.includeRevenue:
+                parsed_select.select.append(
+                    ast.Alias(alias="session_conversion_revenue", expr=self.conversion_revenue_expr)
+                )
+
         else:
             parsed_select.select.append(
                 ast.Alias(
@@ -212,146 +200,128 @@ HAVING and(
                     expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 )
             )
-            parsed_select.select.append(
-                ast.Alias(alias="filtered_pageview_count", expr=ast.Call(name="count", args=[]))
-            )
+            parsed_select.select.append(ast.Alias(alias="filtered_pageview_count", expr=self.pageview_count_expression))
             parsed_select.select.append(
                 ast.Alias(
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
-            if self.query.includeLCPScore:
-                lcp = (
-                    ast.Call(name="toFloat", args=[ast.Constant(value=None)])
-                    if self.modifiers.sessionTableVersion == SessionTableVersion.V1
-                    else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
+            if self.query.includeRevenue:
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="session_revenue",
+                        expr=revenue_sum_expression_for_events(self.team),
+                    )
                 )
-                parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
 
         return parsed_select
 
     @cached_property
     def outer_select(self) -> ast.SelectQuery:
-        start = self.query_date_range.previous_period_date_from_as_hogql()
-        mid = self.query_date_range.date_from_as_hogql()
-        end = self.query_date_range.date_to_as_hogql()
+        has_comparison = bool(self.query_compare_to_date_range)
 
-        def current_period_aggregate(function_name, column_name, alias, params=None):
-            if self.query.compare:
-                return ast.Alias(
-                    alias=alias,
-                    expr=ast.Call(
-                        name=function_name + "If",
-                        params=params,
-                        args=[
-                            ast.Field(chain=[column_name]),
-                            ast.Call(
-                                name="and",
-                                args=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.GtEq,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=mid,
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Lt,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=end,
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                )
-            else:
+        def current_period_aggregate(
+            function_name: str,
+            column_name: str,
+            alias: str,
+            params: Optional[list[ast.Expr]] = None,
+        ):
+            if not has_comparison:
                 return ast.Alias(
                     alias=alias, expr=ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
                 )
 
-        def previous_period_aggregate(function_name, column_name, alias, params=None):
-            if self.query.compare:
-                return ast.Alias(
-                    alias=alias,
-                    expr=ast.Call(
-                        name=function_name + "If",
-                        params=params,
-                        args=[
-                            ast.Field(chain=[column_name]),
-                            ast.Call(
-                                name="and",
-                                args=[
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.GtEq,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=start,
-                                    ),
-                                    ast.CompareOperation(
-                                        op=ast.CompareOperationOp.Lt,
-                                        left=ast.Field(chain=["start_timestamp"]),
-                                        right=mid,
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                )
-            else:
+            return self.period_aggregate(
+                function_name,
+                column_name,
+                self.query_date_range.date_from_as_hogql(),
+                self.query_date_range.date_to_as_hogql(),
+                alias=alias,
+                params=params,
+            )
+
+        def previous_period_aggregate(
+            function_name: str,
+            column_name: str,
+            alias: str,
+            params: Optional[list[ast.Expr]] = None,
+        ):
+            if not has_comparison:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
 
+            return self.period_aggregate(
+                function_name,
+                column_name,
+                self.query_compare_to_date_range.date_from_as_hogql(),
+                self.query_compare_to_date_range.date_to_as_hogql(),
+                alias=alias,
+                params=params,
+            )
+
+        def metric_pair(
+            function_name: str,
+            column_name: str,
+            current_alias: str,
+            previous_alias: Optional[str] = None,
+            params: Optional[list[ast.Expr]] = None,
+        ) -> list[ast.Expr]:
+            # This could also be done using tuples like the stats_table but I will keep the protocol as close as possible: https://github.com/PostHog/posthog/blob/26588f3689aa505fbf857afcae4e8bd18cf75606/posthog/hogql_queries/web_analytics/stats_table.py#L390-L399
+            previous_alias = previous_alias or f"previous_{current_alias}"
+            return [
+                current_period_aggregate(function_name, column_name, current_alias, params),
+                previous_period_aggregate(function_name, column_name, previous_alias, params),
+            ]
+
+        select: list[ast.Expr] = []
+
         if self.query.conversionGoal:
-            select = [
-                current_period_aggregate("uniq", "person_id", "unique_users"),
-                previous_period_aggregate("uniq", "person_id", "previous_unique_users"),
-                current_period_aggregate("sum", "conversion_count", "total_conversion_count"),
-                previous_period_aggregate("sum", "conversion_count", "previous_total_conversion_count"),
-                current_period_aggregate("uniq", "conversion_person_id", "unique_conversions"),
-                previous_period_aggregate("uniq", "conversion_person_id", "previous_unique_conversions"),
-                ast.Alias(
-                    alias="conversion_rate",
-                    expr=ast.Call(
-                        name="divide", args=[ast.Field(chain=["unique_conversions"]), ast.Field(chain=["unique_users"])]
-                    ),
+            # Add standard conversion goal metrics
+            select.extend(metric_pair("uniq", "session_person_id", "unique_users"))
+            select.extend(metric_pair("sum", "conversion_count", "total_conversion_count"))
+            select.extend(metric_pair("uniq", "conversion_person_id", "unique_conversions"))
+
+            conversion_rate = ast.Alias(
+                alias="conversion_rate",
+                expr=ast.Call(
+                    name="divide",
+                    args=[
+                        ast.Field(chain=["unique_conversions"]),
+                        ast.Field(chain=["unique_users"]),
+                    ],
                 ),
-                ast.Alias(
-                    alias="previous_conversion_rate",
-                    expr=ast.Call(
+            )
+
+            previous_conversion_rate = ast.Alias(
+                alias="previous_conversion_rate",
+                expr=(
+                    ast.Constant(value=None)
+                    if not has_comparison
+                    else ast.Call(
                         name="divide",
                         args=[
                             ast.Field(chain=["previous_unique_conversions"]),
                             ast.Field(chain=["previous_unique_users"]),
                         ],
-                    ),
+                    )
                 ),
-            ]
-        else:
-            select = [
-                current_period_aggregate("uniq", "person_id", "unique_users"),
-                previous_period_aggregate("uniq", "person_id", "previous_unique_users"),
-                current_period_aggregate("sum", "filtered_pageview_count", "total_filtered_pageview_count"),
-                previous_period_aggregate("sum", "filtered_pageview_count", "previous_filtered_pageview_count"),
-                current_period_aggregate("uniq", "session_id", "unique_sessions"),
-                previous_period_aggregate("uniq", "session_id", "previous_unique_sessions"),
-                current_period_aggregate("avg", "session_duration", "avg_duration_s"),
-                previous_period_aggregate("avg", "session_duration", "prev_avg_duration_s"),
-                current_period_aggregate("avg", "is_bounce", "bounce_rate"),
-                previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
-            ]
-            if self.query.includeLCPScore:
-                select.extend(
-                    [
-                        current_period_aggregate("quantiles", "lcp", "lcp_p75", params=[ast.Constant(value=0.75)]),
-                        previous_period_aggregate(
-                            "quantiles", "lcp", "prev_lcp_p75", params=[ast.Constant(value=0.75)]
-                        ),
-                    ]
-                )
+            )
 
-        query = ast.SelectQuery(
-            select=select,
-            select_from=ast.JoinExpr(table=self.inner_select),
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
+            select.extend([conversion_rate, previous_conversion_rate])
+
+            if self.query.includeRevenue:
+                select.extend(metric_pair("sum", "session_conversion_revenue", "conversion_revenue"))
+
+        else:
+            select.extend(metric_pair("uniq", "session_person_id", "unique_users"))
+            select.extend(metric_pair("sum", "filtered_pageview_count", "total_filtered_pageview_count"))
+            select.extend(metric_pair("uniq", "session_id", "unique_sessions"))
+            select.extend(metric_pair("avg", "session_duration", "avg_duration_s"))
+            select.extend(metric_pair("avg", "is_bounce", "bounce_rate"))
+
+            if self.query.includeRevenue:
+                select.extend(metric_pair("sum", "session_revenue", "revenue"))
+
+        return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 
 
 def to_data(
@@ -381,13 +351,12 @@ def to_data(
         if previous is not None:
             previous = previous / 1000
 
-    try:
-        if value is not None and previous:
+    change_from_previous_pct = None
+    if value is not None and previous is not None and previous != 0:
+        try:
             change_from_previous_pct = round(100 * (value - previous) / previous)
-        else:
-            change_from_previous_pct = None
-    except ValueError:
-        change_from_previous_pct = None
+        except ValueError:
+            pass
 
     return {
         "key": key,

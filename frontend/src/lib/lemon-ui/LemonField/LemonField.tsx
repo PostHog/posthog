@@ -24,6 +24,16 @@ export type LemonPureFieldProps = {
     inline?: boolean
     /** The id of the input this field is for */
     htmlFor?: string
+    /** The class name override for the label */
+    labelClassName?: string
+}
+
+const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
+    return (
+        <div className="text-danger flex items-center gap-1 text-sm">
+            <IconErrorOutline className="text-xl shrink-0" /> {error}
+        </div>
+    )
 }
 
 const LemonPureField = ({
@@ -39,6 +49,7 @@ const LemonPureField = ({
     inline,
     onClick,
     renderError,
+    labelClassName,
 }: LemonPureFieldProps): JSX.Element => {
     return (
         <div
@@ -56,7 +67,7 @@ const LemonPureField = ({
                     info={info}
                     showOptional={showOptional}
                     onExplanationClick={onExplanationClick}
-                    className={clsx({
+                    className={clsx(labelClassName, {
                         'cursor-pointer': !!onClick,
                     })}
                     htmlFor={htmlFor}
@@ -65,16 +76,8 @@ const LemonPureField = ({
                 </LemonLabel>
             ) : null}
             {children}
-            {help ? <div className="text-muted text-xs">{help}</div> : null}
-            {typeof error === 'string' ? (
-                renderError ? (
-                    renderError(error)
-                ) : (
-                    <div className="text-danger flex items-center gap-1 text-sm">
-                        <IconErrorOutline className="text-xl shrink-0" /> {error}
-                    </div>
-                )
-            ) : null}
+            {help ? <div className="text-secondary text-xs">{help}</div> : null}
+            {typeof error === 'string' ? renderError ? renderError(error) : <LemonFieldError error={error} /> : null}
         </div>
     )
 }
@@ -113,3 +116,4 @@ export const LemonField = ({
 
 /** A field without Kea form functionality. Within a form use `LemonField`. */
 LemonField.Pure = LemonPureField
+LemonField.Error = LemonFieldError

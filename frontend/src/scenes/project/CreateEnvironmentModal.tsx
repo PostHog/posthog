@@ -1,4 +1,4 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -49,8 +49,11 @@ export function CreateEnvironmentModal({
             description={
                 <p>
                     Use environments to keep your data completely separate, while sharing the setup (such as dashboards
-                    or taxonomy). The common pattern is having separate production, staging, and development
-                    environments.
+                    or taxonomy). A common pattern is having separate production, staging, and development environments.
+                    <br />
+                    <Link to="https://posthog.com/docs/settings/projects" target="_blank" disableDocsPanel>
+                        Learn more in PostHog docs.
+                    </Link>
                 </p>
             }
             footer={

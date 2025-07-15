@@ -5,6 +5,9 @@ from decimal import Decimal
 from typing import Any, Literal, Optional, Union
 from uuid import UUID
 
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
+from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
@@ -26,10 +29,12 @@ ActivityScope = Literal[
     "Cohort",
     "FeatureFlag",
     "Person",
+    "Group",
     "Insight",
     "Plugin",
     "PluginConfig",
     "HogFunction",
+    "HogFlow",
     "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
@@ -43,6 +48,8 @@ ActivityScope = Literal[
     "Comment",
     "Team",
     "Project",
+    "ErrorTrackingIssue",
+    "DataWarehouseSavedQuery",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -156,6 +163,12 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
 }
 
+field_name_overrides: dict[ActivityScope, dict[str, str]] = {
+    "HogFunction": {
+        "execution_order": "priority",
+    },
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
         "version",
@@ -163,6 +176,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "count",
         "is_calculating",
         "last_calculation",
+        "last_error_at",
         "errors_calculating",
     ],
     "HogFunction": [
@@ -176,6 +190,15 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "is_simple_flag",
         "experiment",
         "featureflagoverride",
+        "usage_dashboard",
+        "analytics_dashboards",
+    ],
+    "Experiment": [
+        "feature_flag",
+        "exposure_cohort",
+        "holdout",
+        "saved_metrics",
+        "experimenttosavedmetric_set",
     ],
     "Person": [
         "distinct_ids",
@@ -231,8 +254,25 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
-    "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
+    "Team": [
+        "uuid",
+        "updated_at",
+        "created_at",
+        "id",
+        "secret_api_token",
+        "secret_api_token_backup",
+    ],
     "Project": ["id", "created_at"],
+    "DataWarehouseSavedQuery": [
+        "name",
+        "columns",
+        "status",
+        "external_tables",
+        "last_run_at",
+        "latest_error",
+        "sync_frequency_interval",
+        "deleted_name",
+    ],
 }
 
 
@@ -322,17 +362,19 @@ def changes_between(
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
 
+            # Use the override name if it exists
+            display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
             if left_is_none and right_is_none:
                 pass  # could be {} vs None
             elif left_is_none and not right_is_none:
-                changes.append(Change(type=model_type, field=field_name, action="created", after=right_value))
+                changes.append(Change(type=model_type, field=display_name, action="created", after=right_value))
             elif right_is_none and not left_is_none:
-                changes.append(Change(type=model_type, field=field_name, action="deleted", before=left_value))
+                changes.append(Change(type=model_type, field=display_name, action="deleted", before=left_value))
             elif left != right:
                 changes.append(
                     Change(
                         type=model_type,
-                        field=field_name,
+                        field=display_name,
                         action="changed",
                         before=left_value,
                         after=right_value,
@@ -403,7 +445,7 @@ def log_activity(
     detail: Detail,
     was_impersonated: Optional[bool],
     force_save: bool = False,
-) -> None:
+) -> ActivityLog | None:
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -413,7 +455,7 @@ def log_activity(
             activity=activity,
             exception=ValueError("Cannot log impersonated activity without a user"),
         )
-        return
+        return None
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
@@ -423,9 +465,9 @@ def log_activity(
                 user_id=user.id if user else None,
                 scope=scope,
             )
-            return
+            return None
 
-        ActivityLog.objects.create(
+        activity_log = ActivityLog.objects.create(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
@@ -436,6 +478,7 @@ def log_activity(
             activity=activity,
             detail=detail,
         )
+        return activity_log
     except Exception as e:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -449,6 +492,8 @@ def log_activity(
             # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
             # as we currently don't treat activity logs as critical
             raise
+
+    return None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -498,3 +543,39 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
     )
 
     return get_activity_page(activity_query, limit, page)
+
+
+@receiver(post_save, sender=ActivityLog)
+def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
+    from posthog.api.activity_log import ActivityLogSerializer
+    from posthog.api.shared import UserBasicSerializer
+
+    try:
+        serialized_data = ActivityLogSerializer(instance).data
+        # TODO: Move this into the producer to support dataclasses
+        serialized_data["detail"] = dataclasses.asdict(serialized_data["detail"])
+        user_data = UserBasicSerializer(instance.user).data if instance.user else None
+
+        if created and instance.team_id is not None:
+            produce_internal_event(
+                team_id=instance.team_id,
+                event=InternalEventEvent(
+                    event="$activity_log_entry_created",
+                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                    properties=serialized_data,
+                ),
+                person=(
+                    InternalEventPerson(
+                        id=user_data["id"],
+                        properties=user_data,
+                    )
+                    if user_data
+                    else None
+                ),
+            )
+    except Exception as e:
+        # We don't want to hard fail here.
+        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        capture_exception(e)
+        return

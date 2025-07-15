@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 
 from django.utils.timezone import now
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.app_metrics.sql import (
     QUERY_APP_METRICS_DELIVERY_RATE,
     QUERY_APP_METRICS_ERROR_DETAILS,

@@ -23,6 +23,7 @@ import {
     IconLive,
     IconNight,
     IconNotebook,
+    IconPalette,
     IconPeople,
     IconPeopleFilled,
     IconPieChart,
@@ -46,7 +47,6 @@ import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFlare } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -54,7 +54,7 @@ import { isMobile, isURL, uniqueBy } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { insightTypeURL } from 'scenes/insights/utils'
+import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { WATCH_RECORDINGS_OF_KEY, watchRecordingsOfCommand } from 'scenes/session-recordings/replayPaletteCommands'
 import { teamLogic } from 'scenes/teamLogic'
@@ -139,7 +139,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 
 export const commandPaletteLogic = kea<commandPaletteLogicType>([
     path(['lib', 'components', 'CommandPalette', 'commandPaletteLogic']),
-    connect({
+    connect(() => ({
         actions: [
             router,
             ['push'],
@@ -167,7 +167,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['sidePanelOpen'],
         ],
         logic: [preflightLogic],
-    }),
+    })),
     actions({
         hidePalette: true,
         showPalette: true,
@@ -281,10 +281,10 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     if (regexp) {
                         const match = argument.match(regexp)
                         if (match && match[1]) {
-                            prefixedResults = [...prefixedResults, ...resolveCommand(command, match[2], match[1])]
+                            prefixedResults.push(...resolveCommand(command, match[2], match[1]))
                         }
                     }
-                    directResults = [...directResults, ...resolveCommand(command, argument)]
+                    directResults.push(...resolveCommand(command, argument))
                 }
                 const allResults = directResults.concat(prefixedResults)
                 let fusableResults: CommandResult[] = []
@@ -432,7 +432,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.TRENDS))
+                            push(INSIGHT_TYPE_URLS[InsightType.TRENDS])
                         },
                     },
                     {
@@ -440,7 +440,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.FUNNELS))
+                            push(INSIGHT_TYPE_URLS[InsightType.FUNNELS])
                         },
                     },
                     {
@@ -448,7 +448,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.RETENTION))
+                            push(INSIGHT_TYPE_URLS[InsightType.RETENTION])
                         },
                     },
                     {
@@ -456,7 +456,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.PATHS))
+                            push(INSIGHT_TYPE_URLS[InsightType.PATHS])
                         },
                     },
                     {
@@ -464,7 +464,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Stickiness insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.STICKINESS))
+                            push(INSIGHT_TYPE_URLS[InsightType.STICKINESS])
                         },
                     },
                     {
@@ -472,16 +472,23 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Lifecycle insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.LIFECYCLE))
+                            push(INSIGHT_TYPE_URLS[InsightType.LIFECYCLE])
                         },
                     },
                     {
                         icon: IconHogQL,
-                        display: 'Create a new HogQL insight',
+                        display: 'Create a new SQL insight',
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(insightTypeURL[InsightType.SQL])
+                            push(INSIGHT_TYPE_URLS[InsightType.SQL])
+                        },
+                    },
+                    {
+                        icon: IconHogQL,
+                        display: 'Create a new Calendar Heatmap insight',
+                        executor: () => {
+                            push(INSIGHT_TYPE_URLS[InsightType.CALENDAR_HEATMAP])
                         },
                     },
                     {
@@ -551,22 +558,16 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     {
                         icon: IconServer,
-                        display: 'Go to Data warehouse',
+                        display: 'Go to SQL editor',
                         executor: () => {
-                            push(urls.dataWarehouse())
+                            push(urls.sqlEditor())
                         },
                     },
-                    ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
-                        ? [
-                              {
-                                  icon: IconWarning,
-                                  display: 'Go to Error tracking',
-                                  executor: () => {
-                                      push(urls.errorTracking())
-                                  },
-                              },
-                          ]
-                        : []),
+                    {
+                        icon: IconWarning,
+                        display: 'Go to Error tracking',
+                        executor: () => push(urls.errorTracking()),
+                    },
                     {
                         display: 'Go to Session replay',
                         icon: IconRewindPlay,
@@ -857,6 +858,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                 executor: () => {
                                     actions.updateUser({ theme_mode: 'system' })
                                 },
+                            },
+                            {
+                                icon: IconPalette,
+                                display: 'Add custom CSS',
+                                executor: () => push(urls.customCss()),
                             },
                         ],
                     }),

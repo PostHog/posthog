@@ -1,15 +1,18 @@
 import json
 from typing import Any
 
+from clickhouse_driver.errors import ServerException
+
 from posthog.clickhouse.client.async_task_chain import task_chain_context
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import Workload, ClickHouseUser
 import uuid
 
 from django.test import TestCase, SimpleTestCase
 from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -220,7 +223,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         except Exception as e:
             self.assertEqual(str(e), f"Query {query_id} not found for team {wrong_team}")
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy(self, execute_process_query_mock):
         query = build_query("SELECT 4 + 4")
         query_id = uuid.uuid4().hex
@@ -241,7 +244,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we only called clickhouse once
         execute_process_query_mock.assert_called_once()
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_process_query_mock):
         query = build_query("SELECT 8 + 8")
         query_id = uuid.uuid4().hex
@@ -262,7 +265,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_process_query_mock.call_count, 2)
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_manual_query_uuid(self, execute_process_query_mock):
         # This is a unique test because technically in the test pattern `SELECT 8 + 8` is already
         # in redis. This tests to make sure it is treated as a unique run of that query
@@ -285,7 +288,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_process_query_mock.call_count, 2)
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     @patch("posthog.api.services.query.process_query_dict")
     def test_async_query_refreshes_if_requested(self, process_query_dict_mock, execute_process_query_mock):
         query = build_query("SELECT 8 + 8")
@@ -358,12 +361,32 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
 
-    @patch("posthog.clickhouse.client.execute.get_pool")
-    def test_offline_workload_if_personal_api_key(self, mock_get_pool):
-        from posthog.clickhouse.query_tagging import tag_queries
+    @patch("posthog.clickhouse.client.execute.get_client_from_pool")
+    def test_offline_workload_if_personal_api_key_and_retries_online(self, mock_get_client):
+        # Create mock clients
+        mock_client1 = MagicMock()
+        mock_client2 = MagicMock()
 
-        with self.capture_select_queries():
-            tag_queries(kind="request", id="1", access_method="personal_api_key")
-            sync_execute("select 1")
+        # First client raises 202 ServerException
+        mock_client1.__enter__.return_value.execute.side_effect = ServerException("Test error", code=202)
 
-            self.assertEqual(mock_get_pool.call_args[0][0], Workload.OFFLINE)
+        # Second client succeeds
+        mock_client2.__enter__.return_value.execute.return_value = "success"
+
+        # Return different clients on consecutive calls
+        mock_get_client.side_effect = [mock_client1, mock_client2]
+
+        # Execute query with personal_api_key access method
+        query = "SELECT 1"
+        # tag_queries = {"access_method": "personal_api_key"}
+        tag_queries(access_method="personal_api_key")
+        result = sync_execute(query)
+
+        # Verify first call was with OFFLINE workload
+        mock_get_client.assert_any_call(Workload.OFFLINE, None, False, ClickHouseUser.API)
+
+        # Verify second call was with ONLINE workload
+        mock_get_client.assert_any_call(Workload.ONLINE, None, False, ClickHouseUser.API)
+
+        # Verify final result
+        self.assertEqual(result, "success")

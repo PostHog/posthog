@@ -14,7 +14,7 @@ from posthog.models.utils import (
     UUIDModel,
     sane_repr,
 )
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -28,10 +28,21 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         SNOWFLAKE = "Snowflake", "Snowflake"
         SALESFORCE = "Salesforce", "Salesforce"
         MYSQL = "MySQL", "MySQL"
+        MONGODB = "MongoDB", "MongoDB"
         MSSQL = "MSSQL", "MSSQL"
         VITALLY = "Vitally", "Vitally"
         BIGQUERY = "BigQuery", "BigQuery"
         CHARGEBEE = "Chargebee", "Chargebee"
+        GOOGLEADS = "GoogleAds", "GoogleAds"
+        TEMPORALIO = "TemporalIO", "TemporalIO"
+        DOIT = "DoIt", "DoIt"
+        GOOGLESHEETS = "GoogleSheets", "GoogleSheets"
+        METAADS = "MetaAds", "MetaAds"
+        KLAVIYO = "Klaviyo", "Klaviyo"
+        MAILCHIMP = "Mailchimp", "Mailchimp"
+        BRAZE = "Braze", "Braze"
+        MAILJET = "Mailjet", "Mailjet"
+        REDSHIFT = "Redshift", "Redshift"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
@@ -63,8 +74,9 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     job_inputs = EncryptedJSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
+    revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
 
-    __repr__ = sane_repr("id")
+    __repr__ = sane_repr("id", "source_id", "connection_id", "destination_id", "team_id")
 
     def soft_delete(self):
         self.deleted = True
@@ -79,15 +91,15 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
         for schema in (
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team.pk, source_id=self.id, should_sync=True)
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.id, should_sync=True)
+            .exclude(deleted=True)
             .all()
         ):
             try:
                 trigger_external_data_workflow(schema)
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-                    sync_external_data_job_workflow(schema, create=True)
+                    sync_external_data_job_workflow(schema, create=True, should_sync=True)
 
             except Exception as e:
                 logger.exception(f"Could not trigger external data job for schema {schema.name}", exc_info=e)

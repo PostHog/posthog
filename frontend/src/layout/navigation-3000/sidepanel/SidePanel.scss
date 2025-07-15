@@ -1,13 +1,11 @@
 .SidePanel3000 {
-    --side-panel-bar-width: 3rem;
-
     position: relative;
     z-index: var(--z-main-nav);
     box-sizing: content-box;
     display: flex;
     flex-shrink: 0;
     width: 3rem;
-    background: var(--accent-3000);
+    background: var(--bg-surface-secondary);
 
     &--open {
         position: relative;

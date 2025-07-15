@@ -1,8 +1,8 @@
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useState } from 'react'
 import { convertForTimelineView, TimeLineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
-import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { PerformanceEvent } from '~/types'
 
@@ -26,7 +26,7 @@ export const NetworkRequestTiming = ({
     const { isValid: isValidForTimelineView } = convertForTimelineView(performanceEvent)
 
     return (
-        <div className="flex flex-col space-y-2">
+        <div className="flex flex-col deprecated-space-y-2">
             <div className="flex flex-row justify-end">
                 <LemonButton
                     type="secondary"

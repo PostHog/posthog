@@ -5,11 +5,10 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
-from posthog.schema import DateRange, InsightDateRange, IntervalType
+from posthog.schema import DateRange, IntervalType
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
     relative_date_parse,
@@ -17,6 +16,22 @@ from posthog.utils import (
 )
 
 IntervalLiteral = Literal["minute", "hour", "day", "week", "month"]
+ORDERED_INTERVALS = [IntervalType.MINUTE, IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH]
+
+
+def compare_interval_length(
+    interval1: IntervalType, operator: Literal["<", "<=", "=", ">", ">="], interval2: IntervalType
+) -> bool:
+    if operator == "<":
+        return ORDERED_INTERVALS.index(interval1) < ORDERED_INTERVALS.index(interval2)
+    elif operator == "<=":
+        return ORDERED_INTERVALS.index(interval1) <= ORDERED_INTERVALS.index(interval2)
+    elif operator == "=":
+        return ORDERED_INTERVALS.index(interval1) == ORDERED_INTERVALS.index(interval2)
+    elif operator == ">":
+        return ORDERED_INTERVALS.index(interval1) > ORDERED_INTERVALS.index(interval2)
+    elif operator == ">=":
+        return ORDERED_INTERVALS.index(interval1) >= ORDERED_INTERVALS.index(interval2)
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
@@ -24,24 +39,47 @@ class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[InsightDateRange | DateRange]
+    _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
+    _interval_count: int
     _now_without_timezone: datetime
+    _earliest_timestamp_fallback: Optional[datetime]
 
     def __init__(
         self,
-        date_range: Optional[InsightDateRange | DateRange],
+        date_range: Optional[DateRange],
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
+        earliest_timestamp_fallback: Optional[datetime] = None,
+        interval_count: Optional[int] = None,
+        timezone_info: Optional[ZoneInfo] = None,
+        exact_timerange: bool = False,  # Setting this to true stops a relative time range from including the time between the intervalStart and the date_range start, as well as cuts off the interval at precisely now()
     ) -> None:
         self._team = team
         self._date_range = date_range
         self._interval = interval or IntervalType.DAY
+        self._interval_count = interval_count or 1
         self._now_without_timezone = now
+        self._earliest_timestamp_fallback = earliest_timestamp_fallback
+        self._timezone_info = timezone_info or self._team.timezone_info
+        self._exact_timerange = exact_timerange
+
+        # Hour intervals have strange behaviour in clickhouse:
+        # From the docs:
+        # (*) hour intervals are special: the calculation is always performed relative to 00:00:00 (midnight) of the current day
+        # Keep 1 hour intervals the same just in case there's subtle changes (there shouldn't be)
+        # but for other counts switch to 60x minute intervals
+        if self._interval == IntervalType.HOUR and self._interval_count > 1:
+            self._interval = IntervalType.MINUTE
+            self._interval_count *= 60
 
         if not isinstance(self._interval, IntervalType):
             raise ValueError(f"Value {repr(interval)} is not an instance of IntervalType")
+        if self._interval == IntervalType.WEEK and self._interval_count > 1:
+            # Due to differences in clickhouse between toStartOfWeek and toStartOfInterval(interval X weeks)
+            # we can't support multiple week intervals without breaking backwards compatibility
+            raise ValueError("IntervalType.WEEK cannot be used with interval_count > 1")
 
     def date_to(self) -> datetime:
         date_to = self.now_with_timezone
@@ -50,10 +88,12 @@ class QueryDateRange:
         if self._date_range and self._date_range.date_to:
             date_to, delta_mapping, _position = relative_date_parse_with_delta_mapping(
                 self._date_range.date_to,
-                self._team.timezone_info,
+                self._timezone_info,
                 always_truncate=False,
                 now=self.now_with_timezone,
             )
+        elif self._exact_timerange:
+            return date_to
 
         if not self._date_range or not self._date_range.explicitDate:
             is_relative = not self._date_range or not self._date_range.date_to or delta_mapping is not None
@@ -69,6 +109,9 @@ class QueryDateRange:
         return date_to
 
     def get_earliest_timestamp(self) -> datetime:
+        if self._earliest_timestamp_fallback:
+            return self._earliest_timestamp_fallback
+
         return get_earliest_timestamp(self._team.pk)
 
     def date_from(self) -> datetime:
@@ -78,11 +121,11 @@ class QueryDateRange:
         elif self._date_range and isinstance(self._date_range.date_from, str):
             date_from = relative_date_parse(
                 self._date_range.date_from,
-                self._team.timezone_info,
+                self._timezone_info,
                 now=self.now_with_timezone,
                 # this makes sure we truncate date_from to the start of the day, when looking at last N days by hour
                 # when we look at graphs by minute (last hour or last three hours), don't truncate
-                always_truncate=self.interval_name != "minute",
+                always_truncate=not (self.interval_name == "minute" or self._exact_timerange),
             )
         else:
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
@@ -97,19 +140,22 @@ class QueryDateRange:
 
     @cached_property
     def now_with_timezone(self) -> datetime:
-        return self._now_without_timezone.astimezone(ZoneInfo(self._team.timezone))
+        return self._now_without_timezone.astimezone(self._timezone_info)
+
+    def format_date(self, datetime) -> str:
+        return datetime.strftime("%Y-%m-%d %H:%M:%S")
 
     @cached_property
     def date_to_str(self) -> str:
-        return self.date_to().strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.date_to())
 
     @cached_property
     def date_from_str(self) -> str:
-        return self.date_from().strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.date_from())
 
     @cached_property
     def previous_period_date_from_str(self) -> str:
-        return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.previous_period_date_from)
 
     @cached_property
     def interval_type(self) -> IntervalType:
@@ -118,6 +164,10 @@ class QueryDateRange:
     @cached_property
     def interval_name(self) -> IntervalLiteral:
         return cast(IntervalLiteral, self.interval_type.name.lower())
+
+    @cached_property
+    def interval_count(self) -> int:
+        return self._interval_count
 
     @cached_property
     def is_hourly(self) -> bool:
@@ -152,11 +202,11 @@ class QueryDateRange:
 
     def interval_relativedelta(self) -> relativedelta:
         return relativedelta(
-            days=1 if self.interval_name == "day" else 0,
-            weeks=1 if self.interval_name == "week" else 0,
-            months=1 if self.interval_name == "month" else 0,
-            hours=1 if self.interval_name == "hour" else 0,
-            minutes=1 if self.interval_name == "minute" else 0,
+            days=self.interval_count if self.interval_name == "day" else 0,
+            weeks=self.interval_count if self.interval_name == "week" else 0,
+            months=self.interval_count if self.interval_name == "month" else 0,
+            hours=self.interval_count if self.interval_name == "hour" else 0,
+            minutes=self.interval_count if self.interval_name == "minute" else 0,
         )
 
     def all_values(self) -> list[datetime]:
@@ -196,26 +246,42 @@ class QueryDateRange:
     def one_interval_period(self) -> ast.Expr:
         return ast.Call(
             name=f"toInterval{self.interval_name.capitalize()}",
-            args=[ast.Constant(value=1)],
+            args=[ast.Constant(value=self.interval_count)],
         )
 
-    def number_interval_periods(self) -> ast.Expr:
-        return ast.Call(
-            name=f"toInterval{self.interval_name.capitalize()}",
-            args=[ast.Field(chain=["number"])],
-        )
+    def number_interval_periods_hogql(self) -> ast.Expr:
+        if self.interval_count == 1:
+            return ast.Call(
+                name=f"toInterval{self.interval_name.capitalize()}",
+                args=[ast.Field(chain=["number"])],
+            )
+        else:
+            return ast.Call(
+                name=f"toInterval{self.interval_name.capitalize()}",
+                args=[
+                    ast.Call(
+                        name="multiply", args=[ast.Field(chain=["number"]), ast.Constant(value=self.interval_count)]
+                    )
+                ],
+            )
 
     def interval_period_string_as_hogql_constant(self) -> ast.Expr:
         return ast.Constant(value=self.interval_name)
 
+    def interval_count_as_hogql_constant(self) -> ast.Expr:
+        return ast.Constant(value=self._interval_count)
+
     # Returns whether we should wrap `date_from` with `toStartOf<Interval>` dependent on the interval period
     def use_start_of_interval(self):
+        if self._exact_timerange:
+            return False
+
         if self._date_range is None or self._date_range.date_from is None:
             return True
 
         _date_from, delta_mapping, _position = relative_date_parse_with_delta_mapping(
             self._date_range.date_from,
-            self._team.timezone_info,
+            self._timezone_info,
             always_truncate=True,
             now=self.now_with_timezone,
         )
@@ -229,7 +295,7 @@ class QueryDateRange:
         if not is_relative or not interval:
             return True
 
-        is_delta_hours = delta_mapping.get("hours", None) is not None
+        is_delta_hours = delta_mapping and delta_mapping.get("hours", None) is not None
 
         if interval in (IntervalType.HOUR, IntervalType.MINUTE):
             return False
@@ -240,18 +306,15 @@ class QueryDateRange:
 
     def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
         match self.interval_name:
-            case "minute":
-                return ast.Call(name="toStartOfMinute", args=[date])
-            case "hour":
-                return ast.Call(name="toStartOfHour", args=[date])
-            case "day":
-                return ast.Call(name="toStartOfDay", args=[date])
             case "week":
+                # toStartOfWeek is incompatible with toStartOfInterval:
+                #   toStartOfInterval assumes that weeks start on Monday.
+                #   Note that this behavior is different from that of function toStartOfWeek in which weeks start by default on Sunday.
+                # include this special case for backwards compatibility.
+                # interval_count will always be 1 here.
                 return ast.Call(name="toStartOfWeek", args=[date])
-            case "month":
-                return ast.Call(name="toStartOfMonth", args=[date])
             case _:
-                raise ImpossibleASTError(message="Unknown interval name")
+                return ast.Call(name="toStartOfInterval", args=[date, self.one_interval_period()])
 
     def date_from_to_start_of_interval_hogql(self) -> ast.Call:
         return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
@@ -268,8 +331,9 @@ class QueryDateRange:
     def to_placeholders(self) -> dict[str, ast.Expr]:
         return {
             "interval": self.interval_period_string_as_hogql_constant(),
+            "interval_count": self.interval_count_as_hogql_constant(),
             "one_interval_period": self.one_interval_period(),
-            "number_interval_period": self.number_interval_periods(),
+            "number_interval_period": self.number_interval_periods_hogql(),
             "date_from": self.date_from_as_hogql(),
             "date_to": self.date_to_as_hogql(),
             "date_from_start_of_interval": self.date_from_to_start_of_interval_hogql(),
@@ -282,59 +346,80 @@ class QueryDateRange:
         }
 
 
+PERIOD_MAP: dict[str, timedelta | relativedelta] = {
+    "minute": timedelta(minutes=1),
+    "hour": timedelta(hours=1),
+    "day": timedelta(days=1),
+    "week": timedelta(weeks=1),
+    "month": relativedelta(months=1),
+}
+
+
 class QueryDateRangeWithIntervals(QueryDateRange):
+    """
+    Only used in retention queries where we need to figure out date_from
+    from total_intervals and date_to
+    """
+
     def __init__(
         self,
-        date_range: Optional[InsightDateRange],
+        date_range: Optional[DateRange],
         total_intervals: int,
         team: Team,
-        interval: Optional[IntervalType],
+        interval: IntervalType,
         now: datetime,
     ) -> None:
-        self.total_intervals = total_intervals
         super().__init__(date_range, team, interval, now)
+        # intervals to look ahead for return event
+        self.lookahead = total_intervals
 
     @staticmethod
-    def determine_time_delta(total_intervals: int, period: str) -> timedelta:
-        period_map = {
-            "minute": timedelta(minutes=1),
-            "hour": timedelta(hours=1),
-            "day": timedelta(days=1),
-            "week": timedelta(weeks=1),
-            "month": relativedelta(months=1),
-        }
-
-        if period.lower() not in period_map:
+    def determine_time_delta(interval: int, period: str) -> timedelta:
+        if period.lower() not in PERIOD_MAP:
             raise ValueError(f"Period {period} is unsupported.")
 
-        return period_map[period.lower()] * total_intervals
+        return cast(timedelta, PERIOD_MAP[period.lower()]) * interval
+
+    @cached_property
+    def intervals_between(self):
+        """
+        Number of intervals between date_from and date_to
+        """
+        assert self._interval
+
+        date_from = self.date_from()
+        delta = PERIOD_MAP[self._interval.lower()]
+
+        intervals = 0
+        while date_from < self.date_to():
+            date_from = date_from + delta
+            intervals += 1
+
+        return intervals
 
     def date_from(self) -> datetime:
-        delta = self.determine_time_delta(self.total_intervals, self._interval.name)
+        assert self._interval
 
-        if self._interval in (IntervalType.HOUR, IntervalType.MINUTE):
-            return self.date_to() - delta
-        elif self._interval == IntervalType.WEEK:
-            date_from = self.date_to() - delta
-            week_start_alignment_days = date_from.isoweekday() % 7
-            if self._team.week_start_day == WeekStartDay.MONDAY:
-                week_start_alignment_days = date_from.weekday()
-            return date_from - timedelta(days=week_start_alignment_days)
-        elif self._interval == IntervalType.MONTH:
-            return self.date_to().replace(day=1, hour=0, minute=0, second=0, microsecond=0) - delta
-        else:
-            date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)
-            return date_to - delta
+        # if date_from is present in retention query then use it
+        if self._date_range and self._date_range.date_from:
+            date_from = super().date_from()
+            return date_to_start_of_interval(date_from, self._interval, self._team)
+
+        # otherwise calculate from date_to and lookahead
+        # needed to support old retention queries (before date range update in Jan 2025)
+        delta = self.determine_time_delta(self.lookahead, self._interval.name)
+
+        return date_to_start_of_interval(self.date_to() - delta, self._interval, self._team)
 
     def date_to(self) -> datetime:
-        delta = self.determine_time_delta(1, self._interval.name)
-        date_to = super().date_to() + delta
+        assert self._interval
 
-        if self.interval_name == "minute":
-            return date_to.replace(second=0, microsecond=0)
-        if self.interval_name == "hour":
-            return date_to.replace(minute=0, second=0, microsecond=0)
-        return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+        # add padding for one more interval after date_to and then truncate
+        # to start of that interval, to ensure we always compute complete intervals
+        delta = self.determine_time_delta(1, self._interval.name)
+        date_to = date_to_start_of_interval(super().date_to() + delta, self._interval, self._team)
+
+        return date_to
 
     def get_start_of_interval_hogql(self, *, source: ast.Expr = None) -> ast.Expr:
         trunc_func = get_trunc_func_ch(self._interval.name.lower())
@@ -344,3 +429,21 @@ class QueryDateRangeWithIntervals(QueryDateRange):
                 ast.Constant(value=int((WeekStartDay(self._team.week_start_day or 0)).clickhouse_mode))
             )
         return ast.Call(name=trunc_func, args=trunc_func_args)
+
+
+def date_to_start_of_interval(date: datetime, interval: IntervalType, team: Team) -> datetime:
+    match interval:
+        case IntervalType.HOUR:
+            return date.replace(minute=0, second=0, microsecond=0)
+        case IntervalType.DAY:
+            return date.replace(hour=0, minute=0, second=0, microsecond=0)
+        case IntervalType.WEEK:
+            week_start_alignment_days = date.isoweekday() % 7
+            if team.week_start_day == WeekStartDay.MONDAY:
+                week_start_alignment_days = date.weekday()
+
+            return (date - timedelta(days=week_start_alignment_days)).replace(hour=0, minute=0, second=0, microsecond=0)
+        case IntervalType.MONTH:
+            return date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        case _:
+            raise ValueError(f"Unsupported interval {interval}")

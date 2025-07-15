@@ -13,6 +13,7 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
+        content?: ((isLoading: boolean) => ReactNode) | ReactNode
     }
 
 export type LemonDialogProps = Pick<
@@ -28,6 +29,7 @@ export type LemonDialogProps = Pick<
     onAfterClose?: () => void
     closeOnNavigate?: boolean
     shouldAwaitSubmit?: boolean
+    isLoadingCallback?: (isLoading: boolean) => void
 }
 
 export function LemonDialog({
@@ -41,11 +43,12 @@ export function LemonDialog({
     closeOnNavigate = true,
     shouldAwaitSubmit = false,
     footer,
+    isLoadingCallback,
     ...props
 }: LemonDialogProps): JSX.Element {
-    const [isOpen, setIsOpen] = useState(true)
     const { currentLocation } = useValues(router)
     const lastLocation = useRef(currentLocation.pathname)
+    const [isOpen, setIsOpen] = useState(true)
     const [isLoading, setIsLoading] = useState(false)
 
     primaryButton =
@@ -72,11 +75,13 @@ export function LemonDialog({
                 onClick={async (e) => {
                     if (button === primaryButton && shouldAwaitSubmit) {
                         setIsLoading(true)
+                        isLoadingCallback?.(true)
                         try {
                             // eslint-disable-next-line @typescript-eslint/await-thenable
                             await button.onClick?.(e)
                         } finally {
                             setIsLoading(false)
+                            isLoadingCallback?.(false)
                         }
                     } else {
                         button.onClick?.(e)
@@ -121,13 +126,18 @@ export const LemonFormDialog = ({
     initialValues = {},
     onSubmit,
     errors,
+    content,
     ...props
 }: LemonFormDialogProps): JSX.Element => {
     const logic = lemonDialogLogic({ errors })
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)
+    const [isLoading, setIsLoading] = useState(false)
 
-    const firstError = useMemo(() => Object.values(formValidationErrors)[0] as string, [formValidationErrors])
+    const firstError = useMemo(
+        () => Object.values(formValidationErrors).find((error) => Boolean(error)) as string,
+        [formValidationErrors]
+    )
 
     const primaryButton: LemonDialogProps['primaryButton'] = {
         type: 'primary',
@@ -143,6 +153,9 @@ export const LemonFormDialog = ({
         children: 'Cancel',
     }
 
+    // Resolve content, supporting both function and static content
+    const resolvedContent = typeof content === 'function' ? content(isLoading) : content
+
     useEffect(() => {
         setFormValues(initialValues)
     }, [])
@@ -157,7 +170,13 @@ export const LemonFormDialog = ({
                 }
             }}
         >
-            <LemonDialog {...props} primaryButton={primaryButton} secondaryButton={secondaryButton} />
+            <LemonDialog
+                {...props}
+                content={resolvedContent}
+                primaryButton={primaryButton}
+                secondaryButton={secondaryButton}
+                isLoadingCallback={setIsLoading}
+            />
         </Form>
     )
 }
@@ -166,10 +185,13 @@ function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
     const div = document.createElement('div')
     const root = createRoot(div)
     function destroy(): void {
-        root.unmount()
-        if (div.parentNode) {
-            div.parentNode.removeChild(div)
-        }
+        // defer the unmounting to avoid collisions with the rendering cycle
+        setTimeout(() => {
+            root.unmount()
+            if (div.parentNode) {
+                div.parentNode.removeChild(div)
+            }
+        }, 0)
     }
 
     document.body.appendChild(div)

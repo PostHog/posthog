@@ -1,10 +1,10 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
-import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
 import { IngestionWarningLimiter } from '../../utils/token-bucket'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
@@ -20,7 +20,7 @@ export function generateEventDeadLetterQueueMessage(
     error: unknown,
     teamId: number,
     errorLocation = 'plugin_server_ingest_event'
-): ProducerRecord {
+): TopicMessage {
     let errorMessage = 'Event ingestion failed. '
     if (error instanceof Error) {
         errorMessage += `Error: ${error.message}`
@@ -48,7 +48,7 @@ export function generateEventDeadLetterQueueMessage(
         team_id: event.team_id || teamId,
     }
 
-    const message = {
+    return {
         topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE,
         messages: [
             {
@@ -56,7 +56,6 @@ export function generateEventDeadLetterQueueMessage(
             },
         ],
     }
-    return message
 }
 
 // These get displayed under Data Management > Ingestion Warnings
@@ -79,8 +78,9 @@ export async function captureIngestionWarning(
 ) {
     const limiter_key = `${teamId}:${type}:${debounce?.key || ''}`
     if (!!debounce?.alwaysSend || IngestionWarningLimiter.consume(limiter_key, 1)) {
-        await kafkaProducer.queueMessage({
-            kafkaMessage: {
+        // TODO: Either here or in follow up change this to an await as we do care.
+        void kafkaProducer
+            .queueMessages({
                 topic: KAFKA_INGESTION_WARNINGS,
                 messages: [
                     {
@@ -93,10 +93,15 @@ export async function captureIngestionWarning(
                         }),
                     },
                 ],
-            },
-            waitForAck: false,
-        })
-    } else {
-        return Promise.resolve()
+            })
+            .catch((error) => {
+                logger.warn('⚠️', 'Failed to produce ingestion warning', {
+                    error,
+                    team_id: teamId,
+                    type,
+                    details,
+                })
+            })
     }
+    return Promise.resolve()
 }

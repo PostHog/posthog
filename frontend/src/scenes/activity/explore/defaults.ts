@@ -1,5 +1,5 @@
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter } from '~/types'
 
 export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({
@@ -11,6 +11,9 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
         orderBy: ['timestamp DESC'],
         after: '-24h',
         ...(properties ? { properties } : {}),
+        modifiers: {
+            usePresortedEventsTable: true,
+        },
     },
     propertiesViaUrl: true,
     showSavedQueries: true,

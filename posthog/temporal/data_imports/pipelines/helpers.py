@@ -1,22 +1,32 @@
-import uuid
-from posthog.warehouse.models import ExternalDataJob
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
 from django.db.models import F
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.util import database_sync_to_async
+
+from posthog.warehouse.types import IncrementalFieldType
+from posthog.sync import database_sync_to_async
 
 
 @database_sync_to_async
 def aget_external_data_job(team_id, job_id):
+    from posthog.warehouse.models import ExternalDataJob
+
     return ExternalDataJob.objects.get(id=job_id, team_id=team_id)
 
 
 @database_sync_to_async
 def aupdate_job_count(job_id: str, team_id: int, count: int):
+    from posthog.warehouse.models import ExternalDataJob
+
     ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(rows_synced=F("rows_synced") + count)
 
 
-@database_sync_to_async
-def aremove_reset_pipeline(source_id: uuid.UUID):
-    source = ExternalDataSource.objects.get(id=source_id)
-    source.job_inputs.pop("reset_pipeline", None)
-    source.save()
+def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> int | datetime | date | str:
+    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+        return 0
+    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
+        return datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+    if field_type == IncrementalFieldType.Date:
+        return date(1970, 1, 1)
+    if field_type == IncrementalFieldType.ObjectID:
+        return "000000000000000000000000"

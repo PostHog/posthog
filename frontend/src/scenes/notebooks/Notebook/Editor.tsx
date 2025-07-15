@@ -25,6 +25,7 @@ import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
 import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
 import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+import { NotebookNodeLatex } from '../Nodes/NotebookNodeLatex'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
@@ -42,6 +43,7 @@ import { MentionsExtension } from './MentionsExtension'
 import { notebookLogic } from './notebookLogic'
 import { SlashCommandsExtension } from './SlashCommands'
 import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
+import TableOfContents, { getHierarchicalIndexes } from '@tiptap/extension-table-of-contents'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -55,7 +57,7 @@ export function Editor(): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
 
     const { shortId, mode } = useValues(notebookLogic)
-    const { setEditor, onEditorUpdate, onEditorSelectionUpdate } = useActions(notebookLogic)
+    const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents } = useActions(notebookLogic)
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
 
@@ -74,6 +76,12 @@ export function Editor(): JSX.Element {
             StarterKit.configure({
                 document: false,
                 gapcursor: false,
+            }),
+            TableOfContents.configure({
+                getIndex: getHierarchicalIndexes,
+                onUpdate(content) {
+                    setTableOfContents(content)
+                },
             }),
             ExtensionPlaceholder.configure({
                 placeholder: ({ node }: { node: any }) => {
@@ -103,6 +111,7 @@ export function Editor(): JSX.Element {
             }),
             NotebookMarkLink,
             NotebookMarkComment,
+            NotebookNodeLatex,
             NotebookNodeBacklink,
             NotebookNodeQuery,
             NotebookNodeRecording,

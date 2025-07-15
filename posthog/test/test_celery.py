@@ -5,7 +5,7 @@ from posthog.tasks.tasks import clickhouse_errors_count
 
 
 class TestCeleryMetrics(TestCase):
-    @patch("posthog.client.sync_execute")
+    @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.metrics._push")
     @patch("django.conf.settings.PROM_PUSHGATEWAY_ADDRESS", value="127.0.0.1")
     def test_clickhouse_errors_count(self, _, mock_push_to_gateway, mock_sync_execute):

@@ -5,7 +5,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter
@@ -25,35 +25,25 @@ export function MultipleBreakdownColumnTitle({ children }: MultipleBreakdownColu
 
 type BreakdownColumnItemProps = {
     item: IndexedTrendResult
-    canCheckUncheckSeries: boolean
-    isMainInsightView: boolean
-    toggleHiddenLegendIndex: (index: number) => void
     formatItemBreakdownLabel: (item: IndexedTrendResult) => string
 }
 
-export function BreakdownColumnItem({
-    item,
-    canCheckUncheckSeries,
-    isMainInsightView,
-    toggleHiddenLegendIndex,
-    formatItemBreakdownLabel,
-}: BreakdownColumnItemProps): JSX.Element {
+export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: BreakdownColumnItemProps): JSX.Element {
     const breakdownLabel = formatItemBreakdownLabel(item)
     const formattedLabel = stringWithWBR(breakdownLabel, 20)
-    const multiEntityAndToggleable = !isMainInsightView && canCheckUncheckSeries
+
     return (
-        <div
-            className={multiEntityAndToggleable ? 'cursor-pointer' : ''}
-            onClick={multiEntityAndToggleable ? () => toggleHiddenLegendIndex(item.id) : undefined}
-        >
+        <div className="flex justify-between items-center">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
-                        <Link to={breakdownLabel} target="_blank" className="value-link" targetBlankIcon>
+                        <Link to={breakdownLabel} target="_blank" className="value-link font-medium" targetBlankIcon>
                             {formattedLabel}
                         </Link>
                     ) : (
-                        <div title={breakdownLabel}>{formattedLabel}</div>
+                        <div title={breakdownLabel} className="font-medium">
+                            {formattedLabel}
+                        </div>
                     )}
                 </>
             )}

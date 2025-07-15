@@ -2,14 +2,16 @@ import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectsEqual, toParams } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { Breadcrumb, FeatureFlagType } from '~/types'
 
-import { teamLogic } from '../teamLogic'
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export const FLAGS_PER_PAGE = 100
@@ -25,11 +27,7 @@ export enum FeatureFlagsTab {
     SCHEDULE = 'schedule',
 }
 
-export interface FeatureFlagsResult {
-    results: FeatureFlagType[]
-    count: number
-    next?: string | null
-    previous?: string | null
+export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
     /* not in the API response */
     filters?: FeatureFlagsFilters | null
 }
@@ -59,9 +57,9 @@ export interface FlagLogicProps {
 export const featureFlagsLogic = kea<featureFlagsLogicType>([
     props({} as FlagLogicProps),
     path(['scenes', 'feature-flags', 'featureFlagsLogic']),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
@@ -75,7 +73,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             {
                 loadFeatureFlags: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentTeamId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.paramsFromFilters)}`
                     )
 
                     return {
@@ -85,7 +83,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                     const response = await api.update(
-                        `api/projects/${values.currentTeamId}/feature_flags/${id}`,
+                        `api/projects/${values.currentProjectId}/feature_flags/${id}`,
                         payload
                     )
                     const updatedFlags = [...values.featureFlags.results].map((flag) =>
@@ -175,7 +173,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setFeatureFlagsFilters: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadFeatureFlags()
@@ -183,6 +181,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setActiveTab: () => {
             // Don't carry over pagination from previous tab
             actions.setFeatureFlagsFilters({ page: 1 }, true)
+        },
+        loadFeatureFlagsSuccess: () => {
+            if (values.featureFlags.results.length > 0) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+            }
         },
     })),
     actionToUrl(({ values }) => {

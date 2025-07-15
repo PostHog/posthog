@@ -11,8 +11,10 @@ from rest_framework import status
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.constants import AvailableFeature
+from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Dashboard, DashboardTile, Filter, Insight, Team, User
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
@@ -24,6 +26,7 @@ from posthog.test.base import (
     QueryMatchingTest,
     snapshot_postgres_queries,
 )
+from ee.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
     "template_name": "Sign up conversion template with variables",
@@ -63,10 +66,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "name": AvailableFeature.TAGGING,
             },
             {
-                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
             },
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
         ]
 
         self.organization.save()
@@ -267,19 +269,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            with self.assertNumQueries(11):
+            baseline = 8
+
+            with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(21):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -296,7 +300,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(9):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
@@ -304,7 +308,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             for j in range(3):
                 self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
-            with self.assertNumQueries(FuzzyInt(8, 9)):
+            with self.assertNumQueries(FuzzyInt(10, 11)):
                 self.dashboard_api.list_dashboards(query_params={"limit": 300})
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
@@ -521,6 +525,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_after_delete = self.dashboard_api.get_dashboard(dashboard_two_id)
         assert len(dashboard_two_after_delete["tiles"]) == 1
 
+    def test_delete_dashboard_resets_group_type_detail_dashboard_if_needed(self):
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
+        group_type.detail_dashboard = dashboard
+        group_type.save()
+
+        self.dashboard_api.soft_delete(dashboard.id, "dashboards", {"delete_insights": True})
+        group_type.refresh_from_db()
+        self.assertIsNone(group_type.detail_dashboard)
+
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
         insight_id, _ = self.dashboard_api.create_insight(
@@ -585,7 +602,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
         dashboard_data = DashboardSerializer(
-            dashboard, context={"view": mock_view, "request": mock_request, "get_team": lambda: self.team}
+            dashboard,
+            context={
+                "view": mock_view,
+                "request": mock_request,
+                "get_team": lambda: self.team,
+                "insight_variables": [],
+            },
         ).data
         assert len(dashboard_data["tiles"]) == 1
 
@@ -1251,6 +1274,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_cached": False,
                 "last_refresh": None,
                 "layouts": {},
+                "order": 0,
                 "text": {
                     "body": "hello world",
                     "created_by": None,
@@ -1311,7 +1335,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "effective_privilege_level": 37,
                     "effective_restriction_level": 21,
                     "favorited": False,
-                    "filters": {"filter_test_accounts": True},
+                    "filters": {},
                     "filters_hash": ANY,
                     "hasMore": None,
                     "id": ANY,
@@ -1339,12 +1363,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "tags": [],
                     "timezone": None,
                     "updated_at": ANY,
+                    "user_access_level": "editor",
                     "hogql": ANY,
                     "types": ANY,
                 },
                 "is_cached": False,
                 "last_refresh": None,
                 "layouts": {},
+                "order": 0,
                 "text": None,
             },
         ]
@@ -1357,14 +1383,17 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"template": invalid_template},
         )
         assert response.status_code == 400, response.json()
-        error_message = {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": "'template_name' is a required property\n\nFailed validating 'required' in schema:\n    {'properties': {'created_at': {'description': 'When the dashboard '\n                                                  'template was created',\n                                   'type': 'string'},\n                    'dashboard_description': {'description': 'The '\n                                                             'description '\n                                                             'of the '\n                                                             'dashboard '\n                                                             'template',\n                                              'type': 'string'},\n                    'dashboard_filters': {'description': 'The filters of '\n                                                         'the dashboard '\n                                                         'template',\n                                          'type': 'object'},\n                    'id': {'description': 'The id of the dashboard '\n                                          'template',\n                           'type': 'string'},\n                    'image_url': {'description': 'The image of the '\n                                                 'dashboard template',\n                                  'type': ['string', 'null']},\n                    'tags': {'description': 'The tags of the dashboard '\n                                            'template',\n                             'items': {'type': 'string'},\n                             'type': 'array'},\n                    'team_id': {'description': 'The team this dashboard '\n                                               'template belongs to',\n                                'type': ['number', 'null']},\n                    'template_name': {'description': 'The name of the '\n                                                     'dashboard template',\n                                      'type': 'string'},\n                    'tiles': {'description': 'The tiles of the dashboard '\n                                             'template',\n                              'items': {'type': 'object'},\n                              'minItems': 1,\n                              'type': 'array'},\n                    'variables': {'anyOf': [{'items': {'properties': {'default': {'description': 'The '\n                                                                                                 'default '\n                                                                                                 'value '\n                                                                                                 'of '\n                                                                                                 'the '\n                                                                                                 'variable',\n                                                                                  'type': 'object'},\n                                                                      'description': {'description': 'The '\n                                                                                                     'description '\n                                                                                                     'of '\n                                                                                                     'the '\n                                                                                                     'variable',\n                                                                                      'type': 'string'},\n                                                                      'id': {'description': 'The '\n                                                                                            'id '\n                                                                                            'of '\n                                                                                            'the '\n                                                                                            'variable',\n                                                                             'type': 'string'},\n                                                                      'name': {'description': 'The '\n                                                                                              'name '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'type': 'string'},\n                                                                      'required': {'description': 'Whether '\n                                                                                                  'the '\n                                                                                                  'variable '\n                                                                                                  'is '\n                                                                                                  'required',\n                                                                                   'type': 'boolean'},\n                                                                      'type': {'description': 'The '\n                                                                                              'type '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'enum': ['event']}},\n                                                       'required': ['id',\n                                                                    'name',\n                                                                    'type',\n                                                                    'default',\n                                                                    'description',\n                                                                    'required'],\n                                                       'type': 'object'},\n                                             'type': 'array'},\n                                            {'type': 'null'}],\n                                  'description': 'The variables of the '\n                                                 'dashboard template'}},\n     'required': ['template_name',\n                  'dashboard_description',\n                  'dashboard_filters',\n                  'tiles'],\n     'type': 'object'}\n\nOn instance:\n    {'not a': 'template'}",
-            "attr": None,
-        }
 
-        assert response.json() == error_message
+        response_data = response.json()
+        assert response_data["type"] == "validation_error"
+        assert response_data["code"] == "invalid_input"
+        assert response_data["attr"] is None
+
+        # Check that the error message contains the key validation error information
+        detail = response_data["detail"]
+        assert "'template_name' is a required property" in detail
+        assert "Failed validating 'required' in schema" in detail
+        assert "{'not a': 'template'}" in detail
 
     def test_dashboard_duplication_breakdown_histogram_bin_count_none(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
@@ -1441,3 +1470,147 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             assert value["code_name"] == variable.code_name
             assert value["variableId"] == str(variable.id)
             assert value["value"] == "some override value"
+
+    def test_dashboard_variables_stale(self):
+        # if a variable is deleted/updated, the dashboard should not show the stale variable
+
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="dashboard 1",
+            created_by=self.user,
+            variables={
+                str(variable.id): {
+                    "code_name": variable.code_name,
+                    "variableId": str(variable.id),
+                    "value": "some override value",
+                }
+            },
+        )
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test_1}",
+                    "variables": {
+                        str(variable.id): {
+                            "code_name": variable.code_name,
+                            "variableId": str(variable.id),
+                        }
+                    },
+                },
+                "chartSettings": {},
+                "tableSettings": {},
+            },
+            team=self.team,
+            last_refresh=now(),
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variable.id)
+            assert value["code_name"] == variable.code_name
+            assert value["variableId"] == str(variable.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variable.id): {
+                "code_name": variable.code_name,
+                "variableId": str(variable.id),
+            }
+        }
+
+        variable.delete()
+
+        # recreate the variable
+        variabl2 = InsightVariable.objects.create(
+            team=self.team, name="Test 1", code_name="test_1", default_value="some_default_value", type="String"
+        )
+
+        response_data = self.dashboard_api.get_dashboard(dashboard.pk)
+
+        assert response_data["variables"] is not None
+        assert isinstance(response_data["variables"], dict)
+        assert len(response_data["variables"].keys()) == 1
+        for key, value in response_data["variables"].items():
+            assert key == str(variabl2.id)
+            assert value["code_name"] == variabl2.code_name
+            assert value["variableId"] == str(variabl2.id)
+            assert value["value"] == "some override value"
+
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] is not None
+        assert response_data["tiles"][0]["insight"]["query"]["source"]["variables"] == {
+            str(variabl2.id): {
+                "code_name": variabl2.code_name,
+                "variableId": str(variabl2.id),
+            }
+        }
+
+    def test_dashboard_access_control_filtering(self) -> None:
+        """Test that dashboards are properly filtered based on access control."""
+
+        user2 = User.objects.create_and_join(self.organization, "test2@posthog.com", None)
+
+        visible_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Public Dashboard",
+            created_by=self.user,
+        )
+        hidden_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Hidden Dashboard",
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=hidden_dashboard.id, team=self.team, access_level="none"
+        )
+
+        # Verify we can access visible dashboards
+        self.client.force_login(user2)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard_ids = [dashboard["id"] for dashboard in response.json()["results"]]
+        self.assertIn(visible_dashboard.id, dashboard_ids)
+        self.assertNotIn(hidden_dashboard.id, dashboard_ids)
+
+        # Verify we can access all dashboards as creator
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboards/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(visible_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
+        self.assertIn(hidden_dashboard.id, [dashboard["id"] for dashboard in response.json()["results"]])
+
+    def test_dashboard_create_in_folder(self):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {
+                "name": "My Foldered Dashboard",
+                "_create_in_folder": "Marketing/Website/Conversion",
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.json())
+        created_dashboard_id = create_response.json()["id"]
+
+        dashboard = Dashboard.objects.get(id=created_dashboard_id)
+        assert dashboard.name == "My Foldered Dashboard"
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team,
+            type="dashboard",
+            ref=str(created_dashboard_id),
+        ).first()
+        assert fs_entry is not None, "Expected a FileSystem entry for this new Dashboard."
+        assert "Marketing/Website/Conversion" in fs_entry.path, "Folder path is missing or incorrect."

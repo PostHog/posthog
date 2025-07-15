@@ -2,7 +2,7 @@ import './NetworkView.scss'
 
 import { LemonTable, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { dayjs } from 'lib/dayjs'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,6 +15,8 @@ import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
 
 import { PerformanceEvent } from '~/types'
 
+import { ItemTimeDisplay } from '../components/ItemTimeDisplay'
+import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { networkViewLogic } from './networkViewLogic'
 
 function SimpleURL({ name, entryType }: { name: string | undefined; entryType: string | undefined }): JSX.Element {
@@ -29,7 +31,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
         return (
             <Tooltip
                 title={
-                    <div className="flex flex-col space-y-2">
+                    <div className="flex flex-col deprecated-space-y-2">
                         <div>
                             {url.protocol}://{url.hostname}
                             {url.port.length ? `:${url.port}` : null}
@@ -66,38 +68,9 @@ function Duration({ item }: { item: PerformanceEvent }): JSX.Element {
     return <div className="text-right">{formattedDurationFor(item)}</div>
 }
 
-function Pager(): JSX.Element {
-    const { page, pageCount } = useValues(networkViewLogic)
-    const { prevPage, nextPage } = useActions(networkViewLogic)
-
-    return (
-        <div className="flex space-x-2">
-            <LemonButton
-                onClick={prevPage}
-                icon={<IconChevronLeft />}
-                disabledReason={page === 0 ? "You're on the first page" : null}
-                type="secondary"
-                noPadding={true}
-                size="xsmall"
-            />
-            <div className="text-center whitespace-nowrap font-medium">
-                {page + 1} of {pageCount}
-            </div>
-            <LemonButton
-                onClick={nextPage}
-                icon={<IconChevronRight />}
-                disabledReason={page === pageCount - 1 ? "You're on the last page" : null}
-                type="secondary"
-                noPadding={true}
-                size="xsmall"
-            />
-        </div>
-    )
-}
-
 function WaterfallMeta(): JSX.Element | null {
-    const { currentPage, sizeBreakdown } = useValues(networkViewLogic)
-
+    const { currentPage, sizeBreakdown, page, pageCount } = useValues(networkViewLogic)
+    const { prevPage, nextPage } = useActions(networkViewLogic)
     if (!currentPage[0]) {
         return null
     }
@@ -106,24 +79,36 @@ function WaterfallMeta(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex space-x-12 px-4 justify-between">
-                <span className="flex items-center gap-1 truncate">
-                    <Link to={pageUrl} target="_blank" className="truncate">
-                        {pageUrl}
-                    </Link>
-                    {pageUrl && (
-                        <span className="flex items-center">
-                            <CopyToClipboardInline
-                                description={pageUrl}
-                                explicitValue={pageUrl}
-                                iconStyle={{ color: 'var(--muted-alt)' }}
-                                selectable={true}
-                            />
-                        </span>
-                    )}
-                </span>
+            <div className="flex gap-x-2 px-2 justify-between">
+                <LemonButton
+                    onClick={prevPage}
+                    icon={<IconChevronLeft />}
+                    disabledReason={page === 0 ? "You're on the first page" : null}
+                    type="secondary"
+                    noPadding={true}
+                    size="xsmall"
+                />
+                <div className="flex items-center gap-1 flex-1 justify-between overflow-hidden">
+                    <ItemTimeDisplay
+                        timestamp={dayjs(currentPage[0].timestamp)}
+                        timeInRecording={currentPage[0].timeInRecording}
+                        className="flex-shrink-0 p-0 min-w-4"
+                    />
 
-                <Pager />
+                    <Tooltip title={pageUrl}>
+                        <Link to={pageUrl} target="_blank" className="block truncate">
+                            {pageUrl}
+                        </Link>
+                    </Tooltip>
+                </div>
+                <LemonButton
+                    onClick={nextPage}
+                    icon={<IconChevronRight />}
+                    disabledReason={page === pageCount - 1 ? "You're on the last page" : null}
+                    type="secondary"
+                    noPadding={true}
+                    size="xsmall"
+                />
             </div>
             <LemonDivider />
             <div className="px-4">
@@ -135,24 +120,25 @@ function WaterfallMeta(): JSX.Element | null {
     )
 }
 
-export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string }): JSX.Element {
-    const logic = networkViewLogic({ sessionRecordingId })
+export function NetworkView(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const logic = networkViewLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     const { isLoading, currentPage, hasPageViews } = useValues(logic)
 
     if (isLoading) {
         return (
-            <div className="flex flex-col px-4 py-2 space-y-2">
+            <div className="flex flex-col px-4 py-2 deprecated-space-y-2">
                 <LemonSkeleton repeat={10} fade={true} />
             </div>
         )
     }
 
     return (
-        <BindLogic logic={networkViewLogic} props={{ sessionRecordingId }}>
-            <div className="NetworkView overflow-auto py-2">
+        <BindLogic logic={networkViewLogic} props={{ sessionRecordingId: logicProps.sessionRecordingId }}>
+            <div className="NetworkView overflow-auto py-2 px-4">
                 <WaterfallMeta />
                 <LemonDivider />
-                <div className="space-y-1 px-4">
+                <div className="deprecated-space-y-1 px-0">
                     <LemonTable
                         className="NetworkView__table"
                         size="small"

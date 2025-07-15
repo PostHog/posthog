@@ -9,9 +9,9 @@ import requests
 import structlog
 from openpyxl import Workbook
 from django.http import QueryDict
-from sentry_sdk import capture_exception, push_scope
 from requests.exceptions import HTTPError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.api.services.query import process_query_dict
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -156,8 +156,8 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                         "cohort": item["date"],
                         "cohort size": item["values"][0]["count"],
                     }
-                    for index, data in enumerate(item["values"]):
-                        line[results[index]["label"]] = data["count"]
+                    for data in item["values"]:
+                        line[data["label"]] = data["count"]
                 else:
                     # Otherwise we just specify "Period" for titles
                     line = {
@@ -170,17 +170,30 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                 yield line
             return
         elif isinstance(first_result.get("data"), list):
+            is_comparison = first_result.get("compare_label")
+
+            # take date labels from current results, when comparing against previous
+            # as previous results will be indexed with offset
+            date_labels_item = next((x for x in results if x.get("compare_label") == "current"), None)
+
             # TRENDS LIKE
             for index, item in enumerate(results):
-                line = {"series": item.get("label", f"Series #{index + 1}")}
+                label = item.get("label", f"Series #{index + 1}")
+                compare_label = item.get("compare_label", "")
+                series_name = f"{label} - {compare_label}" if compare_label else label
+
+                line = {"series": series_name}
+
+                label_item = date_labels_item if is_comparison else item
                 action = item.get("action")
+
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
                 if item.get("aggregated_value"):
                     line["total count"] = item.get("aggregated_value")
                 else:
                     for index, data in enumerate(item["data"]):
-                        line[item["labels"][index]] = data
+                        line[label_item["labels"][index]] = data
 
                 yield line
 
@@ -392,10 +405,7 @@ def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -
         else:
             team_id = "unknown"
 
-        with push_scope() as scope:
-            scope.set_tag("celery_task", "csv_export")
-            scope.set_tag("team_id", team_id)
-            capture_exception(e)
+        capture_exception(e, additional_properties={"celery_task": "csv_export", "team_id": team_id})
 
         logger.error("csv_exporter.failed", exception=e, exc_info=True)
         EXPORT_FAILED_COUNTER.labels(type="csv").inc()

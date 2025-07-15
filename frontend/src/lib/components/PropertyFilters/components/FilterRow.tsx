@@ -1,11 +1,11 @@
 import './FilterRow.scss'
 
-import { IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { IconPlusSmall, IconTrash, IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 
 import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 
@@ -27,6 +27,7 @@ interface FilterRowProps {
     orFiltering?: boolean
     errorMessage?: JSX.Element | null
     disabledReason?: string
+    editable: boolean
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -44,19 +45,18 @@ export const FilterRow = React.memo(function FilterRow({
     orFiltering,
     errorMessage,
     disabledReason,
+    editable,
 }: FilterRowProps) {
-    const [open, setOpen] = useState(false)
-
-    useEffect(() => {
-        setOpen(openOnInsert)
-    }, [])
+    const [open, setOpen] = useState(() => openOnInsert)
 
     const { key } = item
+    const isValid = isValidPropertyFilter(item)
 
     const handleVisibleChange = (visible: boolean): void => {
-        if (!visible && isValidPropertyFilter(item) && !item.key) {
+        if (!visible && isValid && !item.key) {
             onRemove(index)
         }
+
         setOpen(visible)
     }
 
@@ -64,15 +64,18 @@ export const FilterRow = React.memo(function FilterRow({
         <>
             <div
                 className={clsx(
-                    'property-filter-row flex items-center flex-nowrap space-x-2 max-w-full',
-                    !disablePopover && 'wrap-filters'
+                    'property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full grow',
+                    {
+                        'sm:grow-0': isValid,
+                        'wrap-filters': !disablePopover,
+                    }
                 )}
                 data-attr={'property-filter-' + index}
             >
                 {disablePopover ? (
                     <>
                         {filterComponent(() => setOpen(false))}
-                        {!!Object.keys(filters[index]).length && (
+                        {Object.keys(filters[index]).length > 0 && editable ? (
                             <LemonButton
                                 icon={orFiltering ? <IconTrash /> : <IconX />}
                                 onClick={() => onRemove(index)}
@@ -80,7 +83,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 className="ml-2"
                                 noPadding
                             />
-                        )}
+                        ) : null}
                     </>
                 ) : (
                     <Popover
@@ -89,7 +92,7 @@ export const FilterRow = React.memo(function FilterRow({
                         onClickOutside={() => handleVisibleChange(false)}
                         overlay={filterComponent(() => setOpen(false))}
                     >
-                        {isValidPropertyFilter(item) ? (
+                        {isValid ? (
                             <PropertyFilterButton
                                 onClick={() => setOpen(!open)}
                                 onClose={() => onRemove(index)}
@@ -99,11 +102,11 @@ export const FilterRow = React.memo(function FilterRow({
                         ) : !disabledReason ? (
                             <LemonButton
                                 onClick={() => setOpen(!open)}
-                                className="new-prop-filter"
+                                className="new-prop-filter grow"
                                 data-attr={'new-prop-filter-' + pageKey}
                                 type="secondary"
                                 size="small"
-                                icon={<IconPlus />}
+                                icon={<IconPlusSmall />}
                                 sideIcon={null}
                             >
                                 {label}

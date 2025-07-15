@@ -12,7 +12,7 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
-    PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
+    ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
@@ -38,13 +38,14 @@ class AvailableFeature(StrEnum):
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
+    DATA_COLOR_THEMES = "data_color_themes"
+    API_QUERIES_CONCURRENCY = "api_queries_concurrency"
+    ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
-
-SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -265,6 +266,7 @@ class ExperimentNoResultsErrorKeys(StrEnum):
     NO_CONTROL_VARIANT = "no-control-variant"
     NO_TEST_VARIANT = "no-test-variant"
     NO_RESULTS = "no-results"
+    NO_EXPOSURES = "no-exposures"
 
 
 class PropertyOperatorType(StrEnum):
@@ -300,14 +302,20 @@ class EventDefinitionType(StrEnum):
 class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+    REMOTE_CONFIG = "remote-config"
 
+
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
+MAX_AI_TASK_QUEUE = "max-ai-task-queue"
+DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
 BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
 SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
-
+TEST_TASK_QUEUE = "test-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

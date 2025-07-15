@@ -75,6 +75,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
         )
+        assert response.clickhouse is not None
         assert " JOIN " in response.clickhouse
 
         # Test
@@ -85,6 +86,7 @@ class TestModifiers(BaseTest):
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
+        assert response.clickhouse is not None
         assert " JOIN " not in response.clickhouse
 
     def test_modifiers_persons_on_events_mode_mapping(self):
@@ -164,6 +166,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V1),
         )
+        assert response.clickhouse is not None
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
         # Test (v2)
@@ -172,6 +175,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
         )
+        assert response.clickhouse is not None
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
     def test_modifiers_persons_argmax_version_auto(self):
@@ -181,6 +185,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
         )
+        assert response.clickhouse is not None
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
         # Use the v2 query when selecting properties
@@ -189,6 +194,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
         )
+        assert response.clickhouse is not None
         assert "in(tuple(person.id, person.version)" in response.clickhouse
 
         # Use the v1 query when not selecting any properties
@@ -197,6 +203,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.AUTO),
         )
+        assert response.clickhouse is not None
         assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
     def test_modifiers_in_cohort_join(self):
@@ -206,6 +213,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
         )
+        assert response.clickhouse is not None
         assert "LEFT JOIN" not in response.clickhouse
 
         # Use the v1 query when not selecting any properties
@@ -214,6 +222,7 @@ class TestModifiers(BaseTest):
             team=self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="leftjoin"),
         )
+        assert response.clickhouse is not None
         assert "LEFT JOIN" in response.clickhouse
 
     def test_modifiers_materialization_mode(self):
@@ -231,6 +240,7 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
             pretty=False,
         )
+        assert response.clickhouse is not None
         assert (
             "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
         )
@@ -241,6 +251,7 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_NULL),
             pretty=False,
         )
+        assert response.clickhouse is not None
         assert (
             "SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` FROM events" in response.clickhouse
         )
@@ -251,6 +262,7 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
             pretty=False,
         )
+        assert response.clickhouse is not None
         assert "SELECT nullIf(events.`mat_$browser`, '') AS `$browser` FROM events" in response.clickhouse
 
         response = execute_hogql_query(
@@ -259,6 +271,7 @@ class TestModifiers(BaseTest):
             modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
             pretty=False,
         )
+        assert response.clickhouse is not None
         assert (
             "SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '') AS `$browser` FROM events"
             in response.clickhouse
@@ -286,3 +299,23 @@ class TestModifiers(BaseTest):
         assert response is not None
         assert response.clickhouse is not None
         assert response.clickhouse.count("ilike") == 2
+
+    def test_no_convert_timezone(self):
+        # default to convert to timezone
+        response = execute_hogql_query(
+            f"select timestamp from events limit 1",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(),
+        )
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("toTimeZone") == 1
+
+        response = execute_hogql_query(
+            f"select timestamp from events limit 1",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        )
+        assert response is not None
+        assert response.clickhouse is not None
+        assert response.clickhouse.count("toTimeZone") == 0

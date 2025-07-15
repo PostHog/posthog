@@ -13,6 +13,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
+from posthog.helpers.email_utils import EmailNormalizer
 
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
@@ -22,14 +23,31 @@ from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
+    error_tracking_issue_assigned: bool
+    project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
+    all_weekly_digest_disabled: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
-    "plugin_disabled": True  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
+    "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
+    "error_tracking_issue_assigned": True,  # Error tracking issue assignment
+    "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
+    "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
 }
 
 # We don't ned the following attributes in most cases, so we defer them by default
 DEFERED_ATTRS = ["requested_password_reset_at"]
+
+ROLE_CHOICES = (
+    ("engineering", "Engineering"),
+    ("data", "Data"),
+    ("product", "Product Management"),
+    ("founder", "Founder"),
+    ("leadership", "Leadership"),
+    ("marketing", "Marketing"),
+    ("sales", "Sales / Success"),
+    ("other", "Other"),
+)
 
 
 class UserManager(BaseUserManager):
@@ -46,7 +64,7 @@ class UserManager(BaseUserManager):
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
-        email = self.normalize_email(email)
+        email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
@@ -154,7 +172,7 @@ class User(AbstractUser, UUIDClassicModel):
         default=True,
         help_text=_("Unselect this to temporarily disable an account."),
     )
-
+    role_at_organization = models.CharField(max_length=64, choices=ROLE_CHOICES, null=True, blank=True)
     # Preferences / configuration options
 
     theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
@@ -189,7 +207,7 @@ class User(AbstractUser, UUIDClassicModel):
         )
         if org_available_product_features and len(org_available_product_features) > 0:
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
+            if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
                 try:
                     from ee.models import ExplicitTeamMembership
                 except ImportError:
@@ -219,14 +237,16 @@ class User(AbstractUser, UUIDClassicModel):
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
             self.current_organization = self.organizations.first()
-            self.save()
+            if self.current_organization is not None:
+                self.save(update_fields=["current_organization"])
         return self.current_organization
 
     @cached_property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()
-            self.save()
+            if self.current_team:
+                self.save(update_fields=["current_team"])
         return self.current_team
 
     def join(
@@ -238,11 +258,8 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
-            available_product_feature_keys = [
-                feature["key"] for feature in organization.available_product_features or []
-            ]
             if (
-                AvailableFeature.PROJECT_BASED_PERMISSIONING not in available_product_feature_keys
+                not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case

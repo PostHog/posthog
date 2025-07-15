@@ -1,0 +1,52 @@
+{
+    "cache_key": "cache_1f01018c3a7bd9ef3f1fe37562a3ad2a_[{'alias': '/person/<id>', 'regex': '\\\\/person\\\\/[^\\\\/]+'}, {'alias': 'Any Session Recording Route', 'regex': '.*sessionRecordingId=[a-zA-Z]+'}, {'alias': '/insights/<insight_id>', 'regex': '.*\\\\/insights\\\\/[0-9a-zA-Z]+'}, {'alias': '/project/<team_id>', 'regex': '\\\\/project\\\\/\\\\d+'}, {'alias': '/dashboard/<dashboard_id>', 'regex': '\\\\/dashboard\\\\/[0-9]+'}, {'alias': '/feature_flags/<feature_flag_id>', 'regex': '\\\\/feature_flags\\\\/[0-9]+'}, {'alias': '/replay/<replay_id>', 'regex': '\\\\/replay\\\\/[0-9a-f\\\\-]+'}, {'alias': '/cohorts/<cohort_id>', 'regex': '\\\\/cohorts\\\\/[0-9]+'}, {'alias': '/experiments/<experiment_id>', 'regex': '\\\\/experiments\\\\/[0-9]+'}, {'alias': '/surveys/<survey_id>', 'regex': '\\\\/surveys\\\\/[0-9a-f\\\\-]+'}, {'alias': '/events/<event_id>', 'regex': '\\\\/events\\\\/[0-9a-f\\\\-]+'}, {'alias': '/verify_email/<id>', 'regex': '\\\\/verify_email\\\\/[0-9a-f\\\\-]+'}, {'alias': '/community/profiles/<id>', 'regex': '\\\\/community\\\\/profiles\\\\/[0-9]+'}, {'alias': '/notebooks/<notebook_id>', 'regex': '\\\\/notebooks\\\\/[a-zA-Z0-9]+'}, {'alias': '/groups/<id>', 'regex': '\\\\/groups\\\\/[0-9]+\\\\/[a-zA-Z0-9]+'}, {'alias': '/signup/<id>', 'regex': '\\\\/signup\\\\/[0-9a-f\\\\-]+'}, {'alias': '/playlists/<playlist_id>', 'regex': '\\\\/playlists\\\\/[a-zA-Z0-9]+'}, {'alias': '/destinations/<destination_id>', 'regex': '\\\\/destinations?\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/properties/<property_id>', 'regex': '\\\\/properties\\\\/[0-9a-f\\\\-]+'}, {'alias': '/sources/<source_id>', 'regex': '\\\\/sources\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/reset', 'regex': '\\\\/reset\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/actions/<action_id>', 'regex': '\\\\/actions\\\\/[0-9]+'}, {'alias': '/shared-metrics/<metric_id>', 'regex': '\\\\/shared-metrics\\\\/[0-9]+'}]",
+    "cache_target_age": "2025-01-21T00:30:47.497494Z",
+    "calculation_trigger": null,
+    "columns": ["context.columns.breakdown_value", "context.columns.visitors", "context.columns.views"],
+    "error": null,
+    "hasMore": true,
+    "hogql": "SELECT\n    breakdown_value AS `context.columns.breakdown_value`,\n    tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,\n    tuple(sum(filtered_pageview_count), NULL) AS `context.columns.views`\nFROM\n    (SELECT\n        any(person_id) AS filtered_person_id,\n        count() AS filtered_pageview_count,\n        session.$entry_referring_domain AS breakdown_value,\n        session.session_id AS session_id,\n        any(session.$is_bounce) AS is_bounce,\n        min(session.$start_timestamp) AS start_timestamp\n    FROM\n        events\n    WHERE\n        and(or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2025-01-06 00:00:00'))), less(timestamp, assumeNotNull(toDateTime('2025-01-20 23:59:59')))), false), or(equals(event, '$pageview'), equals(event, '$screen')), 1, notEquals(breakdown_value, NULL))\n    GROUP BY\n        session_id,\n        breakdown_value)\nGROUP BY\n    `context.columns.breakdown_value`\nORDER BY\n    `context.columns.visitors` DESC,\n    `context.columns.views` DESC,\n    `context.columns.breakdown_value` ASC\nLIMIT 11\nOFFSET 0",
+    "is_cached": false,
+    "last_refresh": "2025-01-20T22:30:47.497494Z",
+    "limit": 10,
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "uniq_page_screen_autocaptures",
+        "customChannelTypeRules": [],
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_on_events",
+        "propertyGroupsMode": "optimized",
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2025-01-20T22:45:47.497494Z",
+    "offset": 0,
+    "query_status": null,
+    "results": [
+        ["$direct", [104808, 100000], [4172018, 4200000]],
+        ["www.google.com", [53556, 48234], [293642, 298481]],
+        ["posthog.com", [7357, 8912], [24274, 29183]],
+        ["us.posthog.com", [4149, 3891], [170370, 175293]],
+        ["eu.posthog.com", [2370, 3142], [105763, 118924]],
+        ["www.linkedin.com", [2210, 1893], [4626, 4829]],
+        ["duckduckgo.com", [2134, 2531], [8948, 8237]],
+        ["github.com", [1605, 1428], [9318, 9475]],
+        ["www.bing.com", [1217, 1502], [5421, 5234]],
+        ["t.co", [1060, 892], [2931, 3047]]
+    ],
+    "samplingRate": null,
+    "timezone": "US/Pacific",
+    "timings": [],
+    "types": [
+        ["context.columns.breakdown_value", "Nullable(String)"],
+        ["context.columns.visitors", "Tuple(UInt64, Nullable(Nothing))"],
+        ["context.columns.views", "Tuple(UInt64, Nullable(Nothing))"]
+    ]
+}

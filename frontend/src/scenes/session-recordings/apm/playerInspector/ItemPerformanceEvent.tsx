@@ -2,6 +2,7 @@ import { LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { useState } from 'react'
@@ -13,8 +14,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Body, PerformanceEvent } from '~/types'
-
-import { SimpleKeyValueList } from '../../player/inspector/components/SimpleKeyValueList'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -66,8 +65,8 @@ export interface ItemPerformanceEventProps {
     finalTimestamp: Dayjs | null
 }
 
-function renderTimeBenchmark(milliseconds: number): JSX.Element {
-    return (
+function renderTimeBenchmark(milliseconds: number | null): JSX.Element | null {
+    return milliseconds === null ? null : (
         <span
             className={clsx('font-semibold', {
                 'text-danger-dark': milliseconds >= 2000,
@@ -107,14 +106,20 @@ function StartedAt({ item }: { item: PerformanceEvent }): JSX.Element | null {
     ) : null
 }
 
-function DurationDescription({ item }: { item: PerformanceEvent }): JSX.Element | null {
+function durationMillisecondsFrom(item: PerformanceEvent): number | null {
     let duration = item.duration
     if (duration === undefined && item.end_time !== undefined && item.start_time !== undefined) {
         duration = item.end_time - item.start_time
     }
-    if (duration === undefined) {
+    return duration ?? null
+}
+
+function DurationDescription({ item }: { item: PerformanceEvent }): JSX.Element | null {
+    const duration = durationMillisecondsFrom(item)
+    if (duration === null) {
         return null
     }
+
     return (
         <>
             took <b>{humanFriendlyMilliseconds(duration)}</b>
@@ -134,7 +139,7 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
             {sizeInfo.isFromLocalCache ? (
                 <>
                     {' '}
-                    <span className="text-muted">(from local cache)</span>
+                    <span className="text-secondary">(from local cache)</span>
                 </>
             ) : null}
             {sizeInfo.formattedCompressionPercentage &&
@@ -153,7 +158,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
     const sizeInfo = itemSizeInfo(item)
 
     const startTime = item.start_time || item.fetch_start || 0
-    const duration = item.duration || item.end_time === undefined ? 0 : item.end_time - startTime
+    const duration = durationMillisecondsFrom(item)
 
     const callerOrigin = isURL(item.current_url) ? new URL(item.current_url).origin : undefined
     const eventName = item.name || '(empty string)'
@@ -181,11 +186,11 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
         <div data-attr="item-performance-event" className="font-light w-full">
             <div className="flex-1 overflow-hidden">
                 <div
-                    className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"
+                    className="absolute bg-accent rounded-xs opacity-75 h-1 bottom-0.5"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         left: `${(startTime / contextLengthMs) * 100}%`,
-                        width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
+                        width: `${Math.max(((duration ?? 0) / contextLengthMs) * 100, 0.5)}%`,
                     }}
                 />
                 {item.entry_type === 'navigation' ? (
@@ -267,10 +272,8 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             return acc
         }
 
-        return {
-            ...acc,
-            [key]: typeof value === 'number' ? Math.round(value) : value,
-        }
+        acc[key] = typeof value === 'number' ? Math.round(value) : value
+        return acc
     }, {} as Record<string, any>)
 
     return (
@@ -285,6 +288,7 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
             <LemonDivider dashed />
 
             <LemonTabs
+                size="small"
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
                 tabs={[
@@ -465,7 +469,7 @@ export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed
             {detailed ? <div className="font-semibold">Status code</div> : null}
             <div>
                 <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                {detailed && fromDiskCache ? <span className="text-muted"> (from cache)</span> : null}
+                {detailed && fromDiskCache ? <span className="text-secondary"> (from cache)</span> : null}
             </div>
         </div>
     )
@@ -497,7 +501,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
 
     return methodRow || statusRow ? (
         <p>
-            <div className="text-xs space-y-1 max-w-full">
+            <div className="text-xs deprecated-space-y-1 max-w-full">
                 {methodRow}
                 {statusRow}
             </div>

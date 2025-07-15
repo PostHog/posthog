@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { playlistLogic } from './playlistLogic'
 import {
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
@@ -130,6 +131,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 updateSearchParams: true,
             })
             logic.mount()
+            playlistLogic.mount()
+            playlistLogic.actions.setIsFiltersExpanded(false)
         })
 
         describe('core assumptions', () => {
@@ -723,27 +726,26 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('pinned playlists', () => {
-        it('should not show others if there are pinned recordings', () => {
+    describe('set filters', () => {
+        beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
                 updateSearchParams: true,
-                pinnedRecordings: ['1234'],
             })
             logic.mount()
-
-            expectLogic(logic).toMatchValues({ showOtherRecordings: false })
         })
 
-        it('should show others if there are no pinned recordings', () => {
-            logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
-                updateSearchParams: true,
-                pinnedRecordings: [],
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ showOtherRecordings: true })
+        it('resets date_to when given a relative date_from', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    date_from: '2021-10-01',
+                    date_to: '2021-10-10',
+                })
+                logic.actions.setFilters({
+                    date_from: '-7d',
+                })
+            }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
         })
     })
 

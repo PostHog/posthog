@@ -5,6 +5,8 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    // this maps to the original, shared CLOUD PG DB instance in production for
+    // both the property-defs-rs and new property-defs-rs-v2 deployments
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
@@ -20,8 +22,6 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
-    // We issue writes (UPSERTS) to postgres in batches of this size.
-    // Total concurrent DB ops is max_concurrent_transactions * update_batch_size
     #[envconfig(default = "1000")]
     pub update_batch_size: usize,
 
@@ -40,25 +40,6 @@ pub struct Config {
     // We maintain an internal cache, to avoid sending the same UPSERT multiple times. This is it's size.
     #[envconfig(default = "1000000")]
     pub cache_capacity: usize,
-
-    // We impose a slow-start, where each batch update operation is delayed by
-    // this many milliseconds, multiplied by the % of the cache currently unused. The idea
-    // is that we want to drip-feed updates to the DB during warmup, since
-    // cache fill rate is highest when it's most empty, and cache fill rate
-    // is exactly equivalent to the rate at which we can issue updates to the DB.
-    // The maths here is:
-    //     max(writes/s) = max_concurrent_transactions * update_batch_size / transaction_seconds
-    // By artificially inflating transaction_time, we put a cap on writes/s. This cap is
-    // then loosened as the cache fills, until we're operating in "normal" mode and
-    // only presenting "true" DB backpressure (in the form of write time) to the main loop.
-    #[envconfig(default = "1000")]
-    pub cache_warming_delay_ms: u32,
-
-    // This is the slow-start cutoff. Once the cache is this full, we
-    // don't delay the batch updates any more. 50% is fine for testing,
-    // in production you want to be using closer to 80-90%
-    #[envconfig(default = "0.5")]
-    pub cache_warming_cutoff: f64,
 
     // Each worker maintains a small local batch of updates, which it
     // flushes to the main thread (updating/filtering by the
@@ -107,6 +88,27 @@ pub struct Config {
     // once rollout is complete.
     #[envconfig(default = "opt_in")]
     pub filter_mode: TeamFilterMode,
+
+    // this enables codepaths used by the new mirror deployment
+    // property-defs-rs-v2 in ArgoCD. The main thing we're gating
+    // at first is use of the DB client for the new isolated Postgres
+    // on all write paths."
+    #[envconfig(default = "false")]
+    pub enable_mirror: bool,
+
+    #[envconfig(default = "100")]
+    pub v2_ingest_batch_size: usize,
+
+    // For use in the new property-defs-rs-v2 mirror deploy, and (for now)
+    // behind `enable_mirror` flag during the refactor/transition. Maps to the new
+    // isolated propdefs DB instances in production. If unset, defaults to use
+    // database_url and std pool
+    pub database_propdefs_url: Option<String>,
+
+    // RO creds for the new isolated persons DB is required to access
+    // the posthog_grouptypemappings for the team -> group_meta cache.
+    // if unset, defaults to use database_url and std pool
+    pub database_persons_url: Option<String>,
 }
 
 #[derive(Clone)]
@@ -162,7 +164,7 @@ impl TeamFilterMode {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json");
+        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json", true);
         Config::init_from_env()
     }
 }

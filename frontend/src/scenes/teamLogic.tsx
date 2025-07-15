@@ -7,8 +7,17 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { getAppContext } from 'lib/utils/getAppContext'
+import {
+    addProductIntent,
+    addProductIntentForCrossSell,
+    type ProductCrossSellProperties,
+    type ProductIntentProperties,
+} from 'lib/utils/product-intents'
 
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
@@ -16,13 +25,18 @@ import { projectLogic } from './projectLogic'
 import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
 
-const parseUpdatedAttributeName = (attr: string | null): string => {
+const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
     if (attr === 'slack_incoming_webhook') {
         return 'Webhook'
     }
     if (attr === 'app_urls') {
         return 'Authorized URLs'
     }
+
+    if (attr === 'session_recording_minimum_duration_milliseconds') {
+        return 'Session recording minimum duration'
+    }
+
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
@@ -40,7 +54,7 @@ export interface FrequentMistakeAdvice {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam']],
+        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
         values: [projectLogic, ['currentProject'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
@@ -103,10 +117,13 @@ export const teamLogic = kea<teamLogicType>([
                     const [patchedTeam] = await Promise.all(promises)
                     breakpoint()
 
+                    // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
                     actions.loadUser()
 
                     /* Notify user the update was successful  */
-                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
+                    const updatedAttribute =
+                        Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
                     let message: string
                     if (updatedAttribute === 'slack_incoming_webhook') {
@@ -115,6 +132,10 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
+                    } else if (updatedAttribute === 'feature_flag_confirmation_enabled') {
+                        message = payload.feature_flag_confirmation_enabled
+                            ? 'Feature flag confirmation enabled'
+                            : 'Feature flag confirmation disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'
@@ -125,10 +146,14 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     Object.keys(payload).map((property) => {
-                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
+                        eventUsageLogic
+                            .findMounted()
+                            ?.actions?.reportTeamSettingChange(property, payload[property as keyof TeamType])
                     })
 
-                    if (!window.location.pathname.match(/\/(onboarding|products)/)) {
+                    const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')
+
+                    if (!window.location.pathname.match(/\/(onboarding|products)/) && !isUpdatingOnboardingTasks) {
                         lemonToast.success(message)
                     }
 
@@ -142,21 +167,19 @@ export const teamLogic = kea<teamLogicType>([
                     }
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
+                // Project API Token
                 resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                // Feature Flags Secure API Token
+                rotateSecretToken: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {}),
+                deleteSecretTokenBackup: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */
-                addProductIntent: async ({
-                    product_type,
-                    intent_context,
-                }: {
-                    product_type: ProductKey
-                    intent_context?: string | null
-                }) =>
-                    await api.update(`api/environments/${values.currentTeamId}/add_product_intent`, {
-                        product_type,
-                        intent_context: intent_context ?? undefined,
-                    }),
+                addProductIntent: async (properties: ProductIntentProperties) => await addProductIntent(properties),
+                addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) =>
+                    await addProductIntentForCrossSell(properties),
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
                     await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
                         product_type,
@@ -178,6 +201,12 @@ export const teamLogic = kea<teamLogicType>([
                 return true
             },
         ],
+        hasIngestedEvent: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean => {
+                return currentTeam?.ingested_event ?? false
+            },
+        ],
         currentTeamId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
@@ -186,7 +215,8 @@ export const teamLogic = kea<teamLogicType>([
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.
             (currentTeam, currentTeamLoading): boolean =>
-                !currentTeam?.effective_membership_level && !currentTeamLoading,
+                (!currentTeam?.effective_membership_level || currentTeam.user_access_level === 'none') &&
+                !currentTeamLoading,
         ],
         demoOnlyProject: [
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
@@ -208,8 +238,9 @@ export const teamLogic = kea<teamLogicType>([
         isTeamTokenResetAvailable: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): boolean =>
-                !!currentTeam?.effective_membership_level &&
-                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+                (!!currentTeam?.effective_membership_level &&
+                    currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin) ||
+                currentTeam?.user_access_level === 'admin',
         ],
         testAccountFilterFrequentMistakes: [
             (selectors) => [selectors.currentTeam],
@@ -231,11 +262,20 @@ export const teamLogic = kea<teamLogicType>([
                 return frequentMistakes
             },
         ],
+        baseCurrency: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam: TeamType): CurrencyCode => currentTeam?.base_currency ?? DEFAULT_CURRENCY,
+        ],
     })),
     listeners(({ actions }) => ({
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
+        updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
+            if (currentTeam && !payload?.onboarding_tasks) {
+                activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
             }
         },
         createTeamSuccess: ({ currentTeam }) => {

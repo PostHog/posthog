@@ -211,8 +211,12 @@ async fn send_metrics_to_kafka<T>(
 where
     T: Serialize,
 {
-    match send_iter_to_kafka(kafka_producer, topic, metrics).await {
-        Ok(()) => Ok(()),
+    match send_iter_to_kafka(kafka_producer, topic, metrics)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(_) => Ok(()),
         Err(KafkaProduceError::SerializationError { error }) => {
             Err(WebhookCleanerError::SerializeRowsError { error })
         }

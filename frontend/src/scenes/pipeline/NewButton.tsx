@@ -6,15 +6,17 @@ import { PipelineStage } from '~/types'
 
 type NewButtonProps = {
     stage: PipelineStage
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
 }
 
-export function NewButton({ stage }: NewButtonProps): JSX.Element {
+export function NewButton({ stage, size }: NewButtonProps): JSX.Element {
     return (
         <LemonButton
             data-attr={`new-${stage}`}
             to={urls.pipelineNodeNew(stage)}
             type="primary"
             icon={<IconPlusSmall />}
+            size={size}
         >
             New {stage}
         </LemonButton>

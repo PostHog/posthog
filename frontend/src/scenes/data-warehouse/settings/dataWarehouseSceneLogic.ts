@@ -11,10 +11,11 @@ import { urls } from 'scenes/urls'
 import {
     DatabaseSchemaMaterializedViewTable,
     DatabaseSchemaTable,
+    DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
     HogQLQuery,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -55,7 +56,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
         toggleSchemaModal: true,
         setEditingView: (id: string | null) => ({ id }),
-        updateView: (query: string) => ({ query }),
+        updateView: (query: string, types: string[][]) => ({ query, types }),
     })),
     reducers({
         selectedRow: [
@@ -160,17 +161,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): Record<string, DatabaseSchemaTable[]> => {
                 return dataWarehouseTables.reduce((acc: Record<string, DatabaseSchemaTable[]>, table) => {
-                    if (table.source) {
-                        if (!acc[table.source.source_type]) {
-                            acc[table.source.source_type] = []
-                        }
-                        acc[table.source.source_type].push(table)
-                    } else {
-                        if (!acc['S3']) {
-                            acc['S3'] = []
-                        }
-                        acc['S3'].push(table)
-                    }
+                    const group = table.source?.source_type ?? 'S3'
+                    acc[group] ??= []
+                    acc[group].push(table)
+
                     return acc
                 }, {})
             },
@@ -219,7 +213,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
             if (payload) {
-                router.actions.push(urls.dataWarehouseView(payload.id))
+                router.actions.push(urls.sqlEditor(undefined, payload.id))
             }
         },
         saveSchema: async () => {
@@ -278,18 +272,23 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 })
             }
         },
-        updateView: ({ query }) => {
+        updateView: ({ query, types }) => {
             if (values.editingView) {
                 const newViewQuery: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: query,
                 }
+
                 const oldView = values.viewsMapById[values.editingView]
-                const newView = {
-                    ...oldView,
-                    query: newViewQuery,
+                if (oldView.type === 'view') {
+                    // Should always be `view`, but assert at the TS level
+                    const newView: DatabaseSchemaViewTable & { types: string[][] } = {
+                        ...oldView,
+                        query: newViewQuery,
+                        types,
+                    }
+                    actions.updateDataWarehouseSavedQuery(newView)
                 }
-                actions.updateDataWarehouseSavedQuery(newView)
             }
         },
     })),

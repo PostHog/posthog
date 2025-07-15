@@ -15,13 +15,15 @@ common_inputs = {
         "type": "integration",
         "integration": "salesforce",
         "label": "Salesforce account",
+        "requiredScopes": "refresh_token full",
         "secret": False,
         "required": True,
     }
 }
 
 template_create: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    free=False,
     type="destination",
     id="template-salesforce-create",
     name="Salesforce",
@@ -60,7 +62,9 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  print('Bad response:', res.status, res.body)
+  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
+} else {
+  print(res.status, res.body)
 }
 """.strip(),
     inputs_schema=[
@@ -108,7 +112,8 @@ if (res.status >= 400) {
 )
 
 template_update: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    free=False,
     type="destination",
     id="template-salesforce-update",
     name="Salesforce",
@@ -144,7 +149,9 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  print('Bad response:', res.status, res.body)
+  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
+} else {
+  print(res.status, res.body)
 }
 """.strip(),
     inputs_schema=[

@@ -1,10 +1,6 @@
 import api, { ApiMethodOptions } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
-
-import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
     DashboardFilter,
@@ -16,18 +12,23 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
-} from './schema'
+} from '~/queries/schema/schema-general'
+import { OnlineExportContext, QueryExportContext } from '~/types'
+
 import {
+    HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQLQuery,
-    isInsightVizNode,
+    isInsightQueryNode,
     isPersonsNode,
+    shouldQueryBeAsync,
 } from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
+export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode>(
@@ -35,21 +36,15 @@ export function queryExportContext<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean
 ): OnlineExportContext | QueryExportContext {
-    if (isInsightVizNode(query) || isDataTableNode(query) || isDataVisualizationNode(query)) {
+    if (isDataTableNode(query) || isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isInsightQueryNode(query)) {
+        return { source: query }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
     }
     return { source: query }
 }
-
-const SYNC_ONLY_QUERY_KINDS = [
-    'HogQuery',
-    'HogQLMetadata',
-    'HogQLAutocomplete',
-    'DatabaseSchemaQuery',
-    'ErrorTrackingQuery',
-] satisfies NodeKind[keyof NodeKind][]
 
 export async function pollForResults(
     queryId: string,
@@ -76,7 +71,7 @@ export async function pollForResults(
             throw e
         }
     }
-    throw new Error('Query timed out')
+    throw new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
 }
 
 /**
@@ -85,7 +80,7 @@ export async function pollForResults(
 async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
+    refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (response: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
@@ -96,42 +91,47 @@ async function executeQuery<N extends DataNode>(
      */
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
-    const isAsyncQuery =
-        methodOptions?.async !== false &&
-        !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
-        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
-
     if (!pollOnly) {
-        const refreshParam: RefreshType | undefined =
-            refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
-        const response = await api.query(
-            queryNode,
-            methodOptions,
-            queryId,
-            refreshParam,
+        // Determine the refresh type based on the query node type and refresh parameter
+        let refreshParam: RefreshType
+
+        if (posthog.isFeatureEnabled('always-query-blocking')) {
+            refreshParam = refresh || 'blocking'
+        } else if (shouldQueryBeAsync(queryNode)) {
+            // For insight queries, use async variants but preserve explicit force requests
+            refreshParam = refresh || 'async'
+        } else {
+            // For other queries, use blocking unless explicitly set to a different RefreshType
+            refreshParam = refresh || 'blocking'
+        }
+
+        const response = await api.query(queryNode, {
+            requestOptions: methodOptions,
+            clientQueryId: queryId,
+            refresh: refreshParam,
             filtersOverride,
-            variablesOverride
-        )
+            variablesOverride,
+        })
+
+        if (response.detail) {
+            throw new Error(response.detail)
+        }
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
             return response
         }
 
-        if (response.query_status.complete) {
-            // Async query returned immediately
-            return response.results
-        }
-
         queryId = response.query_status.id
     } else {
-        if (!isAsyncQuery) {
+        if (refresh !== 'async' && refresh !== 'force_async') {
             throw new Error('pollOnly is only supported for async queries')
         }
         if (!queryId) {
             throw new Error('pollOnly requires a queryId')
         }
     }
+
     const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     return statusResponse.results
 }
@@ -140,7 +140,7 @@ async function executeQuery<N extends DataNode>(
 export async function performQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
+    refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
@@ -173,6 +173,7 @@ export async function performQuery<N extends DataNode>(
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            is_cached: response?.is_cached,
             ...logParams,
         })
         return response
@@ -201,10 +202,18 @@ export function getPersonsEndpoint(query: PersonsNode): string {
     return api.persons.determineListUrl(params)
 }
 
-export async function hogqlQuery(queryString: string, values?: Record<string, any>): Promise<HogQLQueryResponse> {
-    return await performQuery<HogQLQuery>({
-        kind: NodeKind.HogQLQuery,
-        query: queryString,
-        values,
-    })
+export async function hogqlQuery(
+    queryString: HogQLQueryString,
+    values?: Record<string, any>,
+    refresh?: RefreshType
+): Promise<HogQLQueryResponse> {
+    return await performQuery<HogQLQuery>(
+        {
+            kind: NodeKind.HogQLQuery,
+            query: queryString,
+            values,
+        },
+        undefined,
+        refresh
+    )
 }

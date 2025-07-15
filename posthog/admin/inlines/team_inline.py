@@ -23,7 +23,6 @@ class TeamInline(admin.TabularInline):
         "autocapture_opt_out",
         "signup_token",
         "is_demo",
-        "access_control",
         "test_account_filters",
         "path_cleaning_filters",
         "timezone",

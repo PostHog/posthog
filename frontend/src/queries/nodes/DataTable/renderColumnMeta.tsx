@@ -3,8 +3,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, DataVisualizationNode, EventsQuery } from '~/queries/schema'
+import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, DataVisualizationNode, EventsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isHogQLQuery, trimQuotes } from '~/queries/utils'
 
@@ -52,7 +52,7 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
     } else if (key.startsWith('properties.')) {
         title = (
             <PropertyKeyInfo
-                value={trimQuotes(key.substring(11))}
+                value={trimQuotes(removeExpressionComment(key.substring(11)))}
                 type={TaxonomicFilterGroupType.EventProperties}
                 disableIcon
             />

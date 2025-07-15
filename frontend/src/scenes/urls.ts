@@ -1,28 +1,22 @@
 import { combineUrl } from 'kea-router'
-import { AlertType } from 'lib/components/Alerts/types'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
-import { ExportOptions } from '~/exporter/types'
-import { HogQLFilters, HogQLVariable, Node } from '~/queries/schema'
+import type { ExportOptions } from '~/exporter/types'
+import { productUrls } from '~/products'
 import {
-    ActionType,
     ActivityTab,
     AnnotationType,
-    DashboardType,
-    InsightShortId,
-    InsightType,
     PipelineNodeTab,
     PipelineStage,
     PipelineTab,
     ProductKey,
-    RecordingUniversalFilters,
-    ReplayTabs,
     SDKKey,
+    OnboardingStepKey,
 } from '~/types'
 
-import { OnboardingStepKey } from './onboarding/onboardingLogic'
-import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { SurveysTabs } from './surveys/surveysLogic'
+import type { BillingSectionId } from './billing/types'
+import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
+import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
 /**
  * To add a new URL to the front end:
@@ -36,28 +30,11 @@ import { SurveysTabs } from './surveys/surveysLogic'
  */
 
 export const urls = {
+    ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
-    dashboards: (): string => '/dashboard',
-    dashboard: (id: string | number, highlightInsightId?: string): string =>
-        combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-    dashboardTextTile: (id: string | number, textTileId: string | number): string =>
-        `${urls.dashboard(id)}/text-tiles/${textTileId}`,
-    dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
-    dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
-    dashboardSubcription: (id: string | number, subscriptionId: string): string =>
-        `/dashboard/${id}/subscriptions/${subscriptionId}`,
-
-    sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    createAction: (): string => `/data-management/actions/new`,
-    duplicateAction: (action: ActionType | null): string => {
-        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
-        return `/data-management/actions/new/${queryParams}`
-    },
-    action: (id: string | number): string => `/data-management/actions/${id}`,
-    actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
@@ -70,68 +47,25 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insights: (): string => '/insights',
-    insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
-        combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(type ? { insight: type } : {}),
-            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-        }).url,
-    insightNewHogQL: (query: string, filters?: HogQLFilters): string =>
-        combineUrl(
-            `/data-warehouse`,
-            {},
-            {
-                q: JSON.stringify({
-                    kind: 'DataTableNode',
-                    full: true,
-                    source: { kind: 'HogQLQuery', query, filters },
-                }),
-            }
-        ).url,
-    insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
-    insightView: (
-        id: InsightShortId,
-        dashboardId?: number,
-        variablesOverride?: Record<string, HogQLVariable>
+    revenueSettings: (): string => '/data-management/revenue',
+    marketingAnalytics: (): string => '/data-management/marketing-analytics',
+
+    pipelineNodeNew: (
+        stage: PipelineStage | ':stage',
+        { id, source }: { id?: string | number; source?: ExternalDataSourceType } = {}
     ): string => {
-        const params = [
-            { param: 'dashboard', value: dashboardId },
-            { param: 'variables_override', value: variablesOverride },
-        ]
-            .filter((n) => Boolean(n.value))
-            .map((n) => `${n.param}=${encodeURIComponent(JSON.stringify(n.value))}`)
-            .join('&')
-        return `/insights/${id}${params.length ? `?${params}` : ''}`
-    },
-    insightSubcriptions: (id: InsightShortId): string => `/insights/${id}/subscriptions`,
-    insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
-        `/insights/${id}/subscriptions/${subscriptionId}`,
-    insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-    savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
-    webAnalytics: (): string => `/web`,
+        let base = `/pipeline/new/${stage}`
+        if (id) {
+            base += `/${id}`
+        }
 
-    replay: (
-        tab?: ReplayTabs,
-        filters?: Partial<RecordingUniversalFilters>,
-        sessionRecordingId?: string,
-        order?: string
-    ): string =>
-        combineUrl(tab ? `/replay/${tab}` : '/replay/home', {
-            ...(filters ? { filters } : {}),
-            ...(sessionRecordingId ? { sessionRecordingId } : {}),
-            ...(order ? { order } : {}),
-        }).url,
-    replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
-    replaySingle: (id: string): string => `/replay/${id}`,
-    replayFilePlayback: (): string => '/replay/file-playback',
+        if (source) {
+            // we need to lowercase the source to match the kind in the sourceWizardLogic
+            const kind: Lowercase<ExternalDataSourceType> = source.toLowerCase() as Lowercase<ExternalDataSourceType>
+            return `${base}?kind=${kind}`
+        }
 
-    personByDistinctId: (id: string, encode: boolean = true): string =>
-        encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
-    personByUUID: (uuid: string, encode: boolean = true): string =>
-        encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
-    persons: (): string => '/persons',
-    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
-        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
+        return base
     },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
@@ -143,40 +77,22 @@ export const urls = {
         `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
             nodeTab ? `/${nodeTab}` : ''
         }`,
-    messagingBroadcasts: (): string => '/messaging/broadcasts',
-    messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
-    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
-    messagingProviders: (): string => '/messaging/providers',
-    messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
-    messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
-    groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
-    // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
-    group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
-        `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
-    cohort: (id: string | number): string => `/cohorts/${id}`,
-    cohorts: (): string => '/cohorts',
-    experiment: (id: string | number): string => `/experiments/${id}`,
-    experiments: (): string => '/experiments',
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-    featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    earlyAccessFeatures: (): string => '/early_access_features',
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
-    errorTracking: (): string => '/error_tracking',
-    errorTrackingGroup: (fingerprint: string): string =>
-        `/error_tracking/${fingerprint === ':fingerprint' ? fingerprint : encodeURIComponent(fingerprint)}`,
-    surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
-    /** @param id A UUID or 'new'. ':id' for routing. */
-    survey: (id: string): string => `/surveys/${id}`,
-    surveyTemplates: (): string => '/survey_templates',
-    dataModel: (): string => '/data-model',
-    dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-            .url,
-    sqlEditor: (): string => `/sql`,
-    dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
-    dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
+    customCss: (): string => '/themes/custom-css',
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
+        if (query) {
+            return `/sql?open_query=${encodeURIComponent(query)}`
+        }
+
+        if (view_id) {
+            return `/sql?open_view=${view_id}`
+        }
+
+        if (insightShortId) {
+            return `/sql?open_insight=${insightShortId}`
+        }
+
+        return '/sql'
+    },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     organizationCreateFirst: (): string => '/create-organization',
@@ -207,6 +123,8 @@ export const urls = {
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
+    organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
+        combineUrl(`/organization/billing/${section}`).url,
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',
@@ -224,12 +142,15 @@ export const urls = {
         combineUrl(
             `/shared/${token}`,
             Object.entries(exportOptions)
+                // strip falsey values
                 .filter((x) => x[1])
                 .reduce(
-                    (acc, [key, val]) => ({
-                        ...acc,
-                        [key]: val === true ? null : val,
-                    }),
+                    (acc, [key, val]) =>
+                        Object.assign(acc, {
+                            // just sends the key and not a value
+                            // e.g., &showInspector not &showInspector=true
+                            [key]: val === true ? null : val,
+                        }),
                     {}
                 )
         ).url,
@@ -238,18 +159,23 @@ export const urls = {
     debugQuery: (query?: string | Record<string, any>): string =>
         combineUrl('/debug', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
     debugHog: (): string => '/debug/hog',
-    feedback: (): string => '/feedback',
-    issues: (): string => '/issues',
-    notebooks: (): string => '/notebooks',
-    notebook: (shortId: string): string => `/notebooks/${shortId}`,
-    canvas: (): string => `/canvas`,
     moveToPostHogCloud: (): string => '/move-to-cloud',
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
-    alerts: (): string => `/insights?tab=alerts`,
-    insightAlerts: (insightShortId: InsightShortId): string => `/insights/${insightShortId}/alerts`,
-    insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
-        `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
+    links: (params?: string): string =>
+        `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
+    link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
+    wizard: (): string => `/wizard`,
+    startups: (referrer?: string): string => `/startups${referrer ? `/${referrer}` : ''}`,
+    oauthAuthorize: (): string => '/oauth/authorize',
+    dataPipelines: (kind?: string): string => `/data-pipelines/${kind ?? ''}`,
+    dataPipelinesNew: (kind?: string): string => `/data-pipelines/new/${kind ?? ''}`,
+    dataWarehouseSource: (id: string, tab?: string): string => `/data-warehouse/sources/${id}/${tab ?? 'schemas'}`,
+    dataWarehouseSourceNew: (): string => `/data-warehouse/new-source`,
+    batchExportNew: (service: string): string => `/data-pipelines/batch-exports/new/${service}`,
+    batchExport: (id: string): string => `/data-pipelines/batch-exports/${id}`,
+    legacyPlugin: (id: string): string => `/data-pipelines/plugins/${id}`,
+    hogFunction: (id: string): string => `/functions/${id}`,
+    hogFunctionNew: (templateId: string): string => `/functions/new/${templateId}`,
 }

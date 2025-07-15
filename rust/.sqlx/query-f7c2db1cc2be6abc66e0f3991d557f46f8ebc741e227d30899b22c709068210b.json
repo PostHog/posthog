@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_errortrackingissue\n            SET status = 'active'\n            WHERE id = $1 AND status != 'active'\n            RETURNING id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f7c2db1cc2be6abc66e0f3991d557f46f8ebc741e227d30899b22c709068210b"
+}

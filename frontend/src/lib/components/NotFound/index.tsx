@@ -3,26 +3,34 @@ import './NotFound.scss'
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, lemonToast, ProfilePicture, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { getCookie } from 'lib/api'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
-import { UserBasicType } from '~/types'
+import { ActivityTab, PropertyFilterType, PropertyOperator, UserBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { supportLogic } from '../Support/supportLogic'
 
 interface NotFoundProps {
-    object: string // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
+    // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
+    object: string
     caption?: React.ReactNode
+    meta?: {
+        urlId?: string
+    }
 }
 
-export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
+export function NotFound({ object, caption, meta }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -30,8 +38,12 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
 
     const appContext = getAppContext()
 
+    useEffect(() => {
+        posthog.capture('not_found_shown', { object })
+    }, [])
+
     return (
-        <div className="NotFoundComponent">
+        <div className="NotFoundComponent" data-attr={`not-found-${object.replace(/\s/g, '-').toLowerCase()}`}>
             {!nodeLogic ? <div className="NotFoundComponent__graphic" /> : null}
             <h1 className="text-3xl font-bold mt-4 mb-0">
                 {appContext?.suggested_users_with_access
@@ -83,6 +95,33 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
                     </LemonButton>
                 </div>
             )}
+            {object === 'Person' && meta?.urlId && (
+                <div className="flex justify-center mt-4 w-fit">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        tooltip={`View events matching distinct_id=${meta?.urlId}`}
+                        to={
+                            combineUrl(
+                                urls.activity(ActivityTab.ExploreEvents),
+                                {},
+                                {
+                                    q: getDefaultEventsSceneQuery([
+                                        {
+                                            type: PropertyFilterType.EventMetadata,
+                                            key: 'distinct_id',
+                                            value: meta.urlId,
+                                            operator: PropertyOperator.Exact,
+                                        },
+                                    ]),
+                                }
+                            ).url
+                        }
+                    >
+                        View events
+                    </LemonButton>
+                </div>
+            )}
         </div>
     )
 }
@@ -92,7 +131,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
     const [successfulUserId, setSuccessfulUserId] = useState<number | null>(null)
 
     return (
-        <ScrollableShadows direction="vertical" className="bg-bg-light border rounded mt-1 max-h-64 *:p-1">
+        <ScrollableShadows direction="vertical" className="bg-surface-primary border rounded mt-1 max-h-64 *:p-1">
             <LemonMenuOverlay
                 items={suggestedUsers.map((user) => ({
                     icon: <ProfilePicture user={user} size="md" />,

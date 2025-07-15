@@ -80,7 +80,7 @@ export const hogReplLogic = kea<hogReplLogicType>([
             (s) => [s.lastLocals],
             (lastLocals): Record<string, any> | undefined => {
                 if (lastLocals) {
-                    return lastLocals.reduce((acc, local) => ({ ...acc, [local[0]]: 'local' }), {})
+                    return lastLocals.reduce((acc, local) => Object.assign(acc, { [local[0]]: 'local' }), {})
                 }
                 return undefined
             },
@@ -208,8 +208,8 @@ export const hogReplLogic = kea<hogReplLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.debugHog()]: (_, __, { repl, code }) => {
-            if ((repl || code) && !values.currentCode && values.replChunks.length === 0) {
+        [urls.debugHog()]: (_, __, { repl, code }, { method }) => {
+            if (method === 'PUSH' || ((repl || code) && !values.currentCode && values.replChunks.length === 0)) {
                 actions.setReplChunks(repl)
                 actions.setCurrentCode(code)
             }

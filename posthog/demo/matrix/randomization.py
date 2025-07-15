@@ -22,27 +22,36 @@ class Industry(StrEnum):
 class PropertiesProvider(mimesis.BaseProvider):
     # Somewhat realistically segmented and weighted pools for random properties: device type/OS/browser
     DEVICE_TYPE_WEIGHTED_POOL: WeightedPool = (
-        ["Desktop", "Mobile", "Tablet"],
-        [8, 1, 1],
+        ["Desktop", "Mobile", "Tablet", "Console", "Wearable"],
+        [10, 2, 2, 1, 1],
     )
     OS_WEIGHTED_POOLS: dict[str, WeightedPool] = {
         "Desktop": (["Windows", "Mac OS X", "Linux", "Chrome OS"], [18, 16, 7, 1]),
-        "Mobile": (["iOS", "Android"], [1, 1]),
+        "Mobile": (["iOS", "Android", "Windows Mobile", "Windows Phone", "Blackberry"], [3, 3, 1, 1, 1]),
         "Tablet": (["iOS", "Android"], [1, 1]),
+        "Console": (["Xbox", "Nintendo", "Playstation"], [1, 1, 1]),
+        "Wearable": (["watchOS"], [1]),
     }
     BROWSER_WEIGHTED_POOLS: dict[str, WeightedPool] = {
         "Windows": (
             ["Chrome", "Firefox", "Opera", "Microsoft Edge", "Internet Explorer"],
             [12, 4, 2, 1, 1],
         ),
-        "Mac OS X": (["Chrome", "Firefox", "Opera", "Safari"], [4, 2, 1, 2]),
-        "Linux": (["Chrome", "Firefox", "Opera"], [3, 3, 1]),
+        "Mac OS X": (["Chrome", "Safari", "Firefox", "Opera", "Microsoft Edge"], [4, 3, 2, 1, 1]),
+        "Linux": (["Chrome", "Firefox", "Opera", "Konqueror"], [3, 3, 1, 1]),
         "Chrome OS": (["Chrome"], [1]),
-        "iOS": (["Mobile Safari", "Chrome iOS", "Firefox iOS"], [8, 1, 1]),
+        "iOS": (["Mobile Safari", "Chrome iOS", "Firefox iOS", "Facebook Mobile"], [8, 1, 1, 1]),
         "Android": (
-            ["Chrome", "Android Mobile", "Samsung Internet", "Firefox"],
-            [5, 3, 3, 1],
+            ["Chrome", "Android Mobile", "Samsung Internet", "Firefox", "UC Browser", "Facebook Mobile"],
+            [6, 4, 3, 1, 1, 1],
         ),
+        "Xbox": (["Chrome"], [1]),
+        "Playstation": (["Chrome"], [1]),
+        "Nintendo": (["Nintendo"], [1]),
+        "watchOS": (["Safari"], [1]),
+        "Blackberry": (["Blackberry"], [1]),
+        "Windows Phone": (["Internet Explorer Mobile", "Microsoft Edge"], [1, 1]),
+        "Windows Mobile": (["Microsoft Edge"], [1]),
     }
 
     INDUSTRY_POOL = (

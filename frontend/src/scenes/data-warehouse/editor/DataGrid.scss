@@ -1,0 +1,37 @@
+.rdg-cell {
+    font-size: 0.75rem;
+    border-block-end: 1px solid var(--border);
+}
+
+.rdg-header-row .rdg-cell:focus,
+.rdg-header-row .rdg-cell:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.rdg-cell:focus,
+.rdg-cell:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.rdg-row {
+    .hover-actions-cell {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    &:hover {
+        cursor: pointer;
+
+        .hover-actions-cell {
+            opacity: 1;
+        }
+    }
+}
+
+.RowDetailsModal {
+    .LemonTable__content table td {
+        max-width: 0;
+    }
+}

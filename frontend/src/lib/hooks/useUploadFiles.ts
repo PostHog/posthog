@@ -72,7 +72,7 @@ export function useUploadFiles({
             }
         }
         uploadFiles().catch(console.error)
-    }, [filesToUpload, onUpload, onError])
+    }, [filesToUpload])
 
     return { setFilesToUpload, filesToUpload, uploading }
 }

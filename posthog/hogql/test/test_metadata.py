@@ -279,7 +279,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "select event AS event FROM events",
                 "errors": [],
             },
@@ -287,7 +286,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_valid_view_nested_view(self):
         saved_query_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -305,7 +304,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "select event AS event FROM event_view",
                 "errors": [],
             },
@@ -341,7 +339,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "let i := NONO()",
                 "isValid": False,
-                "isValidView": False,
                 "notices": [],
                 "warnings": [],
                 "errors": [{"end": 15, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 9}],
@@ -356,7 +353,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             | {
                 "query": "print(event, region)",
                 "isValid": True,
-                "isValidView": False,
                 "notices": [{"end": 11, "fix": None, "message": "Global variable: event", "start": 6}],
                 "warnings": [{"end": 19, "fix": None, "message": "Unknown global variable: region", "start": 13}],
                 "errors": [],
@@ -392,7 +388,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT event AS event FROM events",
                 "errors": [],
             },
@@ -405,7 +400,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT event AS event, uuid FROM events",
                 "errors": [],
             },
@@ -418,7 +412,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)",
                 "errors": [],
             },
@@ -433,7 +426,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": True,
                 "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp",
                 "errors": [],
             },
@@ -446,7 +438,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT * FROM events",
                 "errors": [],
             },
@@ -459,8 +450,69 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             metadata.dict()
             | {
                 "isValid": True,
-                "isValidView": False,
                 "query": "SELECT e.* FROM events e",
                 "errors": [],
             },
         )
+
+    def test_table_collector_basic_select(self):
+        metadata = self._select("SELECT event FROM events")
+        self.assertEqual(metadata.table_names, ["events"])
+
+    def test_table_collector_multiple_tables(self):
+        metadata = self._select(
+            "SELECT events.event, persons.name FROM events JOIN persons ON events.person_id = persons.id"
+        )
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons"]))
+
+    def test_table_collector_with_cte(self):
+        metadata = self._select("""
+            WITH events_count AS (
+                SELECT count(*) as count FROM events
+            )
+            SELECT * FROM events_count
+        """)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events"]))
+
+    def test_table_collector_subquery(self):
+        metadata = self._select("""
+            SELECT * FROM (
+                SELECT event FROM events
+                UNION ALL
+                SELECT event FROM events_summary
+            )
+        """)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
+
+    def test_table_in_filter(self):
+        metadata = self._select("SELECT * FROM events WHERE event IN (SELECT event FROM events_summary)")
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
+
+    def test_table_collector_complex_query(self):
+        metadata = self._select("""
+            WITH user_counts AS (
+                SELECT person_id, count(*) as count
+                FROM events
+                GROUP BY person_id
+            )
+            SELECT
+                p.name,
+                uc.count
+            FROM persons p
+            LEFT JOIN user_counts uc ON p.id = uc.person_id
+            LEFT JOIN cohorts c ON p.cohort_id = c.id
+        """)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons", "cohorts"]))
+
+    def test_experimental_join_condition(self):
+        metadata = self._select("""
+        SELECT t1.a
+        FROM
+            (SELECT number AS a, number * 10 AS b FROM numbers(5)) AS t1
+        JOIN
+            (SELECT number AS key, number * 2 AS c, number * 3 AS d FROM numbers(5)) AS t2
+        ON t1.a = t2.key
+        WHERE t1.b > 0 AND t2.c < t2.d
+        """)
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["numbers"]))

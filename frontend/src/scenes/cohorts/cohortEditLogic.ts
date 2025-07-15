@@ -17,9 +17,11 @@ import {
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
+import { v4 as uuidv4 } from 'uuid'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
@@ -96,7 +98,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             state,
                             (criteriaList) => [
                                 ...criteriaList.slice(0, criteriaIndex),
-                                criteriaList[criteriaIndex],
+                                {
+                                    ...criteriaList[criteriaIndex],
+                                    sort_key: uuidv4(),
+                                },
                                 ...criteriaList.slice(criteriaIndex),
                             ],
                             groupIndex
@@ -104,7 +109,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                     return applyAllCriteriaGroup(state, (groupList) => [
                         ...groupList.slice(0, groupIndex),
-                        groupList[groupIndex],
+                        {
+                            ...groupList[groupIndex],
+                            sort_key: uuidv4(),
+                        },
                         ...groupList.slice(groupIndex),
                     ])
                 },
@@ -112,11 +120,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     if (groupIndex !== undefined) {
                         return applyAllNestedCriteria(
                             state,
-                            (criteriaList) => [...criteriaList, NEW_CRITERIA],
+                            (criteriaList) => [...criteriaList, { ...NEW_CRITERIA, sort_key: uuidv4() }],
                             groupIndex
                         )
                     }
-                    return applyAllCriteriaGroup(state, (groupList) => [...groupList, NEW_CRITERIA_GROUP])
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList,
+                        { ...NEW_CRITERIA_GROUP, sort_key: uuidv4() },
+                    ])
                 },
                 removeFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
@@ -193,7 +204,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
-                actions.saveCohort(cohort)
+                if (cohort.id !== 'new') {
+                    actions.saveCohort(cohort)
+                } else {
+                    actions.saveCohort({ ...cohort, _create_in_folder: 'Unfiled/Cohorts' })
+                }
             },
         },
     })),
@@ -208,6 +223,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
+                        actions.setCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
                     } catch (error: any) {
@@ -243,8 +259,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
                     cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
                     breakpoint()
+
                     delete cohort['csv']
                     actions.setCohort(cohort)
+                    refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
                     })
@@ -282,7 +300,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         } else {
                             const data = { ...values.cohort }
                             data.name += ' (dynamic copy)'
-                            cohort = await api.cohorts.create(data)
+                            const cohortFormData = createCohortFormData(data)
+                            cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                         }
                         lemonToast.success(
                             'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
@@ -326,7 +345,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }, 1000)
                 )
             } else {
-                actions.setCohort(cohort)
+                // Only update calculation-related fields, preserve user edits for other fields
+                const calculationFields = {
+                    is_calculating: cohort.is_calculating,
+                    errors_calculating: cohort.errors_calculating,
+                    last_calculation: cohort.last_calculation,
+                    count: cohort.count,
+                }
+                actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {

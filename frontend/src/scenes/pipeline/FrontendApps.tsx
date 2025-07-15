@@ -11,31 +11,45 @@ import { PipelineStage, ProductKey } from '~/types'
 import { frontendAppsLogic } from './frontendAppsLogic'
 import { NewButton } from './NewButton'
 import { SiteApp } from './types'
-import { appColumn, nameColumn, pipelinePluginBackedNodeMenuCommonItems } from './utils'
+import { appColumn, nameColumn, usePipelinePluginBackedNodeMenuCommonItems } from './utils'
 
-export function FrontendApps(): JSX.Element {
+export interface FrontendAppsProps {
+    asLegacyList?: boolean
+}
+
+export function FrontendApps({ asLegacyList }: FrontendAppsProps): JSX.Element {
     const { loading, frontendApps } = useValues(frontendAppsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(frontendAppsLogic)
 
-    const shouldShowEmptyState = frontendApps.length === 0 && !loading
+    const shouldShowEmptyState = frontendApps.length === 0 && !loading && !asLegacyList
 
     return (
         <>
-            <PageHeader
-                caption="Extend your web app with custom functionality."
-                buttons={<NewButton stage={PipelineStage.SiteApp} />}
-            />
-            <ProductIntroduction
-                productName="Site apps"
-                thingName="site app"
-                productKey={ProductKey.SITE_APPS}
-                description="Site apps allow you to add custom functionality to your website using PostHog."
-                docsURL="https://posthog.com/docs/apps/pineapple-mode"
-                actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
-                isEmpty={shouldShowEmptyState}
-            />
+            {!asLegacyList && (
+                <PageHeader
+                    caption="Extend your web app with custom functionality."
+                    buttons={<NewButton stage={PipelineStage.SiteApp} />}
+                />
+            )}
+            {!asLegacyList && (
+                <ProductIntroduction
+                    productName="Site apps"
+                    thingName="site app"
+                    productKey={ProductKey.SITE_APPS}
+                    description="Site apps allow you to add custom functionality to your website using PostHog."
+                    docsURL="https://posthog.com/docs/apps/pineapple-mode"
+                    actionElementOverride={<NewButton stage={PipelineStage.SiteApp} />}
+                    isEmpty={shouldShowEmptyState}
+                />
+            )}
             {!shouldShowEmptyState && (
                 <>
+                    {!loading && asLegacyList && (
+                        <>
+                            <h2 className="mt-4">Legacy Site apps</h2>
+                            <p>These site apps are using an older system and should eventually be migrated over.</p>
+                        </>
+                    )}
                     <LemonTable
                         dataSource={frontendApps}
                         size="small"
@@ -53,7 +67,7 @@ export function FrontendApps(): JSX.Element {
                                             overlay={
                                                 <LemonMenuOverlay
                                                     items={[
-                                                        ...pipelinePluginBackedNodeMenuCommonItems(
+                                                        ...usePipelinePluginBackedNodeMenuCommonItems(
                                                             frontendApp,
                                                             toggleEnabled,
                                                             loadPluginConfigs

@@ -1,6 +1,4 @@
-import { Meta } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -9,11 +7,14 @@ import { mswDecorator } from '~/mocks/browser'
 import featureFlags from './__mocks__/feature_flags.json'
 
 const meta: Meta = {
+    component: App,
+    tags: ['ff'],
     title: 'Scenes-App/Feature Flags',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
+        pageUrl: urls.featureFlags(),
     },
     decorators: [
         mswDecorator({
@@ -33,6 +34,13 @@ const meta: Meta = {
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],
+                '/api/projects/:team_id/feature_flags/:flagId/status': () => [
+                    200,
+                    {
+                        status: 'active',
+                        reason: 'Feature flag is active',
+                    },
+                ],
             },
             post: {
                 '/api/environments/:team_id/query': {},
@@ -46,37 +54,42 @@ const meta: Meta = {
     ],
 }
 export default meta
-export function FeatureFlagsList(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.featureFlags())
-    }, [])
-    return <App />
+
+type Story = StoryObj<typeof meta>
+export const FeatureFlagsList: Story = {}
+
+export const NewFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag('new'),
+    },
 }
 
-export function NewFeatureFlag(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.featureFlag('new'))
-    }, [])
-    return <App />
+export const EditFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(1779),
+    },
 }
 
-export function EditFeatureFlag(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.featureFlag(1779))
-    }, [])
-    return <App />
+export const EditMultiVariateFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(1502),
+    },
 }
 
-export function EditMultiVariateFeatureFlag(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.featureFlag(1502))
-    }, [])
-    return <App />
+export const EditRemoteConfigFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(1738),
+    },
 }
 
-export function FeatureFlagNotFound(): JSX.Element {
-    useEffect(() => {
-        router.actions.push(urls.featureFlag(1111111111111))
-    }, [])
-    return <App />
+export const EditEncryptedRemoteConfigFeatureFlag: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(1739),
+    },
+}
+
+export const FeatureFlagNotFound: Story = {
+    parameters: {
+        pageUrl: urls.featureFlag(1111111111111),
+    },
 }

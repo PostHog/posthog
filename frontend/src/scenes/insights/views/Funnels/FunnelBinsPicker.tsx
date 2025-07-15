@@ -55,7 +55,7 @@ export function FunnelBinsPicker(): JSX.Element {
     const selectedOption = BIN_OPTIONS.find((o) => o.value === selectedValue)
 
     const overlay = (
-        <div className="space-y-px" onClick={(e) => e.stopPropagation()}>
+        <div className="deprecated-space-y-px" onClick={(e) => e.stopPropagation()}>
             {preferredOptions.map((bin) => (
                 <LemonButton
                     fullWidth

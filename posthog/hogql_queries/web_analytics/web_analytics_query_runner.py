@@ -1,36 +1,49 @@
 import typing
 from abc import ABC
-from datetime import timedelta
+from datetime import timedelta, datetime
 from math import ceil
 from typing import Optional, Union
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
-from django.utils.timezone import datetime
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr, action_to_expr, apply_path_cleaning
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql.database.schema.exchange_rate import revenue_where_expr_for_events
+
+from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
+    ActionConversionGoal,
+    CustomEventConversionGoal,
     EventPropertyFilter,
-    WebTopClicksQuery,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsTableQuery,
     PersonPropertyFilter,
     SamplingRate,
     SessionPropertyFilter,
     WebGoalsQuery,
     WebExternalClicksTableQuery,
+    WebVitalsPathBreakdownQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
 WebQueryNode = Union[
-    WebOverviewQuery, WebTopClicksQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebExternalClicksTableQuery,
+    WebVitalsPathBreakdownQuery,
+    WebPageURLSearchQuery,
 ]
 
 
@@ -40,11 +53,87 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def query_date_range(self):
+        # Respect the convertToProjectTimezone modifier for date range calculation
+        # When convertToProjectTimezone=False, use UTC for both date boundaries AND column conversion
+        timezone_info = (
+            ZoneInfo("UTC")
+            if self.modifiers and not self.modifiers.convertToProjectTimezone
+            else self.team.timezone_info
+        )
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
+            timezone_info=timezone_info,
             interval=None,
-            now=datetime.now(),
+            now=datetime.now(timezone_info),
+        )
+
+    @cached_property
+    def query_compare_to_date_range(self):
+        if self.query.compareFilter is not None:
+            if isinstance(self.query.compareFilter.compare_to, str):
+                return QueryCompareToDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                    compare_to=self.query.compareFilter.compare_to,
+                )
+            elif self.query.compareFilter.compare:
+                return QueryPreviousPeriodDateRange(
+                    date_range=self.query.dateRange,
+                    team=self.team,
+                    interval=None,
+                    now=datetime.now(),
+                )
+
+        return None
+
+    def _current_period_expression(self, field="start_timestamp"):
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.LtEq,
+                ),
+            ],
+        )
+
+    def _previous_period_expression(self, field="start_timestamp"):
+        # NOTE: Returning `ast.Constant(value=None)` is painfully slow, make sure we return a boolean
+        if not self.query_compare_to_date_range:
+            return ast.Constant(value=False)
+
+        return ast.Call(
+            name="and",
+            args=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_from_as_hogql(),
+                    op=ast.CompareOperationOp.GtEq,
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=[field]),
+                    right=self.query_compare_to_date_range.date_to_as_hogql(),
+                    op=ast.CompareOperationOp.LtEq,
+                ),
+            ],
+        )
+
+    def _periods_expression(self, field="timestamp"):
+        return ast.Call(
+            name="or",
+            args=[
+                self._current_period_expression(field),
+                self._previous_period_expression(field),
+            ],
         )
 
     @cached_property
@@ -60,14 +149,155 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     ) -> list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]:
         return [p for p in self.query.properties if p.key != "$pathname"]
 
+    @cached_property
+    def conversion_goal_expr(self) -> Optional[ast.Expr]:
+        if isinstance(self.query.conversionGoal, ActionConversionGoal):
+            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            return action_to_expr(action)
+        elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            return ast.CompareOperation(
+                left=ast.Field(chain=["events", "event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=self.query.conversionGoal.customEventName),
+            )
+        else:
+            return None
+
+    @cached_property
+    def conversion_count_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(name="countIf", args=[self.conversion_goal_expr])
+        else:
+            return None
+
+    @cached_property
+    def conversion_person_id_expr(self) -> Optional[ast.Expr]:
+        if self.conversion_goal_expr:
+            return ast.Call(
+                name="any",
+                args=[
+                    ast.Call(
+                        name="if",
+                        args=[
+                            self.conversion_goal_expr,
+                            ast.Field(chain=["events", "person_id"]),
+                            ast.Constant(value=None),
+                        ],
+                    )
+                ],
+            )
+        else:
+            return None
+
+    @cached_property
+    def conversion_revenue_expr(self) -> ast.Expr:
+        if not self.team.revenue_analytics_config.events:
+            return ast.Constant(value=None)
+
+        if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
+            event_name = self.query.conversionGoal.customEventName
+            revenue_property = next(
+                (
+                    event_item.revenueProperty
+                    for event_item in self.team.revenue_analytics_config.events
+                    if event_item.eventName == event_name
+                ),
+                None,
+            )
+
+            if not revenue_property:
+                return ast.Constant(value=None)
+
+            return ast.Call(
+                name="sumIf",
+                args=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="toFloat", args=[ast.Field(chain=["events", "properties", revenue_property])]
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event_name),
+                    ),
+                ],
+            )
+        else:
+            # for now, don't support conversion revenue for actions
+            return ast.Constant(value=None)
+
+    @cached_property
+    def event_type_expr(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$screen")
+            ),
+        ]
+
+        if self.conversion_goal_expr:
+            exprs.append(self.conversion_goal_expr)
+        elif self.query.includeRevenue:
+            # Use elif here, we don't need to include revenue events if we already included conversion events, because
+            # if there is a conversion goal set then we only show revenue from conversion events.
+            exprs.append(revenue_where_expr_for_events(self.team))
+
+        return ast.Or(exprs=exprs)
+
+    def period_aggregate(
+        self,
+        function_name: str,
+        column_name: str,
+        start: ast.Expr,
+        end: ast.Expr,
+        alias: Optional[str] = None,
+        params: Optional[list[ast.Expr]] = None,
+    ):
+        expr = ast.Call(
+            name=function_name + "If",
+            params=params,
+            args=[
+                ast.Field(chain=[column_name]),
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=start,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.LtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=end,
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        if alias is not None:
+            return ast.Alias(alias=alias, expr=expr)
+
+        return expr
+
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
-                "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
                 placeholders={
-                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                    if include_previous_period
-                    else self.query_date_range.date_from_as_hogql(),
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
                     "date_to": self.query_date_range.date_to_as_hogql(),
                 },
             ),
@@ -80,13 +310,15 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         )
 
     def session_having(self, include_previous_period: Optional[bool] = None):
-        properties = [
+        properties: list[Union[ast.Expr, EventPropertyFilter]] = [
             parse_expr(
                 "min_timestamp >= {date_from}",
                 placeholders={
-                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                    if include_previous_period
-                    else self.query_date_range.date_from_as_hogql(),
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
                 },
             )
         ]
@@ -110,9 +342,11 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             parse_expr(
                 "sessions.min_timestamp >= {date_from}",
                 placeholders={
-                    "date_from": self.query_date_range.previous_period_date_from_as_hogql()
-                    if include_previous_period
-                    else self.query_date_range.date_from_as_hogql(),
+                    "date_from": (
+                        self.query_date_range.previous_period_date_from_as_hogql()
+                        if include_previous_period
+                        else self.query_date_range.date_from_as_hogql()
+                    ),
                 },
             )
         ]
@@ -137,7 +371,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                     placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
                 ),
                 parse_expr(
-                    "events.timestamp < {date_to}",
+                    "events.timestamp <= {date_to}",
                     placeholders={"date_to": self.query_date_range.date_to_as_hogql()},
                 ),
             ],
@@ -237,7 +471,13 @@ WHERE
             right=ast.Constant(value=sample_rate.denominator) if sample_rate.denominator else None,
         )
 
-    def _unsample(self, n: Optional[int | float]):
+    def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
+        if not self.query.doPathCleaning:
+            return path_expr
+
+        return apply_path_cleaning(path_expr, self.team)
+
+    def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):
         if n is None:
             return None
 
@@ -250,6 +490,14 @@ WHERE
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
+
+    @cached_property
+    def events_session_property(self):
+        # we should delete this once SessionsV2JoinMode is always uuid, eventually we will always use $session_id_uuid
+        if self.query.modifiers and self.query.modifiers.sessionsV2JoinMode == "uuid":
+            return parse_expr("events.$session_id_uuid")
+        else:
+            return parse_expr("events.$session_id")
 
 
 def _sample_rate_from_count(count: int) -> SamplingRate:
@@ -265,4 +513,4 @@ def _sample_rate_from_count(count: int) -> SamplingRate:
 
 
 def map_columns(results, mapper: dict[int, typing.Callable]):
-    return [[mapper[i](data) if i in mapper else data for i, data in enumerate(row)] for row in results]
+    return [[mapper[i](data, row) if i in mapper else data for i, data in enumerate(row)] for row in results]

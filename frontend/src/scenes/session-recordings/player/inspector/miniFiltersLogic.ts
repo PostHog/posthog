@@ -1,183 +1,142 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionRecordingPlayerTab } from '~/types'
-
 import type { miniFiltersLogicType } from './miniFiltersLogicType'
+import { FilterableInspectorListItemTypes } from './playerInspectorLogic'
 
 export type SharedListMiniFilter = {
-    tab: SessionRecordingPlayerTab
+    type: FilterableInspectorListItemTypes
     key: string
     name: string
-    // If alone, then enabling it will disable all the others
-    alone?: boolean
     tooltip?: string
     enabled?: boolean
 }
 
-const MiniFilters: SharedListMiniFilter[] = [
+export const MiniFilters: SharedListMiniFilter[] = [
     {
-        tab: SessionRecordingPlayerTab.ALL,
-        key: 'all-automatic',
-        name: 'Auto',
-        alone: true,
-        tooltip: 'Curated list of key PostHog events, custom events, error logs etc.',
-    },
-    {
-        tab: SessionRecordingPlayerTab.ALL,
-        key: 'all-errors',
-        name: 'Errors',
-        alone: true,
-        tooltip: 'Events containing "error" or "exception" in their name and console errors',
-    },
-    {
-        tab: SessionRecordingPlayerTab.ALL,
-        key: 'all-everything',
-        name: 'Everything',
-        alone: true,
-        tooltip: 'Everything that happened in this session',
-    },
-    {
-        tab: SessionRecordingPlayerTab.EVENTS,
-        key: 'events-all',
-        name: 'All',
-        alone: true,
-        tooltip: 'All events tracked during this session',
-    },
-    {
-        tab: SessionRecordingPlayerTab.EVENTS,
+        type: 'events',
         key: 'events-posthog',
         name: 'PostHog',
-        tooltip: 'Standard PostHog events like Pageviews, Autocapture etc.',
+        tooltip: 'Standard PostHog events except Pageviews, Autocapture, and Exceptions.',
     },
     {
-        tab: SessionRecordingPlayerTab.EVENTS,
+        type: 'events',
         key: 'events-custom',
         name: 'Custom',
         tooltip: 'Custom events tracked by your app',
     },
     {
-        tab: SessionRecordingPlayerTab.EVENTS,
+        type: 'events',
         key: 'events-pageview',
         name: 'Pageview / Screen',
         tooltip: 'Pageview (or Screen for mobile) events',
     },
     {
-        tab: SessionRecordingPlayerTab.EVENTS,
+        type: 'events',
         key: 'events-autocapture',
         name: 'Autocapture',
         tooltip: 'Autocapture events such as clicks and inputs',
     },
     {
-        tab: SessionRecordingPlayerTab.EVENTS,
+        type: 'events',
         key: 'events-exceptions',
         name: 'Exceptions',
         tooltip: 'Exception events from PostHog or its Sentry integration',
     },
     {
-        tab: SessionRecordingPlayerTab.CONSOLE,
-        key: 'console-all',
-        name: 'All',
-        alone: true,
-    },
-    {
-        tab: SessionRecordingPlayerTab.CONSOLE,
+        type: 'console',
         key: 'console-info',
         name: 'Info',
     },
     {
-        tab: SessionRecordingPlayerTab.CONSOLE,
+        type: 'console',
         key: 'console-warn',
         name: 'Warn',
     },
     {
-        tab: SessionRecordingPlayerTab.CONSOLE,
+        type: 'console',
         key: 'console-error',
         name: 'Error',
     },
     {
-        tab: SessionRecordingPlayerTab.NETWORK,
-        key: 'performance-all',
-        name: 'All',
-        alone: true,
-        tooltip: 'All network performance information collected during the session',
-    },
-    {
-        tab: SessionRecordingPlayerTab.NETWORK,
+        type: 'network',
         key: 'performance-fetch',
         name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
-        tab: SessionRecordingPlayerTab.NETWORK,
+        type: 'network',
         key: 'performance-document',
         name: 'Doc',
         tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
     },
     {
-        tab: SessionRecordingPlayerTab.NETWORK,
+        type: 'network',
         key: 'performance-assets-js',
         name: 'JS',
         tooltip: 'Scripts loaded during the session.',
     },
     {
-        tab: SessionRecordingPlayerTab.NETWORK,
+        type: 'network',
         key: 'performance-assets-css',
         name: 'CSS',
         tooltip: 'CSS loaded during the session.',
     },
     {
-        tab: SessionRecordingPlayerTab.NETWORK,
+        type: 'network',
         key: 'performance-assets-img',
         name: 'Img',
         tooltip: 'Images loaded during the session.',
     },
     {
-        tab: SessionRecordingPlayerTab.NETWORK,
+        type: 'network',
         key: 'performance-other',
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
+    {
+        type: 'doctor',
+        key: 'doctor',
+        name: 'Doctor',
+        tooltip:
+            'Doctor events are special events that are automatically detected by PostHog to help diagnose issues in replay.',
+    },
+    {
+        type: 'comment',
+        key: 'comment',
+        name: 'Comments',
+        tooltip:
+            'Comments can be made using annotations or notebooks. Includes project and org level annotations that are within this session.',
+    },
+]
+export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
-    // NOTE: The below filters use the `response_status` property which is currently experiemental
-    // and as such doesn't show for many browsers: https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming/responseStatus
-    // We should only add these in if the recording in question has those values (otherwiseit is a confusing experience for the user)
-
-    // {
-    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
-    //     key: 'performance-2xx',
-    //     name: '2xx',
-    //     tooltip:
-    //         'Requests that returned a HTTP status code of 2xx. The request was successfully received, understood, and accepted.',
-    // },
-    // {
-    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
-    //     key: 'performance-4xx',
-    //     name: '4xx',
-    //     tooltip:
-    //         'Requests that returned a HTTP status code of 4xx. The request contains bad syntax or cannot be fulfilled.',
-    // },
-    // {
-    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
-    //     key: 'performance-5xx',
-    //     name: '5xx',
-    //     tooltip:
-    //         'Requests that returned a HTTP status code of 5xx. The server failed to fulfil an apparently valid request.',
-    // },
+const defaultMinifilters = [
+    'events-posthog',
+    'events-custom',
+    'events-pageview',
+    'events-autocapture',
+    'events-exceptions',
+    'console-info',
+    'console-warn',
+    'console-error',
+    'comment',
 ]
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([
     path(['scenes', 'session-recordings', 'player', 'miniFiltersLogic']),
     actions({
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
-        setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
-        setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
+        setMiniFilter: (key: MiniFilterKey, enabled: boolean) => ({ key, enabled }),
+        setMiniFilters: (keys: MiniFilterKey[], enabled: boolean) => ({ keys, enabled }),
         setSearchQuery: (search: string) => ({ search }),
+        resetMiniFilters: true,
     }),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingInspectorMiniFilterViewed']],
+    })),
     reducers(() => ({
         showOnlyMatching: [
             false,
@@ -187,56 +146,28 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             },
         ],
 
-        tab: [
-            SessionRecordingPlayerTab.ALL as SessionRecordingPlayerTab,
-            { persist: true },
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
-
         selectedMiniFilters: [
-            ['all-automatic', 'console-all', 'events-all', 'performance-all'] as string[],
+            defaultMinifilters,
             { persist: true },
             {
                 setMiniFilter: (state, { key, enabled }) => {
-                    const selectedFilter = MiniFilters.find((x) => x.key === key)
-
-                    if (!selectedFilter) {
-                        return state
-                    }
-                    const filtersInTab = MiniFilters.filter((x) => x.tab === selectedFilter.tab)
-
-                    const newFilters = state.filter((existingSelected) => {
-                        const filterInTab = filtersInTab.find((x) => x.key === existingSelected)
-                        if (!filterInTab) {
-                            return true
-                        }
-
-                        if (enabled) {
-                            if (selectedFilter.alone) {
-                                return false
-                            }
-                            return filterInTab.alone ? false : true
-                        }
-
-                        if (existingSelected !== key) {
-                            return true
-                        }
-                        return false
-                    })
-
+                    const stateWithoutKey = state.filter((x) => x !== key)
                     if (enabled) {
-                        newFilters.push(key)
-                    } else {
-                        // Ensure the first one is checked if no others
-                        if (filtersInTab.every((x) => !newFilters.includes(x.key))) {
-                            newFilters.push(filtersInTab[0].key)
-                        }
+                        // ensure it's in the array
+                        // remove it if it's there and then add it back
+                        return stateWithoutKey.concat(key)
                     }
-
-                    return newFilters
+                    // ensure it's not in the array
+                    return stateWithoutKey
                 },
+                setMiniFilters: (state, { keys, enabled }) => {
+                    const stateWithoutKeys = state.filter((x) => !keys.includes(x))
+                    if (enabled) {
+                        return stateWithoutKeys.concat(...keys)
+                    }
+                    return stateWithoutKeys
+                },
+                resetMiniFilters: () => defaultMinifilters,
             },
         ],
 
@@ -249,11 +180,11 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     })),
 
     selectors({
-        miniFiltersForTab: [
+        miniFiltersForType: [
             (s) => [s.selectedMiniFilters],
-            (selectedMiniFilters): ((tab: SessionRecordingPlayerTab) => SharedListMiniFilter[]) => {
-                return (tab: SessionRecordingPlayerTab) => {
-                    return MiniFilters.filter((filter) => filter.tab === tab).map((x) => ({
+            (selectedMiniFilters): ((tab: FilterableInspectorListItemTypes) => SharedListMiniFilter[]) => {
+                return (tab: FilterableInspectorListItemTypes) => {
+                    return MiniFilters.filter((filter) => filter.type === tab).map((x) => ({
                         ...x,
                         enabled: selectedMiniFilters.includes(x.key),
                     }))
@@ -261,10 +192,18 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             },
         ],
 
+        hasEventsFiltersSelected: [
+            (s) => [s.miniFiltersForType],
+            (miniFiltersForType) => miniFiltersForType('events').some((x) => x.enabled),
+        ],
+
         miniFilters: [
-            (s) => [s.tab, s.miniFiltersForTab],
-            (tab, miniFiltersForTab): SharedListMiniFilter[] => {
-                return miniFiltersForTab(tab)
+            (s) => [s.selectedMiniFilters],
+            (selectedMiniFilters): SharedListMiniFilter[] => {
+                return MiniFilters.map((x) => ({
+                    ...x,
+                    enabled: selectedMiniFilters.includes(x.key),
+                }))
             },
         ],
 
@@ -278,11 +217,13 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             },
         ],
 
-        miniFiltersForTabByKey: [
-            (s) => [s.miniFiltersForTab],
-            (miniFiltersForTab): ((tab: SessionRecordingPlayerTab) => { [key: string]: SharedListMiniFilter }) => {
+        miniFiltersForTypeByKey: [
+            (s) => [s.miniFiltersForType],
+            (
+                miniFiltersForType
+            ): ((tab: FilterableInspectorListItemTypes) => { [key: string]: SharedListMiniFilter }) => {
                 return (tab) => {
-                    return miniFiltersForTab(tab).reduce((acc, filter) => {
+                    return miniFiltersForType(tab).reduce((acc, filter) => {
                         acc[filter.key] = filter
                         return acc
                     }, {})
@@ -290,13 +231,18 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             },
         ],
     }),
-    listeners(({ values }) => ({
-        setTab: ({ tab }) => {
-            eventUsageLogic.actions.reportRecordingInspectorTabViewed(tab)
-        },
+    listeners(({ actions }) => ({
         setMiniFilter: ({ key, enabled }) => {
             if (enabled) {
-                eventUsageLogic.actions.reportRecordingInspectorMiniFilterViewed(values.tab, key)
+                actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
+            }
+        },
+    })),
+    events(({ values, actions }) => ({
+        afterMount: () => {
+            // we removed the `all` filters, if someone has them persisted we need to reset to default
+            if (values.selectedMiniFilters.some((filter) => filter.includes('all'))) {
+                actions.resetMiniFilters()
             }
         },
     })),

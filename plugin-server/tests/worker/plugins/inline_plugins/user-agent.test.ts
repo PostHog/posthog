@@ -11,7 +11,7 @@ describe('user-agent tests', () => {
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         await resetTestDatabase()
     })
 
@@ -29,8 +29,8 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'true', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
-        expect(Object.keys(processedEvent.properties)).toStrictEqual(['$lib'])
+        const processedEvent = await processEvent!(event)
+        expect(Object.keys(processedEvent.properties!)).toStrictEqual(['$lib'])
     })
 
     test('should not process event when $userAgent is empty', async () => {
@@ -44,8 +44,8 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'true', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
-        expect(Object.keys(processedEvent.properties)).toStrictEqual(['$lib'])
+        const processedEvent = await processEvent!(event)
+        expect(Object.keys(processedEvent.properties!)).toStrictEqual(['$lib'])
     })
 
     test('should add user agent details when $useragent property exists', async () => {
@@ -60,8 +60,8 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'true', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
-        expect(Object.keys(processedEvent.properties)).toEqual(
+        const processedEvent = await processEvent!(event)
+        expect(Object.keys(processedEvent.properties!)).toEqual(
             expect.arrayContaining([
                 '$lib',
                 '$browser',
@@ -93,8 +93,8 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'true', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
-        expect(Object.keys(processedEvent.properties)).toEqual(
+        const processedEvent = await processEvent!(event)
+        expect(Object.keys(processedEvent.properties!)).toEqual(
             expect.arrayContaining([
                 '$lib',
                 '$browser',
@@ -128,8 +128,8 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'true', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
-        expect(Object.keys(processedEvent.properties)).toEqual(
+        const processedEvent = await processEvent!(event)
+        expect(Object.keys(processedEvent.properties!)).toEqual(
             expect.arrayContaining([
                 '$lib',
                 '$browser',
@@ -173,13 +173,11 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'false', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
+        const processedEvent = await processEvent!(event)
 
-        expect(Object.keys(processedEvent.properties)).toEqual(
+        expect(Object.keys(processedEvent.properties!)).toEqual(
             expect.arrayContaining(['$browser', '$browser_version', '$os', '$device', '$device_type', '$browser_type'])
         )
-
-        console.log(processedEvent.properties)
 
         expect(processedEvent.properties).toStrictEqual(
             expect.objectContaining({
@@ -214,13 +212,11 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'false', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
+        const processedEvent = await processEvent!(event)
 
-        expect(Object.keys(processedEvent.properties)).toEqual(
+        expect(Object.keys(processedEvent.properties!)).toEqual(
             expect.arrayContaining(['$browser', '$browser_version', '$os', '$device', '$device_type', '$browser_type'])
         )
-
-        console.log(processedEvent.properties)
 
         expect(processedEvent.properties).toStrictEqual(
             expect.objectContaining({
@@ -249,7 +245,7 @@ describe('user-agent tests', () => {
         const instance = constructInlinePluginInstance(hub, getConfig('false', 'false', 'false'))
         const processEvent = await instance.getPluginMethod('processEvent')
 
-        const processedEvent = await processEvent(event)
+        const processedEvent = await processEvent!(event)
         expect(processedEvent.properties).toStrictEqual(
             expect.objectContaining({
                 $browser: 'safari',
@@ -274,8 +270,8 @@ describe('user-agent tests', () => {
             const instance = constructInlinePluginInstance(hub, getConfig('true', 'true', 'false'))
             const processEvent = await instance.getPluginMethod('processEvent')
 
-            const processedEvent = await processEvent(event)
-            expect(Object.keys(processedEvent.properties)).toEqual(
+            const processedEvent = await processEvent!(event)
+            expect(Object.keys(processedEvent.properties!)).toEqual(
                 expect.arrayContaining(['$lib', '$browser', '$browser_version', '$os', '$browser_type'])
             )
             expect(processedEvent.properties).toStrictEqual(
@@ -291,11 +287,8 @@ describe('user-agent tests', () => {
     })
 })
 
-function getConfig(
-    enableSegmentAnalyticsJs: string,
-    overrideUserAgentDetails: string,
-    debugMode: string
-): PluginConfig {
+function getConfig(enableSegmentAnalyticsJs: string, overrideUserAgentDetails: string, debugMode: string) {
+    // @ts-expect-error TODO: Fix type error
     return {
         plugin: {
             id: null,
@@ -316,5 +309,5 @@ function getConfig(
         team_id: null,
         order: null,
         created_at: null,
-    }
+    } as PluginConfig
 }

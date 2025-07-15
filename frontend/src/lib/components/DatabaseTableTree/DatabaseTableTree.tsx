@@ -1,4 +1,6 @@
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { LemonMenuItem } from '@posthog/lemon-ui'
+
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { TreeFolderRow, TreeRow, TreeTableRow } from './TreeRow'
 
@@ -30,6 +32,7 @@ export interface TreeItemLeaf {
     name: string
     type: string
     icon?: React.ReactNode
+    menuItems?: LemonMenuItem[]
 }
 
 export function DatabaseTableTree({ items, onSelectRow, selectedRow, depth = 1, className }: TreeProps): JSX.Element {
@@ -68,6 +71,7 @@ export function DatabaseTableTree({ items, onSelectRow, selectedRow, depth = 1, 
                         depth={depth}
                         onClick={onSelectRow}
                         selected={!!(selectedRow?.name == item.name)}
+                        menuItems={item.menuItems}
                     />
                 )
             })}

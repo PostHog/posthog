@@ -5,7 +5,9 @@ from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQuery
 from posthog.models.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.schema import (
-    InsightDateRange,
+    BreakdownFilter,
+    DashboardFilter,
+    DateRange,
     IntervalType,
     LifecycleQuery,
     EventsNode,
@@ -14,6 +16,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     ActionsNode,
     CohortPropertyFilter,
+    HogQLPropertyFilter,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -61,7 +64,7 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
     def _create_query_runner(self, date_from, date_to, interval, aggregation_group_type_index) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
         query = LifecycleQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             interval=interval,
             series=series,
             aggregation_group_type_index=aggregation_group_type_index,
@@ -617,6 +620,17 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 _create_event(team=self.team, event=event, distinct_id=id, timestamp=timestamp)
         return person_result
 
+    def _create_personless_events(self, data, event="$pageview"):
+        for id, timestamps in data:
+            for timestamp in timestamps:
+                _create_event(
+                    team=self.team,
+                    event=event,
+                    distinct_id=id,
+                    timestamp=timestamp,
+                    properties={"$process_person_profile": False},
+                )
+
     def _create_test_events(self):
         self._create_events(
             data=[
@@ -641,7 +655,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_query_runner(self, date_from, date_to, interval) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
         query = LifecycleQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             interval=interval,
             series=series,
         )
@@ -958,7 +972,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1008,7 +1022,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event=None)],
                 ),
@@ -1072,7 +1086,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1173,7 +1187,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                     properties=[EventPropertyFilter(key="$number", value="1", operator=PropertyOperator.EXACT)],
@@ -1198,7 +1212,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[
                         EventsNode(
@@ -1304,7 +1318,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[
                         EventsNode(
@@ -1325,6 +1339,100 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
                 {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
                 {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+            ],
+        )
+
+    def test_lifecycle_virtual_person_property_hogql_filter(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$referring_domain": "https://www.google.com"},
+            )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    interval=IntervalType.DAY,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                HogQLPropertyFilter(key="person.$virt_initial_channel_type = 'Organic Search'")
+                            ],
+                        )
+                    ],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_virtual_person_property_filter(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=["p1"],
+                properties={"$initial_referring_domain": "https://www.google.com"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="p1",
+                timestamp="2020-01-12T12:00:00Z",
+                properties={"$referring_domain": "https://www.google.com"},
+            )
+
+        result = (
+            LifecycleQueryRunner(
+                team=self.team,
+                query=LifecycleQuery(
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    interval=IntervalType.DAY,
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                PersonPropertyFilter(
+                                    key="$virt_initial_channel_type",
+                                    value="Organic Search",
+                                    operator=PropertyOperator.EXACT,
+                                )
+                            ],
+                        )
+                    ],
+                ),
+            )
+            .calculate()
+            .results
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0, 0]},
             ],
         )
 
@@ -1373,7 +1481,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1418,7 +1526,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[ActionsNode(id=pageview_action.pk)],
                 ),
@@ -1462,7 +1570,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 LifecycleQueryRunner(
                     team=self.team,
                     query=LifecycleQuery(
-                        dateRange=InsightDateRange(date_from="all"),
+                        dateRange=DateRange(date_from="all"),
                         interval=IntervalType.DAY,
                         series=[EventsNode(event="$pageview")],
                     ),
@@ -1509,7 +1617,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
                     interval=IntervalType.WEEK,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1568,7 +1676,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-02-05T00:00:00Z", date_to="2020-03-09T00:00:00Z"),
                     interval=IntervalType.WEEK,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1623,7 +1731,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-02-01T00:00:00Z", date_to="2020-09-01T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-02-01T00:00:00Z", date_to="2020-09-01T00:00:00Z"),
                     interval=IntervalType.MONTH,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1666,7 +1774,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                     filterTestAccounts=True,
@@ -1711,7 +1819,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12", date_to="2020-01-19"),
+                    dateRange=DateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1737,7 +1845,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=InsightDateRange(date_from="2020-01-12", date_to="2020-01-19"),
+                    dateRange=DateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.DAY,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1784,7 +1892,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         LifecycleQueryRunner(
             team=self.team,
             query=LifecycleQuery(
-                dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                 interval=IntervalType.DAY,
                 series=[EventsNode(event="$pageview")],
                 samplingFactor=0.1,
@@ -1831,7 +1939,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = LifecycleQueryRunner(
             team=self.team,
             query=LifecycleQuery(
-                dateRange=InsightDateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
                 interval=IntervalType.DAY,
                 series=[EventsNode(event="$pageview")],
                 properties=[CohortPropertyFilter(value=cohort.pk)],
@@ -1839,6 +1947,100 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).calculate()
         counts = [r["count"] for r in response.results]
         assert counts == [0, 2, 3, -3]
+
+    def test_excludes_personless_events(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-14T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-11T12:00:00Z", "2020-01-12T12:00:00Z"]),
+            ]
+        )
+        self._create_personless_events(
+            data=[
+                (
+                    "p3",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-14T12:00:00Z",
+                    ],
+                ),
+                ("p4", ["2020-01-11T12:00:00Z", "2020-01-12T12:00:00Z"]),
+            ]
+        )
+        flush_persons_and_events()
+
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2020-01-11T00:00:00Z", date_to="2020-01-14T00:00:00Z"),
+                interval=IntervalType.DAY,
+                series=[EventsNode(event="$pageview")],
+            ),
+        ).calculate()
+        assert response.results[0]["data"] == [2, 0, 0, 0]  # new
+        assert response.results[2]["data"] == [0, 0, 0, 0]  # resurrecting
+
+    def test_dormant_on_dst(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create a user who is active on 2025-03-09 but goes dormant on 2025-03-10 (DST change day)
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2025-03-09T12:00:00Z",
+                    ],
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2025-03-09T00:00:00Z", date_to="2025-03-12T00:00:00Z"),
+                interval=IntervalType.DAY,
+                series=[EventsNode(event="$pageview")],
+            ),
+        ).calculate()
+
+        assert response.results[0]["status"] == "new"
+        assert response.results[0]["data"] == [0, 1, 0, 0]
+        assert response.results[0]["days"] == ["2025-03-08", "2025-03-09", "2025-03-10", "2025-03-11"]
+
+        assert response.results[3]["status"] == "dormant"
+        assert response.results[3]["data"] == [0, 0, -1, 0]
+
+    def test_dashboard_breakdown_filter_does_not_update_breakdown_filter(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+        )
+
+        assert not hasattr(query_runner.query, "breakdownFilter")
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(
+                    breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+                )
+            )
+        )
+
+        assert not hasattr(query_runner.query, "breakdownFilter")
 
 
 def assertLifecycleResults(results, expected):

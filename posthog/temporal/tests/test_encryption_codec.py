@@ -10,8 +10,8 @@ from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import NoOpInputs
-from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
 from posthog.temporal.common.codec import EncryptionCodec
+from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
 
 
 def get_history_event_payloads(event):
@@ -50,7 +50,7 @@ async def test_payloads_are_encrypted():
         arg=input_str,
         batch_export_id="123",
         team_id=1,
-        is_backfill=False,
+        backfill_details=None,
     )
 
     # The no-op Workflow can only produce a limited set of results, so we'll check if the events match any of these.
@@ -58,7 +58,7 @@ async def test_payloads_are_encrypted():
     # input to the workflow (inputs).
     expected_results = (
         no_op_result_str,
-        {"arg": input_str, "is_backfill": False},
+        {"arg": input_str, "backfill_details": None},
         dataclasses.asdict(inputs),
     )
 

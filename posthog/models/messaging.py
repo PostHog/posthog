@@ -19,6 +19,22 @@ class MessagingRecordManager(models.Manager):
 
         return super().get_or_create(defaults, **kwargs)
 
+    def filter(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
+
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().filter(*args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
+
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().get(*args, **kwargs)
+
 
 class MessagingRecord(UUIDModel):
     objects = MessagingRecordManager()

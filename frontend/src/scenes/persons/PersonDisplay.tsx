@@ -1,22 +1,21 @@
 import './PersonDisplay.scss'
 
+import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
-import { asDisplay, asLink } from './person-utils'
+import { asDisplay, asLink, PersonPropType } from './person-utils'
 import { PersonPreview } from './PersonPreview'
-
-type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
+    displayName?: string
     withIcon?: boolean | ProfilePictureProps['size']
     href?: string
     noLink?: boolean
@@ -24,13 +23,17 @@ export interface PersonDisplayProps {
     noPopover?: boolean
     isCentered?: boolean
     children?: React.ReactChild
+    withCopyButton?: boolean
+    placement?: 'top' | 'bottom' | 'left' | 'right'
 }
 
 export function PersonIcon({
     person,
+    displayName,
     ...props
-}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'user' | 'name' | 'email'>): JSX.Element {
-    const display = asDisplay(person)
+}: Pick<PersonDisplayProps, 'person'> &
+    Omit<ProfilePictureProps, 'user' | 'name' | 'email'> & { displayName?: string }): JSX.Element {
+    const display = displayName || asDisplay(person)
 
     const email: string | undefined = useMemo(() => {
         // The email property could be correct but it could also be set strangely such as an array or not even a string
@@ -53,6 +56,7 @@ export function PersonIcon({
 
 export function PersonDisplay({
     person,
+    displayName,
     withIcon,
     noEllipsis,
     noPopover,
@@ -60,8 +64,10 @@ export function PersonDisplay({
     isCentered,
     href = asLink(person),
     children,
+    withCopyButton,
+    placement,
 }: PersonDisplayProps): JSX.Element {
-    const display = asDisplay(person)
+    const display = displayName || asDisplay(person)
     const [visible, setVisible] = useState(false)
 
     const notebookNode = useNotebookNode()
@@ -79,7 +85,13 @@ export function PersonDisplay({
 
     let content = children || (
         <span className={clsx('flex items-center', isCentered && 'justify-center')}>
-            {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
+            {withIcon && (
+                <PersonIcon
+                    displayName={displayName}
+                    person={person}
+                    size={typeof withIcon === 'string' ? withIcon : 'md'}
+                />
+            )}
             <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )
@@ -121,11 +133,18 @@ export function PersonDisplay({
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}
-                placement="top"
+                placement={placement || 'top'}
                 fallbackPlacements={['bottom', 'right']}
                 showArrow
             >
-                {content}
+                {withCopyButton ? (
+                    <div className="flex flex-row items-center justify-between">
+                        {content}
+                        <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
+                    </div>
+                ) : (
+                    <span>{content}</span>
+                )}
             </Popover>
         )
 

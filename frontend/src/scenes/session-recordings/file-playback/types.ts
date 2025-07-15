@@ -1,4 +1,4 @@
-import { eventWithTime } from '@rrweb/types'
+import { eventWithTime } from '@posthog/rrweb-types'
 
 import { PersonType, RecordingSnapshot, SessionRecordingType } from '~/types'
 
@@ -9,6 +9,8 @@ export type ExportedSessionRecordingFileV1 = {
         snapshotsByWindowId: Record<string, eventWithTime[]>
     }
 }
+
+export type ExportedSessionType = 'posthog' | 'rrweb' | 'raw'
 
 export type ExportedSessionRecordingFileV2 = {
     version: '2023-04-28'

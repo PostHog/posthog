@@ -48,8 +48,8 @@ interface InsightsLabelProps {
 
 interface MathTagProps {
     math: string | undefined
-    mathProperty: string | undefined
-    mathHogQL: string | undefined
+    mathProperty: string | undefined | null
+    mathHogQL: string | undefined | null
     mathGroupTypeIndex: number | null | undefined
 }
 
@@ -66,7 +66,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
     if (math === 'unique_group' && mathGroupTypeIndex != undefined) {
         return <LemonTag>Unique {aggregationLabel(mathGroupTypeIndex).plural}</LemonTag>
     }
-    if (math && ['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(math || '')) {
+    if (math && ['sum', 'avg', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'].includes(math)) {
         return (
             <>
                 <LemonTag>{mathDefinitions[math]?.name || capitalizeFirstLetter(math)}</LemonTag>
@@ -80,7 +80,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         )
     }
     if (math === 'hogql') {
-        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'HogQL'}</LemonTag>
+        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
     }
     return <LemonTag>{capitalizeFirstLetter(math)}</LemonTag>
 }
@@ -165,12 +165,14 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <MathTag
-                            math={action?.math}
-                            mathProperty={action?.math_property}
-                            mathHogQL={action?.math_hogql}
-                            mathGroupTypeIndex={action?.math_group_type_index}
-                        />
+                        <div className="flex flex-nowrap items-center gap-x-1">
+                            <MathTag
+                                math={action?.math}
+                                mathProperty={action?.math_property}
+                                mathHogQL={action?.math_hogql}
+                                mathGroupTypeIndex={action?.math_group_type_index}
+                            />
+                        </div>
                     )}
 
                     {pillValues.length > 0 && (

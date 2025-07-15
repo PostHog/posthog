@@ -1,11 +1,11 @@
-import { urls } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { JSSnippet } from 'lib/components/JSSnippet'
+import { JSSnippet, JSSnippetV2 } from 'lib/components/JSSnippet'
 import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconRefresh } from 'lib/lemon-ui/icons'
@@ -16,6 +16,7 @@ import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { TimezoneConfig } from './TimezoneConfig'
 import { WeekStartConfig } from './WeekStartConfig'
@@ -29,16 +30,8 @@ export function TeamDisplayName(): JSX.Element {
 
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
-    if (currentTeam?.is_demo) {
-        return (
-            <p>
-                <i>The demo {displayNoun} cannot be renamed.</i>
-            </p>
-        )
-    }
-
     return (
-        <div className="space-y-4 max-w-160">
+        <div className="deprecated-space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
@@ -67,13 +60,32 @@ export function WebSnippet(): JSX.Element {
                 <Link to="https://posthog.com/docs/libraries/js">see PostHog Docs</Link>.
             </p>
             {currentTeamLoading && !currentTeam ? (
-                <div className="space-y-4">
+                <div className="deprecated-space-y-4">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton repeat={3} />
                 </div>
             ) : (
                 <JSSnippet />
             )}
+
+            <FlaggedFeature flag="remote-config">
+                <h3 className="mt-4 flex items-center gap-2">
+                    Web Snippet V2 <LemonTag type="warning">Experimental</LemonTag>
+                </h3>
+                <p>
+                    The V2 version of the snippet is more advanced and includes your project config automatically along
+                    with the PostHog JS code. This generally leads to faster load times and fewer calls needed before
+                    the SDK is fully functional.
+                </p>
+                {currentTeamLoading && !currentTeam ? (
+                    <div className="deprecated-space-y-4">
+                        <LemonSkeleton className="w-1/2 h-4" />
+                        <LemonSkeleton repeat={3} />
+                    </div>
+                ) : (
+                    <JSSnippetV2 />
+                )}
+            </FlaggedFeature>
         </>
     )
 }
@@ -190,7 +202,7 @@ export function TeamTimezone(): JSX.Element {
                 These settings affect how PostHog displays, buckets, and filters time-series data. You may need to
                 refresh insights for new settings to apply.
             </p>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonLabel id="timezone">Time zone</LemonLabel>
                 <TimezoneConfig />
                 <LemonLabel id="timezone">Week starts on</LemonLabel>
@@ -200,21 +212,29 @@ export function TeamTimezone(): JSX.Element {
     )
 }
 
-export function TeamToolbarURLs(): JSX.Element {
+export function TeamAuthorizedURLs(): JSX.Element {
     return (
         <>
             <p>
-                These are the URLs where the{' '}
+                These are the URLs where you can see{' '}
                 <b>
-                    <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
+                    <Link to={urls.webAnalytics()}>Web Analytics</Link>
                 </b>{' '}
-                (if you're logged in).
+                and{' '}
+                <b>
+                    <Link to={urls.experiments()}>Web Experiments</Link>
+                </b>{' '}
+                data from. You can also{' '}
+                <b>
+                    <Link to={urls.toolbarLaunch()}>launch the Toolbar</Link>
+                </b>{' '}
+                on these pages.
             </p>
             <p>
-                <b>Domains and wildcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
-                However, wildcarded top-level domains cannot be used (for security reasons).
+                <b>Wildcards are not allowed</b> (example: <code>https://*.example.com</code>). The URL needs to be
+                something concrete that can be launched.
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+            <AuthorizedUrlList type={AuthorizedUrlListType.WEB_ANALYTICS} allowWildCards={false} />
         </>
     )
 }

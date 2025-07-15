@@ -10,6 +10,17 @@
     overflow: hidden;
     background-color: var(--bg-3000-dark);
 
+    .PlayerFrame__content--masking-window .replayer-wrapper::before {
+        position: absolute;
+        inset: 0; /* Cover the entire wrapper */
+        z-index: 10; /* Ensure it's above the iframe */
+        pointer-events: auto; /* Block interactions */
+        content: '';
+        background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==');
+        background-repeat: repeat;
+        background-size: 16px 16px;
+    }
+
     .PlayerFrame__content {
         position: absolute;
 

@@ -148,7 +148,7 @@ export function HogRepl(): JSX.Element {
 
     return (
         <div className="p-4 bg-white text-black font-mono">
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 {replChunks.map((chunk, index) => (
                     <ReplChunk chunk={chunk} key={index} editFromHere={() => editFromHere(index)} />
                 ))}
@@ -167,12 +167,15 @@ export function HogRepl(): JSX.Element {
                         <CodeEditorInline
                             language="hog"
                             embedded
-                            className="flex-1 bg-transparent focus:outline-none resize-none ml-2 p-0"
+                            className="flex-1 bg-transparent focus:outline-hidden resize-none ml-2 p-0"
                             value={currentCode}
                             onChange={(value) => setCurrentCode(value ?? '')}
                             onPressCmdEnter={runCurrentCode}
                             onPressUpNoValue={() => {
-                                if ((hogReplLogic.findMounted()?.values.replChunks.length ?? 0) > 0) {
+                                // TRICKY: This function will be memoified, so find the actual latest value,
+                                // not the one we had in the HogRepl component's chunk when this first rendered.
+                                const replChunks: ReplChunkType[] = hogReplLogic.findMounted()?.values.replChunks ?? []
+                                if (replChunks.length > 0) {
                                     editFromHere(replChunks.length - 1)
                                 }
                             }}

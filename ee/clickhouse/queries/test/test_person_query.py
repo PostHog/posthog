@@ -1,7 +1,7 @@
 import pytest
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
@@ -17,7 +17,6 @@ def person_query(team: Team, filter: Filter, **kwargs):
 def run_query(team: Team, filter: Filter, **kwargs):
     query, params = PersonQuery(filter, team.pk, **kwargs).get_query()
     rows = sync_execute(query, {**params, **filter.hogql_context.values, "team_id": team.pk})
-
     if len(rows) > 0:
         return {"rows": len(rows), "columns": len(rows[0])}
     else:
@@ -79,7 +78,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
         _create_person(
             team_id=team.pk,
             distinct_ids=[f"person{i}"],
-            properties={"group": i, "email": f"{i}@hey.com"},
+            properties={"group": str(i), "email": f"{i}@hey.com"},
         )
 
     cohort1 = Cohort.objects.create(
@@ -92,7 +91,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
                         "type": "OR",
                         "values": [
                             {"key": "group", "value": "none", "type": "person"},
-                            {"key": "group", "value": [1, 2, 3], "type": "person"},
+                            {"key": "group", "value": ["1", "2", "3"], "type": "person"},
                         ],
                     }
                 ],
@@ -112,7 +111,7 @@ def test_person_query_with_multiple_cohorts(testdata, team, snapshot):
                         "values": [
                             {
                                 "key": "group",
-                                "value": [1, 2, 3, 4, 5, 6],
+                                "value": ["1", "2", "3", "4", "5", "6"],
                                 "type": "person",
                             },
                         ],

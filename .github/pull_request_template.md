@@ -1,17 +1,25 @@
+> [!IMPORTANT]
+> 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
+
 ## Problem
 
 <!-- Who are we building for, what are their needs, why is this important? -->
+
+<!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
+<!-- Closes #ISSUE_ID -->
 
 ## Changes
 
 <!-- If there are frontend changes, please include screenshots. -->
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
-👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
+## Did you write or update any docs for this change?
 
-## Does this work well for both Cloud and self-hosted?
+<!-- Engineers are responsible for doing the first pass at documenting their features and/or code.  -->
 
-<!-- Yes / no / it doesn't have an impact. -->
+- [ ] I've [added or updated the docs](https://posthog.com/handbook/engineering/writing-docs)
+- [ ] I've reached out for help from the docs team
+- [ ] No docs needed for this change
 
 ## How did you test this code?
 

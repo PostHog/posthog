@@ -1,4 +1,5 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -13,28 +14,31 @@ import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
+import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
+import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
-import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
-import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
-import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
+import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
+import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
 import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
+import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export function InsightDisplayConfig(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, canEditInsight } = useValues(insightLogic)
 
     const {
         isTrends,
@@ -52,12 +56,19 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsValueOnSeries,
         showPercentStackView,
         supportsPercentStackView,
+        supportsResultCustomizationBy,
         yAxisScaleType,
+        showMultipleYAxes,
         isNonTimeSeriesDisplay,
+        compareFilter,
+        supportsCompare,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
+    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
+
+    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -66,11 +77,13 @@ export function InsightDisplayConfig(): JSX.Element {
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
         isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
+    const showMultipleYAxesConfig = isTrends || isStickiness
+    const showAlertThresholdLinesConfig = isTrends
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
-        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend
+        ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsResultCustomizationBy
             ? [
                   {
                       title: 'Display',
@@ -78,8 +91,28 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          { label: () => <ShowAlertThresholdLinesFilter /> },
+                          ...(showAlertThresholdLinesConfig
+                              ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                              : []),
+                          ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                       ],
+                  },
+              ]
+            : []),
+        ...(supportsResultCustomizationBy && hasInsightColors
+            ? [
+                  {
+                      title: (
+                          <>
+                              <h5 className="mx-2 my-1">
+                                  Color customization by{' '}
+                                  <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                                      <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                                  </Tooltip>
+                              </h5>
+                          </>
+                      ),
+                      items: [{ label: () => <ResultCustomizationByPicker /> }],
                   },
               ]
             : []),
@@ -107,6 +140,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(isRetention
+            ? [
+                  {
+                      title: 'On dashboards',
+                      items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
+                  },
+              ]
+            : []),
     ]
     const advancedOptionsCount: number =
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
@@ -118,7 +159,8 @@ export function InsightDisplayConfig(): JSX.Element {
             ? 1
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
-        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0)
+        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showMultipleYAxes ? 1 : 0)
 
     return (
         <div
@@ -147,9 +189,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        <RetentionReferencePicker />
-                        <RetentionMeanCheckbox />
-                        <RetentionCumulativeCheckbox />
+                        {isValidBreakdown(breakdownFilter) && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}
 
@@ -161,7 +201,11 @@ export function InsightDisplayConfig(): JSX.Element {
 
                 {showCompare && (
                     <ConfigFilter>
-                        <CompareFilter />
+                        <CompareFilter
+                            compareFilter={compareFilter}
+                            updateCompareFilter={updateCompareFilter}
+                            disabled={!canEditInsight || !supportsCompare}
+                        />
                     </ConfigFilter>
                 )}
             </div>
@@ -172,7 +216,9 @@ export function InsightDisplayConfig(): JSX.Element {
                             <span className="font-medium whitespace-nowrap">
                                 Options
                                 {advancedOptionsCount ? (
-                                    <span className="ml-0.5 text-muted ligatures-none">({advancedOptionsCount})</span>
+                                    <span className="ml-0.5 text-secondary ligatures-none">
+                                        ({advancedOptionsCount})
+                                    </span>
                                 ) : null}
                             </span>
                         </LemonButton>
@@ -181,6 +227,11 @@ export function InsightDisplayConfig(): JSX.Element {
                 {supportsDisplay && (
                     <ConfigFilter>
                         <ChartFilter />
+                    </ConfigFilter>
+                )}
+                {!!isRetention && (
+                    <ConfigFilter>
+                        <RetentionChartPicker />
                     </ConfigFilter>
                 )}
                 {!!isStepsFunnel && (
@@ -199,7 +250,7 @@ export function InsightDisplayConfig(): JSX.Element {
 }
 
 function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
-    return <span className="space-x-2 flex items-center text-sm">{children}</span>
+    return <span className="deprecated-space-x-2 flex items-center text-sm">{children}</span>
 }
 
 function DecimalPrecisionInput(): JSX.Element {

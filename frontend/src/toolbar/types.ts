@@ -34,12 +34,16 @@ export interface CountedHTMLElement {
     count: number // total of types of clicks
     clickCount: number // autocapture clicks
     rageclickCount: number
+    deadclickCount: number
     element: HTMLElement
     hash: string
     selector: string
     position?: number
     actionStep?: ActionStepType
-    type: '$autocapture' | '$rageclick'
+    type: '$autocapture' | '$rageclick' | '$dead_click'
+    // whether the browser reports this element as visible
+    visible?: boolean
+    rect?: ElementRect
 }
 
 export interface ElementRect {
@@ -59,7 +63,10 @@ export interface ElementWithMetadata {
     count?: number
     clickCount?: number
     rageclickCount?: number
+    deadclickCount?: number
     position?: number
+    apparentZIndex?: number
+    visible?: boolean
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {
@@ -69,11 +76,25 @@ export interface ActionElementWithMetadata extends ElementWithMetadata {
 
 export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by'>
 
-export type ExperimentDraftType = Omit<Experiment, 'id' | 'created_at' | 'created_by'>
+export type WebExperimentDraftType = Omit<
+    Experiment,
+    | 'id'
+    | 'created_at'
+    | 'created_by'
+    | 'feature_flag_key'
+    | 'filters'
+    | 'metrics'
+    | 'metrics_secondary'
+    | 'saved_metrics_ids'
+    | 'saved_metrics'
+    | 'parameters'
+    | 'secondary_metrics'
+    | 'updated_at'
+>
 
-export interface ExperimentForm extends ExperimentDraftType {
-    variants?: Record<string, WebExperimentVariant>
-    undo_transforms?: WebExperimentTransform[]
+export interface WebExperimentForm extends WebExperimentDraftType {
+    variants: Record<string, WebExperimentVariant>
+    original_html_state?: Record<string, any>
 }
 
 export interface ActionStepForm extends ActionStepType {
@@ -90,12 +111,12 @@ export interface ActionForm extends ActionDraftType {
 export type WebExperimentUrlMatchType = 'regex' | 'not_regex' | 'exact' | 'is_not' | 'icontains' | 'not_icontains'
 
 export interface WebExperiment extends Experiment {
-    variants?: Record<string, WebExperimentVariant>
+    variants: Record<string, WebExperimentVariant>
 }
 
 export interface WebExperimentVariant {
     is_new?: boolean
-    conditions: {
+    conditions?: {
         url?: string
         urlMatchType?: WebExperimentUrlMatchType
         utm: {

@@ -5,7 +5,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryModifiers } from '~/queries/schema'
+import { HogQLQueryModifiers } from '~/queries/schema/schema-general'
 
 type PersonsJoinMode = NonNullable<HogQLQueryModifiers['personsJoinMode']>
 
@@ -15,7 +15,7 @@ const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
         label: (
             <>
                 <div>Does an inner join</div>
-                <div className="text-muted">
+                <div className="text-secondary">
                     This is the default. You want this one unless you know what you are doing.
                 </div>
             </>
@@ -26,7 +26,7 @@ const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
         label: (
             <>
                 <div>Does a left join.</div>
-                <div className="text-muted">Experimental mode for personless events </div>
+                <div className="text-secondary">Experimental mode for personless events </div>
             </>
         ),
     },

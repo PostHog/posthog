@@ -1,4 +1,4 @@
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -34,7 +34,6 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
     return (
         <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
             <div className="flex flex-col gap-2">
-                <LemonDivider />
                 <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                     Maximum number of paths
                 </LemonLabel>

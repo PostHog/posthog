@@ -1,7 +1,7 @@
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 
-import { TrendsFilter } from '~/queries/schema'
+import { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
@@ -22,8 +22,11 @@ export const formatAggregationAxisValue = (
     value: number | string
 ): string => {
     value = Number(value)
-    const decimalPlaces =
+    const maxDecimalPlaces =
         (trendsFilter as TrendsFilter)?.decimalPlaces ?? (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
+    const minDecimalPlaces =
+        (trendsFilter as TrendsFilter)?.minDecimalPlaces ??
+        (trendsFilter as Partial<TrendsFilterType>)?.min_decimal_places
     const aggregationAxisFormat =
         (trendsFilter as TrendsFilter)?.aggregationAxisFormat ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
@@ -33,14 +36,14 @@ export const formatAggregationAxisValue = (
     const aggregationAxisPostfix =
         (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
-    let formattedValue = humanFriendlyNumber(value, decimalPlaces)
+    let formattedValue = humanFriendlyNumber(value, maxDecimalPlaces, minDecimalPlaces)
     if (aggregationAxisFormat) {
         switch (aggregationAxisFormat) {
             case 'duration':
                 formattedValue = humanFriendlyDuration(value)
                 break
             case 'duration_ms':
-                formattedValue = humanFriendlyDuration(value / 1000)
+                formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
                 break
             case 'percentage':
                 formattedValue = percentage(value / 100)

@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.schema import EventsNode, FunnelsFilter, FunnelsQuery, InsightDateRange
+from posthog.schema import EventsNode, FunnelsFilter, FunnelsQuery, DateRange
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -17,7 +17,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
         filters = parse_expr("1 = 1")
@@ -35,7 +35,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
 
         with freeze_time("2024-07-31"):
@@ -88,7 +88,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
 
         with freeze_time("2024-07-31"):
@@ -115,7 +115,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
 
         with freeze_time("2024-07-31"):
@@ -143,7 +143,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
@@ -161,7 +161,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
@@ -172,18 +172,30 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         query = cast(ast.SelectQuery, query.select_from.table)
 
         assert query.having is not None
-        assert isinstance(query.having, ast.CompareOperation)
-        assert query.having.op == ast.CompareOperationOp.Eq
-        assert isinstance(query.having.left, ast.Field)
-        assert query.having.left.chain == ["min_timestamp"]
-        assert isinstance(query.having.right, ast.Field)
-        assert query.having.right.chain == ["min_timestamp_with_condition"]
+        assert isinstance(query.having, ast.And)
+
+        assert len(query.having.exprs) == 2
+
+        first = query.having.exprs[0]
+        assert isinstance(first, ast.CompareOperation)
+        assert first.op == ast.CompareOperationOp.Eq
+        assert isinstance(first.left, ast.Field)
+        assert first.left.chain == ["min_timestamp"]
+        assert isinstance(first.right, ast.Field)
+        assert first.right.chain == ["min_timestamp_with_condition"]
+
+        second = query.having.exprs[1]
+        assert isinstance(second, ast.CompareOperation)
+        assert second.op == ast.CompareOperationOp.NotEq
+        assert isinstance(second.left, ast.Field)
+        assert second.left.chain == ["min_timestamp"]
+        assert isinstance(second.right, ast.Call)
 
     def test_first_time_for_user_aggregation_query_sampling_factor(self):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
             samplingFactor=0.1,
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
@@ -202,7 +214,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 

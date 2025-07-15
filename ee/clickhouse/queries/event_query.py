@@ -7,7 +7,6 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.property import PropertyName
 from posthog.models.team import Team
@@ -25,7 +24,6 @@ class EnterpriseEventQuery(EventQuery):
             PathFilter,
             RetentionFilter,
             StickinessFilter,
-            SessionRecordingsFilter,
             PropertiesTimelineFilter,
         ],
         team: Team,

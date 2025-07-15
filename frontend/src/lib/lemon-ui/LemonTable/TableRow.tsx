@@ -13,9 +13,10 @@ export interface TableRowProps<T extends Record<string, any>> {
     rowRibbonColorDetermined: string | null | undefined
     rowStatusDetermined: 'highlighted' | null | undefined
     columnGroups: LemonTableColumnGroup<T>[]
-    onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
+    onRow: ((record: T, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
+    rowCount: number
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -29,16 +30,19 @@ function TableRowRaw<T extends Record<string, any>>({
     onRow,
     expandable,
     firstColumnSticky,
+    rowCount,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
         !!expandable && (!expandable.rowExpandable || expandable.rowExpandable(record, recordIndex))
     )
-    const isRowExpansionToggleShown = !!expandable && rowExpandable >= 0
     const isRowExpanded =
         !expandable?.isRowExpanded || expandable?.isRowExpanded?.(record, recordIndex) === -1
             ? isRowExpandedLocal
             : !!expandable?.isRowExpanded?.(record, recordIndex)
+
+    const isRowExpansionToggleShownLocal = !!expandable && rowExpandable >= 0
+    const isRowExpansionToggleShown = expandable?.showRowExpansionToggle ?? isRowExpansionToggleShownLocal
 
     const expandedRowClassNameDetermined =
         expandable &&
@@ -48,7 +52,7 @@ function TableRowRaw<T extends Record<string, any>>({
             ? expandable.expandedRowClassName(record, recordIndex)
             : expandable.expandedRowClassName)
 
-    const { className, style, ...extraProps } = onRow?.(record) || {}
+    const { className, style, ...extraProps } = onRow?.(record, recordIndex) || {}
 
     return (
         <>
@@ -57,7 +61,7 @@ function TableRowRaw<T extends Record<string, any>>({
                 className={clsx(
                     rowClassNameDetermined,
                     rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
-                    extraProps?.onClick ? 'hover:underline cursor-pointer hover:bg-primary-highlight' : undefined,
+                    extraProps?.onClick ? 'cursor-pointer hover:bg-accent-highlight-secondary' : undefined,
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -85,38 +89,42 @@ function TableRowRaw<T extends Record<string, any>>({
                     </td>
                 )}
                 {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
-                    columnGroup.children.map((column, columnIndex) => {
-                        const columnKeyRaw = column.key || column.dataIndex
-                        const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
-                        // != is intentional to catch undefined too
-                        const value = column.dataIndex != null ? record[column.dataIndex] : undefined
-                        const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
-                        const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
-                        const extraCellProps =
-                            isTableCellRepresentation(contents) && contents.props ? contents.props : {}
-                        return (
-                            <td
-                                key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
-                                className={clsx(
-                                    columnIndex === 0 && 'LemonTable__boundary',
-                                    isSticky && 'LemonTable__cell--sticky',
-                                    column.align && `text-${column.align}`,
-                                    typeof column.className === 'function'
-                                        ? column.className(value as T[keyof T], record, recordIndex)
-                                        : column.className
-                                )}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={
-                                    typeof column.style === 'function'
-                                        ? column.style(value as T[keyof T], record, recordIndex)
-                                        : column.style
-                                }
-                                {...extraCellProps}
-                            >
-                                {isTableCellRepresentation(contents) ? contents.children : contents}
-                            </td>
-                        )
-                    })
+                    columnGroup.children
+                        .filter((column) => !column.isHidden)
+                        .map((column, columnIndex) => {
+                            const columnKeyRaw = column.key || column.dataIndex
+                            const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
+                            // != is intentional to catch undefined too
+                            const value = column.dataIndex != null ? record[column.dataIndex] : undefined
+                            const contents = column.render
+                                ? column.render(value as T[keyof T], record, recordIndex, rowCount)
+                                : value
+                            const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
+                            const extraCellProps =
+                                isTableCellRepresentation(contents) && contents.props ? contents.props : {}
+                            return (
+                                <td
+                                    key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
+                                    className={clsx(
+                                        columnIndex === 0 && 'LemonTable__boundary',
+                                        isSticky && 'LemonTable__cell--sticky',
+                                        column.align && `text-${column.align}`,
+                                        typeof column.className === 'function'
+                                            ? column.className(value as T[keyof T], record, recordIndex)
+                                            : column.className
+                                    )}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={
+                                        typeof column.style === 'function'
+                                            ? column.style(value as T[keyof T], record, recordIndex)
+                                            : column.style
+                                    }
+                                    {...extraCellProps}
+                                >
+                                    {isTableCellRepresentation(contents) ? contents.children : contents}
+                                </td>
+                            )
+                        })
                 )}
             </tr>
 

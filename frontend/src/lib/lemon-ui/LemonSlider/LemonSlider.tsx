@@ -55,6 +55,44 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
         setDragging(false)
     })
 
+    const handleKeyDown = (e: React.KeyboardEvent): void => {
+        const stepSize = e.shiftKey ? step * 10 : step // Increased step size with Shift key
+        let newValue = constrainedValue
+
+        switch (e.key) {
+            case 'ArrowRight':
+            case 'ArrowUp':
+                newValue = Math.min(max, constrainedValue + stepSize)
+                e.preventDefault()
+                break
+            case 'Home':
+                newValue = min
+                e.preventDefault()
+                break
+            case 'End':
+                newValue = max
+                e.preventDefault()
+                break
+            case 'PageUp':
+                newValue = Math.min(max, constrainedValue + stepSize * 10)
+                e.preventDefault()
+                break
+            case 'PageDown':
+                newValue = Math.max(min, constrainedValue - stepSize * 10)
+                e.preventDefault()
+                break
+            case 'ArrowLeft':
+            case 'ArrowDown':
+                newValue = Math.max(min, constrainedValue - stepSize)
+                e.preventDefault()
+                break
+        }
+
+        if (newValue !== constrainedValue) {
+            onChange?.(newValue)
+        }
+    }
+
     const constrainedValue = Math.max(min, Math.min(value, max))
     const proportion = isNaN(value) ? 0 : Math.round(((constrainedValue - min) / (max - min)) * 100) / 100
 
@@ -77,22 +115,31 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                     setDragging(true)
                 }}
             >
-                <div className="w-full bg-border rounded-full h-1" />
+                <div className="w-full bg-fill-slider-rail rounded-full h-[6px]" />
             </div>
             <div
-                className="absolute h-1 bg-primary rounded-full pointer-events-none"
+                className="absolute h-[6px] bg-accent rounded-full pointer-events-none"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${proportion * 100}%` }}
             />
-            <div
+            <button
                 className={clsx(
-                    'absolute size-3 box-content border-2 border-bg-light rounded-full cursor-pointer bg-primary transition-shadow duration-75',
-                    dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2'
+                    'absolute size-3 box-content border-2 border-primary rounded-full cursor-pointer bg-accent transition-shadow duration-75',
+                    dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2 focus:ring-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     left: `calc(${proportion * 100}% - ${proportion}rem)`,
                 }}
+                role="slider"
+                type="button"
+                aria-valuemin={min}
+                aria-valuemax={max}
+                aria-valuenow={constrainedValue}
+                aria-label={`Slider value: ${constrainedValue}`}
+                aria-valuetext={`${constrainedValue}`}
+                tabIndex={0}
+                onKeyDown={handleKeyDown}
                 onMouseDown={(e) => {
                     movementStartValueWithX.current = [constrainedValue, e.clientX]
                     setDragging(true)

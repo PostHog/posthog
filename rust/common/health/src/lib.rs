@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use std::time::Duration;
+use tokio::runtime;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -58,11 +59,23 @@ pub enum ComponentStatus {
     /// Automatically set when the HealthyUntil deadline is reached
     Stalled,
 }
+
+impl ComponentStatus {
+    /// Returns true if the component is currently healthy (i.e., has a valid HealthyUntil status)
+    pub fn is_healthy(&self) -> bool {
+        match self {
+            ComponentStatus::HealthyUntil(until) => until.gt(&time::OffsetDateTime::now_utc()),
+            _ => false,
+        }
+    }
+}
+
 struct HealthMessage {
     component: String,
     status: ComponentStatus,
 }
 
+#[derive(Clone)]
 pub struct HealthHandle {
     component: String,
     deadline: Duration,
@@ -104,8 +117,33 @@ impl HealthHandle {
             component: self.component.clone(),
             status,
         };
-        if let Err(err) = self.sender.blocking_send(message) {
+        // Don't panic if we're called from within an async context,
+        // just spawn instead
+        if let Ok(h) = runtime::Handle::try_current() {
+            let m = self.clone();
+            h.spawn(async move { m.report_status(message.status).await });
+        } else if let Err(err) = self.sender.blocking_send(message) {
             warn!("failed to report heath status: {}", err)
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum HealthStrategy {
+    /// All components must be healthy for the registry to be healthy
+    All,
+    /// At least one component must be healthy for the registry to be healthy
+    Any,
+}
+
+impl std::str::FromStr for HealthStrategy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_ref() {
+            "all" => Ok(HealthStrategy::All),
+            "any" => Ok(HealthStrategy::Any),
+            _ => Err(format!("Unknown Health Strategy: {s}, must be ALL or ANY")),
         }
     }
 }
@@ -113,15 +151,21 @@ impl HealthHandle {
 #[derive(Clone)]
 pub struct HealthRegistry {
     name: String,
+    strategy: HealthStrategy,
     components: Arc<RwLock<HashMap<String, ComponentStatus>>>,
     sender: mpsc::Sender<HealthMessage>,
 }
 
 impl HealthRegistry {
     pub fn new(name: &str) -> Self {
+        Self::new_with_strategy(name, HealthStrategy::All)
+    }
+
+    pub fn new_with_strategy(name: &str, strategy: HealthStrategy) -> Self {
         let (tx, mut rx) = mpsc::channel::<HealthMessage>(16);
         let registry = Self {
             name: name.to_owned(),
+            strategy,
             components: Default::default(),
             sender: tx,
         };
@@ -171,7 +215,10 @@ impl HealthRegistry {
             .expect("poisoned HeathRegistry mutex");
 
         let result = HealthStatus {
-            healthy: !components.is_empty(), // unhealthy if no component has registered yet
+            // unhealthy if no component has registered yet or if we're using the "Any" strategy
+            // "All" defaults to true and is set to false if any healthcheck fails
+            // "Any" defaults to false and is set to true if any healthcheck passes
+            healthy: !components.is_empty() && self.strategy == HealthStrategy::All,
             components: Default::default(),
         };
         let now = time::OffsetDateTime::now_utc();
@@ -182,16 +229,23 @@ impl HealthRegistry {
                 match status {
                     ComponentStatus::HealthyUntil(until) => {
                         if until.gt(&now) {
+                            if self.strategy == HealthStrategy::Any {
+                                result.healthy = true;
+                            }
                             _ = result.components.insert(name.clone(), status.clone())
                         } else {
-                            result.healthy = false;
+                            if self.strategy == HealthStrategy::All {
+                                result.healthy = false;
+                            }
                             _ = result
                                 .components
                                 .insert(name.clone(), ComponentStatus::Stalled)
                         }
                     }
                     _ => {
-                        result.healthy = false;
+                        if self.strategy == HealthStrategy::All {
+                            result.healthy = false;
+                        }
                         _ = result.components.insert(name.clone(), status.clone())
                     }
                 }
@@ -207,7 +261,7 @@ impl HealthRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ComponentStatus, HealthRegistry, HealthStatus};
+    use crate::{ComponentStatus, HealthRegistry, HealthStatus, HealthStrategy};
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use std::ops::{Add, Sub};
@@ -349,5 +403,53 @@ mod tests {
         }
         .into_response();
         assert_eq!(ok.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn any_strategy() {
+        let registry = HealthRegistry::new_with_strategy("liveness", HealthStrategy::Any);
+        let handle1 = registry
+            .register("one".to_string(), Duration::seconds(30))
+            .await;
+        let handle2 = registry
+            .register("two".to_string(), Duration::seconds(30))
+            .await;
+        assert_or_retry(|| registry.get_status().components.len() == 2).await;
+
+        // Initially unhealthy with Any strategy
+        assert!(!registry.get_status().healthy);
+
+        // First component going healthy is enough in Any strategy
+        handle1.report_healthy().await;
+        assert_or_retry(|| registry.get_status().healthy).await;
+
+        // Still healthy even if second component is unhealthy
+        handle2.report_status(ComponentStatus::Unhealthy).await;
+        assert_or_retry(|| registry.get_status().healthy).await;
+
+        // Becomes unhealthy only when all components are unhealthy
+        handle1.report_status(ComponentStatus::Unhealthy).await;
+        assert_or_retry(|| !registry.get_status().healthy).await;
+    }
+
+    #[tokio::test]
+    async fn health_strategy_from_str() {
+        assert_eq!(
+            "ALL".parse::<HealthStrategy>().unwrap(),
+            HealthStrategy::All
+        );
+        assert_eq!(
+            "ANY".parse::<HealthStrategy>().unwrap(),
+            HealthStrategy::Any
+        );
+        assert_eq!(
+            "all".parse::<HealthStrategy>().unwrap(),
+            HealthStrategy::All
+        );
+        assert_eq!(
+            "any".parse::<HealthStrategy>().unwrap(),
+            HealthStrategy::Any
+        );
+        assert!("invalid".parse::<HealthStrategy>().is_err());
     }
 }

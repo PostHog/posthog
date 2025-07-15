@@ -1,13 +1,12 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
-import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
     ClickHouseEvent,
@@ -19,8 +18,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    EventDefinitionType,
-    EventPropertyType,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -36,7 +33,6 @@ import {
     ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
-    PropertyDefinitionType,
     RawClickHouseEvent,
     RawGroup,
     RawOrganization,
@@ -47,11 +43,12 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
-import { fetchOrganization } from '../../worker/ingestion/organization-manager'
-import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
+import { PersonUpdate } from '../../worker/ingestion/persons/person-update-batch'
 import { parseRawClickHouseEvent } from '../event'
+import { parseJSON } from '../json-parse'
+import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
-import { status } from '../status'
+import { captureException } from '../posthog'
 import {
     castTimestampOrNow,
     escapeClickHouseString,
@@ -63,7 +60,7 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
-import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import { RedisOperationError } from './error'
 import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
@@ -74,6 +71,11 @@ import {
     timeoutGuard,
     unparsePersonPartial,
 } from './utils'
+
+export type MoveDistinctIdsResult =
+    | { readonly success: true; readonly messages: TopicMessage[] }
+    | { readonly success: false; readonly error: 'TargetNotFound' }
+    | { readonly success: false; readonly error: 'SourceNotFound' }
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig
@@ -124,6 +126,10 @@ export type GroupId = [GroupTypeIndex, GroupKey]
 export interface CachedGroupData {
     properties: Properties
     created_at: ClickHouseTimestamp
+}
+
+export interface PersonPropertiesSize {
+    total_props_bytes: number
 }
 
 export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
@@ -194,6 +200,57 @@ export class DB {
 
     // Redis
 
+    private instrumentRedisQuery<T>(
+        operationName: string,
+        tag: string | undefined,
+        logContext: Record<string, string | string[] | number>,
+        runQuery: (client: Redis.Redis) => Promise<T>
+    ): Promise<T> {
+        return instrumentQuery(operationName, tag, async () => {
+            let client: Redis.Redis
+            const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec.`, logContext)
+            try {
+                client = await this.redisPool.acquire()
+            } catch (error) {
+                throw new RedisOperationError('Failed to acquire redis client from pool', error, operationName)
+            }
+
+            // Don't use a single try/catch/finally for this, as there are 2 potential errors that could be thrown
+            // (error and cleanup) and we want to be explicit about which one we choose, rather than relying on
+            // "what happens when you throw in a finally block".
+            // We explicitly want to throw the error from the operation if there is one, prioritising it over any errors
+            // from the cleanup
+            let operationResult: { value: T } | { error: Error }
+            let cleanupError: Error | undefined
+
+            try {
+                operationResult = { value: await runQuery(client) }
+            } catch (error) {
+                operationResult = { error }
+            }
+
+            try {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            } catch (error) {
+                cleanupError = error
+            }
+
+            if ('error' in operationResult) {
+                throw new RedisOperationError(
+                    `${operationName} failed for ${JSON.stringify(logContext)}`,
+                    operationResult.error,
+                    operationName,
+                    logContext
+                )
+            }
+            if (cleanupError) {
+                throw new RedisOperationError('Failed to release redis client from pool', cleanupError, operationName)
+            }
+            return operationResult.value
+        })
+    }
+
     public redisGet<T = unknown>(
         key: string,
         defaultValue: T,
@@ -201,10 +258,7 @@ export class DB {
         options: CacheOptions = {}
     ): Promise<T | null> {
         const { jsonSerialize = true } = options
-
-        return instrumentQuery('query.redisGet', tag, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
+        return this.instrumentRedisQuery('query.redisGet', tag, { key }, async (client) => {
             try {
                 const value = await tryTwice(
                     async () => await client.get(key),
@@ -213,7 +267,7 @@ export class DB {
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? parseJSON(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
                     // invalid JSON
@@ -221,10 +275,16 @@ export class DB {
                 } else {
                     throw error
                 }
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
+        })
+    }
+
+    public redisGetBuffer(key: string, tag: string): Promise<Buffer | null> {
+        return this.instrumentRedisQuery('query.redisGetBuffer', tag, { key }, async (client) => {
+            return await tryTwice(
+                async () => await client.getBuffer(key),
+                `Waited 5 sec to get redis key: ${key}, retrying once!`
+            )
         })
     }
 
@@ -237,19 +297,41 @@ export class DB {
     ): Promise<void> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisSet', tag, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key', { key })
-            try {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                if (ttlSeconds) {
-                    await client.set(key, serializedValue, 'EX', ttlSeconds)
-                } else {
-                    await client.set(key, serializedValue)
-                }
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
+        return this.instrumentRedisQuery('query.redisSet', tag, { key }, async (client) => {
+            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+            if (ttlSeconds) {
+                await client.set(key, serializedValue, 'EX', ttlSeconds)
+            } else {
+                await client.set(key, serializedValue)
+            }
+        })
+    }
+
+    public redisSetBuffer(key: string, value: Buffer, tag: string, ttlSeconds?: number): Promise<void> {
+        return this.instrumentRedisQuery('query.redisSetBuffer', tag, { key }, async (client) => {
+            if (ttlSeconds) {
+                await client.setBuffer(key, value, 'EX', ttlSeconds)
+            } else {
+                await client.setBuffer(key, value)
+            }
+        })
+    }
+
+    public redisSetNX(
+        key: string,
+        value: unknown,
+        tag: string,
+        ttlSeconds?: number,
+        options: CacheOptions = {}
+    ): Promise<'OK' | null> {
+        const { jsonSerialize = true } = options
+
+        return this.instrumentRedisQuery('query.redisSetNX', tag, { key }, async (client) => {
+            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+            if (ttlSeconds) {
+                return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
+            } else {
+                return await client.set(key, serializedValue, 'NX')
             }
         })
     }
@@ -257,179 +339,144 @@ export class DB {
     public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisSet', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set keys', {
-                keys: kv.map((x) => x[0]),
-            })
-            try {
-                let pipeline = client.multi()
-                for (const [key, value] of kv) {
-                    const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                    if (ttlSeconds) {
-                        pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
-                    } else {
-                        pipeline = pipeline.set(key, serializedValue)
-                    }
+        return this.instrumentRedisQuery('query.redisSet', undefined, { keys: kv.map((x) => x[0]) }, async (client) => {
+            let pipeline = client.multi()
+            for (const [key, value] of kv) {
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+                if (ttlSeconds) {
+                    pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
+                } else {
+                    pipeline = pipeline.set(key, serializedValue)
                 }
-                await pipeline.exec()
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
+            await pipeline.exec()
         })
     }
 
     public redisIncr(key: string): Promise<number> {
-        return instrumentQuery('query.redisIncr', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Incrementing redis key delayed. Waiting over 30 sec to incr key', { key })
-            try {
-                return await client.incr(key)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisIncr', undefined, { key }, async (client) => {
+            return await client.incr(key)
         })
     }
 
     public redisExpire(key: string, ttlSeconds: number): Promise<boolean> {
-        return instrumentQuery('query.redisExpire', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Expiring redis key delayed. Waiting over 30 sec to expire key', { key })
-            try {
-                return (await client.expire(key, ttlSeconds)) === 1
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisExpire', undefined, { key }, async (client) => {
+            return (await client.expire(key, ttlSeconds)) === 1
         })
     }
 
     public redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisLPush', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LPushing redis key delayed. Waiting over 30 sec to lpush key', { key })
-            try {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
-                return await client.lpush(key, serializedValue)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisLPush', undefined, { key }, async (client) => {
+            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
+            return await client.lpush(key, serializedValue)
         })
     }
 
-    public redisLRange(key: string, startIndex: number, endIndex: number): Promise<string[]> {
-        return instrumentQuery('query.redisLRange', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LRANGE delayed. Waiting over 30 sec to perform LRANGE', {
-                key,
-                startIndex,
-                endIndex,
-            })
-            try {
-                return await client.lrange(key, startIndex, endIndex)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+    public redisLRange(key: string, startIndex: number, endIndex: number, tag?: string): Promise<string[]> {
+        return this.instrumentRedisQuery('query.redisLRange', tag, { key, startIndex, endIndex }, async (client) => {
+            return await client.lrange(key, startIndex, endIndex)
         })
     }
 
     public redisLLen(key: string): Promise<number> {
-        return instrumentQuery('query.redisLLen', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LLEN delayed. Waiting over 30 sec to perform LLEN', {
-                key,
-            })
-            try {
-                return await client.llen(key)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisLLen', undefined, { key }, async (client) => {
+            return await client.llen(key)
         })
     }
 
     public redisBRPop(key1: string, key2: string): Promise<[string, string]> {
-        return instrumentQuery('query.redisBRPop', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('BRPoping redis key delayed. Waiting over 30 sec to brpop keys', {
-                key1,
-                key2,
-            })
-            try {
-                return await client.brpop(key1, key2)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisBRPop', undefined, { key1, key2 }, async (client) => {
+            return await client.brpop(key1, key2)
         })
     }
 
     public redisLRem(key: string, count: number, elementKey: string): Promise<number> {
-        return instrumentQuery('query.redisLRem', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LREM delayed. Waiting over 30 sec to perform LREM', {
+        return this.instrumentRedisQuery(
+            'query.redisLRem',
+            undefined,
+            {
                 key,
                 count,
                 elementKey,
-            })
-            try {
+            },
+            async (client) => {
                 return await client.lrem(key, count, elementKey)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
-        })
+        )
     }
 
     public redisLPop(key: string, count: number): Promise<string[]> {
-        return instrumentQuery('query.redisLPop', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LPOP delayed. Waiting over 30 sec to perform LPOP', {
+        return this.instrumentRedisQuery(
+            'query.redisLPop',
+            undefined,
+            {
                 key,
                 count,
-            })
-            try {
+            },
+            async (client) => {
                 return await client.lpop(key, count)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
+        )
+    }
+
+    public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
+        return this.instrumentRedisQuery('query.redisSAddAndSCard', undefined, { key }, async (client) => {
+            const multi = client.multi()
+            multi.sadd(key, value)
+            if (ttlSeconds) {
+                multi.expire(key, ttlSeconds)
+            }
+            multi.scard(key)
+            const results = await multi.exec()
+            const scardResult = ttlSeconds ? results[2] : results[1]
+            return scardResult[1]
         })
     }
 
+    public redisSCard(key: string): Promise<number> {
+        return this.instrumentRedisQuery(
+            'query.redisSCard',
+            undefined,
+            {
+                key,
+            },
+            async (client) => {
+                return await client.scard(key)
+            }
+        )
+    }
+
     public redisPublish(channel: string, message: string): Promise<number> {
-        return instrumentQuery('query.redisPublish', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Publish delayed. Waiting over 30 sec to perform Publish', {
+        return this.instrumentRedisQuery(
+            'query.redisPublish',
+            undefined,
+            {
                 channel,
                 message,
-            })
-            try {
+            },
+            async (client) => {
                 return await client.publish(channel, message)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
-        })
+        )
     }
 
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
+            id: String(row.id),
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
         }
     }
 
-    public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
-    public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
-    public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
+    public async fetchPersons(database?: Database.Postgres, teamId?: number): Promise<InternalPerson[]>
+    public async fetchPersons(database: Database.ClickHouse, teamId?: number): Promise<ClickHousePerson[]>
+    public async fetchPersons(
+        database: Database = Database.Postgres,
+        teamId?: number
+    ): Promise<InternalPerson[] | ClickHousePerson[]> {
         if (database === Database.ClickHouse) {
             const query = `
             SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
@@ -444,6 +491,7 @@ export class DB {
                     argMax(_offset, _timestamp) as _offset
                 FROM person
                 FINAL
+                ${teamId ? `WHERE team_id = ${teamId}` : ''}
                 GROUP BY team_id, id
                 HAVING max(is_deleted)=0
             )
@@ -454,11 +502,39 @@ export class DB {
             }) as ClickHousePerson[]
         } else if (database === Database.Postgres) {
             return await this.postgres
-                .query<RawPerson>(PostgresUse.COMMON_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+                .query<RawPerson>(PostgresUse.PERSONS_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
                 .then(({ rows }) => rows.map(this.toPerson))
         } else {
             throw new Error(`Can't fetch persons for database: ${database}`)
         }
+    }
+
+    // temporary: measure person record JSONB blob sizes
+    public async personPropertiesSize(teamId: number, distinctId: string): Promise<number> {
+        const values = [teamId, distinctId]
+        const queryString = `
+            SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
+            FROM posthog_person
+            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE
+                posthog_person.team_id = $1
+                AND posthog_persondistinctid.team_id = $1
+                AND posthog_persondistinctid.distinct_id = $2`
+
+        const { rows } = await this.postgres.query<PersonPropertiesSize>(
+            PostgresUse.PERSONS_READ,
+            queryString,
+            values,
+            'personPropertiesSize'
+        )
+
+        // the returned value from the DB query can be NULL if the record
+        // specified by the team and distinct ID inputs doesn't exist
+        if (rows.length > 0) {
+            return Number(rows[0].total_props_bytes)
+        }
+
+        return 0
     }
 
     public async fetchPerson(
@@ -494,7 +570,7 @@ export class DB {
         const values = [teamId, distinctId]
 
         const { rows } = await this.postgres.query<RawPerson>(
-            options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
+            options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             values,
             'fetchPerson'
@@ -516,7 +592,7 @@ export class DB {
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
-    ): Promise<InternalPerson> {
+    ): Promise<[InternalPerson, TopicMessage[]]> {
         distinctIds ||= []
 
         for (const distinctId of distinctIds) {
@@ -527,7 +603,7 @@ export class DB {
         const personVersion = 0
 
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at,
@@ -539,7 +615,7 @@ export class DB {
                 distinctIds
                     .map(
                         // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctIdPooled`
+                        // `addDistinctId`
                         (_, index) => `, distinct_id_${index} AS (
                         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                         VALUES (
@@ -599,16 +675,52 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
-        return person
+        return [person, kafkaMessages]
+    }
+
+    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
+        const { rows } = await this.postgres.query<RawPerson>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_person SET
+                properties = $1,
+                properties_last_updated_at = $2,
+                properties_last_operation = $3,
+                is_identified = $4,
+                version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $5 AND uuid = $6 AND version = $7
+            RETURNING *
+            `,
+            [
+                JSON.stringify(personUpdate.properties),
+                JSON.stringify(personUpdate.properties_last_updated_at),
+                JSON.stringify(personUpdate.properties_last_operation),
+                personUpdate.is_identified,
+                personUpdate.team_id,
+                personUpdate.uuid,
+                personUpdate.version,
+            ],
+            'updatePersonAssertVersion'
+        )
+
+        if (rows.length === 0) {
+            return [undefined, []]
+        }
+
+        const updatedPerson = this.toPerson(rows[0])
+
+        const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
+
+        return [updatedPerson.version, [kafkaMessage]]
     }
 
     // Currently in use, but there are various problems with this function
-    public async updatePersonDeprecated(
+    public async updatePerson(
         person: InternalPerson,
         update: Partial<InternalPerson>,
-        tx?: TransactionClient
-    ): Promise<[InternalPerson, ProducerRecord[]]> {
+        tx?: TransactionClient,
+        tag?: string
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -619,7 +731,7 @@ export class DB {
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
-            return [person, []]
+            return [person, [], false]
         }
 
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
@@ -628,17 +740,18 @@ export class DB {
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
         )} WHERE id = $${Object.values(update).length + 1}
-        RETURNING *`
+        RETURNING *
+        /* operation='updatePerson',purpose='${tag || 'update'}' */`
 
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             values,
-            'updatePerson'
+            `updatePerson${tag ? `-${tag}` : ''}`
         )
         if (rows.length == 0) {
             throw new NoRowsUpdatedError(
-                `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
+                `Person with id="${person.id}", team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
             )
         }
         const updatedPerson = this.toPerson(rows[0])
@@ -647,28 +760,46 @@ export class DB {
         // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
         const versionDisparity = updatedPerson.version - person.version - 1
         if (versionDisparity > 0) {
+            logger.info('🧑‍🦰', 'Person update version mismatch', {
+                team_id: updatedPerson.team_id,
+                person_id: updatedPerson.id,
+                version_disparity: versionDisparity,
+            })
             personUpdateVersionMismatchCounter.inc()
         }
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        status.debug(
+        logger.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
 
-        return [updatedPerson, [kafkaMessage]]
+        return [updatedPerson, [kafkaMessage], versionDisparity > 0]
     }
 
-    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
-        const { rows } = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
-            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
-            [person.team_id, person.id],
-            'deletePerson'
-        )
+    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
+        let rows: { version: string }[] = []
+        try {
+            const result = await this.postgres.query<{ version: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
+                [person.team_id, person.id],
+                'deletePerson'
+            )
+            rows = result.rows
+        } catch (error) {
+            if (error.code === '40P01') {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                    team_id: person.team_id,
+                    person_id: person.id,
+                })
+            }
+            throw error
+        }
 
-        let kafkaMessages: ProducerRecord[] = []
+        let kafkaMessages: TopicMessage[] = []
 
         if (rows.length > 0) {
             const [row] = rows
@@ -703,7 +834,7 @@ export class DB {
             ).data as ClickHousePersonDistinctId2[]
         } else if (database === Database.Postgres) {
             const result = await this.postgres.query(
-                PostgresUse.COMMON_WRITE, // used in tests only
+                PostgresUse.PERSONS_WRITE, // used in tests only
                 'SELECT * FROM posthog_persondistinctid WHERE person_id=$1 AND team_id=$2 ORDER BY id',
                 [person.id, person.team_id],
                 'fetchDistinctIds'
@@ -724,7 +855,7 @@ export class DB {
 
     public async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
         const result = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
@@ -741,7 +872,7 @@ export class DB {
 
         // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
         const existingResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
                 SELECT is_merged
                 FROM posthog_personlessdistinctid
@@ -760,7 +891,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<boolean> {
         const result = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, true, now())
@@ -780,25 +911,13 @@ export class DB {
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
-        if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
-        }
-    }
-
-    public async addDistinctIdPooled(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
-            'addDistinctIdPooled'
+            'addDistinctId'
         )
 
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
@@ -825,11 +944,11 @@ export class DB {
         source: InternalPerson,
         target: InternalPerson,
         tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
-                tx ?? PostgresUse.COMMON_WRITE,
+                tx ?? PostgresUse.PERSONS_WRITE,
                 `
                     UPDATE posthog_persondistinctid
                     SET person_id = $1, version = COALESCE(version, 0)::numeric + 1
@@ -848,9 +967,14 @@ export class DB {
             ) {
                 // this is caused by a race condition where the _target_ person was deleted after fetching but
                 // before the update query ran and will trigger a retry with updated persons
-                throw new RaceConditionError(
-                    'Failed trying to move distinct IDs because target person no longer exists.'
-                )
+                logger.warn('😵', 'Target person no longer exists', {
+                    team_id: target.team_id,
+                    person_id: target.id,
+                })
+                return {
+                    success: false,
+                    error: 'TargetNotFound',
+                }
             }
 
             throw error
@@ -859,9 +983,14 @@ export class DB {
         // this is caused by a race condition where the _source_ person was deleted after fetching but
         // before the update query ran and will trigger a retry with updated persons
         if (movedDistinctIdResult.rows.length === 0) {
-            throw new RaceConditionError(
-                `Failed trying to move distinct IDs because the source person no longer exists.`
-            )
+            logger.warn('😵', 'Source person no longer exists', {
+                team_id: source.team_id,
+                person_id: source.id,
+            })
+            return {
+                success: false,
+                error: 'SourceNotFound',
+            }
         }
 
         const kafkaMessages = []
@@ -877,7 +1006,7 @@ export class DB {
                 ],
             })
         }
-        return kafkaMessages
+        return { success: true, messages: kafkaMessages }
     }
 
     // Cohort & CohortPeople
@@ -917,7 +1046,7 @@ export class DB {
         version: number | null
     ): Promise<CohortPeople> {
         const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
             [cohortId, personId, version],
             'addPersonToCohort'
@@ -934,7 +1063,7 @@ export class DB {
         // When personIDs change, update places depending on a person_id foreign key
 
         await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             // Do two high level things in a single round-trip to the DB.
             //
             // 1. Update cohorts.
@@ -988,7 +1117,7 @@ export class DB {
         ).data.map((event) => {
             return {
                 ...event,
-                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
         return events
@@ -1001,12 +1130,12 @@ export class DB {
         return queryResult.data as PluginLogEntry[]
     }
 
-    public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
+    public queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
         const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
 
         if (!shouldStoreLog(configuredLogLevel, type)) {
-            return
+            return Promise.resolve()
         }
 
         const parsedEntry = {
@@ -1023,83 +1152,35 @@ export class DB {
 
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
-            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
-            return
+            logger.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
+            return Promise.resolve()
         }
 
         pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage({
-                topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                key: parsedEntry.id,
-                object: parsedEntry,
-                // For logs, we relax our durability requirements a little and
-                // do not wait for acks that Kafka has persisted the message to
-                // disk.
-                waitForAck: false,
-            })
+            // For logs, we relax our durability requirements a little and
+            // do not wait for acks that Kafka has persisted the message to
+            // disk.
+            void this.kafkaProducer
+                .queueMessages({
+                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
+                })
+                .catch((error) => {
+                    logger.warn('⚠️', 'Failed to produce plugin log entry', {
+                        error,
+                        entry: parsedEntry,
+                    })
+                })
+
+            // TRICKY: We don't want to block the caller, so we return a promise that resolves immediately.
+            return Promise.resolve()
         } catch (e) {
             captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
+            return Promise.resolve()
         }
-    }
-
-    // EventDefinition
-
-    public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_eventdefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventDefinitions'
-            )
-        ).rows as EventDefinitionType[]
-    }
-
-    // PropertyDefinition
-
-    public async fetchPropertyDefinitions(teamId?: number): Promise<PropertyDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_propertydefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name, type, coalesce(group_type_index, -1))
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchPropertyDefinitions'
-            )
-        ).rows as PropertyDefinitionType[]
-    }
-
-    // EventProperty
-
-    public async fetchEventProperties(teamId?: number): Promise<EventPropertyType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                    SELECT * FROM posthog_eventproperty
-                    ${teamId ? 'WHERE team_id = $1' : ''}
-                    -- Order by something that gives a deterministic order. Note
-                    -- that this is a unique index.
-                    ORDER BY (team_id, event, property)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventProperties'
-            )
-        ).rows as EventPropertyType[]
     }
 
     // Action & ActionStep & Action<>Event
@@ -1110,22 +1191,6 @@ export class DB {
 
     public async fetchAction(id: Action['id']): Promise<Action | null> {
         return await fetchAction(this.postgres, id)
-    }
-
-    // Organization
-
-    public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        return await fetchOrganization(this.postgres, organizationId)
-    }
-
-    // Team
-
-    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
-        return await fetchTeam(this.postgres, teamId)
-    }
-
-    public async fetchTeamByToken(token: string): Promise<Team | null> {
-        return await fetchTeamByToken(this.postgres, token)
     }
 
     // Hook (EE)
@@ -1217,7 +1282,7 @@ export class DB {
         }
 
         const selectResult: QueryResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             [teamId, groupTypeIndex, groupKey],
             'fetchGroup'
@@ -1241,11 +1306,10 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        const result = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+    ): Promise<number> {
+        const result = await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1260,7 +1324,7 @@ export class DB {
                 createdAt.toISO(),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
-                version,
+                1,
             ],
             'upsertGroup'
         )
@@ -1268,6 +1332,8 @@ export class DB {
         if (result.rows.length === 0) {
             throw new RaceConditionError('Parallel posthog_group inserts, retry')
         }
+
+        return Number(result.rows[0].version || 0)
     }
 
     public async updateGroup(
@@ -1278,19 +1344,20 @@ export class DB {
         createdAt: DateTime,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        version: number,
+        tag: string,
         tx?: TransactionClient
-    ): Promise<void> {
-        await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+    ): Promise<number | undefined> {
+        const result = await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $4,
             group_properties = $5,
             properties_last_updated_at = $6,
             properties_last_operation = $7,
-            version = $8
+            version = COALESCE(version, 0)::numeric + 1
             WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
+            RETURNING version
             `,
             [
                 teamId,
@@ -1300,10 +1367,57 @@ export class DB {
                 JSON.stringify(groupProperties),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
-                version,
             ],
-            'upsertGroup'
+            tag
         )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
+    }
+
+    public async updateGroupOptimistically(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        expectedVersion: number,
+        groupProperties: Properties,
+        createdAt: DateTime,
+        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
+        propertiesLastOperation: PropertiesLastOperation
+    ): Promise<number | undefined> {
+        const result = await this.postgres.query<{ version: string }>(
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_group SET
+            created_at = $5,
+            group_properties = $6,
+            properties_last_updated_at = $7,
+            properties_last_operation = $8,
+            version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3 AND version = $4
+            RETURNING version
+            `,
+            [
+                teamId,
+                groupKey,
+                groupTypeIndex,
+                expectedVersion,
+                createdAt.toISO(),
+                JSON.stringify(groupProperties),
+                JSON.stringify(propertiesLastUpdatedAt),
+                JSON.stringify(propertiesLastOperation),
+            ],
+            'updateGroupOptimistically'
+        )
+
+        if (result.rows.length === 0) {
+            return undefined
+        }
+
+        return Number(result.rows[0].version || 0)
     }
 
     public async upsertGroupClickhouse(
@@ -1314,23 +1428,20 @@ export class DB {
         createdAt: DateTime,
         version: number
     ): Promise<void> {
-        await this.kafkaProducer.queueMessage({
-            kafkaMessage: {
-                topic: KAFKA_GROUPS,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            group_type_index: groupTypeIndex,
-                            group_key: groupKey,
-                            team_id: teamId,
-                            group_properties: JSON.stringify(properties),
-                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                            version,
-                        }),
-                    },
-                ],
-            },
-            waitForAck: true,
+        await this.kafkaProducer.queueMessages({
+            topic: KAFKA_GROUPS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        group_type_index: groupTypeIndex,
+                        group_key: groupKey,
+                        team_id: teamId,
+                        group_properties: JSON.stringify(properties),
+                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                        version,
+                    }),
+                },
+            ],
         })
     }
 
@@ -1355,38 +1466,6 @@ export class DB {
             row.project_id = Number(row.project_id) as ProjectId
         }
         return selectResult.rows
-    }
-
-    public async addOrUpdatePublicJob(
-        pluginId: number,
-        jobName: string,
-        jobPayloadJson: Record<string, any>
-    ): Promise<void> {
-        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'addOrUpdatePublicJob', async (tx) => {
-            let publicJobs: Record<string, any> = (
-                await this.postgres.query(
-                    tx,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
-                    [pluginId],
-                    'selectPluginPublicJobsForUpdate'
-                )
-            ).rows[0]?.public_jobs
-
-            if (
-                !publicJobs ||
-                !(jobName in publicJobs) ||
-                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
-            ) {
-                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
-
-                await this.postgres.query(
-                    tx,
-                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
-                    [JSON.stringify(publicJobs), pluginId],
-                    'updatePublicJob'
-                )
-            }
-        })
     }
 
     public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {

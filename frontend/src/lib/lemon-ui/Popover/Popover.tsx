@@ -68,6 +68,8 @@ export interface PopoverProps {
     closeParentPopoverOnClickInside?: boolean
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
+    /** An added delay before the floating overlay is shown */
+    delayMs?: number
 }
 
 /** Context for the popover overlay: parent popover visibility and parent popover level. */
@@ -93,7 +95,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         onMouseEnterInside,
         onMouseLeaveInside,
         placement = 'bottom-start',
-        fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
+        fallbackPlacements = ['top-start', 'top-end', 'bottom-start', 'bottom-end'],
         className,
         padded = true,
         middleware,
@@ -106,6 +108,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         style,
         showArrow = false,
         overflowHidden = false,
+        delayMs = 50,
     },
     contentRef
 ): JSX.Element {
@@ -133,13 +136,33 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement,
         strategy: 'fixed',
         middleware: [
-            ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
-            shift(),
+            ...(fallbackPlacements
+                ? [
+                      flip({
+                          fallbackPlacements: [
+                              // Prioritize top placements when there might be space issues
+                              ...fallbackPlacements.filter((p) => p.startsWith('top')),
+                              ...fallbackPlacements.filter((p) => p.startsWith('bottom')),
+                          ],
+                          fallbackStrategy: 'bestFit',
+                          padding: { bottom: 150 }, // Require at least 150px of space below to avoid flipping
+                      }),
+                  ]
+                : []),
+            shift({ padding: 8, boundary: document.body }), // Add padding and use document.body as boundary
             size({
                 padding: 4,
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
-                    floating.style.maxHeight = `${availableHeight}px`
-                    floating.style.maxWidth = `${availableWidth}px`
+                    const minHeight = 200 // Minimum desired height
+
+                    // If there's insufficient height, set a reasonable max height but still allow content to be scrollable
+                    if (availableHeight < minHeight) {
+                        floating.style.maxHeight = `${Math.max(availableHeight, 150)}px`
+                    } else {
+                        floating.style.maxHeight = `${availableHeight}px`
+                    }
+
+                    floating.style.maxWidth = `${Math.min(availableWidth, window.innerWidth - 16)}px` // Ensure popover doesn't extend past window edge
                     floating.style.width = 'initial'
                     if (matchWidth) {
                         floating.style.minWidth = `${rects.reference.width}px`
@@ -232,7 +255,14 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             )}
             {visible ? (
                 <FloatingPortal root={floatingContainer}>
-                    <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
+                    <CSSTransition
+                        in={visible}
+                        timeout={delayMs}
+                        classNames="Popover-"
+                        appear
+                        mountOnEnter
+                        unmountOnExit
+                    >
                         <PopoverReferenceContext.Provider
                             value={null /* Resetting the reference, since there's none */}
                         >

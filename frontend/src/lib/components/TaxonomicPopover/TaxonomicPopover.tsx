@@ -1,17 +1,22 @@
 import { IconX } from '@posthog/icons'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import {
+    DataWarehousePopoverField,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { useEffect, useState } from 'react'
+import { forwardRef, Ref, useEffect, useState } from 'react'
 import { LocalFilter } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
     groupType: TaxonomicFilterGroupType
-    value?: ValueType
+    value?: ValueType | null
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
 
     filter?: LocalFilter
@@ -20,13 +25,16 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     eventNames?: string[]
     placeholder?: React.ReactNode
     placeholderClass?: string
-    dropdownMatchSelectWidth?: boolean
+    /** Width of the popover. */
+    width?: number
     schemaColumns?: DatabaseSchemaField[]
     allowClear?: boolean
     style?: React.CSSProperties
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    maxContextOptions?: MaxContextTaxonomicFilterOption[]
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -41,23 +49,31 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
     )
 }
 
-export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>({
-    groupType,
-    value,
-    filter,
-    onChange,
-    renderValue,
-    groupTypes,
-    eventNames = [],
-    placeholder = 'Please select',
-    placeholderClass = 'text-muted',
-    allowClear = false,
-    excludedProperties,
-    metadataSource,
-    schemaColumns,
-    showNumericalPropsOnly,
-    ...buttonPropsRest
-}: TaxonomicPopoverProps<ValueType>): JSX.Element {
+export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
+    ValueType extends TaxonomicFilterValue = TaxonomicFilterValue
+>(
+    {
+        groupType,
+        value,
+        filter,
+        onChange,
+        renderValue,
+        groupTypes,
+        eventNames = [],
+        placeholder = 'Please select',
+        placeholderClass,
+        allowClear = false,
+        excludedProperties,
+        metadataSource,
+        schemaColumns,
+        showNumericalPropsOnly,
+        dataWarehousePopoverFields,
+        maxContextOptions,
+        width,
+        ...buttonPropsRest
+    }: TaxonomicPopoverProps<ValueType>,
+    ref: Ref<HTMLButtonElement>
+): JSX.Element {
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
@@ -66,9 +82,9 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     const buttonPropsFinal: Omit<LemonButtonProps, 'sideIcon' | 'sideAction'> = buttonPropsRest
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
-    ) : (
+    ) : placeholder || placeholderClass ? (
         <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
-    )
+    ) : null
     buttonPropsFinal.onClick = () => setVisible(!visible)
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
@@ -97,6 +113,9 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                     metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
                     showNumericalPropsOnly={showNumericalPropsOnly}
+                    dataWarehousePopoverFields={dataWarehousePopoverFields}
+                    maxContextOptions={maxContextOptions}
+                    width={width}
                 />
             }
             matchWidth={false}
@@ -119,10 +138,13 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                         divider: false,
                     }}
                     {...buttonPropsFinal}
+                    ref={ref}
                 />
             ) : (
-                <LemonButton {...buttonPropsFinal} />
+                <LemonButton {...buttonPropsFinal} ref={ref} />
             )}
         </LemonDropdown>
     )
-}
+}) as <ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>(
+    p: TaxonomicPopoverProps<ValueType> & { ref?: Ref<HTMLButtonElement> }
+) => JSX.Element

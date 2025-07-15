@@ -15,12 +15,19 @@ import { useActions, useValues } from 'kea'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { SurveyEventProperties } from 'posthog-js'
 import { useState } from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
+import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingLogic } from './billingLogic'
-import { billingProductLogic, randomizeReasons, UNSUBSCRIBE_REASONS } from './billingProductLogic'
+import {
+    billingProductLogic,
+    isPlatformAndSupportAddon,
+    randomizeReasons,
+    UNSUBSCRIBE_REASONS,
+} from './billingProductLogic'
 import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 
 export const UnsubscribeSurveyModal = ({
@@ -50,7 +57,7 @@ export const UnsubscribeSurveyModal = ({
         process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
-    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
+    const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const includesPipelinesAddon =
         product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
@@ -78,7 +85,7 @@ export const UnsubscribeSurveyModal = ({
         <div className="flex flex-col gap-4">
             <div className="text-center">
                 <h3 className="text-lg mb-2">How about now? Was that enough hedgehogs?</h3>
-                <p className="text-muted mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
+                <p className="text-secondary mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
                 <div className="flex justify-center items-center">
                     <HeartHog width="100" height="100" />
                 </div>
@@ -89,7 +96,7 @@ export const UnsubscribeSurveyModal = ({
                 </Link>
             </div>
             <LemonDivider />
-            <div className="space-y-2 flex flex-col items-center justify-center">
+            <div className="deprecated-space-y-2 flex flex-col items-center justify-center">
                 <LemonButton
                     type="primary"
                     loading={billingLoading}
@@ -189,11 +196,13 @@ export const UnsubscribeSurveyModal = ({
                             </p>
                         )}
 
+                        {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
+
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'
                                 ? `Why are you ${actionVerb}?`
                                 : `Why are you ${actionVerb} from ${product.name}?`}{' '}
-                            <i className="text-muted">(you can select multiple)</i>
+                            <i className="text-secondary">(you can select multiple)</i>
                             <Tooltip title="Required">
                                 <span className="text-danger">*</span>
                             </Tooltip>
@@ -217,9 +226,9 @@ export const UnsubscribeSurveyModal = ({
                             <LemonTextArea
                                 data-attr="unsubscribe-reason-survey-textarea"
                                 placeholder={unsubscribeReasonQuestions}
-                                value={surveyResponse['$survey_response']}
+                                value={surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]}
                                 onChange={(value) => {
-                                    setSurveyResponse('$survey_response', value)
+                                    setSurveyResponse(SurveyEventProperties.SURVEY_RESPONSE, value)
                                 }}
                             />
                         )}

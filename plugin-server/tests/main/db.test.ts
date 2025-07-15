@@ -2,18 +2,26 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import {
+    BasePerson,
+    Hub,
+    InternalPerson,
+    Person,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    RawAction,
+    Team,
+} from '../../src/types'
 import { DB } from '../../src/utils/db/db'
-import { DependencyUnavailableError } from '../../src/utils/db/error'
+import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
-import { plugin60 } from './../helpers/plugins'
+import { getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 describe('DB', () => {
     let hub: Hub
@@ -35,9 +43,10 @@ describe('DB', () => {
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+    const ISO_TIMESTAMP = TIMESTAMP.toISO()!
 
-    function runPGQuery(queryString: string, values: any[] = null) {
-        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'testQuery')
+    function runPGQuery(queryString: string) {
+        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, [], 'testQuery')
     }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
@@ -180,8 +189,6 @@ describe('DB', () => {
                                 target: 'https://example.com/',
                             },
                         ],
-                        bytecode: null,
-                        bytecode_error: null,
                     },
                 },
             })
@@ -189,7 +196,6 @@ describe('DB', () => {
             expect(await db.fetchAction(69)).toEqual({
                 ...result[2][69],
                 steps_json: null, // Temporary diff whilst we migrate to this new field
-                pinned_at: null,
             })
         })
 
@@ -259,9 +265,9 @@ describe('DB', () => {
         })
     })
 
-    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
+    async function fetchPersonByPersonId(teamId: number, personId: InternalPerson['id']): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
             'fetchPersonByPersonId'
@@ -278,7 +284,7 @@ describe('DB', () => {
         await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
 
         const result = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             'SELECT id FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
             [team.id, 'addPersonlessDistinctId'],
             'addPersonlessDistinctId'
@@ -297,33 +303,40 @@ describe('DB', () => {
         })
 
         test('without properties', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            const [person, kafkaMessages] = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [
+                { distinctId },
+            ])
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
 
-            expect(fetched_person!.is_identified).toEqual(false)
-            expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
-            expect(fetched_person!.uuid).toEqual(uuid)
-            expect(fetched_person!.team_id).toEqual(team.id)
+            expect(fetched_person.is_identified).toEqual(false)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
         })
 
         test('without properties indentified true', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
-            expect(fetched_person!.is_identified).toEqual(true)
-            expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
-            expect(fetched_person!.uuid).toEqual(uuid)
-            expect(fetched_person!.team_id).toEqual(team.id)
+            const [person, kafkaMessages] = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [
+                { distinctId },
+            ])
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
+
+            expect(fetched_person.is_identified).toEqual(true)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
         })
 
         test('with properties', async () => {
-            const person = await db.createPerson(
+            const [person, kafkaMessages] = await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: ISO_TIMESTAMP, b: ISO_TIMESTAMP, c: ISO_TIMESTAMP },
                 { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
                 team.id,
                 null,
@@ -331,7 +344,9 @@ describe('DB', () => {
                 uuid,
                 [{ distinctId }]
             )
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
+
             expect(fetched_person!.is_identified).toEqual(false)
             expect(fetched_person!.properties).toEqual({ a: 123, b: false, c: 'bbb' })
             expect(fetched_person!.properties_last_operation).toEqual({
@@ -340,9 +355,9 @@ describe('DB', () => {
                 c: PropertyUpdateOperation.SetOnce,
             })
             expect(fetched_person!.properties_last_updated_at).toEqual({
-                a: TIMESTAMP.toISO(),
-                b: TIMESTAMP.toISO(),
-                c: TIMESTAMP.toISO(),
+                a: ISO_TIMESTAMP,
+                b: ISO_TIMESTAMP,
+                c: ISO_TIMESTAMP,
             })
             expect(fetched_person!.uuid).toEqual(uuid)
             expect(fetched_person!.team_id).toEqual(team.id)
@@ -351,23 +366,29 @@ describe('DB', () => {
 
     describe('updatePerson', () => {
         it('Clickhouse and Postgres are in sync if multiple updates concurrently', async () => {
-            jest.spyOn(db.kafkaProducer!, 'queueMessage')
+            jest.spyOn(db.kafkaProducer!, 'queueMessages')
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
             // Note that we update the person badly in case of concurrent updates, but lets make sure we're consistent
-            const personDbBefore = await db.createPerson(TIMESTAMP, { c: 'aaa' }, {}, {}, team.id, null, false, uuid, [
-                { distinctId },
-            ])
+            const [personDbBefore, kafkaMessagesPersonDbBefore] = await db.createPerson(
+                TIMESTAMP,
+                { c: 'aaa' },
+                {},
+                {},
+                team.id,
+                null,
+                false,
+                uuid,
+                [{ distinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesPersonDbBefore)
             const providedPersonTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const personProvided = { ...personDbBefore, properties: { c: 'bbb' }, created_at: providedPersonTs }
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
-            const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
-            await hub.db.kafkaProducer.queueMessages({
-                kafkaMessages,
-                waitForAck: true,
-            })
+            const [updatedPerson, kafkaMessages] = await db.updatePerson(personProvided, update)
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -380,10 +401,9 @@ describe('DB', () => {
             expect(updatedPerson.properties).toEqual({ c: 'aaa' })
 
             // verify correct Kafka message was sent
-            expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith({
-                kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
-                waitForAck: true,
-            })
+            expect(db.kafkaProducer!.queueMessages).toHaveBeenLastCalledWith([
+                generateKafkaPersonUpdateMessage(updatedPerson),
+            ])
         })
     })
 
@@ -394,7 +414,8 @@ describe('DB', () => {
         it('deletes person from postgres', async () => {
             const team = await getFirstTeam(hub)
             // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            const [person, kafkaMessages] = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             await db.deletePerson(person)
 
@@ -421,22 +442,30 @@ describe('DB', () => {
             it('marks person as deleted in clickhouse', async () => {
                 const team = await getFirstTeam(hub)
                 // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
-                const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+                const [personBefore, kafkaMessagesPersonBefore] = await db.createPerson(
+                    TIMESTAMP,
+                    {},
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    uuid,
+                    []
+                )
+                await hub.db.kafkaProducer.queueMessages(kafkaMessagesPersonBefore)
                 await delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
-                const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
+                const [_personUpdated, updatePersonKafkaMessages] = await db.updatePerson(personBefore, {
                     properties: { foo: 'bar' },
                 })
-                await hub.db.kafkaProducer.queueMessages({
-                    kafkaMessages: updatePersonKafkaMessages,
-                    waitForAck: true,
-                })
+                await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
-                const kafkaMessages = await db.deletePerson(person)
-                await db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+                const kafkaMessages = await db.deletePerson(personBefore)
+                await hub.db.kafkaProducer.queueMessages(kafkaMessages)
                 await db.kafkaProducer.flush()
 
                 const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
@@ -488,16 +517,24 @@ describe('DB', () => {
         it('returns person object if person exists', async () => {
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
-            const createdPerson = await db.createPerson(TIMESTAMP, { foo: 'bar' }, {}, {}, team.id, null, true, uuid, [
-                { distinctId: 'some_id' },
-            ])
-
+            const [createdPerson, kafkaMessages] = await db.createPerson(
+                TIMESTAMP,
+                { foo: 'bar' },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                uuid,
+                [{ distinctId: 'some_id' }]
+            )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
             const person = await db.fetchPerson(team.id, 'some_id')
 
             expect(person).toEqual(createdPerson)
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: uuid.toString(),
                     properties: { foo: 'bar' },
                     is_identified: true,
@@ -516,9 +553,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: ISO_TIMESTAMP },
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
@@ -533,9 +569,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: ISO_TIMESTAMP },
+                { prop: PropertyUpdateOperation.Set }
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
@@ -545,7 +580,7 @@ describe('DB', () => {
                 group_key: 'group_key',
                 group_properties: { prop: 'val' },
                 created_at: TIMESTAMP,
-                properties_last_updated_at: { prop: TIMESTAMP.toISO() },
+                properties_last_updated_at: { prop: ISO_TIMESTAMP },
                 properties_last_operation: { prop: PropertyUpdateOperation.Set },
                 version: 1,
             })
@@ -558,9 +593,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: ISO_TIMESTAMP },
+                { prop: PropertyUpdateOperation.Set }
             )
 
             await expect(
@@ -570,9 +604,8 @@ describe('DB', () => {
                     'group_key',
                     { prop: 'newval' },
                     TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set },
-                    1
+                    { prop: ISO_TIMESTAMP },
+                    { prop: PropertyUpdateOperation.Set }
                 )
             ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
         })
@@ -584,9 +617,8 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
+                { prop: ISO_TIMESTAMP },
+                { prop: PropertyUpdateOperation.Set }
             )
 
             const originalGroup = await db.fetchGroup(2, 0, 'group_key')
@@ -598,9 +630,9 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'newVal', prop2: 2 },
                 TIMESTAMP,
-                { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
+                { prop: timestamp2.toISO()!, prop2: timestamp2.toISO()! },
                 { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                2
+                'upsertGroup'
             )
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
@@ -614,44 +646,6 @@ describe('DB', () => {
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
             })
-        })
-    })
-
-    describe('addOrUpdatePublicJob', () => {
-        it('updates the column if the job name is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
-        })
-
-        it('updates the column if the job payload is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88, public_jobs: { foo: 'number' } })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
         })
     })
 
@@ -688,8 +682,8 @@ describe('DB', () => {
 
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
-        let sourcePersonID: Person['id']
-        let targetPersonID: Person['id']
+        let sourcePersonID: BasePerson['id']
+        let targetPersonID: BasePerson['id']
 
         async function getAllHashKeyOverrides(): Promise<any> {
             const result = await db.postgres.query(
@@ -703,7 +697,7 @@ describe('DB', () => {
 
         beforeEach(async () => {
             team = await getFirstTeam(hub)
-            const sourcePerson = await db.createPerson(
+            const [sourcePerson, kafkaMessagesSourcePerson] = await db.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -714,7 +708,8 @@ describe('DB', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'source_person' }]
             )
-            const targetPerson = await db.createPerson(
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSourcePerson)
+            const [targetPerson, kafkaMessagesTargetPerson] = await db.createPerson(
                 TIMESTAMP,
                 {},
                 {},
@@ -725,6 +720,7 @@ describe('DB', () => {
                 new UUIDT().toString(),
                 [{ distinctId: 'target_person' }]
             )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesTargetPerson)
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
         })
@@ -845,62 +841,139 @@ describe('DB', () => {
         })
     })
 
-    describe('fetchTeam()', () => {
-        it('fetches a team by id', async () => {
-            const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+    describe('redis', () => {
+        describe('instrumentRedisQuery', () => {
+            const otherErrorType = new Error('other error type')
 
-            const fetchedTeam = await hub.db.fetchTeam(teamId)
-            expect(fetchedTeam).toEqual({
-                anonymize_ips: false,
-                api_token: 'token1',
-                id: teamId,
-                project_id: teamId,
-                ingested_event: true,
-                name: 'TEST PROJECT',
-                organization_id: organizationId,
-                session_recording_opt_in: true,
-                person_processing_opt_out: null,
-                heatmaps_opt_in: null,
-                slack_incoming_webhook: null,
-                uuid: expect.any(String),
-                person_display_name_properties: [],
-                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
-            } as Team)
-        })
+            it('should only throw Redis errors for operations', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        throw otherErrorType
+                    }),
+                }))
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+            it('should only throw Redis errors for pool acquire', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
 
-        it('returns null if the team does not exist', async () => {
-            const fetchedTeam = await hub.db.fetchTeam(99999)
-            expect(fetchedTeam).toEqual(null)
-        })
-    })
-
-    describe('fetchTeamByToken()', () => {
-        it('fetches a team by token', async () => {
-            const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token2')
-
-            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
-            expect(fetchedTeam).toEqual({
-                anonymize_ips: false,
-                api_token: 'token2',
-                id: teamId,
-                project_id: teamId,
-                ingested_event: true,
-                name: 'TEST PROJECT',
-                organization_id: organizationId,
-                session_recording_opt_in: true,
-                person_processing_opt_out: null,
-                heatmaps_opt_in: null,
-                slack_incoming_webhook: null,
-                uuid: expect.any(String),
-                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
+            it('should only throw Redis errors for pool release', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        return 'testValue'
+                    }),
+                }))
+                hub.redisPool.release = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
             })
         })
 
-        it('returns null if the team does not exist', async () => {
-            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
-            expect(fetchedTeam).toEqual(null)
+        describe('get', () => {
+            const defaultValue = 'testDefaultValue'
+            const value = 'testValue'
+            const key = 'testKey'
+            const tag = 'testTag'
+            it('should get a value that was previously set', async () => {
+                await hub.db.redisSet(key, value, tag)
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(value)
+            })
+            it('should return the default value if there is no value already set', async () => {
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(defaultValue)
+            })
+        })
+
+        describe('buffer operations', () => {
+            it('writes and reads buffers', async () => {
+                const buffer = Buffer.from('test')
+                await db.redisSetBuffer('test', buffer, 'testTag', 60)
+                const result = await db.redisGetBuffer('test', 'testTag')
+                expect(result).toEqual(buffer)
+            })
+        })
+
+        describe('redisSetNX', () => {
+            it('it should only set a value if there is not already one present', async () => {
+                const set1 = await db.redisSetNX('test', 'first', 'testTag')
+                expect(set1).toEqual('OK')
+                const get1 = await db.redisGet('test', '', 'testTag')
+                expect(get1).toEqual('first')
+
+                const set2 = await db.redisSetNX('test', 'second', 'testTag')
+                expect(set2).toEqual(null)
+                const get2 = await db.redisGet('test', '', 'testTag')
+                expect(get2).toEqual('first')
+            })
+
+            it('it should only set a value if there is not already one present, with a ttl', async () => {
+                const set1 = await db.redisSetNX('test', 'first', 'testTag', 60)
+                expect(set1).toEqual('OK')
+                const get1 = await db.redisGet('test', '', 'testTag')
+                expect(get1).toEqual('first')
+
+                const set2 = await db.redisSetNX('test', 'second', 'testTag', 60)
+                expect(set2).toEqual(null)
+                const get2 = await db.redisGet('test', '', 'testTag')
+                expect(get2).toEqual('first')
+            })
+        })
+
+        describe('redisSAddAndSCard', () => {
+            it('it should add a value to a set and return the number of elements in the set', async () => {
+                const add1 = await db.redisSAddAndSCard('test', 'A')
+                expect(add1).toEqual(1)
+                const add2 = await db.redisSAddAndSCard('test', 'A')
+                expect(add2).toEqual(1)
+                const add3 = await db.redisSAddAndSCard('test', 'B')
+                expect(add3).toEqual(2)
+                const add4 = await db.redisSAddAndSCard('test', 'B')
+                expect(add4).toEqual(2)
+                const add5 = await db.redisSAddAndSCard('test', 'A')
+                expect(add5).toEqual(2)
+            })
+
+            it('it should add a value to a set and return the number of elements in the set, with a TTL', async () => {
+                const add1 = await db.redisSAddAndSCard('test', 'A', 60)
+                expect(add1).toEqual(1)
+                const add2 = await db.redisSAddAndSCard('test', 'A', 60)
+                expect(add2).toEqual(1)
+                const add3 = await db.redisSAddAndSCard('test', 'B', 60)
+                expect(add3).toEqual(2)
+                const add4 = await db.redisSAddAndSCard('test', 'B', 60)
+                expect(add4).toEqual(2)
+                const add5 = await db.redisSAddAndSCard('test', 'A', 60)
+                expect(add5).toEqual(2)
+            })
+        })
+
+        describe('redisSCard', () => {
+            it('it should return the number of elements in the set', async () => {
+                await db.redisSAddAndSCard('test', 'A')
+                const scard1 = await db.redisSCard('test')
+                expect(scard1).toEqual(1)
+
+                await db.redisSAddAndSCard('test', 'B')
+                const scard2 = await db.redisSCard('test')
+                expect(scard2).toEqual(2)
+
+                await db.redisSAddAndSCard('test', 'B')
+                const scard3 = await db.redisSCard('test')
+                expect(scard3).toEqual(2)
+            })
         })
     })
 })
@@ -913,8 +986,8 @@ describe('PostgresRouter()', () => {
             return Promise.reject(new Error(errorMessage))
         })
 
-        const router = new PostgresRouter(defaultConfig, null)
-        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', null, 'testing')).rejects.toEqual(
+        const router = new PostgresRouter(defaultConfig)
+        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', [], 'testing')).rejects.toEqual(
             new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
         )
         pgQueryMock.mockRestore()

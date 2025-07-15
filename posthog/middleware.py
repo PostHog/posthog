@@ -1,3 +1,5 @@
+import uuid
+from contextlib import suppress
 from datetime import datetime, timedelta
 from posthog.geoip import get_geoip_properties
 import time
@@ -5,7 +7,7 @@ from ipaddress import ip_address, ip_network
 from typing import Any, Optional, cast
 from collections.abc import Callable
 from loginas.utils import is_impersonated_session, restore_original_login
-
+from posthog.rbac.user_access_control import UserAccessControl
 from django.shortcuts import redirect
 import structlog
 from corsheaders.middleware import CorsMiddleware
@@ -21,10 +23,10 @@ from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import (
     Metrics,
     PrometheusAfterMiddleware,
-    PrometheusBeforeMiddleware,
 )
 from rest_framework import status
 from statshog.defaults.django import statsd
+from django.core.cache import cache
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
@@ -33,29 +35,21 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
+from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
-    "engage",
-    "track",
-    "capture",
-    "batch",
-    "e",
-    "s",
     "static",
     "_health",
+    "flags",
+    "messaging-preferences",
+    "i",
 ]
-
-if DEBUG:
-    # /i/ is the new root path for capture endpoints
-    ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
     "max_age": 365 * 24 * 60 * 60,  # one year
@@ -66,7 +60,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track"}
+cookie_api_paths_to_ignore = {"decide", "api", "flags"}
 
 
 class AllowIPMiddleware:
@@ -85,7 +79,7 @@ class AllowIPMiddleware:
     def get_forwarded_for(self, request: HttpRequest):
         forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if forwarded_for is not None:
-            return [ip.strip() for ip in forwarded_for.split(",")]
+            return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
             return []
 
@@ -129,8 +123,6 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
-            return self._accept(request)
-        if DEBUG and request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return self._accept(request)
         return result
 
@@ -274,9 +266,14 @@ class AutoProjectMiddleware:
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
         user_permissions = UserPermissions(user)
+        user_access_control = UserAccessControl(user=user, team=new_team)
+
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is None:
+        if (
+            not user_access_control.check_access_level_for_object(new_team, "member")
+            and user_permissions.team(new_team).effective_membership_level is None
+        ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
                 request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
@@ -290,6 +287,7 @@ class AutoProjectMiddleware:
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
+        self.logger = structlog.get_logger(__name__)
 
     def __call__(self, request: HttpRequest):
         """Install monkey-patch on demand.
@@ -301,6 +299,11 @@ class CHQueries:
 
         user = cast(User, request.user)
 
+        with suppress(Exception):
+            if request_id := structlog.get_context(self.logger).get("request_id"):
+                uuid.UUID(request_id)  # just to verify it is a real UUID
+                tag_queries(http_request_id=request_id)
+
         tag_queries(
             user_id=user.pk,
             kind="request",
@@ -308,7 +311,6 @@ class CHQueries:
             route_id=route.route,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
-            container_hostname=settings.CONTAINER_HOSTNAME,
             http_referer=request.META.get("HTTP_REFERER"),
             http_user_agent=request.META.get("HTTP_USER_AGENT"),
         )
@@ -396,7 +398,6 @@ class ShortCircuitMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    container_hostname=settings.CONTAINER_HOSTNAME,
                     http_referer=request.META.get("HTTP_REFERER"),
                     http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
@@ -436,7 +437,7 @@ class CaptureMiddleware:
         # reconciles the old style middleware with the new style middleware.
         for middleware_class in (
             CorsMiddleware,
-            PrometheusAfterMiddlewareWithTeamIds,
+            PrometheusAfterMiddleware,
         ):
             try:
                 # Some middlewares raise MiddlewareNotUsed if they are not
@@ -470,7 +471,6 @@ class CaptureMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    container_hostname=settings.CONTAINER_HOSTNAME,
                     http_referer=request.META.get("HTTP_REFERER"),
                     http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
@@ -513,7 +513,7 @@ def per_request_logging_context_middleware(
     for details. They include e.g. request_id, user_id. In some cases e.g. we
     add the team_id to the context like the get_events and decide endpoints.
 
-    This middleware adds some additional context at the beggining of the
+    This middleware adds some additional context at the beginning of the
     request. Feel free to add anything that's relevant for the request here.
     """
 
@@ -562,34 +562,7 @@ PROMETHEUS_EXTENDED_METRICS = [
 
 class CustomPrometheusMetrics(Metrics):
     def register_metric(self, metric_cls, name, documentation, labelnames=(), **kwargs):
-        if name in PROMETHEUS_EXTENDED_METRICS:
-            labelnames.extend([LABEL_TEAM_ID])
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
-
-
-class PrometheusBeforeMiddlewareWithTeamIds(PrometheusBeforeMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-
-class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-    def label_metric(self, metric, request, response=None, **labels):
-        new_labels = labels
-        if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            team_id = None
-            if request and getattr(request, "user", None) and request.user.is_authenticated:
-                if request.resolver_match.kwargs.get("parent_lookup_team_id"):
-                    team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
-                    if team_id == "@current":
-                        if hasattr(request.user, "current_team_id"):
-                            team_id = request.user.current_team_id
-                        else:
-                            team_id = None
-
-            new_labels = {LABEL_TEAM_ID: team_id}
-            new_labels.update(labels)
-        return super().label_metric(metric, request, response=response, **new_labels)
 
 
 class PostHogTokenCookieMiddleware(SessionMiddleware):
@@ -660,7 +633,30 @@ class SessionAgeMiddleware:
     def __call__(self, request: HttpRequest):
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
         get_or_set_session_cookie_created_at(request=request)
-        return self.get_response(request)
+
+        if request.user.is_authenticated:
+            # Get session creation time
+            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+            if session_created_at:
+                # Get timeout from Redis cache first, fallback to settings
+                org_id = request.user.current_organization_id
+                session_age = None
+                if org_id:
+                    session_age = cache.get(f"org_session_age:{org_id}")
+
+                if session_age is None:
+                    session_age = settings.SESSION_COOKIE_AGE
+
+                current_time = time.time()
+                if current_time - session_created_at > session_age:
+                    # Log out the user
+                    from django.contrib.auth import logout
+
+                    logout(request)
+                    return redirect("/login?message=Your session has expired. Please log in again.")
+
+        response = self.get_response(request)
+        return response
 
 
 def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
@@ -669,7 +665,19 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
     init_time = get_or_set_session_cookie_created_at(request=request)
 
-    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+    last_activity_time = request.session.get(settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY, init_time)
+
+    # If the last activity time is less than the idle timeout, we extend the session
+    if time.time() - last_activity_time < settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS:
+        last_activity_time = request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = time.time()
+        request.session.modified = True
+
+    idle_expiry_time = datetime.fromtimestamp(last_activity_time) + timedelta(
+        seconds=settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
+    )
+    total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+
+    return min(idle_expiry_time, total_expiry_time)
 
 
 class AutoLogoutImpersonateMiddleware:
@@ -705,3 +713,22 @@ class AutoLogoutImpersonateMiddleware:
                 return redirect("/admin/")
 
         return self.get_response(request)
+
+
+class Fix204Middleware:
+    """
+    Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+
+        if response.status_code == 204:
+            response.content = b""
+            for h in ["Content-Type", "X-Content-Type-Options"]:
+                response.headers.pop(h, None)
+
+        return response

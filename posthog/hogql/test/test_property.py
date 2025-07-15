@@ -1,22 +1,19 @@
 from typing import Union, cast, Optional, Any, Literal
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 from unittest.mock import MagicMock, patch
 
 from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
-    action_to_expr,
     has_aggregation,
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
     entity_to_expr,
+    map_virtual_properties,
 )
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
-    Action,
     Cohort,
     Property,
     PropertyDefinition,
@@ -25,7 +22,7 @@ from posthog.models import (
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
 from posthog.schema import HogQLPropertyFilter, RetentionEntity, EmptyPropertyFilter
-from posthog.test.base import BaseTest, _create_event
+from posthog.test.base import BaseTest
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -38,9 +35,9 @@ class TestProperty(BaseTest):
 
     def _property_to_expr(
         self,
-        property: Union[PropertyGroup, Property, dict, list],
+        property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[Literal["event", "person"]] = None,
+        scope: Optional[Literal["event", "person", "group"]] = None,
     ):
         return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
@@ -85,10 +82,32 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr(Property(type="group", group_type_index=0, key="a", value=["b", "c"])),
-            self._parse_expr("group_0.properties.a = 'b' OR group_0.properties.a = 'c'"),
+            self._parse_expr("group_0.properties.a in ('b', 'c')"),
         )
 
         self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+
+    def test_property_to_expr_group_scope(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "name", "value": "Hedgebox Inc."}, scope="group"
+            ),
+            self._parse_expr("properties.name = 'Hedgebox Inc.'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="a", value=["b", "c"]), scope="group"
+            ),
+            self._parse_expr("properties.a in ('b', 'c')"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
+            ),
+            self._parse_expr("properties.arr > 100"),
+        )
 
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
@@ -146,11 +165,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
-            self._parse_expr("properties.a ilike '%3%'"),
+            self._parse_expr("toString(properties.a) ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            self._parse_expr("properties.a not ilike '%3%'"),
+            self._parse_expr("toString(properties.a) not ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
@@ -222,7 +241,7 @@ class TestProperty(BaseTest):
         # positive
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
-            self._parse_expr("properties.a = 'b' OR properties.a = 'c'"),
+            self._parse_expr("properties.a in ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -233,7 +252,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
+            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
@@ -247,7 +266,7 @@ class TestProperty(BaseTest):
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
-            self._parse_expr("properties.a != 'b' AND properties.a != 'c'"),
+            self._parse_expr("properties.a not in ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -258,7 +277,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
+            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
         )
         a = self._property_to_expr(
             {
@@ -286,6 +305,60 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "a", "value": "b", "operator": "exact"}),
             self._parse_expr("person.properties.a = 'b'"),
+        )
+
+    def test_property_to_expr_error_tracking_issue_properties(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ReferenceError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ilike '%ReferenceError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "exact",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "is_not",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_regex",
+                    "type": "event",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
 
     def test_property_to_expr_element(self):
@@ -353,7 +426,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("elements_chain_href ilike '%href-text.%'"),
+            self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -545,128 +618,6 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_action_to_expr(self):
-        _create_event(
-            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain='a.active.nav-link:text="text"'
-        )
-        action1 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "selector": "a.nav-link.active",
-                }
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action1)),
-            self._parse_expr(
-                "event = '$autocapture' and {regex1}",
-                {
-                    "regex1": ast.And(
-                        exprs=[
-                            self._parse_expr(
-                                "elements_chain =~ {regex}",
-                                {
-                                    "regex": ast.Constant(
-                                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                                    )
-                                },
-                            ),
-                            self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements) > 0"),
-                        ]
-                    ),
-                },
-            ),
-        )
-        resp = execute_hogql_query(
-            parse_select("select count() from events where {prop}", {"prop": action_to_expr(action1)}), self.team
-        )
-        self.assertEqual(resp.results[0][0], 1)
-
-        action2 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example.com",
-                    "url_matching": "contains",
-                }
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action2)),
-            self._parse_expr("event = '$pageview' and properties.$current_url like '%https://example.com%'"),
-        )
-
-        action3 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example2.com",
-                    "url_matching": "regex",
-                },
-                {
-                    "event": "custom",
-                    "url": "https://example3.com",
-                    "url_matching": "exact",
-                },
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action3)),
-            self._parse_expr(
-                "{s1} or {s2}",
-                {
-                    "s1": self._parse_expr("event = '$pageview' and properties.$current_url =~ 'https://example2.com'"),
-                    "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
-                },
-            ),
-        )
-
-        action4 = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}, {"event": None}])
-        self.assertEqual(
-            clear_locations(action_to_expr(action4)),
-            self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"
-        )
-
-        action5 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "href": "https://example4.com", "href_matching": "regex"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action5)),
-            self._parse_expr("event = '$autocapture' and elements_chain_href =~ 'https://example4.com'"),
-        )
-
-        action6 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "regex"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action6)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x =~ 'blabla', elements_chain_texts)"),
-        )
-
-        action7 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "contains"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action7)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x ilike '%blabla%', elements_chain_texts)"),
-        )
-
-        action8 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "exact"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action8)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x = 'blabla', elements_chain_texts)"),
-        )
-
     def test_cohort_filter_static(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -717,27 +668,31 @@ class TestProperty(BaseTest):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity)
+            result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity)
-        expected = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value="event_id"),
+        result = entity_to_expr(entity, self.team)
+        expected = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["events", "event"]),
+                    right=ast.Constant(value="event_id"),
+                )
+            ]
         )
         self.assertEqual(result, expected)
 
     def test_entity_to_expr_events_type_without_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_session_duration(self):
@@ -827,3 +782,58 @@ class TestProperty(BaseTest):
         self.assertIsInstance(compare_op_2.left, ast.Field)
         self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
         self.assertEqual(compare_op_2.right.value, "test")
+
+    def test_property_to_expr_event_metadata(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id = 'p3'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": ["p3", "p4"], "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id in ('p3', 'p4')"),
+        )
+
+    def test_property_to_expr_event_metadata_invalid_scope(self):
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
+                scope="person",
+            )
+        self.assertEqual(
+            str(e.exception),
+            "The 'event_metadata' property filter does not work in 'person' scope",
+        )
+
+    def test_virtual_person_properties_on_person_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"
+        ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
+
+    def test_virtual_person_properties_on_event_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
+        ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")
+
+    def test_map_virtual_properties(self):
+        assert map_virtual_properties(
+            ast.Field(chain=["person", "properties", "$virt_initial_channel_type"])
+        ) == ast.Field(chain=["person", "$virt_initial_channel_type"])
+        assert map_virtual_properties(ast.Field(chain=["properties", "$virt_initial_channel_type"])) == ast.Field(
+            chain=["$virt_initial_channel_type"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
+            chain=["person", "properties", "other property"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", "other property"])) == ast.Field(
+            chain=["properties", "other property"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", 42])) == ast.Field(
+            chain=["person", "properties", 42]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])

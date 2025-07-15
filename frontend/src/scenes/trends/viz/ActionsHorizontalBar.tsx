@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -16,7 +15,7 @@ import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({ showPersonsModal = true, context }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -30,15 +29,17 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         trendsFilter,
         formula,
         showValuesOnSeries,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
+        getTrendsColor,
+        theme,
     } = useValues(trendsDataLogic(insightProps))
 
     function updateData(): void {
         const _data = [...indexedResults]
-        const colorList = indexedResults.map((_, idx) => getSeriesColor(idx))
+        const colorList = indexedResults.map(getTrendsColor)
 
         setData([
             {
@@ -51,8 +52,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                     return formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
-                        cohorts,
-                        formatPropertyValueForDisplay
+                        cohorts?.results,
+                        formatPropertyValueForDisplay,
+                        undefined,
+                        item.label
                     )
                 }),
                 compareLabels: _data.map((item) => item.compare_label),
@@ -71,7 +74,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
         if (indexedResults) {
             updateData()
         }
-    }, [indexedResults])
+    }, [indexedResults, theme])
 
     return data && total > 0 ? (
         <LineGraph
@@ -79,6 +82,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             type={GraphType.HorizontalBar}
             tooltip={{
                 showHeader: false,
+                groupTypeLabel: context?.groupTypeLabel,
             }}
             labelGroupType={labelGroupType}
             datasets={data}
@@ -89,13 +93,23 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
             onClick={
-                !showPersonsModal || trendsFilter?.formula || isDataWarehouseSeries
-                    ? undefined
-                    : (point) => {
+                context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !hasDataWarehouseSeries)
+                    ? (point) => {
                           const { index, points } = point
 
                           const dataset = points.referencePoint.dataset
                           const label = dataset.labels?.[point.index]
+
+                          if (context?.onDataPointClick) {
+                              context.onDataPointClick(
+                                  {
+                                      breakdown: dataset.breakdownValues?.[index],
+                                      compare: dataset.compareLabels?.[index],
+                                  },
+                                  indexedResults[0]
+                              )
+                              return
+                          }
 
                           openPersonsModal({
                               title: label || '',
@@ -107,6 +121,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                               orderBy: ['event_count DESC, actor_id DESC'],
                           })
                       }
+                    : undefined
             }
         />
     ) : (

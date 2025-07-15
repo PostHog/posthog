@@ -21,7 +21,8 @@ import {
     InsightActorsQueryOptionsResponse,
     insightActorsQueryOptionsResponseKeys,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActorType,
     BreakdownType,
@@ -73,10 +74,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [eventUsageLogic, ['reportPersonsModalViewed']],
-    }),
+    })),
 
     loaders(({ values, actions, props }) => ({
         actorsResponse: [
@@ -100,11 +101,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     }
                     if (values.actorsQuery) {
-                        const response = await performQuery({
-                            ...values.actorsQuery,
-                            limit: offset ? offset * 2 : RESULTS_PER_PAGE,
-                            offset,
-                        } as ActorsQuery)
+                        const response = await performQuery(
+                            setLatestVersionsOnQuery(
+                                {
+                                    ...values.actorsQuery,
+                                    limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                                    offset,
+                                },
+                                { recursion: false }
+                            ) as ActorsQuery
+                        )
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
@@ -135,7 +141,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                         const person: PersonActorType = {
                                             type: 'person',
                                             id: result[0].id,
-                                            uuid: result[0].id,
                                             distinct_ids: result[0].distinct_ids,
                                             is_identified: result[0].is_identified,
                                             properties: result[0].properties,
@@ -171,11 +176,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     if (!query) {
                         return values.insightActorsQueryOptions || null
                     }
-                    const optionsQuery: InsightActorsQueryOptions = {
-                        kind: NodeKind.InsightActorsQueryOptions,
-                        source: query,
-                    }
-                    const response = await performQuery(optionsQuery, { async: false })
+                    const optionsQuery: InsightActorsQueryOptions = setLatestVersionsOnQuery(
+                        {
+                            kind: NodeKind.InsightActorsQueryOptions,
+                            source: query,
+                        },
+                        { recursion: false }
+                    )
+                    const response = await performQuery(optionsQuery, {}, 'blocking')
 
                     return Object.fromEntries(
                         Object.entries(response).filter(([key, _]) =>
@@ -331,7 +339,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             () => [(_, p) => p.additionalSelect],
             (additionalSelect: PersonModalLogicProps['additionalSelect']): string[] => {
                 const extra = Object.values(additionalSelect || {})
-                return ['actor', 'created_at', ...extra]
+                return ['actor', ...extra]
             },
         ],
         actorsQuery: [
@@ -340,13 +348,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 if (!query) {
                     return null
                 }
-                return {
-                    kind: NodeKind.ActorsQuery,
-                    source: query,
-                    select: selectFields,
-                    orderBy: orderBy || ['created_at DESC'],
-                    search: searchTerm,
-                }
+                return setLatestVersionsOnQuery(
+                    {
+                        kind: NodeKind.ActorsQuery,
+                        source: query,
+                        select: selectFields,
+                        orderBy: orderBy || [],
+                        search: searchTerm,
+                    },
+                    { recursion: false }
+                )
             },
         ],
         exploreUrl: [
@@ -361,7 +372,40 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     source,
                     full: true,
                 }
-                return urls.insightNew(undefined, undefined, query)
+                return urls.insightNew({ query })
+            },
+        ],
+        insightEventsQueryUrl: [
+            (s) => [s.actorsQuery],
+            (actorsQuery: ActorsQuery): string | null => {
+                if (!actorsQuery) {
+                    return null
+                }
+
+                // Generate insight events query from actors query
+                const { select: _select, ...source } = actorsQuery
+
+                const kind =
+                    actorsQuery.source && 'source' in actorsQuery.source ? actorsQuery.source.source?.kind : null
+
+                if (!kind || ![NodeKind.TrendsQuery].includes(kind)) {
+                    return null
+                }
+
+                const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        source: insightActorsQuery,
+                        select: ['*', 'event', 'person', 'timestamp'],
+                        after: 'all', // Show all events by default because date range is filtered by the source
+                    },
+                    full: true,
+                }
+
+                return urls.insightNew({ query })
             },
         ],
     }),

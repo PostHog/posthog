@@ -1,3 +1,10 @@
+import { LemonButton } from '@posthog/lemon-ui'
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+} from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeSelect'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -13,7 +20,8 @@ import {
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
-import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -21,11 +29,17 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | Array<string | number> | null
+    value?: PropertyFilterValue
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
+    inputClassName?: string
+    additionalPropertiesFilter?: { key: string; values: string | string[] }[]
+    groupTypeIndex?: GroupTypeIndex
+    size?: 'xsmall' | 'small' | 'medium'
+    editable?: boolean
+    preloadValues?: boolean
 }
 
 export function PropertyValue({
@@ -36,9 +50,15 @@ export function PropertyValue({
     onSet,
     value,
     operator,
+    size,
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
+    inputClassName = undefined,
+    additionalPropertiesFilter = [],
+    groupTypeIndex = undefined,
+    editable = true,
+    preloadValues = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -50,6 +70,9 @@ export function PropertyValue({
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
+    const isAssigneeProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+
     const load = (newInput: string | undefined): void => {
         loadPropertyValues({
             endpoint,
@@ -57,14 +80,23 @@ export function PropertyValue({
             newInput,
             propertyKey,
             eventNames,
+            properties: additionalPropertiesFilter,
         })
     }
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     useEffect(() => {
-        load('')
-    }, [propertyKey])
+        if (preloadValues) {
+            load('')
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!isDateTimeProperty) {
+            load('')
+        }
+    }, [propertyKey, isDateTimeProperty])
 
     const displayOptions = options[propertyKey]?.values || []
 
@@ -74,6 +106,46 @@ export function PropertyValue({
         }
     }
 
+    if (isAssigneeProperty) {
+        // Kludge: when switching between operators the value isn't always JSON
+        const parseAssignee = (value: PropertyFilterValue): ErrorTrackingIssueAssignee | null => {
+            try {
+                return JSON.parse(value as string)
+            } catch {
+                return null
+            }
+        }
+
+        const assignee = value ? parseAssignee(value) : null
+
+        return editable ? (
+            <AssigneeSelect assignee={assignee} onChange={(value) => setValue(JSON.stringify(value))}>
+                {(displayAssignee) => (
+                    <LemonButton fullWidth type="secondary" size={size}>
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Choose user" />
+                    </LemonButton>
+                )}
+            </AssigneeSelect>
+        ) : (
+            <AssigneeResolver assignee={assignee}>
+                {({ assignee }) => (
+                    <>
+                        <AssigneeIconDisplay assignee={assignee} />
+                        <AssigneeLabelDisplay assignee={assignee} />
+                    </>
+                )}
+            </AssigneeResolver>
+        )
+    }
+
+    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
+        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    )
+
+    if (!editable) {
+        return <>{formattedValues.join(' or ')}</>
+    }
+
     if (isDurationProperty) {
         return <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
     }
@@ -81,7 +153,12 @@ export function PropertyValue({
     if (isDateTimeProperty) {
         if (!addRelativeDateTimeOptions || operator === PropertyOperator.IsDateExact) {
             return (
-                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+                <PropertyFilterDatePicker
+                    autoFocus={autoFocus}
+                    operator={operator}
+                    value={value as string | number | null}
+                    setValue={setValue}
+                />
             )
         }
 
@@ -122,12 +199,9 @@ export function PropertyValue({
         )
     }
 
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label))
-    )
-
     return (
         <LemonInputSelect
+            className={inputClassName}
             data-attr="prop-val"
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}
@@ -136,6 +210,7 @@ export function PropertyValue({
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
+            size={size}
             title={
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
@@ -151,7 +226,11 @@ export function PropertyValue({
                     label: name,
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? <i>(empty string)</i> : formatPropertyValueForDisplay(propertyKey, name)}
+                            {name === '' ? (
+                                <i>(empty string)</i>
+                            ) : (
+                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
+                            )}
                         </span>
                     ),
                 }

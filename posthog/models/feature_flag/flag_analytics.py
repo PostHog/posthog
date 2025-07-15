@@ -8,9 +8,9 @@ from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models import Team
 from posthog.redis import redis, get_client
 import time
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from django.conf import settings
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from datetime import datetime
 
 
@@ -85,9 +85,9 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
             if total_decide_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
-                    team_id,
-                    "decide usage",
-                    {
+                    distinct_id=team_id,
+                    event="decide usage",
+                    properties={
                         "count": total_decide_request_count,
                         "team_id": team_id,
                         "team_uuid": team_uuid,
@@ -106,9 +106,9 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
             if total_local_evaluation_request_count > 0 and settings.DECIDE_BILLING_ANALYTICS_TOKEN:
                 ph_client.capture(
-                    team_id,
-                    "local evaluation usage",
-                    {
+                    distinct_id=team_id,
+                    event="local evaluation usage",
+                    properties={
                         "count": total_local_evaluation_request_count,
                         "team_id": team_id,
                         "team_uuid": team_uuid,
@@ -139,9 +139,10 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
     for row in result:
         team_id = row[0]
         flag_key = row[1]
+        team = Team.objects.only("project_id").get(id=team_id)
 
         try:
-            flag = FeatureFlag.objects.get(team_id=team_id, key=flag_key)
+            flag = FeatureFlag.objects.get(team__project_id=team.project_id, key=flag_key)
             if not flag.has_enriched_analytics:
                 flag.has_enriched_analytics = True
                 flag.save()

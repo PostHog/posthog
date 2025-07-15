@@ -1,5 +1,5 @@
-import { IconInfo, IconOpenSidebar } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -7,6 +7,7 @@ import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getProductIcon } from 'scenes/products/Products'
+import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -24,6 +25,14 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
     background?: boolean
     isGrandfathered?: boolean
     docsLink?: string
+    /**
+     * Custom loading state to show while billing data is loading
+     */
+    loadingSkeleton?: JSX.Element
+    /**
+     * Actions
+     */
+    handleSubmit?: () => void
 }
 
 /** A sort of paywall for premium features.
@@ -40,11 +49,17 @@ export function PayGateMini({
     background = true,
     isGrandfathered,
     docsLink,
+    loadingSkeleton,
+    handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant } = useValues(payGateMiniLogic({ feature, currentUsage }))
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
+        payGateMiniLogic({ feature, currentUsage })
+    )
+    const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingLoading } = useValues(billingLogic)
     const { hideUpgradeModal } = useActions(upgradeModalLogic)
+    const { user } = useValues(userLogic)
 
     useEffect(() => {
         if (gateVariant) {
@@ -57,6 +72,9 @@ export function PayGateMini({
     }, [gateVariant])
 
     const handleCtaClick = (): void => {
+        if (handleSubmit) {
+            handleSubmit()
+        }
         hideUpgradeModal()
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,
@@ -66,14 +84,33 @@ export function PayGateMini({
     }
 
     if (billingLoading) {
-        return null
+        return (
+            loadingSkeleton || (
+                <div
+                    className={clsx(
+                        className,
+                        background && 'bg-primary border border-primary',
+                        'PayGateMini rounded flex flex-col items-center p-4 text-center'
+                    )}
+                >
+                    <LemonSkeleton className="w-20 h-10 mb-2" />
+                    <LemonSkeleton className="w-48 h-12 mb-2" />
+                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
+                    <LemonSkeleton className="w-1/2 h-6 mb-2" />
+                    <div className="flex items-center justify-center gap-x-2 mt-3">
+                        <LemonSkeleton className="w-32 h-10" />
+                        <LemonSkeleton className="w-32 h-10" />
+                    </div>
+                </div>
+            )
+        )
     }
 
     if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
         return null // Don't show anything if paid features are explicitly disabled
     }
 
-    if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate) {
+    if (gateVariant && productWithFeature && featureInfo && !overrideShouldShowGate && !bypassPaywall) {
         return (
             <PayGateContent
                 feature={feature}
@@ -83,7 +120,7 @@ export function PayGateMini({
                 isGrandfathered={isGrandfathered}
                 handleCtaClick={handleCtaClick}
             >
-                <div className="flex items-center justify-center space-x-3">
+                <div className="flex items-center justify-center deprecated-space-x-3">
                     <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
                     {docsLink && isCloudOrDev && (
                         <LemonButton
@@ -94,6 +131,17 @@ export function PayGateMini({
                             data-attr={`${feature}-learn-more`}
                         >
                             Learn more <IconOpenSidebar className="ml-2" />
+                        </LemonButton>
+                    )}
+
+                    {user?.is_impersonated && (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconUnlock />}
+                            tooltip="Bypass this paywall - (UI only)"
+                            onClick={() => setBypassPaywall(true)}
+                        >
+                            Bypass paywall
                         </LemonButton>
                     )}
                 </div>
@@ -138,11 +186,11 @@ function PayGateContent({
         <div
             className={clsx(
                 className,
-                background && 'bg-bg-3000 border border-border',
+                background && 'bg-primary border border-primary',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
-            <div className="flex text-4xl text-warning mb-2">
+            <div className="flex mb-2 text-4xl text-warning">
                 {getProductIcon(productWithFeature.name, featureInfo.icon_key)}
             </div>
             <h2>{featureInfo.name}</h2>
@@ -179,12 +227,12 @@ const renderUsageLimitMessage = (
                     <Tooltip title={featureInfo.description}>
                         <span>
                             <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-muted" />
+                            <IconInfo className="ml-0.5 text-secondary" />
                         </span>
                     </Tooltip>
                     .
                 </p>
-                <p className="border border-border bg-bg-3000 rounded p-4">
+                <p className="p-4 border rounded border-primary bg-primary">
                     <b>Your current plan limit:</b>{' '}
                     <span>
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
@@ -198,10 +246,10 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="italic text-xs text-muted mb-4">
-                            Need unlimited projects? Check out the{' '}
+                        <p className="mb-4 text-xs italic text-secondary">
+                            Need unlimited projects? Check out one of our{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
-                                Teams addon
+                                platform add-ons
                             </Link>
                             .
                         </p>
@@ -244,9 +292,9 @@ const renderGateVariantMessage = (
 
 const GrandfatheredMessage = (): JSX.Element => {
     return (
-        <div className="flex gap-x-2 bg-bg-3000 rounded text-left mb-4">
-            <IconInfo className="text-muted text-2xl" />
-            <p className="text-muted mb-0">
+        <div className="flex mb-4 text-left rounded gap-x-2 bg-primary">
+            <IconInfo className="text-2xl text-secondary" />
+            <p className="mb-0 text-secondary">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your
                 plan to regain access.
             </p>

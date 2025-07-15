@@ -1,6 +1,7 @@
+from datetime import datetime, timedelta
 from typing import Optional
 from unittest.mock import patch
-from datetime import datetime, timedelta
+
 import celery
 import requests.exceptions
 from boto3 import resource
@@ -85,6 +86,7 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "exception": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
@@ -116,6 +118,7 @@ class TestExports(APIBaseTest):
             "id": data["id"],
             "created_at": data["created_at"],
             "dashboard": self.dashboard.id,
+            "exception": None,
             "export_format": "image/png",
             "filename": "export-example-dashboard.png",
             "has_content": False,
@@ -169,6 +172,7 @@ class TestExports(APIBaseTest):
                 "filename": "export-example-insight.png",
                 "has_content": False,
                 "dashboard": None,
+                "exception": None,
                 "export_context": None,
                 "expires_after": (now() + timedelta(weeks=26))
                 .replace(hour=0, minute=0, second=0, microsecond=0)
@@ -397,7 +401,7 @@ class TestExports(APIBaseTest):
 
                 def raise_for_status():
                     if 400 <= response.status_code < 600:
-                        raise requests.exceptions.HTTPError(response=response)
+                        raise requests.exceptions.HTTPError(response=response)  # type: ignore[arg-type]
 
                 response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
                 return response
@@ -501,7 +505,7 @@ class TestExportMixin(APIBaseTest):
 
                     def raise_for_status():
                         if 400 <= response.status_code < 600:
-                            raise requests.exceptions.HTTPError(response=response)
+                            raise requests.exceptions.HTTPError(response=response)  # type: ignore[arg-type]
 
                     response.raise_for_status = raise_for_status  # type: ignore[attr-defined]
                     return response

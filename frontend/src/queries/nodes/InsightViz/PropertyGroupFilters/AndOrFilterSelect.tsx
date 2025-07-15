@@ -9,6 +9,7 @@ interface AndOrFilterSelectProps {
     prefix?: React.ReactNode
     suffix?: [singular: string, plural: string]
     disabledReason?: LemonButtonProps['disabledReason']
+    size?: LemonButtonProps['size']
 }
 
 export function AndOrFilterSelect({
@@ -18,13 +19,14 @@ export function AndOrFilterSelect({
     prefix = 'Match',
     suffix = ['filter in this group', 'filters in this group'],
     disabledReason,
+    size = 'small',
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <div className="flex items-center font-medium">
             <span className="ml-2">{prefix}</span>
             <LemonSelect
                 className="mx-2"
-                size="small"
+                size={size}
                 value={value}
                 onChange={(type) => onChange(type as FilterLogicalOperator)}
                 disabledReason={disabledReason}
@@ -33,7 +35,7 @@ export function AndOrFilterSelect({
                         label: 'all',
                         value: FilterLogicalOperator.And,
                         labelInMenu: (
-                            <SelectOption
+                            <SelectOption<FilterLogicalOperator>
                                 title="All"
                                 description="Every single filter must match"
                                 value={FilterLogicalOperator.And}
@@ -45,7 +47,7 @@ export function AndOrFilterSelect({
                         label: 'any',
                         value: FilterLogicalOperator.Or,
                         labelInMenu: (
-                            <SelectOption
+                            <SelectOption<FilterLogicalOperator>
                                 title="Any"
                                 description="One or more filters must match"
                                 value={FilterLogicalOperator.Or}
@@ -62,18 +64,20 @@ export function AndOrFilterSelect({
     )
 }
 
-type SelectOptionProps = {
+type SelectOptionProps<T> = {
     title: string
     description: string
-    value: FilterLogicalOperator
-    selectedValue: FilterLogicalOperator
+    value: T
+    selectedValue: T
 }
 
-const SelectOption = ({ title, description, value, selectedValue }: SelectOptionProps): JSX.Element => (
+export const SelectOption = <T,>({ title, description, value, selectedValue }: SelectOptionProps<T>): JSX.Element => (
     <div className="flex p-1 items-center">
         <div
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${
-                value === selectedValue ? 'bg-primary text-white' : 'bg-bg-3000 text-primary-alt'
+                value === selectedValue
+                    ? 'bg-accent text-primary-inverse [text-shadow:0_0_1px_black]'
+                    : 'bg-surface-secondary text-primary'
             }`}
         >
             {value}

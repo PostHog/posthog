@@ -27,11 +27,13 @@ class BehavioralPropertyType(StrEnum):
 ValueT = Union[str, int, list[str]]
 PropertyType = Literal[
     "event",
+    "event_metadata",
     "feature",
     "person",
     "cohort",
     "element",
     "static-cohort",
+    "dynamic-cohort",
     "precalculated-cohort",
     "group",
     "recording",
@@ -41,6 +43,9 @@ PropertyType = Literal[
     "hogql",
     "data_warehouse",
     "data_warehouse_person_property",
+    "error_tracking_issue",
+    "log",
+    "revenue_analytics",
 ]
 
 PropertyName = str
@@ -78,6 +83,7 @@ PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
+    "dynamic-cohort",
     "precalculated-cohort",
     "behavioral",
     "recording",
@@ -85,16 +91,21 @@ CLICKHOUSE_ONLY_PROPERTY_TYPES = [
 
 VALIDATE_PROP_TYPES = {
     "event": ["key", "value"],
+    "event_metadata": ["key", "value"],
     "person": ["key", "value"],
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
+    "error_tracking_issue": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
+    "dynamic-cohort": ["key", "value"],
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
     "log_entry": ["key", "value"],
+    "log": ["key", "value"],
+    "revenue_analytics": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
