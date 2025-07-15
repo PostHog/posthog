@@ -3,8 +3,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { IconEmoji } from '@posthog/icons'
+import { IconEmoji, IconComment } from '@posthog/icons'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useCallback, useState } from 'react'
@@ -29,7 +28,7 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
         <div className="flex flex-row items-center justify-around">
             {favouriteEmojis.map((emoji) => (
                 <LemonButton key={emoji} onClick={() => onSelectedEmoji(emoji)} data-attr="emoji-quick-comment-button">
-                    <span className="text-xl">{emoji}</span>
+                    <span className="text-lg">{emoji}</span>
                 </LemonButton>
             ))}
             <EmojiPickerPopover onSelect={onSelectedEmoji} data-attr="quick-comment-emoji-popover" />

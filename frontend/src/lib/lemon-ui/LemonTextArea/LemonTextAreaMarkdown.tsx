@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconMarkdown, IconUploadFile } from 'lib/lemon-ui/icons'
+import { IconMarkdown } from 'lib/lemon-ui/icons'
+import { IconImage } from '@posthog/icons'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea, LemonTextAreaProps } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -70,7 +71,8 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                             value={filesToUpload}
                                             callToAction={
                                                 <LemonButton
-                                                    icon={<IconUploadFile className="text-xl" />}
+                                                    size="small"
+                                                    icon={<IconImage className="text-lg" />}
                                                     disabledReason={
                                                         objectStorageAvailable
                                                             ? undefined

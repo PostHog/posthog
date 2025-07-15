@@ -91,10 +91,11 @@ export function EmojiPickerPopover({
         >
             <LemonButton
                 data-attr={dataAttr}
-                icon={<IconEmojiAdd />}
+                icon={<IconEmojiAdd className="text-lg" />}
                 onClick={() => {
                     setEmojiPickerOpen(!emojiPickerOpen)
                 }}
+                size="small"
             />
         </Popover>
     )
