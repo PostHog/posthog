@@ -11,7 +11,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import posthog from 'posthog-js'
 import React, { useRef, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { IconShare } from '@posthog/icons'
+import { IconEmojiAdd } from '@posthog/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { EmojiPicker } from 'frimousse'
 
@@ -149,7 +149,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                         >
                                             <LemonButton
                                                 key="emoji"
-                                                icon={<IconShare />}
+                                                icon={<IconEmojiAdd />}
                                                 onClick={() => {
                                                     setEmojiPickerOpen(!emojiPickerOpen)
                                                 }}
