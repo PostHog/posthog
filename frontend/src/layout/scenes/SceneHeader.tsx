@@ -29,26 +29,12 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
     const { scenePanelOpen, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
 
-    const hasActions = useMemo(() => {
-        return !!(
-            actionsContainer &&
-            actionsContainer.children &&
-            actionsContainer.children.length > 0 &&
-            scenePanelIsPresent
-        )
-    }, [actionsContainer, scenePanelIsPresent])
-
     return breadcrumbs.length || projectTreeRefEntry ? (
         <>
             <div
                 className={cn(
                     'flex items-center gap-1 w-full py-1 px-4 sticky top-0 bg-surface-secondary z-[var(--z-top-navigation)] border-b border-primary h-[var(--scene-layout-header-height)]',
-                    className,
-                    {
-                        'pr-2': scenePanelIsPresent,
-                        // If no actions, we want the breadcrumbs to take up the full width
-                        'pr-0': !hasActions,
-                    }
+                    className
                 )}
             >
                 {mobileLayout && (
@@ -59,7 +45,7 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         className="-ml-2"
                     />
                 )}
-                <div className="flex gap-2 justify-between w-full items-center overflow-x-hidden py-1">
+                <div className="flex gap-1 justify-between w-full items-center overflow-x-hidden py-1">
                     {breadcrumbs.length > 0 && (
                         <ScrollableShadows
                             direction="horizontal"
@@ -80,28 +66,20 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                         </ScrollableShadows>
                     )}
 
-                    <div
-                        className={cn('flex gap-2 items-center shrink-0', {
-                            // If no actions, we want the actions to be hidden/remove from document flow,
-                            // Allowing the breadcrumbs to take up the full width
-                            'absolute top-[-9999px]': !hasActions,
-                        })}
-                    >
-                        <div className="flex gap-2 items-center justify-end" ref={setActionsContainer} />
+                    <div className="flex gap-1 items-center shrink-0">
+                        <div className="contents" ref={setActionsContainer} />
 
-                        <div className="flex gap-1 items-center">
-                            {scenePanelIsPresent && (
-                                <LemonButton
-                                    onClick={() => setScenePanelOpen(!scenePanelOpen)}
-                                    icon={<IconInfo className="text-primary" />}
-                                    tooltip={scenePanelOpen ? 'Close info panel' : 'Open info panel'}
-                                    active={scenePanelOpen}
-                                    size="small"
-                                />
-                            )}
+                        {scenePanelIsPresent && (
+                            <LemonButton
+                                onClick={() => setScenePanelOpen(!scenePanelOpen)}
+                                icon={<IconInfo className="text-primary" />}
+                                tooltip={scenePanelOpen ? 'Close info panel' : 'Open info panel'}
+                                active={scenePanelOpen}
+                                size="small"
+                            />
+                        )}
 
-                            <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
-                        </div>
+                        <TopBarSettingsButton buttonProps={{ size: 'small', icon: <IconGear /> }} />
                     </div>
                 </div>
             </div>
@@ -167,7 +145,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             <ProjectDropdownMenu
                 buttonProps={{
                     size: 'xxs',
-                    className: 'text-primary font-normal p-0 hover:text-primary gap-1 min-w-[40px]',
+                    className: 'text-primary font-normal p-0 hover:text-primary gap-1',
                 }}
             />
         )

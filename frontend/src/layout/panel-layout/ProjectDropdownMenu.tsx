@@ -50,7 +50,7 @@ export function ProjectDropdownMenu({
                     data-attr="tree-navbar-project-dropdown-button"
                     size="sm"
                     {...buttonProps}
-                    className={cn('flex-1 min-w-0 max-w-fit', buttonProps.className)}
+                    className={cn('flex-1 min-w-0 max-w-fit min-w-[40px]', buttonProps.className)}
                 >
                     <span className="truncate">{currentTeam.name ?? 'Project'}</span>
                     <DropdownMenuOpenIndicator />
