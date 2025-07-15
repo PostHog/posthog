@@ -11,8 +11,6 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
-from posthog.cloud_utils import get_api_host
-from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -47,7 +45,6 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
-from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -56,7 +53,6 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
-from django.core.cache import cache
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -161,6 +157,8 @@ TEAM_CONFIG_FIELDS = (
     "surveys_opt_in",
     "heatmaps_opt_in",
     "flags_persistence_default",
+    "feature_flag_confirmation_enabled",
+    "feature_flag_confirmation_message",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",
@@ -926,35 +924,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="authenticate_wizard",
-        required_scopes=["team:read"],
-        throttle_classes=[SetupWizardAuthenticationRateThrottle],
-    )
-    def authenticate_wizard(self, request, **kwargs):
-        hash = request.data.get("hash")
-
-        if not hash:
-            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
-
-        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
-        wizard_data = cache.get(cache_key)
-
-        if wizard_data is None:
-            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
-
-        wizard_data = {
-            "project_api_key": request.user.team.api_token,
-            "host": get_api_host(),
-            "user_distinct_id": request.user.distinct_id,
-        }
-
-        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
-
-        return response.Response({"success": True}, status=200)
 
     @action(methods=["GET"], detail=True, required_scopes=["team:read"], url_path="event_ingestion_restrictions")
     def event_ingestion_restrictions(self, request, **kwargs):

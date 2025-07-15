@@ -24,6 +24,7 @@ import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityD
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
+import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
@@ -65,6 +66,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return errorTrackingActivityDescriber
         case ActivityScope.DATA_WAREHOUSE_SAVED_QUERY:
             return dataWarehouseSavedQueryActivityDescriber
+        case ActivityScope.REPLAY:
+            return replayActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

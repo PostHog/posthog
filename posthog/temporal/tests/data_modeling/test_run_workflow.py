@@ -1150,85 +1150,59 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert new_job.workflow_run_id == "new-run"
 
 
-@pytest.mark.asyncio
-async def test_create_table_activity_row_count_functionality(minio_client, activity_environment, ateam):
-    """Test that create_table_activity properly sets row count using get_count() method."""
-
-    # Create a saved query
+async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_client):
+    """Test that materialize_model tracks progress during S3 writes."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=ateam,
-        name="test_row_count_query",
-        query={"query": "SELECT 1 as id, 'test' as name UNION ALL SELECT 2 as id, 'test2' as name"},
+        name="progress_tracking_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
     )
 
-    # Create a table manually for testing
-    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+    def mock_hogql_table(*args, **kwargs):
+        # Create multiple batches to test progress tracking
+        batch1 = pa.table({"test_column": pa.array([1, 2, 3], type=pa.int64())})
+        batch2 = pa.table({"test_column": pa.array([4, 5], type=pa.int64())})
+        batch3 = pa.table({"test_column": pa.array([6], type=pa.int64())})
 
-    credential = await DataWarehouseCredential.objects.acreate(
-        team=ateam,
-        access_key="test_key",
-        access_secret="test_secret",
-    )
+        async def async_generator():
+            yield batch1
+            yield batch2
+            yield batch3
 
-    table = await DataWarehouseTable.objects.acreate(
-        team=ateam,
-        name="test_table",
-        credential=credential,
-        format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-        url_pattern="s3://test-bucket/test-path",
-        row_count=0,
-    )
+        return async_generator()
 
-    # Link the table to the saved query
-    saved_query.table = table
-    await saved_query.asave()
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=6),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
 
-    # Run create_table_activity with mocked create_table_from_saved_query
-    create_table_activity_inputs = CreateTableActivityInputs(
-        models=[str(saved_query.id)],  # Pass UUID, not name
-        team_id=ateam.pk,
-    )
+        # Verify initial state
+        assert job.rows_materialized == 0
 
-    with patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table:
-        with patch.object(DataWarehouseTable, "get_count", return_value=42) as mock_get_count:
-            async with asyncio.timeout(10):
-                await activity_environment.run(create_table_activity, create_table_activity_inputs)
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
 
-    # Verify create_table_from_saved_query was called
-    mock_create_table.assert_called_once_with(str(saved_query.id), ateam.pk)
-
-    # Verify get_count was called
-    mock_get_count.assert_called_once()
-
-    # Verify row count was updated
-    await table.arefresh_from_db()
-    assert table.row_count == 42
-
-
-@pytest.mark.asyncio
-async def test_create_table_activity_invalid_uuid_fails(activity_environment, ateam):
-    """Test that create_table_activity fails fast when given non-UUID model identifier."""
-
-    # Try to run with a name instead of UUID (should fail)
-    create_table_activity_inputs = CreateTableActivityInputs(
-        models=["invalid_model_name"],  # Name instead of UUID
-        team_id=ateam.pk,
-    )
-
-    # Mock create_table_from_saved_query to avoid UUID validation there
-    # We want to test our activity's validation logic
-    with patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table:
-        with patch("posthog.temporal.data_modeling.run_workflow.bind_temporal_worker_logger") as mock_logger:
-            mock_logger.return_value.aerror = unittest.mock.AsyncMock()
-
-            # This should complete without crashing, but log errors and skip the invalid model
-            async with asyncio.timeout(10):
-                await activity_environment.run(create_table_activity, create_table_activity_inputs)
-
-    # create_table_from_saved_query should not be called for invalid UUIDs
-    mock_create_table.assert_not_called()
-
-    # Verify the error was logged
-    mock_logger.return_value.aerror.assert_called_once()
-    error_message = mock_logger.return_value.aerror.call_args[0][0]
-    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in error_message
+        # Verify final state
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+        assert job.rows_materialized == 6
+        assert job.rows_expected == 6

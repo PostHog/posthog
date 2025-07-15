@@ -6,7 +6,7 @@ from uuid import UUID
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExport
+from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.batch_exports.service import (
     afetch_batch_export_runs_in_range,
     aupdate_records_total_count,
@@ -15,6 +15,19 @@ from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import bind_contextvars, get_logger
+
+LOGGER = get_logger(__name__)
+
+
+def datetime_to_str(dt_obj: dt.datetime) -> str:
+    """Convert datetime to consistent string format"""
+    return dt_obj.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def str_to_datetime(datetime_str: str) -> dt.datetime:
+    """Convert string to datetime"""
+    return dt.datetime.strptime(datetime_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
 
 
 class BatchExportNotFoundError(Exception):
@@ -92,20 +105,15 @@ class GetEventCountsInputs:
 
 
 @dataclass
-class EventCountsOutput:
+class EventCount:
     interval_start: str
     interval_end: str
     count: int
 
 
-@dataclass
-class GetEventCountsOutputs:
-    results: list[EventCountsOutput]
-
-
 @activity.defn
-async def get_event_counts(inputs: GetEventCountsInputs) -> GetEventCountsOutputs:
-    """Get the total number of events for a given team over a set of time intervals."""
+async def get_clickhouse_event_counts(inputs: GetEventCountsInputs) -> list[EventCount]:
+    """Get the total number of events for a given team over a set of time intervals from ClickHouse."""
 
     query = EVENT_COUNT_BY_INTERVAL
 
@@ -134,38 +142,39 @@ async def get_event_counts(inputs: GetEventCountsInputs) -> GetEventCountsOutput
         results = []
         for line in response.decode("utf-8").splitlines():
             interval_start, interval_end, count = line.strip().split("\t")
-            results.append(
-                EventCountsOutput(interval_start=interval_start, interval_end=interval_end, count=int(count))
-            )
+            results.append(EventCount(interval_start=interval_start, interval_end=interval_end, count=int(count)))
 
-        return GetEventCountsOutputs(results=results)
+        return results
 
 
 @dataclass
 class UpdateBatchExportRunsInputs:
     batch_export_id: UUID
-    results: list[EventCountsOutput]
+    results: list[EventCount]
 
 
 @activity.defn
 async def update_batch_export_runs(inputs: UpdateBatchExportRunsInputs) -> int:
     """Update BatchExportRuns with the expected number of events."""
 
+    bind_contextvars(batch_export_id=inputs.batch_export_id)
+    logger = LOGGER.bind()
+
     total_rows_updated = 0
     async with Heartbeater():
         for result in inputs.results:
             total_rows_updated += await aupdate_records_total_count(
                 batch_export_id=inputs.batch_export_id,
-                interval_start=dt.datetime.strptime(result.interval_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC),
-                interval_end=dt.datetime.strptime(result.interval_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC),
+                interval_start=str_to_datetime(result.interval_start),
+                interval_end=str_to_datetime(result.interval_end),
                 count=result.count,
             )
-    activity.logger.info(f"Updated {total_rows_updated} BatchExportRuns")
+    logger.info("Updated %s BatchExportRuns", total_rows_updated)
     return total_rows_updated
 
 
 @dataclass
-class CheckForMissingBatchExportRunsInputs:
+class FetchExportedEventCountsInputs:
     """Inputs for checking missing batch export runs"""
 
     batch_export_id: UUID
@@ -174,58 +183,156 @@ class CheckForMissingBatchExportRunsInputs:
     interval: str
 
 
-def _log_warning_for_missing_batch_export_runs(
-    batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
-):
-    message = (
-        f"Batch Exports Monitoring: Found {len(missing_runs)} missing run(s) for batch export {batch_export_id}:\n"
-    )
-    for start, end in missing_runs:
-        message += f"- Run {start.strftime('%Y-%m-%d %H:%M:%S')} to {end.strftime('%Y-%m-%d %H:%M:%S')}\n"
-
-    activity.logger.warning(message)
-
-
 @activity.defn
-async def check_for_missing_batch_export_runs(inputs: CheckForMissingBatchExportRunsInputs) -> int:
-    """Check for missing batch export runs and log a warning if any are found.
-    (We can then alert based on these log entries)
+async def fetch_exported_event_counts(inputs: FetchExportedEventCountsInputs) -> list[EventCount]:
+    """Fetch the number of exported events (as recorded in our database) for a given batch export over a given interval.
 
-    Returns:
-        The number of missing batch export runs found.
+    We assume that the interval is 5 minutes, as this is the only interval supported for monitoring at this time.
     """
     async with Heartbeater():
-        interval_start = dt.datetime.strptime(inputs.overall_interval_start, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
-        interval_end = dt.datetime.strptime(inputs.overall_interval_end, "%Y-%m-%d %H:%M:%S").replace(tzinfo=dt.UTC)
-        # Get all runs in the interval
-        runs = await afetch_batch_export_runs_in_range(
-            batch_export_id=inputs.batch_export_id,
-            interval_start=interval_start,
-            interval_end=interval_end,
-        )
-
         # for simplicity, we assume that the interval is 5 minutes, as this is the only interval supported for monitoring at this time
         if inputs.interval != "every 5 minutes":
             raise NoValidBatchExportsFoundError(
                 "Only intervals of 'every 5 minutes' are supported for monitoring at this time."
             )
-        expected_run_intervals: list[tuple[dt.datetime, dt.datetime]] = []
-        current_run_start_interval = interval_start
-        while current_run_start_interval < interval_end:
-            expected_run_intervals.append(
-                (current_run_start_interval, current_run_start_interval + dt.timedelta(minutes=5))
+
+        interval_start = str_to_datetime(inputs.overall_interval_start)
+        interval_end = str_to_datetime(inputs.overall_interval_end)
+
+        # Get all runs in the interval
+        runs: list[BatchExportRun] = await afetch_batch_export_runs_in_range(
+            batch_export_id=inputs.batch_export_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+        )
+
+        return [
+            EventCount(
+                interval_start=datetime_to_str(run.data_interval_start) if run.data_interval_start else "",
+                interval_end=datetime_to_str(run.data_interval_end),
+                count=run.records_completed or 0,
             )
-            current_run_start_interval += dt.timedelta(minutes=5)
+            for run in runs
+        ]
 
-        missing_runs: list[tuple[dt.datetime, dt.datetime]] = []
-        for start, end in expected_run_intervals:
-            if start not in [run.data_interval_start for run in runs]:
-                missing_runs.append((start, end))
 
-        if missing_runs:
-            _log_warning_for_missing_batch_export_runs(inputs.batch_export_id, missing_runs)
+@dataclass
+class ReconcileEventCountsInputs:
+    """Inputs for reconciling event counts."""
 
-        return len(missing_runs)
+    batch_export_id: UUID
+    overall_interval_start: str
+    overall_interval_end: str
+    clickhouse_event_counts: list[EventCount]
+    exported_event_counts: list[EventCount]
+
+
+@activity.defn
+async def reconcile_event_counts(inputs: ReconcileEventCountsInputs) -> None:
+    """Reconcile the number of exported events with the number of events in ClickHouse.
+
+    Log a warning if the number of exported events is lower than the number of events in ClickHouse.
+    Also log a warning if we have any intervals for which we don't have any runs (this indicates that no run was
+    scheduled in Temporal, which we've seen in the past during outages).
+    These will subseqently trigger an alertmanager alert.
+    """
+
+    bind_contextvars(batch_export_id=inputs.batch_export_id)
+    logger = LOGGER.bind()
+
+    interval_start = str_to_datetime(inputs.overall_interval_start)
+    interval_end = str_to_datetime(inputs.overall_interval_end)
+
+    expected_intervals = _get_expected_intervals(interval_start, interval_end)
+
+    missing_runs: list[tuple[dt.datetime, dt.datetime]] = []
+    missing_events: list[EventCount] = []
+    for start, end in expected_intervals:
+        start_str = datetime_to_str(start)
+        end_str = datetime_to_str(end)
+
+        # event count in ClickHouse
+        clickhouse_event_count = next(
+            (
+                count
+                for count in inputs.clickhouse_event_counts
+                if count.interval_start == start_str and count.interval_end == end_str
+            ),
+            None,
+        )
+        # exported event count
+        exported_event_count = next(
+            (
+                count
+                for count in inputs.exported_event_counts
+                if count.interval_start == start_str and count.interval_end == end_str
+            ),
+            None,
+        )
+
+        if exported_event_count is None:
+            missing_runs.append((start, end))
+            continue
+
+        if clickhouse_event_count is None:
+            # it's possible that we don't have any events in ClickHouse for a given interval, but probably very rare for
+            # the batch exports we monitor
+            logger.info("No events in ClickHouse in interval %s to %s", start_str, end_str)
+            continue
+
+        if exported_event_count.count < clickhouse_event_count.count:
+            missing_events.append(
+                EventCount(
+                    interval_start=start_str,
+                    interval_end=end_str,
+                    count=clickhouse_event_count.count - exported_event_count.count,
+                )
+            )
+
+    if missing_runs:
+        _log_warning_for_missing_batch_export_runs(inputs.batch_export_id, missing_runs)
+
+    if missing_events:
+        _log_warning_for_missing_events(inputs.batch_export_id, missing_events)
+
+
+def _get_expected_intervals(
+    interval_start: dt.datetime, interval_end: dt.datetime
+) -> list[tuple[dt.datetime, dt.datetime]]:
+    """
+    Get the expected intervals (we can't rely on the intervals from the event count results as some could be missing,
+    if we didn't schedule a batch export run or didn't have any events for a given interval).
+    """
+    expected_intervals = []
+    current_interval_start = interval_start
+    while current_interval_start < interval_end:
+        expected_intervals.append((current_interval_start, current_interval_start + dt.timedelta(minutes=5)))
+        current_interval_start += dt.timedelta(minutes=5)
+    return expected_intervals
+
+
+def _log_warning_for_missing_batch_export_runs(
+    batch_export_id: UUID, missing_runs: list[tuple[dt.datetime, dt.datetime]]
+):
+    bind_contextvars(batch_export_id=batch_export_id)
+    logger = LOGGER.bind()
+
+    message = f"Batch Exports Monitoring: Found {len(missing_runs)} missing run(s):\n"
+    for start, end in missing_runs:
+        message += f"- Run {start} to {end}\n"
+
+    logger.warning(message)
+
+
+def _log_warning_for_missing_events(batch_export_id: UUID, missing_events: list[EventCount]):
+    bind_contextvars(batch_export_id=batch_export_id)
+    logger = LOGGER.bind()
+
+    message = f"Batch Exports Monitoring: Found missing events:\n"
+    for event in missing_events:
+        message += f"- {event.count} events missing in interval {event.interval_start} to {event.interval_end}\n"
+
+    logger.warning(message)
 
 
 @workflow.defn(name="batch-export-monitoring")
@@ -251,9 +358,10 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BatchExportMonitoringInputs):
         """Workflow implementation to monitor a given batch export."""
-        workflow.logger.info(
-            "Starting batch exports monitoring workflow for batch export id %s", inputs.batch_export_id
-        )
+
+        bind_contextvars(batch_export_id=inputs.batch_export_id)
+        logger = LOGGER.bind()
+        logger.info("Starting batch exports monitoring workflow")
 
         batch_export_details = await workflow.execute_activity(
             get_batch_export,
@@ -270,11 +378,11 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
         now = dt.datetime.now(tz=dt.UTC)
         interval_end = now.replace(minute=0, second=0, microsecond=0) - dt.timedelta(hours=1)
         interval_start = interval_end - dt.timedelta(hours=1)
-        interval_end_str = interval_end.strftime("%Y-%m-%d %H:%M:%S")
-        interval_start_str = interval_start.strftime("%Y-%m-%d %H:%M:%S")
+        interval_end_str = datetime_to_str(interval_end)
+        interval_start_str = datetime_to_str(interval_start)
 
-        total_events = await workflow.execute_activity(
-            get_event_counts,
+        clickhouse_event_counts = await workflow.execute_activity(
+            get_clickhouse_event_counts,
             GetEventCountsInputs(
                 team_id=batch_export_details.team_id,
                 interval=batch_export_details.interval,
@@ -288,9 +396,9 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
             heartbeat_timeout=dt.timedelta(minutes=1),
         )
 
-        await workflow.execute_activity(
-            check_for_missing_batch_export_runs,
-            CheckForMissingBatchExportRunsInputs(
+        exported_event_counts = await workflow.execute_activity(
+            fetch_exported_event_counts,
+            FetchExportedEventCountsInputs(
                 batch_export_id=batch_export_details.id,
                 overall_interval_start=interval_start_str,
                 overall_interval_end=interval_end_str,
@@ -301,9 +409,23 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
             heartbeat_timeout=dt.timedelta(minutes=1),
         )
 
+        await workflow.execute_activity(
+            reconcile_event_counts,
+            ReconcileEventCountsInputs(
+                batch_export_id=batch_export_details.id,
+                overall_interval_start=interval_start_str,
+                overall_interval_end=interval_end_str,
+                clickhouse_event_counts=clickhouse_event_counts,
+                exported_event_counts=exported_event_counts,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
+            heartbeat_timeout=dt.timedelta(minutes=1),
+        )
+
         return await workflow.execute_activity(
             update_batch_export_runs,
-            UpdateBatchExportRunsInputs(batch_export_id=batch_export_details.id, results=total_events.results),
+            UpdateBatchExportRunsInputs(batch_export_id=batch_export_details.id, results=clickhouse_event_counts),
             start_to_close_timeout=dt.timedelta(hours=1),
             retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=dt.timedelta(seconds=20)),
             heartbeat_timeout=dt.timedelta(minutes=1),
