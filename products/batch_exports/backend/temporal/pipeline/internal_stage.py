@@ -1,14 +1,16 @@
 import asyncio
 import datetime as dt
-import json
 import typing
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 
 import aioboto3
 from django.conf import settings
 from temporalio import activity
+
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import Product
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
@@ -293,12 +295,13 @@ async def _get_query(
 
     parameters["team_id"] = team_id
 
-    query_tags = {
-        "team_id": team_id,
-        "batch_export_id": batch_export_id,
-        "kind": "batch_export",
-    }
-    parameters["log_comment"] = json.dumps(query_tags)
+    tags = query_tagging.get_query_tags()
+    tags.team_id = team_id
+    with suppress(Exception):
+        tags.batch_export_id = uuid.UUID(batch_export_id)
+    tags.product = Product.BATCH_EXPORT
+    tags.query_type = "batch_export"
+    parameters["log_comment"] = tags.to_json()
 
     parameters = {**parameters, **extra_query_parameters}
     return query, parameters
