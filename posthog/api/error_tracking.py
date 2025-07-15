@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, TypeVar
 
 from django.core.files.uploadedfile import UploadedFile
 from posthog.models.team.team import Team
@@ -737,9 +737,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"success": True}, status=status.HTTP_201_CREATED)
 
 
+class HasGetQueryset(Protocol):
+    def get_queryset(self): ...
+
+
+T = TypeVar("T", bound=HasGetQueryset)
+
+
 class RuleReorderingMixin:
     @action(methods=["PATCH"], detail=False)
-    def reorder(self, request, **kwargs):
+    def reorder(self: T, request, **kwargs):
         orders: dict[str, int] = request.data.get("orders", {})
         rules = self.get_queryset().filter(id__in=orders.keys())
 
