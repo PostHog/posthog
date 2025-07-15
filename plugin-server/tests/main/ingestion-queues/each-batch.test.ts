@@ -105,6 +105,9 @@ describe('eachBatchX', () => {
                     queueMessages: jest.fn(() => Promise.resolve()),
                 },
                 pluginConfigsPerTeam: new Map(),
+                pubSub: {
+                    on: jest.fn(),
+                },
             },
         }
     })
