@@ -13,7 +13,15 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action
-from posthog.schema import FunnelsQuery, FunnelsQueryResponse, EventsNode, DateRange, FunnelsFilter
+from posthog.schema import (
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    EventsNode,
+    DateRange,
+    FunnelsFilter,
+    PropertyOperator,
+    EventPropertyFilter,
+)
 from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
@@ -280,18 +288,24 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
                 "one_event": [{"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)}],
                 "two_events": [
                     {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
-                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {
+                        "event": "same_event",
+                        "timestamp": datetime(2012, 1, 15, 0, 1, 0),
+                    },
                 ],
                 "three_events": [
                     {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
                     {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
                     {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
                 ],
-                "four_events": [
+                "three_events_with_match": [
                     {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
-                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {
+                        "event": "same_event",
+                        "timestamp": datetime(2012, 1, 15, 0, 1, 0),
+                        "properties": {"$current_url": "url"},
+                    },
                     {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
-                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
                 ],
             },
             self.team,
@@ -300,10 +314,15 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
         query = FunnelsQuery(
             series=[
                 EventsNode(event="same_event"),  # Step 1: required
-                EventsNode(event="same_event", optionalInFunnel=True),  # Step 2: optional
-                EventsNode(event="same_event"),  # Step 3: required
+                EventsNode(
+                    event="same_event",
+                    optionalInFunnel=True,
+                ),  # Step 2: optional
+                EventsNode(
+                    event="same_event",
+                    properties=[EventPropertyFilter(key="$current_url", operator=PropertyOperator.EXACT, value="url")],
+                ),  # Step 3: required
                 EventsNode(event="same_event"),  # Step 4: required
-                EventsNode(event="same_event"),  # Step 5: required
             ],
             dateRange=DateRange(
                 date_from="2012-01-01 00:00:00",
@@ -318,16 +337,13 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
         self.assertEqual(result[0]["count"], 4)  # all users who did at least 1 event
 
         self.assertEqual(result[1]["name"], "same_event")
-        self.assertEqual(result[1]["count"], 0)  # in this case, the next step takes precedence over the optional step
+        self.assertEqual(result[1]["count"], 2)  # both of the users with two events and no $current_url
 
         self.assertEqual(result[2]["name"], "same_event")
-        self.assertEqual(result[2]["count"], 3)  # users who did two events
+        self.assertEqual(result[2]["count"], 1)  # the user with $current_url set in the second event
 
         self.assertEqual(result[3]["name"], "same_event")
-        self.assertEqual(result[3]["count"], 2)  # users who did three events
-
-        self.assertEqual(result[4]["name"], "same_event")
-        self.assertEqual(result[4]["count"], 1)  # users who completed the funnel (4 events)
+        self.assertEqual(result[3]["count"], 1)  # the user with $current_url set in the second event
 
     maxDiff = None
 
