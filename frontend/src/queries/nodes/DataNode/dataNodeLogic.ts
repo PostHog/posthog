@@ -132,11 +132,6 @@ function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T>
     const mountedSceneLogic = sceneLogic.findMounted()
     const activeScene = mountedSceneLogic?.values.activeScene
 
-    // Skip adding tags to InsightVizNode - tags should be added to the underlying source query instead
-    if (query.kind === 'InsightVizNode') {
-        return query
-    }
-
     const tags = query.tags ? { ...query.tags } : {}
     if (!tags.scene && activeScene) {
         tags.scene = activeScene
