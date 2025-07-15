@@ -1,4 +1,9 @@
-import { EmojiPicker, EmojiPickerListCategoryHeaderProps } from 'frimousse'
+import {
+    EmojiPicker,
+    EmojiPickerListCategoryHeaderProps,
+    EmojiPickerListEmojiProps,
+    EmojiPickerListRowProps,
+} from 'frimousse'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { useState } from 'react'
@@ -8,6 +13,21 @@ const EmojiPickerCategoryHeader = ({ category, ...props }: EmojiPickerListCatego
     <div className="bg-bg-light px-3 pt-3 pb-1.5 font-medium text-neutral-600 text-sm" {...props}>
         {category.label}
     </div>
+)
+
+const EmojiPickerEmojiRow = ({ children, ...props }: EmojiPickerListRowProps): JSX.Element => (
+    <div className="scroll-my-1.5 px-1.5" {...props}>
+        {children}
+    </div>
+)
+
+const EmojiPickerEmojiButton = ({ emoji, ...props }: EmojiPickerListEmojiProps): JSX.Element => (
+    <button
+        className="flex items-center justify-center rounded-md text-xl size-8 data-[active]:bg-secondary-3000-hover"
+        {...props}
+    >
+        {emoji.emoji}
+    </button>
 )
 
 const EmojiLoading = (): JSX.Element => {
@@ -70,19 +90,8 @@ export function EmojiPickerPopover({ onSelect, defaultOpen = false }: EmojiPicke
                             className="select-none pb-1.5"
                             components={{
                                 CategoryHeader: EmojiPickerCategoryHeader,
-                                Row: ({ children, ...props }) => (
-                                    <div className="scroll-my-1.5 px-1.5" {...props}>
-                                        {children}
-                                    </div>
-                                ),
-                                Emoji: ({ emoji, ...props }) => (
-                                    <button
-                                        className="flex items-center justify-center rounded-md text-xl size-8 data-[active]:bg-secondary-3000-hover"
-                                        {...props}
-                                    >
-                                        {emoji.emoji}
-                                    </button>
-                                ),
+                                Row: EmojiPickerEmojiRow,
+                                Emoji: EmojiPickerEmojiButton,
                             }}
                         />
                     </EmojiPicker.Viewport>
