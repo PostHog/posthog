@@ -1,5 +1,7 @@
-import { Hub } from '../../../types'
-import { PostgresUse } from '../../../utils/db/postgres'
+import { EncryptedFields } from '~/cdp/encryption-utils'
+import { PubSub } from '~/utils/pubsub'
+
+import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 
@@ -14,12 +16,12 @@ export type IntegrationType = {
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationType>
 
-    constructor(private hub: Hub) {
+    constructor(private pubSub: PubSub, private postgres: PostgresRouter, private encryptedFields: EncryptedFields) {
         this.lazyLoader = new LazyLoader({
             name: 'integration_manager',
             loader: async (ids) => await this.fetchIntegrations(ids),
         })
-        this.hub.pubSub.on<{ integrationIds: IntegrationType['id'][] }>('reload-integrations', (message) => {
+        this.pubSub.on<{ integrationIds: IntegrationType['id'][] }>('reload-integrations', (message) => {
             logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds: message.integrationIds })
             this.onIntegrationsReloaded(message.integrationIds)
         })
@@ -40,7 +42,7 @@ export class IntegrationManagerService {
     private async fetchIntegrations(ids: string[]): Promise<Record<string, IntegrationType | undefined>> {
         logger.info('[IntegrationManager]', 'Fetching integrations', { ids })
 
-        const response = await this.hub.postgres.query<IntegrationType>(
+        const response = await this.postgres.query<IntegrationType>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, kind, config, sensitive_config FROM posthog_integration WHERE id = ANY($1)`,
             [ids],
@@ -50,7 +52,7 @@ export class IntegrationManagerService {
         const items = response.rows
 
         return items.reduce<Record<string, IntegrationType | undefined>>((acc, item) => {
-            const sensitiveConfig = this.hub.encryptedFields.decryptObject(item.sensitive_config || {}, {
+            const sensitiveConfig = this.encryptedFields.decryptObject(item.sensitive_config || {}, {
                 ignoreDecryptionErrors: true,
             })
 

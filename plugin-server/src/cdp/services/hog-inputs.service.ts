@@ -19,9 +19,13 @@ export class HogInputsService {
         // TODO: Load the values from the integrationManager
 
         const inputs: HogFunctionType['inputs'] = {
+            // Include the inputs from the hog function
             ...hogFunction.inputs,
             ...hogFunction.encrypted_inputs,
+            // Plus any additional inputs
             ...additionalInputs,
+            // and decode any integration inputs
+            ...(await this.loadIntegrationInputs(hogFunction)),
         }
 
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -61,6 +65,36 @@ export class HogInputsService {
             ...globals,
             inputs: await this.buildInputs(hogFunction, globals, additionalInputs),
         }
+    }
+
+    private async loadIntegrationInputs(hogFunction: HogFunctionType): Promise<Record<string, any>> {
+        const inputs: Record<string, number | Record<string, any>> = {}
+
+        hogFunction.inputs_schema?.forEach((schema) => {
+            if (schema.type === 'integration') {
+                const input = hogFunction.inputs?.[schema.key]
+                const value = input?.value?.integrationId ?? input?.value
+                if (value && typeof value === 'number') {
+                    inputs[schema.key] = value
+                }
+            }
+        })
+
+        if (Object.keys(inputs).length === 0) {
+            return {}
+        }
+
+        const integrations = await this.hub.integrationManager.getMany(Object.values(inputs).map((id) => id.toString()))
+
+        Object.entries(inputs).forEach(([key, value]) => {
+            const integration = integrations[value.toString()]
+            // IMPORTANT: Check the team ID is correct
+            if (integration && integration.team_id === hogFunction.team_id) {
+                inputs[key] = integration.config
+            }
+        })
+
+        return inputs
     }
 }
 
