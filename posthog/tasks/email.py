@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 import posthoganalytics
 import structlog
@@ -570,7 +570,7 @@ def send_hog_functions_daily_digest() -> None:
         logger.info("No HogFunctions with failures found")
         return
 
-    # Extract team IDs from query results
+    # Extract team IDs from query results (each row is a tuple with one element)
     team_ids = [row[0] for row in failed_teams]
 
     # Filter teams based on the feature flag setting
@@ -605,29 +605,21 @@ def send_team_hog_functions_digest(team_id: int) -> None:
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
 
-    # Get all active HogFunctions for the team
-    hog_functions = HogFunction.objects.filter(team_id=team_id, enabled=True, deleted=False).values(
-        "id", "team_id", "name", "type"
-    )
-
-    if not hog_functions:
-        logger.info(f"No active HogFunctions found for team {team_id}")
-        return
-
     # Get metrics data from ClickHouse for all functions in the team
     metrics_query = """
     SELECT
         app_source_id as hog_function_id,
-        metric_name,
-        sum(count) as total_count
+        sum(count) as failed_count
     FROM app_metrics2
     WHERE team_id = %(team_id)s
     AND app_source = 'hog_function'
     AND timestamp >= NOW() - INTERVAL 24 HOUR
     AND timestamp < NOW()
     AND metric_kind = 'failure'
-    GROUP BY app_source_id, metric_name
-    ORDER BY app_source_id, metric_name
+    AND metric_name = 'failed'
+    GROUP BY app_source_id
+    HAVING failed_count > 0
+    ORDER BY failed_count DESC
     """
 
     metrics_data = sync_execute(
@@ -635,54 +627,41 @@ def send_team_hog_functions_digest(team_id: int) -> None:
         {"team_id": team_id},
     )
 
-    # Build function data with metrics
-    functions_data: dict[str, dict[str, Any]] = {}
+    if not metrics_data:
+        logger.info(f"No functions with failures found for team {team_id}")
+        return
+
+    # Get all active HogFunctions for the team that had failures
+    failed_function_ids = [str(row[0]) for row in metrics_data]
+    hog_functions = HogFunction.objects.filter(
+        team_id=team_id, enabled=True, deleted=False, id__in=failed_function_ids
+    ).values("id", "team_id", "name", "type")
+
+    if not hog_functions:
+        logger.info(f"No active HogFunctions found for team {team_id}")
+        return
+
+    # Build function metrics
+    function_metrics = []
+    failures_by_id = {str(row[0]): row[1] for row in metrics_data}
+
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
-        functions_data[hog_function_id] = {
-            "id": hog_function_id,
-            "name": hog_function["name"],
-            "type": hog_function["type"],
-            "metrics": {},
-            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
-        }
-
-    # Add metrics data
-    for row in metrics_data:
-        hog_function_id, metric_name, count = row
-        if hog_function_id in functions_data:
-            functions_data[hog_function_id]["metrics"][metric_name] = count
-
-    # Build function metrics, only include functions with failures
-    function_metrics = []
-
-    for function_data in functions_data.values():
-        metrics = function_data["metrics"]
-        succeeded = metrics.get("succeeded", 0)
-        failed = metrics.get("failed", 0)
-        filtered = metrics.get("filtered", 0)
-        total_runs = succeeded + failed
-
-        # Only include functions that actually have failures
-        if failed > 0:
+        if hog_function_id in failures_by_id:
             function_info = {
-                "id": function_data["id"],
-                "name": function_data["name"],
-                "type": function_data["type"],
-                "succeeded": succeeded,
-                "failed": failed,
-                "filtered": filtered,
-                "total_runs": total_runs,
-                "url": function_data["url"],
+                "id": hog_function_id,
+                "name": hog_function["name"],
+                "type": hog_function["type"],
+                "failed": failures_by_id[hog_function_id],
+                "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
             }
-
             function_metrics.append(function_info)
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")
         return
 
-    # Prepare data for email (no summary totals needed)
+    # Prepare data for email
     digest_data = {
         "team_id": team_id,
         "functions": function_metrics,

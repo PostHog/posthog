@@ -248,20 +248,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Test Function 1",
                     "type": "destination",
-                    "succeeded": 150,
                     "failed": 5,
-                    "filtered": 10,
-                    "total_runs": 155,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
                     "id": "test-hog-function-2",
                     "name": "Test Function 2",
                     "type": "transformation",
-                    "succeeded": 200,
                     "failed": 50,
-                    "filtered": 0,
-                    "total_runs": 250,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
@@ -287,10 +281,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function",
                     "name": "Test Function",
                     "type": "destination",
-                    "succeeded": 100,
                     "failed": 10,
-                    "filtered": 5,
-                    "total_runs": 110,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
                 }
             ],
@@ -318,10 +309,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test",
                     "name": "Test",
                     "type": "destination",
-                    "succeeded": 90,
                     "failed": 10,
-                    "filtered": 5,
-                    "total_runs": 100,
                     "url": "test",
                 }
             ],
@@ -357,26 +345,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             app_source_id=str(hog_function.id),
             timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
             metric_kind="failure",
-            metric_name="succeeded",
-            count=100,
-        )
-        create_app_metric2(
-            team_id=self.team.id,
-            app_source="hog_function",
-            app_source_id=str(hog_function.id),
-            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
-            metric_kind="failure",
             metric_name="failed",
             count=5,  # This will trigger the digest
-        )
-        create_app_metric2(
-            team_id=self.team.id,
-            app_source="hog_function",
-            app_source_id=str(hog_function.id),
-            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
-            metric_kind="failure",
-            metric_name="filtered",
-            count=10,
         )
 
         # Test 1: Enable digest for this team - should send email since there are failures

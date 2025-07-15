@@ -18,31 +18,7 @@
                 <a href="{{ function.url }}" target="_blank">{{ function.name }}</a>
             </h3>
             <p class="muted">Type: {{ function.type|capfirst }}</p>
-            
-            <p>
-                ✅ {{ function.succeeded }} succeeded
-                {% if function.failed > 0 %}
-                    | <span class="danger">❌ {{ function.failed }} failed</span>
-                {% endif %}
-                {% if function.filtered > 0 %}
-                    | 🔍 {{ function.filtered }} filtered
-                {% endif %}
-            </p>
-            
-            {% if function.failed > 0 and function.total_runs > 0 %}
-                {% with error_rate=function.failed|floatformat:0|add:0 %}
-                    {% with total_rate=function.total_runs|floatformat:0|add:0 %}
-                        {% if error_rate > 0 and total_rate > 0 %}
-                            {% widthratio error_rate total_rate 100 as error_percentage %}
-                            {% if error_percentage > 10 %}
-                                <p class="danger">
-                                    ⚠️ High error rate ({{ error_percentage }}%)
-                                </p>
-                            {% endif %}
-                        {% endif %}
-                    {% endwith %}
-                {% endwith %}
-            {% endif %}
+            <p class="danger">❌ failed {{ function.failed }} times in the last 24 hours</p>
         </div>
     {% endfor %}
 </div>
