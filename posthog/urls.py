@@ -180,7 +180,6 @@ urlpatterns = [
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
     opt_slash_path("api/surveys", surveys),
-    re_path(r"^api/surveys/(?P<survey_id>[^/]+)/?$", surveys),
     re_path(r"^surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
