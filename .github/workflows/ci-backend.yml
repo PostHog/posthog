@@ -440,14 +440,6 @@ jobs:
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
-            - name: Print environment variables
-              if: ${{ needs.changes.outputs.backend == 'true' }}
-              shell: bash
-              run: |
-                  echo "=== Environment Variables ==="
-                  env | sort
-                  echo "=== End Environment Variables ==="
-
             # Pre-tests
 
             # Copies the fully versioned UDF xml file for use in CI testing
