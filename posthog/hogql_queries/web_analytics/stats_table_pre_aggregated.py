@@ -127,13 +127,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "bounce_subquery": self._bounce_rate_query(),
                     "join_condition": ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Call(
-                            name="nullIf",
-                            args=[
-                                self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
-                                ast.Constant(value=""),
-                            ],
-                        ),
+                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
                         right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
                     ),
                 },
