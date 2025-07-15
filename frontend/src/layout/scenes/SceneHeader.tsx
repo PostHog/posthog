@@ -4,8 +4,9 @@ import { useActions, useValues } from 'kea'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -15,13 +16,12 @@ import { PROJECT_TREE_KEY } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
-import { sceneLayoutLogic } from './sceneLayoutLogic'
 import { ProjectDropdownMenu } from '../panel-layout/ProjectDropdownMenu'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 export function SceneHeader({ className }: { className?: string }): JSX.Element | null {
     const { mobileLayout } = useValues(navigationLogic)
-    const { breadcrumbs, actionsContainer } = useValues(breadcrumbsLogic)
+    const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)

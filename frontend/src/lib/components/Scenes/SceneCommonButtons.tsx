@@ -31,7 +31,6 @@ export function SceneCommonButtons({ duplicate, favorite }: SceneCommonButtonsPr
                 <ButtonPrimitive
                     onClick={duplicate.onClick}
                     tooltip="Duplicate"
-                    active={duplicate.active}
                     fullWidth
                     className="justify-center"
                     menuItem

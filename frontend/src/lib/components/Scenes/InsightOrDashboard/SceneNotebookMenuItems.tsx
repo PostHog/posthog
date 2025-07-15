@@ -111,7 +111,7 @@ export function SceneNotebookMenuItems({
             <DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
-                    <div className="px-2 py-1 flex flex-row items-center deprecated-space-x-1">
+                    <div className="px-2 py-1 flex flex-row items-center gap-x-1">
                         {notebooksLoading ? (
                             'Loading...'
                         ) : searchQuery.length ? (

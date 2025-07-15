@@ -91,7 +91,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 resizeObserver.disconnect()
             }
         }
-    }, [setScenePanelOpen])
+    }, [setScenePanelOpen, setScenePanelIsOverlay])
 
     return (
         <div
@@ -107,7 +107,7 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                 className={cn('relative min-h-screen', {
                     block: layoutConfig?.layout === 'app-raw-no-header',
                     // Ensure the grid only exists when the panel is active and not overlayed
-                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto] ': scenePanelIsPresent && !scenePanelIsOverlay,
+                    'grid grid-rows-[42px_1fr] grid-cols-[1fr_auto]': scenePanelIsPresent && !scenePanelIsOverlay,
                 })}
             >
                 {layoutConfig?.layout !== 'app-raw-no-header' && <SceneHeader className="row-span-1 col-span-1" />}
