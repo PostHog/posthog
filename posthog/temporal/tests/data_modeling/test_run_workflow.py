@@ -1117,21 +1117,17 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
         updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
     )
 
-    # Create saved query for new job
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
         team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
     )
 
-    # Test that cleanup activity marks orphaned jobs as FAILED
     await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
 
-    # Verify orphaned job was cleaned up
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED
     assert orphaned_job.error is not None
     assert "orphaned when a new data modeling run started" in orphaned_job.error
 
-    # Test that create_job_model_activity creates a new job
     with unittest.mock.patch("temporalio.activity.info") as mock_info:
         mock_info.return_value.workflow_id = "new-workflow"
         mock_info.return_value.workflow_run_id = "new-run"
@@ -1143,7 +1139,6 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
             ),
         )
 
-    # Verify new job was created
     new_job = await database_sync_to_async(DataModelingJob.objects.get)(id=new_job_id)
     assert new_job.status == DataModelingJob.Status.RUNNING
     assert new_job.workflow_id == "new-workflow"
