@@ -146,6 +146,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Onboarding',
             },
             {
+                value: 'platform_addons',
+                'data-attr': `support-form-target-area-platform_addons`,
+                label: 'Platform addons',
+            },
+            {
                 value: 'sdk',
                 'data-attr': `support-form-target-area-onboarding`,
                 label: 'SDK / Implementation',
@@ -273,6 +278,7 @@ export type SupportTicketTargetArea =
     | 'data_ingestion'
     | 'batch_exports'
     | 'messaging'
+    | 'platform_addons'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -381,7 +387,6 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
-        setFocusedField: (field: string | null) => ({ field }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -396,14 +401,6 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
-            },
-        ],
-        focusedField: [
-            null as string | null,
-            {
-                setFocusedField: (_, { field }) => field,
-                // Reset focused field when form is closed
-                closeSupportForm: () => null,
             },
         ],
     })),
@@ -444,6 +441,10 @@ export const supportLogic = kea<supportLogicType>([
                 sendSupportRequest.kind
                     ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
                     : 'Leave a message with PostHog',
+        ],
+        targetArea: [
+            (s) => [s.sendSupportRequest],
+            (sendSupportRequest: SupportFormFields) => sendSupportRequest.target_area,
         ],
     }),
     listeners(({ actions, props, values }) => ({
@@ -547,7 +548,10 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_teams_legacy'
                         break
                     case BillingPlan.Paid:
-                        planLevelTag = 'plan_pay-as-you-go'
+                        const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
+                        const shouldMarkAsFree = projectedAmount === 0
+
+                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
                         break
                     case BillingPlan.Free:
                         planLevelTag = 'plan_free'
@@ -555,11 +559,16 @@ export const supportLogic = kea<supportLogicType>([
                 }
             }
 
+            const { accountOwner } = billingLogic.values
+
+            const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
+            const accountOwnerTag = `owner_${ownerName}`
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag],
+                    tags: [planLevelTag, accountOwnerTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -584,6 +593,10 @@ export const supportLogic = kea<supportLogicType>([
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
                                 ? 'email_support'
                                 : 'free_support',
+                        },
+                        {
+                            id: 37742340880411,
+                            value: accountOwner?.name || 'unassigned',
                         },
                     ],
                     comment: {

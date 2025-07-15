@@ -9,9 +9,9 @@ import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'outline'
+type ButtonVariant = 'default' | 'outline' | 'danger'
 
-export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
+export type ButtonSize = 'xxs' | 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
 interface ButtonGroupContextValue {
     sizeContext: ButtonSize
@@ -120,15 +120,23 @@ export const buttonPrimitiveVariants = cva({
         variant: {
             // Bordereless variant (aka posthog tertiary button)
             default: 'button-primitive--variant-default',
+            // Bordereless danger variant (aka posthog danger tertiary button)
+            danger: 'button-primitive--variant-danger',
             // Outline variant (aka posthog secondary button)
             outline: 'button-primitive--variant-outline',
         },
         size: {
+            xxs: `button-primitive--size-xxs button-primitive--height-xxs text-sm`,
+            xs: `button-primitive--size-xs button-primitive--height-xs text-sm`,
             sm: `button-primitive--size-sm button-primitive--height-sm text-sm`,
             base: `button-primitive--size-base button-primitive--height-base text-sm`,
             'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
             lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
             fit: 'px-0',
+        },
+        autoHeight: {
+            true: 'button-primitive--height-auto',
+            false: '',
         },
         iconOnly: {
             true: 'icon-only p-0 justify-center items-center shrink-0',
@@ -147,7 +155,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         menuItem: {
-            true: 'rounded-sm button-primitive--full-width justify-start shrink-0',
+            true: 'rounded-sm button-primitive--full-width justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
@@ -159,7 +167,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         hasSideActionRight: {
-            true: 'rounded-md',
+            true: 'rounded',
             false: '',
         },
         isSideActionRight: {
@@ -172,28 +180,28 @@ export const buttonPrimitiveVariants = cva({
         fullWidth: false,
         isGroup: false,
         menuItem: false,
+        autoHeight: false,
     },
     compoundVariants: [
         {
             hasSideActionRight: true,
             size: 'sm',
-            className: `
-                pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]
-            `,
+            className: 'pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]',
         },
         {
             hasSideActionRight: true,
             size: 'base',
-            className: `
-                pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]
-            `,
+            className: 'pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]',
         },
         {
             hasSideActionRight: true,
             size: 'lg',
-            className: `
-                pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]
-            `,
+            className: 'pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]',
+        },
+        {
+            hasSideActionRight: true,
+            menuItem: true,
+            className: 'rounded-sm',
         },
     ],
 })
@@ -215,6 +223,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltip,
         tooltipPlacement,
         tooltipDocLink,
+        autoHeight,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -235,6 +244,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                     disabled,
                     hasSideActionRight,
                     isSideActionRight,
+                    autoHeight,
                     className,
                 })
             ),
