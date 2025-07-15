@@ -10,30 +10,11 @@ def create_summary_notebook(
     session_ids: list[str],
     user: User,
     team: Team,
-    summary_data: EnrichedSessionGroupSummaryPatternsList | None = None,
+    summary: EnrichedSessionGroupSummaryPatternsList,
     domain: str = "PostHog",
 ) -> Notebook:
     """Create a notebook with session summary patterns converted from EnrichedSessionGroupSummaryPatternsList"""
-
-    if summary_data is None:
-        # Fallback for basic notebook creation without summary data
-        notebook_content = {
-            "type": "doc",
-            "content": [
-                {
-                    "type": "heading",
-                    "attrs": {"level": 1},
-                    "content": [{"type": "text", "text": "Session Summaries"}],
-                },
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": f"Session ids covered: {', '.join(session_ids)}"}],
-                },
-            ],
-        }
-    else:
-        notebook_content = _generate_notebook_content_from_summary(summary_data, session_ids, domain)
-
+    notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
     notebook = Notebook.objects.create(
         team=team,
         title=f"Session Summaries Report - {domain}",
@@ -46,10 +27,10 @@ def create_summary_notebook(
 
 
 def _generate_notebook_content_from_summary(
-    summary_data: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], domain: str
+    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], domain: str
 ) -> dict[str, Any]:
     """Convert summary data to notebook content structure"""
-    patterns = summary_data.patterns
+    patterns = summary.patterns
     total_sessions = len(session_ids)
 
     if not patterns:

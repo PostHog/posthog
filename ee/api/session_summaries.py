@@ -86,11 +86,10 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 extra_summary_context=extra_summary_context,
                 local_reads_prod=False,
             )
-            create_summary_notebook(session_ids, user, self.team, summary)
-            summary_dict = summary.model_dump(exclude_none=True, mode="json")
+            create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
             with open("summary.json", "w") as f:
-                f.write(json.dumps(summary_dict, indent=4))
-            return Response(summary_dict, status=status.HTTP_200_OK)
+                f.write(json.dumps(summary.model_dump(exclude_none=True, mode="json"), indent=4))
+            return Response(summary, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
                 f"Failed to generate session group summary for sessions {session_ids} from team {self.team.pk} by user {user.pk}: {err}",
