@@ -7,6 +7,7 @@ import { IconEmoji, IconComment } from '@posthog/icons'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useCallback, useState } from 'react'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {
@@ -15,6 +16,7 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
     } = useValues(sessionRecordingPlayerLogic)
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
     const { addEmojiComment } = useActions(theBuiltOverlayLogic)
+
     const { favouriteEmojis } = useValues(emojiUsageLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
 
@@ -42,6 +44,13 @@ export function CommentOnRecordingButton(): JSX.Element {
 
     const [quickEmojiIsOpen, setQuickEmojiIsOpen] = useState<boolean>(false)
 
+    const {
+        sessionPlayerData: { sessionRecordingId },
+        logicProps,
+    } = useValues(sessionRecordingPlayerLogic)
+    const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
+    const { isLoading } = useValues(theBuiltOverlayLogic)
+
     return (
         <LemonButton
             size="xsmall"
@@ -61,8 +70,11 @@ export function CommentOnRecordingButton(): JSX.Element {
             active={isCommenting}
             icon={<IconComment className="text-lg" />}
             sideAction={{
-                icon: <IconEmoji className="text-lg" />,
+                icon: isLoading ? <Spinner textColored={true} /> : <IconEmoji className="text-lg" />,
                 onClick: () => {
+                    if (isLoading) {
+                        return
+                    }
                     setQuickEmojiIsOpen(!quickEmojiIsOpen)
                 },
                 dropdown: {
