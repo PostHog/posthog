@@ -68,7 +68,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element | null {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <div className="Insight relative">
+            <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
                 {dashboardOverridesExist && (
