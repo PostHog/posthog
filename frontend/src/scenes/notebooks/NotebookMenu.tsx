@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 import { notebooksModel } from '~/models/notebooksModel'
 
 import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { AccessControlResourceType } from '~/types'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
@@ -40,7 +42,12 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         icon: <IconTrash />,
                         status: 'danger',
                         disabledReason:
-                            notebook?.user_access_level !== 'editor'
+                            !notebook?.user_access_level ||
+                            !accessLevelSatisfied(
+                                AccessControlResourceType.Notebook,
+                                notebook.user_access_level,
+                                'editor'
+                            )
                                 ? 'You do not have permission to delete this notebook.'
                                 : undefined,
                         onClick: () => {

@@ -91,12 +91,7 @@ export class HogFunctionHandler implements ActionHandler {
                 url: '',
             },
             event: invocation.state.event,
-            person: {
-                name: '',
-                properties: {},
-                id: invocation.state.event.distinct_id,
-                url: `${projectUrl}/person/${encodeURIComponent(invocation.state.event.distinct_id)}`,
-            },
+            person: invocation.person,
         }
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
