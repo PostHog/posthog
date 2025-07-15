@@ -369,46 +369,43 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        # Mock the ClickHouse query responses
-        # First call: get teams with active functions
-        # Second call: get aggregated metrics data
-        mock_sync_execute.side_effect = [
-            [(self.team.id,)],  # Teams query result
-            [  # Metrics query result
-                (
-                    self.team.id,
-                    hog_function.id,
-                    "Test Destination Function",
-                    "destination",
-                    {"state": "HEALTHY"},
-                    "succeeded",
-                    100,
-                ),
-                (
-                    self.team.id,
-                    hog_function.id,
-                    "Test Destination Function",
-                    "destination",
-                    {"state": "HEALTHY"},
-                    "failed",
-                    5,
-                ),
-                (
-                    self.team.id,
-                    hog_function.id,
-                    "Test Destination Function",
-                    "destination",
-                    {"state": "HEALTHY"},
-                    "filtered",
-                    10,
-                ),
-            ],
+        # Mock the ClickHouse query response for metrics data only
+        # Teams are now fetched from PostgreSQL via Django ORM
+        mock_sync_execute.return_value = [
+            # Metrics query result
+            (
+                self.team.id,
+                hog_function.id,
+                "Test Destination Function",
+                "destination",
+                {"state": "HEALTHY"},
+                "succeeded",
+                100,
+            ),
+            (
+                self.team.id,
+                hog_function.id,
+                "Test Destination Function",
+                "destination",
+                {"state": "HEALTHY"},
+                "failed",
+                5,
+            ),
+            (
+                self.team.id,
+                hog_function.id,
+                "Test Destination Function",
+                "destination",
+                {"state": "HEALTHY"},
+                "filtered",
+                10,
+            ),
         ]
 
         send_hog_functions_daily_digest()
 
-        # Should query ClickHouse twice (teams and metrics)
-        assert mock_sync_execute.call_count == 2
+        # Should query ClickHouse once for metrics (teams come from PostgreSQL)
+        assert mock_sync_execute.call_count == 1
 
         # Should send one digest email
         assert len(mocked_email_messages) == 1
@@ -421,13 +418,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        # Mock empty response for teams query (no active functions)
-        mock_sync_execute.return_value = []
-
+        # No HogFunctions created, so no teams should be found
         send_hog_functions_daily_digest()
 
-        # Should query ClickHouse once for teams but not process metrics
-        assert mock_sync_execute.call_count == 1
+        # Should not query ClickHouse since no teams with active functions exist
+        assert mock_sync_execute.call_count == 0
         assert len(mocked_email_messages) == 0
 
     @patch("posthog.clickhouse.client.sync_execute")
@@ -446,13 +441,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        # Mock empty response since disabled functions won't be in results
-        mock_sync_execute.return_value = []
-
         send_hog_functions_daily_digest()
 
-        # Should query for teams but find none with active functions
-        assert mock_sync_execute.call_count == 1
+        # Should not query ClickHouse since no teams with enabled functions exist
+        assert mock_sync_execute.call_count == 0
         assert len(mocked_email_messages) == 0
 
     @patch("posthog.clickhouse.client.sync_execute")
@@ -471,11 +463,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        # Mock empty response since deleted functions won't be in results
-        mock_sync_execute.return_value = []
-
         send_hog_functions_daily_digest()
 
-        # Should query for teams but find none with active functions
-        assert mock_sync_execute.call_count == 1
+        # Should not query ClickHouse since no teams with active (non-deleted) functions exist
+        assert mock_sync_execute.call_count == 0
         assert len(mocked_email_messages) == 0

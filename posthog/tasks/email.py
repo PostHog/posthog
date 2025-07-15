@@ -556,6 +556,7 @@ def send_hog_functions_daily_digest() -> None:
     """
     from datetime import timedelta
     from posthog.clickhouse.client import sync_execute
+    from posthog.models.hog_functions.hog_function import HogFunction
 
     logger.info("Starting HogFunctions daily digest task")
 
@@ -566,14 +567,12 @@ def send_hog_functions_daily_digest() -> None:
     date_str = yesterday.strftime("%Y-%m-%d")
     formatted_date = yesterday.strftime("%B %d, %Y")
 
-    # Get all teams with active, non-deleted HogFunctions using aggregated query
-    teams_query = """
-    SELECT DISTINCT team_id
-    FROM hog_function
-    WHERE enabled = 1 AND deleted = 0
-    """
+    # Get all teams with active, non-deleted HogFunctions from PostgreSQL
+    teams_with_active_functions = (
+        HogFunction.objects.filter(enabled=True, deleted=False).values_list("team_id", flat=True).distinct()
+    )
 
-    team_ids = [row[0] for row in sync_execute(teams_query)]
+    team_ids = list(teams_with_active_functions)
     logger.info(f"Found {len(team_ids)} teams with active HogFunctions")
 
     if not team_ids:
