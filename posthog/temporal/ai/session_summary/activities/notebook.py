@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from posthog.models.notebook.notebook import Notebook
@@ -12,18 +13,17 @@ def create_summary_notebook(
     team: Team,
     summary: EnrichedSessionGroupSummaryPatternsList,
     domain: str = "PostHog",
-) -> Notebook:
+) -> dict[str, Any]:
     """Create a notebook with session summary patterns converted from EnrichedSessionGroupSummaryPatternsList"""
     notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
-    notebook = Notebook.objects.create(
+    response = Notebook.objects.create(
         team=team,
-        title=f"Session Summaries Report - {domain}",
+        title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
         content=notebook_content,
         created_by=user,
         last_modified_by=user,
     )
-
-    return notebook
+    return notebook_content
 
 
 def _generate_notebook_content_from_summary(

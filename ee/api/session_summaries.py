@@ -86,7 +86,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 extra_summary_context=extra_summary_context,
                 local_reads_prod=False,
             )
-            create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
+            notebook_content = create_summary_notebook(session_ids=session_ids, user=user, team=self.team, summary=summary)
+            with open("notebook_content.json", "w") as f:
+                f.write(json.dumps(notebook_content, indent=4))
             with open("summary.json", "w") as f:
                 f.write(json.dumps(summary.model_dump(exclude_none=True, mode="json"), indent=4))
             return Response(summary, status=status.HTTP_200_OK)
