@@ -391,6 +391,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
+        setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
+        setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -631,6 +633,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             '',
             {
                 setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
+        isNewCollectionDialogOpen: [
+            false,
+            {
+                setIsNewCollectionDialogOpen: (_, { isNewCollectionDialogOpen }) => isNewCollectionDialogOpen,
+            },
+        ],
+        newCollectionName: [
+            '',
+            {
+                setNewCollectionName: (_, { newCollectionName }) => newCollectionName,
             },
         ],
     })),
