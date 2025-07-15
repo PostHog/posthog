@@ -1279,7 +1279,7 @@ class TestQuotaLimiting(BaseTest):
                 quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
                 assert quota_limited_orgs["api_queries_read_bytes"] == {}
                 assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {
-                    org_id: 1612094400
+                    org_id: 1612051200
                 }  # 5 day suspension
                 assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                     f"@posthog/quota-limiting-suspended/api_queries_read_bytes", 0, -1
