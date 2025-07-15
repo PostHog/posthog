@@ -219,7 +219,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
                 type: MarkerType.ArrowClosed,
                 width: MARKER_SIZE,
                 height: MARKER_SIZE,
-                color: isHighlighted ? BRAND_YELLOW : undefined,
+                ...(isHighlighted ? { color: BRAND_YELLOW } : {}),
             },
         }
     })
