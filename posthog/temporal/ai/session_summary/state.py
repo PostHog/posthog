@@ -91,11 +91,15 @@ def _decompress_redis_data(raw_redis_data: bytes | str) -> str:
 
 
 async def store_data_in_redis(
-    redis_client: aioredis.Redis, redis_key: str | None, data: str, ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL
+    redis_client: aioredis.Redis,
+    redis_key: str | None,
+    data: str,
+    label: StateActivitiesEnum,
+    ttl: int = SESSION_SUMMARIES_DB_DATA_REDIS_TTL,
 ) -> None:
     """Compress and store data in Redis with an expiry time."""
     if not redis_key:
-        raise ValueError(f"Redis key is required to store data in Redis ({data})")
+        raise ValueError(f"Redis key is required for {label.value} to store data in Redis ({data})")
     compressed_data = _compress_redis_data(data)
     await redis_client.setex(redis_key, ttl, compressed_data)
     return None

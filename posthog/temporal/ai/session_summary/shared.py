@@ -67,6 +67,11 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> str
         )
         # Store the input in Redis
         input_data_str = json.dumps(dataclasses.asdict(input_data))
-        await store_data_in_redis(redis_client=redis_client, redis_key=redis_input_key, data=input_data_str)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_input_key,
+            data=input_data_str,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
+        )
     # Nothing to return if the fetch was successful, as the data is stored in Redis
     return None

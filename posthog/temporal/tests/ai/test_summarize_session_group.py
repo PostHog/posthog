@@ -137,7 +137,12 @@ async def test_extract_session_group_patterns_activity_standalone(
             label=StateActivitiesEnum.SESSION_SUMMARY,
             state_id=single_session_input.session_id,
         )
-        await store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=session_summary_key,
+            data=enriched_summary_str,
+            label=StateActivitiesEnum.SESSION_SUMMARY,
+        )
         redis_test_setup.keys_to_cleanup.append(session_summary_key)
 
     # Set up spies to track Redis operations
@@ -204,7 +209,12 @@ async def test_assign_events_to_patterns_activity_standalone(
             label=StateActivitiesEnum.SESSION_SUMMARY,
             state_id=single_session_input.session_id,
         )
-        await store_data_in_redis(redis_client=redis_client, redis_key=session_summary_key, data=enriched_summary_str)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=session_summary_key,
+            data=enriched_summary_str,
+            label=StateActivitiesEnum.SESSION_SUMMARY,
+        )
         redis_test_setup.keys_to_cleanup.append(session_summary_key)
 
     # Store single session LLM inputs in Redis to be able to enrich assigned events
@@ -216,7 +226,10 @@ async def test_assign_events_to_patterns_activity_standalone(
             state_id=single_session_input.session_id,
         )
         await store_data_in_redis(
-            redis_client=redis_client, redis_key=session_db_data_key, data=json.dumps(dataclasses.asdict(llm_input))
+            redis_client=redis_client,
+            redis_key=session_db_data_key,
+            data=json.dumps(dataclasses.asdict(llm_input)),
+            label=StateActivitiesEnum.SESSION_DB_DATA,
         )
         redis_test_setup.keys_to_cleanup.append(session_db_data_key)
 
@@ -230,7 +243,10 @@ async def test_assign_events_to_patterns_activity_standalone(
         state_id=",".join(session_ids),
     )
     await store_data_in_redis(
-        redis_client=redis_client, redis_key=patterns_key, data=mock_patterns.model_dump_json(exclude_none=True)
+        redis_client=redis_client,
+        redis_key=patterns_key,
+        data=mock_patterns.model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
     )
     redis_test_setup.keys_to_cleanup.append(patterns_key)
 
@@ -414,7 +430,7 @@ class TestSummarizeSessionGroupWorkflow:
                 min_timestamp=datetime.now() - timedelta(days=1),
                 max_timestamp=datetime.now(),
             )
-            assert result == expected_patterns
+            assert EnrichedSessionGroupSummaryPatternsList(**result) == expected_patterns
 
     @pytest.mark.asyncio
     async def test_summarize_session_group_workflow(

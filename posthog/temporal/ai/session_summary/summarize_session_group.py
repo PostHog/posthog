@@ -193,6 +193,7 @@ async def fetch_session_batch_events_activity(
             redis_client=redis_client,
             redis_key=session_data_key,
             data=input_data_str,
+            label=StateActivitiesEnum.SESSION_DB_DATA,
         )
     # Returning nothing as the data is stored in Redis
     return None
@@ -250,7 +251,12 @@ async def get_llm_single_session_summary_activity(
             trace_id=temporalio.activity.info().workflow_id,
         )
         # Store the generated summary in Redis
-        await store_data_in_redis(redis_client=redis_client, redis_key=redis_output_key, data=session_summary_str)
+        await store_data_in_redis(
+            redis_client=redis_client,
+            redis_key=redis_output_key,
+            data=session_summary_str,
+            label=StateActivitiesEnum.SESSION_SUMMARY,
+        )
     # Returning nothing as the data is stored in Redis
     return None
 
