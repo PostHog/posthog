@@ -24,11 +24,11 @@ from posthog.tasks.email import (
     send_email_verification,
     send_fatal_plugin_error,
     send_hog_functions_digest_email,
+    send_hog_functions_daily_digest,
     send_invite,
     send_member_join,
     send_password_reset,
 )
-from posthog.tasks.tasks import send_hog_functions_daily_digest
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
