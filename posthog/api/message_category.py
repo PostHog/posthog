@@ -5,7 +5,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageCategory
 
 
-class MessageCategorySerializer(serializers.ModelSerializer):
+def validate(self, data):
+        # Ensure key is unique per team
+        if MessageCategory.objects.filter(team_id=self.context['team_id'], key=data['key'], deleted=False).exists():
+            raise serializers.ValidationError({'key': 'A message category with this key already exists.'})
+        return data
+
     class Meta:
         model = MessageCategory
         fields = (
