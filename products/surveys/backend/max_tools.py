@@ -63,20 +63,8 @@ class SurveyCreatorTool(MaxTool):
         Generate survey configuration from natural language instructions.
         """
         try:
-            # Check if user_id is in context
-            if "user_id" not in self.context:
-                return "❌ Failed to create survey: User id not present on the context", {
-                    "error": "user_id_not_present"
-                }
-
             user = self._user
-            if not user:
-                return "❌ Failed to create survey: Invalid user", {"error": "invalid_user"}
-
-            # Get team for context
             team = self._team
-            if not team:
-                return "❌ Failed to create survey: Team not present on the context", {"error": "team_not_present"}
 
             result = self._create_survey_from_instructions(instructions)
             try:
