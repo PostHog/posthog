@@ -25,6 +25,7 @@ KINDS = [
     "New Customer Count",
     "Churned Customer Count",
     "ARPU",
+    "LTV",
 ]
 
 
@@ -46,6 +47,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                     "new_customer_count",
                     "churned_customer_count",
                     "arpu",
+                    "ltv",
                 ]
             )
 
@@ -134,6 +136,41 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                                 ],
                             ),
                             ast.Constant(value=0),
+                        ],
+                    ),
+                ),
+                # LTV calculation (ARPU / churn_rate)
+                # where churn_rate is the number of churned customers / number of customers
+                ast.Alias(
+                    alias="ltv",
+                    expr=ast.Call(
+                        name="multiIf",
+                        args=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["customer_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Constant(value=0),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["churned_customer_count"]),
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Constant(value=float("nan")),
+                            ast.Call(
+                                name="divide",
+                                args=[
+                                    ast.Field(chain=["arpu"]),
+                                    ast.Call(
+                                        name="divide",
+                                        args=[
+                                            ast.Field(chain=["churned_customer_count"]),
+                                            ast.Field(chain=["customer_count"]),
+                                        ],
+                                    ),
+                                ],
+                            ),
                         ],
                     ),
                 ),
