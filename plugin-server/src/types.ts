@@ -904,13 +904,6 @@ export interface Person {
     force_upgrade?: boolean
 }
 
-export interface DistinctPersonIdentifiers {
-    person_id: string
-    uuid: string
-    distinct_id: string
-    team_id: number
-}
-
 /** Clickhouse Person model. */
 export interface ClickHousePerson {
     id: string
