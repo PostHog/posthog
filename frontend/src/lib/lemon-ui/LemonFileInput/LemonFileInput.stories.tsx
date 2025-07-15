@@ -61,9 +61,7 @@ export const ExtraDragAndDropTarget: StoryFn<typeof LemonFileInput> = (props) =>
                 This area is also a drag target
             </div>
             <LemonFileInput
-                loading={props.loading}
                 {...props}
-                multiple={true}
                 value={extraTargetValue}
                 onChange={(newValue) => setExtraTargetValue(newValue)}
                 alternativeDropTargetRef={additionalDragTarget}
