@@ -32,19 +32,21 @@ function getMaterializationStatusMessage(
     const percentComplete = Math.round(Math.min(100, (rowsMaterialized / rowsExpected) * 100))
     switch (true) {
         case rowsMaterialized === 0:
-            return `Spinning up spikes — starting materialization job... ${percentComplete}% complete`
+            return `Spinning up spikes — starting materialization job... ${percentComplete}% complete.`
         case progressPercentage < 10:
-            return `Digging into SQL... executing your query now... ${percentComplete}% complete`
+            return `Digging into SQL... executing your query now... ${percentComplete}% complete.`
         case progressPercentage < 25:
-            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away... ${percentComplete}% complete`
+            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away... ${percentComplete}% complete.`
         case progressPercentage < 50:
-            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage... ${percentComplete}% complete`
+            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage... ${percentComplete}% complete.`
         case progressPercentage < 90:
-            return `Still going — ${humanFriendlyNumber(rowsMaterialized)} rows written... ${percentComplete}% complete`
+            return `Still going — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows written... ${percentComplete}% complete.`
         default:
             return `Almost there — ${humanFriendlyNumber(
                 rowsMaterialized
-            )} rows processed... ${percentComplete}% complete`
+            )} rows processed... ${percentComplete}% complete.`
     }
 }
 
