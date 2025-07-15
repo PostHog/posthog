@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from typing import Any
 
 from posthog.models.notebook.notebook import Notebook
@@ -10,7 +11,7 @@ from ee.session_recordings.session_summary.patterns.output_data import EnrichedS
 def _sanitize_text_content(text: str) -> str:
     """Sanitize text content to ensure it's valid for TipTap editor"""
     if not text or not text.strip():
-        return " "  # Return single space for empty strings
+        raise ValueError(f"Empty text should not be passed to create heading or paragraph")
     return text.strip()
 
 
@@ -40,6 +41,8 @@ def create_summary_notebook(
 ) -> Notebook:
     """Create a notebook with session summary patterns converted from EnrichedSessionGroupSummaryPatternsList"""
     notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
+    with open("notebook_content.json", "w") as f:
+        f.write(json.dumps(notebook_content, indent=4))
     notebook = Notebook.objects.create(
         team=team,
         title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
@@ -86,8 +89,8 @@ def _generate_notebook_content_from_summary(
     content.extend(table_content)
 
     # Pattern details
-    for i, pattern in enumerate(patterns_sorted):
-        pattern_content = _create_pattern_section(pattern, total_sessions, i == len(patterns_sorted) - 1)
+    for pattern in patterns_sorted:
+        pattern_content = _create_pattern_section(pattern, total_sessions)
         content.extend(pattern_content)
 
     return {
@@ -123,7 +126,7 @@ def _create_summary_table(patterns: list, total_sessions: int) -> list[dict[str,
     return table_content
 
 
-def _create_pattern_section(pattern, total_sessions: int, is_last: bool) -> list[dict[str, Any]]:
+def _create_pattern_section(pattern, total_sessions: int) -> list[dict[str, Any]]:
     """Create detailed pattern section content"""
     content = []
 
@@ -181,10 +184,6 @@ def _create_pattern_section(pattern, total_sessions: int, is_last: bool) -> list
                 f"*📋 {len(events_to_show)} examples covered, you can research {remaining_examples} remaining examples at PostHog.com*"
             )
         )
-
-    # Add spacing between patterns (except for the last one) - use proper line breaks instead of empty text
-    if not is_last:
-        content.append(_create_paragraph_with_text(" "))
 
     return content
 
