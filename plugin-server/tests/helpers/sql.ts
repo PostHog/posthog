@@ -530,3 +530,10 @@ export async function fetchPostgresPersons(db: DB, teamId: number) {
             } as InternalPerson)
     )
 }
+
+export async function fetchPostgresDistinctIdsForPerson(db: DB, personId: string): Promise<string[]> {
+    const query = `SELECT distinct_id FROM posthog_persondistinctid WHERE person_id = ${personId} ORDER BY id`
+    return (await db.postgres.query(PostgresUse.PERSONS_READ, query, undefined, 'distinctIds')).rows.map(
+        (row: { distinct_id: string }) => row.distinct_id
+    )
+}

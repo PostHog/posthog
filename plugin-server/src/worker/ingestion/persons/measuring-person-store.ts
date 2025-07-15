@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { DB } from '../../../utils/db/db'
+import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import {
     observeLatencyByVersion,
@@ -316,7 +316,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.clearCache()
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
