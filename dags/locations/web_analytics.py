@@ -5,15 +5,11 @@ from . import resources
 from dags import (
     web_preaggregated_asset_checks,
     web_preaggregated_daily,
-    web_preaggregated_ddl,
     web_preaggregated_hourly,
 )
 
 defs = dagster.Definitions(
     assets=[
-        web_preaggregated_ddl.web_analytics_preaggregated_tables,
-        web_preaggregated_ddl.web_analytics_preaggregated_hourly_tables,
-        web_preaggregated_ddl.web_analytics_combined_views,
         web_preaggregated_daily.web_stats_daily,
         web_preaggregated_daily.web_bounces_daily,
         web_preaggregated_daily.web_stats_daily_export,
@@ -29,12 +25,6 @@ defs = dagster.Definitions(
         web_preaggregated_asset_checks.bounces_hourly_has_data,
         web_preaggregated_asset_checks.stats_export_chdb_queryable,
         web_preaggregated_asset_checks.bounces_export_chdb_queryable,
-        web_preaggregated_ddl.daily_stats_table_exist,
-        web_preaggregated_ddl.daily_bounces_table_exist,
-        web_preaggregated_ddl.hourly_stats_table_exist,
-        web_preaggregated_ddl.hourly_bounces_table_exist,
-        web_preaggregated_ddl.combined_stats_view_exist,
-        web_preaggregated_ddl.combined_bounces_view_exist,
     ],
     jobs=[
         web_preaggregated_hourly.web_pre_aggregate_current_day_hourly_job,

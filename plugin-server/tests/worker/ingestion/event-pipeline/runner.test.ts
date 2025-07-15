@@ -70,6 +70,7 @@ const team = {
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
     available_features: [],
+    drop_events_older_than_seconds: null,
 } as Team
 
 const pipelineEvent: PipelineEvent = {
@@ -195,6 +196,7 @@ describe('EventPipelineRunner', () => {
             await runner.runEventPipeline(pluginEvent, team)
 
             expect(runner.steps).toEqual([
+                'dropOldEventsStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
@@ -224,6 +226,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
+                'dropOldEventsStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
@@ -253,7 +256,7 @@ describe('EventPipelineRunner', () => {
             const result = await runner.runEventPipeline(pluginEvent, team)
             expect(result.error).toBeUndefined()
 
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(9)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
@@ -269,7 +272,7 @@ describe('EventPipelineRunner', () => {
             it('stops processing after step', async () => {
                 await runner.runEventPipeline(pluginEvent, team)
 
-                expect(runner.steps).toEqual(['pluginsProcessEventStep'])
+                expect(runner.steps).toEqual(['dropOldEventsStep', 'pluginsProcessEventStep'])
             })
 
             it('reports metrics and last step correctly', async () => {
@@ -279,7 +282,9 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pluginEvent, team)
 
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(1)
+                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(2)
+                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('dropOldEventsStep')
+                expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
             })
@@ -447,6 +452,7 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(exceptionEvent, team)
 
                 expect(runner.steps).toEqual([
+                    'dropOldEventsStep',
                     'pluginsProcessEventStep',
                     'transformEventStep',
                     'normalizeEventStep',
@@ -488,6 +494,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
+                'dropOldEventsStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
@@ -513,6 +520,7 @@ describe('EventPipelineRunner', () => {
             }
             await runner.runEventPipeline(event, team)
             expect(runner.steps).toEqual([
+                'dropOldEventsStep',
                 'pluginsProcessEventStep',
                 'transformEventStep',
                 'normalizeEventStep',
