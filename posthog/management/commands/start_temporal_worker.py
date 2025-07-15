@@ -25,7 +25,6 @@ from posthog.constants import (
 )
 from posthog.otel_instrumentation import initialize_otel
 from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.batch_exports import ACTIVITIES as BATCH_EXPORTS_ACTIVITIES, WORKFLOWS as BATCH_EXPORTS_WORKFLOWS
 from posthog.temporal.common.logger import configure_logger_async, get_logger
 from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
@@ -50,6 +49,10 @@ from posthog.temporal.session_recordings import (
 from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from products.batch_exports.backend.temporal import (
+    ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
+    WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
 
 # Workflow and activity index
 WORKFLOWS_DICT = {

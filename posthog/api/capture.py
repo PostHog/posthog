@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, Future
 
 import structlog
 import time
-from requests import Response, Session
+from requests import HTTPError, Response, Session
 from requests.adapters import HTTPAdapter, Retry
 from collections.abc import Iterator
 from datetime import datetime, timedelta, UTC
@@ -48,6 +48,8 @@ from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_REPLAY_INTERNAL_URL,
     CAPTURE_INTERNAL_MAX_WORKERS,
+    NEW_ANALYTICS_CAPTURE_ENDPOINT,
+    REPLAY_CAPTURE_ENDPOINT,
 )
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
@@ -464,12 +466,69 @@ def get_csp_event(request):
         )
 
     csp_report, error_response = process_csp_report(request)
-
     if error_response:
         return error_response
 
-    # Explicit mark for get_event pipeline to handle CSP reports on this flow
-    return get_event(request, csp_report=csp_report)
+    first_distinct_id = None  # temp: only used for feature flag check
+    if csp_report and isinstance(csp_report, list):
+        # For list of reports, use the first one's distinct_id for feature flag check
+        first_distinct_id = csp_report[0].get("distinct_id", None)
+    elif csp_report and isinstance(csp_report, dict):
+        # For single report, use the distinct_id for the same
+        first_distinct_id = csp_report.get("distinct_id", None)
+    else:
+        # mimic what get_event does if no data is returned from process_csp_report
+        return cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                f"Failed to submit CSP report",
+                code="invalid_payload",
+                type="invalid_payload",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+
+    try:
+        token = get_token(csp_report, request)
+
+        if isinstance(csp_report, list):
+            futures = new_capture_batch_internal(csp_report, token, False)
+            for future in futures:
+                result = future.result()
+                result.raise_for_status()
+        else:
+            resp = new_capture_internal(token, first_distinct_id, csp_report, False)
+            resp.raise_for_status()
+
+        return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+
+    except HTTPError as hte:
+        capture_exception(hte, {"capture-http": "csp_report", "ph-team-token": token})
+        logger.exception("csp_report_capture_http_error", exc_info=hte)
+        return cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                f"Failed to submit CSP report",
+                code="capture_http_error",
+                type="capture_http_error",
+                status_code=hte.response.status_code,
+            ),
+        )
+    except Exception as e:
+        capture_exception(e, {"capture-pathway": "csp_report", "ph-team-token": token})
+        logger.exception("csp_report_capture_error", exc_info=e)
+        return cors_response(
+            request,
+            generate_exception_response(
+                "csp_report_capture",
+                f"Failed to submit CSP report",
+                code="capture_error",
+                type="capture_error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
 
 
 @csrf_exempt
@@ -950,9 +1009,9 @@ def new_capture_internal(
 
     event_payload = prepare_capture_internal_payload(token, distinct_id, raw_event, process_person_profile)
     # determine if this is a recordings or events type, route to correct capture endpoint
-    resolved_capture_url = CAPTURE_INTERNAL_URL
+    resolved_capture_url = f"{CAPTURE_INTERNAL_URL}{NEW_ANALYTICS_CAPTURE_ENDPOINT}"
     if event_payload["event"] in SESSION_RECORDING_EVENT_NAMES:
-        resolved_capture_url = CAPTURE_REPLAY_INTERNAL_URL
+        resolved_capture_url = f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}"
 
     with Session() as s:
         s.mount(
@@ -976,7 +1035,7 @@ def new_capture_batch_internal(
     events: list[dict[str, Any]],
     token: Optional[str] = None,
     process_person_profile: bool = False,
-) -> list[Future[Response]]:
+) -> list[Future]:
     """
     new_capture_batch_internal submits multiple capture request payloads to
     PostHog (capture-rs backend) concurrently using ThreadPoolExecutor.
@@ -996,7 +1055,7 @@ def new_capture_batch_internal(
         process_person_profile=process_person_profile,
     )
 
-    futures: list[Future[Response]] = []
+    futures: list[Future] = []
 
     with ThreadPoolExecutor(max_workers=CAPTURE_INTERNAL_MAX_WORKERS) as executor:
         # Note:

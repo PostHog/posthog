@@ -155,7 +155,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
         GET requests to access control endpoints require 'access_control:read' scope.
         PUT requests have no additional scope requirements.
         """
-        if request.method == "GET" and self.action in ["access_controls", "global_access_controls"]:
+        if request.method == "GET" and self.action in [
+            "access_controls",
+            "global_access_controls",
+            "users_with_access",
+        ]:
             return ["access_control:read"]
 
         return None
@@ -211,7 +215,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         obj = self.get_object()
 
         org_memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization)
+            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
             .select_related("user")
             .prefetch_related("role_memberships__role")
         )

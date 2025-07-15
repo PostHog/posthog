@@ -19,6 +19,7 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
             "last_run_at",
             "workflow_id",
             "workflow_run_id",
+            "rows_expected",
         ]
         read_only_fields = fields
 
