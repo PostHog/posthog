@@ -56,7 +56,7 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
         key: "flag_1".to_string(),
         deleted: false,
         active: true,
-        ensure_experience_continuity: false,
+        ensure_experience_continuity: Some(false),
         version: Some(1),
     }
 }
