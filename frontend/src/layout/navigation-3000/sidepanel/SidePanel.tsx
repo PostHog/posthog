@@ -1,6 +1,6 @@
 import './SidePanel.scss'
 
-import { IconEllipsis, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
+import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -29,6 +29,8 @@ import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -150,15 +152,24 @@ export function SidePanel(): JSX.Element | null {
         ? [
               {
                   title: 'Open in side panel',
-                  items: extraTabs.map((tab) => {
-                      const { Icon, label } = SIDE_PANEL_TABS[tab]
+                  items: [
+                      ...extraTabs.map((tab) => {
+                          const { Icon, label } = SIDE_PANEL_TABS[tab]
 
-                      return {
-                          label: label,
-                          icon: <Icon />,
-                          onClick: () => openSidePanel(tab),
-                      }
-                  }),
+                          return {
+                              label: label,
+                              icon: <Icon />,
+                              onClick: () => openSidePanel(tab),
+                          }
+                      }),
+                      // FIXME: This is a off ramp for the feature previews moving from the side panel to the settings page, this shouldn't be here for long.
+                      {
+                          label: 'Feature previews',
+                          icon: <IconFeatures />,
+                          onClick: () => router.actions.push(urls.settings('user-feature-previews')),
+                          tooltip: 'Feature previews has moved to the settings page',
+                      },
+                  ],
               },
           ]
         : undefined
