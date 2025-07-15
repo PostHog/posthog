@@ -138,7 +138,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-        content, artifact = tool._run_impl("Create a customer satisfaction survey")
+        content, artifact = tool._arun_impl("Create a customer satisfaction survey")
 
         # Verify success response (check for either "created successfully" or "created and launched")
         self.assertIn("✅ Survey", content)
@@ -189,7 +189,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-        content, artifact = tool._run_impl("Create and launch an NPS survey")
+        content, artifact = tool._arun_impl("Create and launch an NPS survey")
 
         # Verify launch message
         self.assertIn("and launched", content)
@@ -235,7 +235,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-        content, artifact = tool._run_impl("Create a comprehensive product feedback survey")
+        content, artifact = tool._arun_impl("Create a comprehensive product feedback survey")
 
         # Verify the mock was called
         mock_chain.invoke.assert_called_once()
@@ -281,7 +281,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-        content, artifact = tool._run_impl("Create an invalid survey")
+        content, artifact = tool._arun_impl("Create an invalid survey")
 
         # Verify error response
         self.assertIn("❌ Survey validation failed", content)
@@ -306,7 +306,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-        content, artifact = tool._run_impl("Create a survey")
+        content, artifact = tool._arun_impl("Create a survey")
 
         # Verify error handling
         self.assertIn("❌ Failed to create survey", content)
@@ -460,7 +460,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         tool = self._create_tool(context={})  # No user_id provided
 
-        content, artifact = tool._run_impl("Create a survey")
+        content, artifact = tool._arun_impl("Create a survey")
 
         # Should fail with authentication error
         self.assertIn("❌ Failed to create survey: User id not present on the context", content)
@@ -485,7 +485,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
         # Use a non-existent user ID
         tool = self._create_tool(context={"user_id": "00000000-0000-0000-0000-000000000000"})
 
-        content, artifact = tool._run_impl("Create a survey")
+        content, artifact = tool._arun_impl("Create a survey")
 
         # Should fail with invalid user error
         self.assertIn("❌ Failed to create survey: Invalid user", content)
@@ -530,7 +530,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
         tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-        content, artifact = tool._run_impl("Create a different survey")
+        content, artifact = tool._arun_impl("Create a different survey")
 
         # Verify that the LLM was called with context
         mock_chain.invoke.assert_called_once()
@@ -679,7 +679,7 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
 
                 tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-                content, artifact = tool._run_impl(case["input"])
+                content, artifact = tool._arun_impl(case["input"])
 
                 # Verify successful creation
                 self.assertIn("✅ Survey", content)
@@ -715,7 +715,7 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
 
                 tool = self._create_tool(context={"user_id": str(self._user.uuid)})
 
-                content, artifact = tool._run_impl(input_text)
+                content, artifact = tool._arun_impl(input_text)
 
                 # Verify launch behavior
                 self.assertIn("launched", artifact)  # Key should exist

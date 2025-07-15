@@ -26,7 +26,7 @@ class SurveyCreatorTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
-    def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationOutput:
+    async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationOutput:
         """
         Create a survey from natural language instructions.
         """
@@ -48,17 +48,17 @@ class SurveyCreatorTool(MaxTool):
 
         # Generate the survey configuration
         chain = prompt | model
-        result = chain.invoke(
+        result = await chain.ainvoke(
             {
                 "instructions": instructions,
-                "existing_surveys": self._get_existing_surveys_summary(),
+                "existing_surveys": await self._get_existing_surveys_summary(),
                 "team_survey_config": self._get_team_survey_config(self._team),
             }
         )
 
         return result
 
-    def _run_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
         """
         Generate survey configuration from natural language instructions.
         """
@@ -66,7 +66,7 @@ class SurveyCreatorTool(MaxTool):
             user = self._user
             team = self._team
 
-            result = self._create_survey_from_instructions(instructions)
+            result = await self._create_survey_from_instructions(instructions)
             try:
                 if not result.questions:
                     return "❌ Survey must have at least one question", {
@@ -82,7 +82,7 @@ class SurveyCreatorTool(MaxTool):
                     survey_data["start_date"] = datetime.now()
 
                 # Create the survey directly using Django ORM
-                survey = Survey.objects.create(team=team, created_by=user, **survey_data)
+                survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
 
                 launch_msg = " and launched" if result.should_launch else ""
                 return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
@@ -113,13 +113,16 @@ class SurveyCreatorTool(MaxTool):
             "default_settings": {"type": "popover", "enable_partial_responses": True},
         }
 
-    def _get_existing_surveys_summary(self) -> str:
+    async def _get_existing_surveys_summary(self) -> str:
         """Get summary of existing surveys for context."""
         try:
-            surveys = Survey.objects.filter(
-                team_id=self._team.id,
-                archived=False,
-            )[:5]
+            surveys = [
+                survey
+                async for survey in Survey.objects.filter(
+                    team_id=self._team.id,
+                    archived=False,
+                )[:5]
+            ]
 
             if not surveys:
                 return "No existing surveys"
