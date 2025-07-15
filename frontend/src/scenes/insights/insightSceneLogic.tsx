@@ -53,7 +53,7 @@ export function isDashboardFilterEmpty(filter: DashboardFilter | null): boolean 
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
-    connect((): any => ({
+    connect(() => ({
         logic: [eventUsageLogic],
         values: [
             teamLogic,
