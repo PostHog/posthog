@@ -78,7 +78,7 @@ impl AggregateFunnelRowUnordered {
                 .iter()
                 .map(|uuid| vec![*uuid])
                 .collect(),
-            0, // Unordered funnels don't have optional steps because they're all optional
+            2_u32.pow(vars.max_step.0 as u32) - 1,
         ));
     }
 
