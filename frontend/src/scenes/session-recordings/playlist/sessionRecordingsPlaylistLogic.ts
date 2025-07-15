@@ -45,6 +45,8 @@ import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlay
 import { lemonToast } from '@posthog/lemon-ui'
 import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 import { urls } from 'scenes/urls'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+
 export type PersonUUID = string
 
 interface Params {
@@ -393,6 +395,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
         setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
         setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
+        handleCreateNewCollectionBulkAdd: true,
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -786,6 +789,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }...`,
                 }
             )
+        },
+        handleCreateNewCollectionBulkAdd: async () => {
+            const newPlaylist = await createPlaylist({
+                name: values.newCollectionName,
+                type: 'collection',
+            })
+
+            if (newPlaylist) {
+                actions.handleBulkAddToPlaylist(newPlaylist.short_id)
+                actions.setIsNewCollectionDialogOpen(false)
+                actions.setNewCollectionName('')
+            }
         },
     })),
     selectors({

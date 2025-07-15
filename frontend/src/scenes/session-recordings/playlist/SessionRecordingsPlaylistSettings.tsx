@@ -14,7 +14,6 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal } from '
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -163,20 +162,8 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
 function NewCollectionModal(): JSX.Element {
     const { isNewCollectionDialogOpen, selectedRecordingsIds, newCollectionName } =
         useValues(sessionRecordingsPlaylistLogic)
-    const { setIsNewCollectionDialogOpen, setNewCollectionName, handleBulkAddToPlaylist } =
+    const { setIsNewCollectionDialogOpen, setNewCollectionName, handleCreateNewCollectionBulkAdd } =
         useActions(sessionRecordingsPlaylistLogic)
-
-    const handleSubmitClose = async (): Promise<void> => {
-        const newPlaylist = await createPlaylist({
-            name: newCollectionName,
-            type: 'collection',
-        })
-
-        if (newPlaylist) {
-            handleBulkAddToPlaylist(newPlaylist.short_id)
-            handleClose()
-        }
-    }
 
     const handleClose = (): void => {
         setIsNewCollectionDialogOpen(false)
@@ -210,7 +197,7 @@ function NewCollectionModal(): JSX.Element {
                 <LemonButton
                     type="primary"
                     disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
-                    onClick={() => handleSubmitClose()}
+                    onClick={() => handleCreateNewCollectionBulkAdd()}
                 >
                     Create collection
                 </LemonButton>
