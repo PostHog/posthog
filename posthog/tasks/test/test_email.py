@@ -1,6 +1,7 @@
 import datetime as dt
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.api.authentication import password_reset_token_generator
@@ -30,7 +31,8 @@ from posthog.tasks.email import (
     send_password_reset,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -355,8 +357,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should not send any emails
         assert len(mocked_email_messages) == 0
 
-    @patch("posthog.clickhouse.client.sync_execute")
-    def test_send_hog_functions_daily_digest(self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock) -> None:
+    def test_send_hog_functions_daily_digest(self, MockEmailMessage: MagicMock) -> None:
+        from datetime import timedelta
+        from posthog.test.fixtures import create_app_metric2
+
+        # Clean up app_metrics2 table before test
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # Create a HogFunction for testing
@@ -369,66 +376,56 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        # Mock the ClickHouse query response for metrics data only
-        # Teams are now fetched from PostgreSQL via Django ORM
-        mock_sync_execute.return_value = [
-            # Metrics query result
-            (
-                self.team.id,
-                hog_function.id,
-                "Test Destination Function",
-                "destination",
-                {"state": "HEALTHY"},
-                "succeeded",
-                100,
-            ),
-            (
-                self.team.id,
-                hog_function.id,
-                "Test Destination Function",
-                "destination",
-                {"state": "HEALTHY"},
-                "failed",
-                5,
-            ),
-            (
-                self.team.id,
-                hog_function.id,
-                "Test Destination Function",
-                "destination",
-                {"state": "HEALTHY"},
-                "filtered",
-                10,
-            ),
-        ]
+        # Insert test metrics data using the proper fixture
+        yesterday = timezone.now() - timedelta(days=1)
+        yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Create test data in app_metrics2 table using the fixture
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=yesterday_start,
+            metric_kind="other",
+            metric_name="succeeded",
+            count=100,
+        )
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=yesterday_start,
+            metric_kind="other",
+            metric_name="failed",
+            count=5,
+        )
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=yesterday_start,
+            metric_kind="other",
+            metric_name="filtered",
+            count=10,
+        )
 
         send_hog_functions_daily_digest()
-
-        # Should query ClickHouse once for metrics (teams come from PostgreSQL)
-        assert mock_sync_execute.call_count == 1
 
         # Should send one digest email
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
-    @patch("posthog.clickhouse.client.sync_execute")
-    def test_send_hog_functions_daily_digest_no_functions(
-        self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock
-    ) -> None:
+    def test_send_hog_functions_daily_digest_no_functions(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # No HogFunctions created, so no teams should be found
         send_hog_functions_daily_digest()
 
-        # Should not query ClickHouse since no teams with active functions exist
-        assert mock_sync_execute.call_count == 0
+        # Should not send any emails since no teams with active functions exist
         assert len(mocked_email_messages) == 0
 
-    @patch("posthog.clickhouse.client.sync_execute")
-    def test_send_hog_functions_daily_digest_disabled_function(
-        self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock
-    ) -> None:
+    def test_send_hog_functions_daily_digest_disabled_function(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # Create disabled HogFunction
@@ -443,14 +440,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         send_hog_functions_daily_digest()
 
-        # Should not query ClickHouse since no teams with enabled functions exist
-        assert mock_sync_execute.call_count == 0
+        # Should not send any emails since no teams with enabled functions exist
         assert len(mocked_email_messages) == 0
 
-    @patch("posthog.clickhouse.client.sync_execute")
-    def test_send_hog_functions_daily_digest_deleted_function(
-        self, mock_sync_execute: MagicMock, MockEmailMessage: MagicMock
-    ) -> None:
+    def test_send_hog_functions_daily_digest_deleted_function(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # Create deleted HogFunction
@@ -465,6 +458,5 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         send_hog_functions_daily_digest()
 
-        # Should not query ClickHouse since no teams with active (non-deleted) functions exist
-        assert mock_sync_execute.call_count == 0
+        # Should not send any emails since no teams with active (non-deleted) functions exist
         assert len(mocked_email_messages) == 0

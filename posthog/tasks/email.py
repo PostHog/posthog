@@ -579,36 +579,40 @@ def send_hog_functions_daily_digest() -> None:
         logger.info("No teams with active HogFunctions found")
         return
 
-    # Aggregate all metrics data in a single ClickHouse query
+    # Get HogFunction data from PostgreSQL
+    hog_functions = HogFunction.objects.filter(team_id__in=team_ids, enabled=True, deleted=False).values(
+        "id", "team_id", "name", "type"
+    )
+
+    if not hog_functions:
+        logger.info("No active HogFunctions found for teams")
+        return
+
+    # Get metrics data from ClickHouse for these HogFunctions
+    hog_function_ids = [str(hf["id"]) for hf in hog_functions]
+
     metrics_query = """
     SELECT
-        h.team_id,
-        h.id as hog_function_id,
-        h.name,
-        h.type,
-        h.status,
-        m.metric_name,
-        sum(m.count) as total_count
-    FROM hog_function h
-    LEFT JOIN app_metrics2 m ON (
-        m.team_id = h.team_id
-        AND m.app_source = 'hog_function'
-        AND m.app_source_id = toString(h.id)
-        AND m.timestamp >= %(start_time)s
-        AND m.timestamp <= %(end_time)s
-        AND m.metric_kind = 'other'
-    )
-    WHERE h.team_id IN %(team_ids)s
-    AND h.enabled = 1
-    AND h.deleted = 0
-    GROUP BY h.team_id, h.id, h.name, h.type, h.status, m.metric_name
-    ORDER BY h.team_id, h.id, m.metric_name
+        team_id,
+        app_source_id as hog_function_id,
+        metric_name,
+        sum(count) as total_count
+    FROM app_metrics2
+    WHERE team_id IN %(team_ids)s
+    AND app_source = 'hog_function'
+    AND app_source_id IN %(hog_function_ids)s
+    AND timestamp >= %(start_time)s
+    AND timestamp <= %(end_time)s
+    AND metric_kind = 'other'
+    GROUP BY team_id, app_source_id, metric_name
+    ORDER BY team_id, app_source_id, metric_name
     """
 
     metrics_data = sync_execute(
         metrics_query,
         {
             "team_ids": team_ids,
+            "hog_function_ids": hog_function_ids,
             "start_time": yesterday_start,
             "end_time": yesterday_end,
         },
@@ -617,23 +621,27 @@ def send_hog_functions_daily_digest() -> None:
     # Group data by team and calculate all aggregations
     teams_data = {}
 
-    for row in metrics_data:
-        team_id, hog_function_id, name, type_val, status, metric_name, count = row
+    # First, initialize all HogFunctions
+    for hog_function in hog_functions:
+        team_id = hog_function["team_id"]
+        hog_function_id = str(hog_function["id"])
 
         if team_id not in teams_data:
             teams_data[team_id] = {}
 
-        if hog_function_id not in teams_data[team_id]:
-            teams_data[team_id][hog_function_id] = {
-                "id": str(hog_function_id),
-                "name": name,
-                "type": type_val,
-                "status": status.get("state", "unknown") if status else "unknown",
-                "metrics": {},
-                "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/{hog_function_id}",
-            }
+        teams_data[team_id][hog_function_id] = {
+            "id": hog_function_id,
+            "name": hog_function["name"],
+            "type": hog_function["type"],
+            "metrics": {},
+            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/{hog_function_id}",
+        }
 
-        if metric_name and count is not None:
+    # Then, add metrics data
+    for row in metrics_data:
+        team_id, hog_function_id, metric_name, count = row
+
+        if team_id in teams_data and hog_function_id in teams_data[team_id]:
             teams_data[team_id][hog_function_id]["metrics"][metric_name] = count
 
     # Process each team's data and send emails
@@ -656,7 +664,6 @@ def send_hog_functions_daily_digest() -> None:
                     "id": function_data["id"],
                     "name": function_data["name"],
                     "type": function_data["type"],
-                    "status": function_data["status"],
                     "succeeded": succeeded,
                     "failed": failed,
                     "filtered": filtered,
