@@ -1147,3 +1147,61 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert new_job.status == DataModelingJob.Status.RUNNING
     assert new_job.workflow_id == "new-workflow"
     assert new_job.workflow_run_id == "new-run"
+
+
+async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_client):
+    """Test that materialize_model tracks progress during S3 writes."""
+    query = "SELECT 1 as test_column FROM events LIMIT 1"
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="progress_tracking_test_model",
+        query={"query": query, "kind": "HogQLQuery"},
+    )
+
+    def mock_hogql_table(*args, **kwargs):
+        # Create multiple batches to test progress tracking
+        batch1 = pa.table({"test_column": pa.array([1, 2, 3], type=pa.int64())})
+        batch2 = pa.table({"test_column": pa.array([4, 5], type=pa.int64())})
+        batch3 = pa.table({"test_column": pa.array([6], type=pa.int64())})
+
+        async def async_generator():
+            yield batch1
+            yield batch2
+            yield batch3
+
+        return async_generator()
+
+    with (
+        override_settings(
+            BUCKET_URL=f"s3://{bucket_name}",
+            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            AIRBYTE_BUCKET_REGION="us-east-1",
+            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
+        ),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table),
+        unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.get_query_row_count", return_value=6),
+    ):
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+        )
+
+        # Verify initial state
+        assert job.rows_materialized == 0
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            saved_query,
+            job,
+            unittest.mock.AsyncMock(),
+            unittest.mock.AsyncMock(),
+        )
+
+        # Verify final state
+        await database_sync_to_async(job.refresh_from_db)()
+        assert job.status == DataModelingJob.Status.COMPLETED
+        assert job.rows_materialized == 6
+        assert job.rows_expected == 6

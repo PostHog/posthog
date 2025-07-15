@@ -74,6 +74,8 @@ from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.storage import object_storage, session_recording_v2_object_storage
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 from ..models.product_intent.product_intent import ProductIntent
+from posthog.models.activity_logging.activity_log import log_activity, Detail
+from loginas.utils import is_impersonated_session
 
 USE_BLOB_V2_LTS = "use-blob-v2-lts"
 
@@ -662,6 +664,87 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         recording.save()
 
         return Response({"success": True}, status=204)
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False, url_path="bulk_delete")
+    def bulk_delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Bulk soft delete recordings by providing a list of recording IDs."""
+
+        session_recording_ids = request.data.get("session_recording_ids", [])
+
+        if not session_recording_ids or not isinstance(session_recording_ids, list):
+            raise exceptions.ValidationError("session_recording_ids must be provided as a non-empty array")
+
+        if len(session_recording_ids) > 20:
+            raise exceptions.ValidationError("Cannot process more than 20 recordings at once")
+
+        # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
+        # Create minimal query with only session_ids
+        query_data = {
+            "session_ids": session_recording_ids,
+            "date_from": None,
+            "date_to": None,
+            "kind": "RecordingsQuery",
+        }
+        query = RecordingsQuery.model_validate(query_data)
+        recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
+
+        # Filter out recordings that are already deleted
+        non_deleted_recordings = [recording for recording in recordings if not recording.deleted]
+
+        # First, bulk create any missing records
+        session_recordings_to_create = [
+            SessionRecording(
+                team=self.team,
+                session_id=recording.session_id,
+                distinct_id=recording.distinct_id,
+                deleted=True,
+            )
+            for recording in non_deleted_recordings
+        ]
+
+        created_records = []
+        if session_recordings_to_create:
+            created_records = SessionRecording.objects.bulk_create(session_recordings_to_create, ignore_conflicts=True)
+
+        # Then, bulk update existing records that aren't already deleted
+        session_ids_to_delete = [recording.session_id for recording in non_deleted_recordings]
+        updated_count = 0
+        if session_ids_to_delete:
+            updated_count = SessionRecording.objects.filter(
+                team=self.team,
+                session_id__in=session_ids_to_delete,
+                deleted=False,
+            ).update(deleted=True)
+
+        deleted_count = len(created_records) + updated_count
+
+        logger.info(
+            "bulk_recordings_deleted",
+            team_id=self.team.id,
+            deleted_count=deleted_count,
+            total_requested=len(session_recording_ids),
+        )
+
+        # Single activity log entry for the bulk operation
+        if deleted_count > 0:
+            log_activity(
+                organization_id=cast(User, request.user).current_organization_id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=None,  # No single item for bulk operation
+                scope="Replay",
+                activity="bulk_deleted",
+                detail=Detail(
+                    name=f"{deleted_count} session recordings",
+                    changes=None,
+                ),
+            )
+
+        return Response(
+            {"success": True, "deleted_count": deleted_count, "total_requested": len(session_recording_ids)}
+        )
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
