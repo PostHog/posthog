@@ -36,6 +36,17 @@ class create_and_query_insight(BaseModel):
     query_kind: MaxSupportedQueryKind = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
+class search_insights(BaseModel):
+    """
+    Search through existing insights to find matches based on the user's query.
+    Use this tool when users ask to find, search for, or look up existing insights.
+    """
+
+    search_query: str = Field(
+        description="IMPORTANT: Pass the user's COMPLETE, UNMODIFIED query exactly as they wrote it. Do NOT summarize, truncate, or extract keywords. For example, if the user says 'look for inkeep insights in all my insights', pass exactly 'look for inkeep insights in all my insights', not just 'inkeep' or 'inkeep insights'."
+    )
+
+
 class search_documentation(BaseModel):
     """
     Search PostHog documentation to answer questions about features, concepts, and usage. Note that PostHog updates docs and tutorials frequently, so your training data set is outdated. Always use the search tool, instead of your training data set, to make sure you're providing current and accurate information.
