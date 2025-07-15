@@ -510,32 +510,24 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                try:
-                    revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source, modifiers)
+                revenue_views = RevenueAnalyticsBaseView.for_schema_source(stripe_source, modifiers)
 
-                    # View will have a name similar to stripe.prefix.table_name
-                    # We want to create a nested table group where stripe is the parent,
-                    # prefix is the child of stripe, and table_name is the child of prefix
-                    # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
-                    # but still allowing the bare stripe.prefix.table_name string access
-                    for view in revenue_views:
-                        views[view.name] = view
-                        create_nested_table_group(view.name.split("."), views, view)
-                except Exception as e:
-                    capture_exception(e)
-                    continue
+                # View will have a name similar to stripe.prefix.table_name
+                # We want to create a nested table group where stripe is the parent,
+                # prefix is the child of stripe, and table_name is the child of prefix
+                # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
+                # but still allowing the bare stripe.prefix.table_name string access
+                for view in revenue_views:
+                    views[view.name] = view
+                    create_nested_table_group(view.name.split("."), views, view)
 
         # Similar to the above, these will be in the format revenue_analytics.<event_name>.events_revenue_view
         # so let's make sure we have the proper nested queries
         with timings.measure("for_events"):
             revenue_views = RevenueAnalyticsBaseView.for_events(team, modifiers)
             for view in revenue_views:
-                try:
-                    views[view.name] = view
-                    create_nested_table_group(view.name.split("."), views, view)
-                except Exception as e:
-                    capture_exception(e)
-                    continue
+                views[view.name] = view
+                create_nested_table_group(view.name.split("."), views, view)
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
@@ -551,54 +543,50 @@ def create_hogql_database(
             if views.get(table.name, None) is not None:
                 continue
 
-            try:
-                with timings.measure(f"table_{table.name}"):
-                    s3_table = table.hogql_definition(modifiers)
+            with timings.measure(f"table_{table.name}"):
+                s3_table = table.hogql_definition(modifiers)
 
-                    # If the warehouse table has no _properties_ field, then set it as a virtual table
-                    if s3_table.fields.get("properties") is None:
+                # If the warehouse table has no _properties_ field, then set it as a virtual table
+                if s3_table.fields.get("properties") is None:
 
-                        class WarehouseProperties(VirtualTable):
-                            fields: dict[str, FieldOrTable] = s3_table.fields
-                            parent_table: S3Table = s3_table
+                    class WarehouseProperties(VirtualTable):
+                        fields: dict[str, FieldOrTable] = s3_table.fields
+                        parent_table: S3Table = s3_table
 
-                            def to_printed_hogql(self):
-                                return self.parent_table.to_printed_hogql()
+                        def to_printed_hogql(self):
+                            return self.parent_table.to_printed_hogql()
 
-                            def to_printed_clickhouse(self, context):
-                                return self.parent_table.to_printed_clickhouse(context)
+                        def to_printed_clickhouse(self, context):
+                            return self.parent_table.to_printed_clickhouse(context)
 
-                        s3_table.fields["properties"] = WarehouseProperties(hidden=True)
+                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
-                    if table.external_data_source:
-                        warehouse_tables[table.name] = s3_table
+                if table.external_data_source:
+                    warehouse_tables[table.name] = s3_table
+                else:
+                    self_managed_warehouse_tables[table.name] = s3_table
+
+                # Add warehouse table using dot notation
+                if table.external_data_source:
+                    source_type = table.external_data_source.source_type
+                    prefix = table.external_data_source.prefix
+                    table_chain: list[str] = [source_type.lower()]
+
+                    if prefix is not None and isinstance(prefix, str) and prefix != "":
+                        table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
+                        table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
                     else:
-                        self_managed_warehouse_tables[table.name] = s3_table
+                        table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
+                        table_chain.append(table_name_stripped)
 
-                    # Add warehouse table using dot notation
-                    if table.external_data_source:
-                        source_type = table.external_data_source.source_type
-                        prefix = table.external_data_source.prefix
-                        table_chain: list[str] = [source_type.lower()]
+                    # For a chain of type a.b.c, we want to create a nested table group
+                    # where a is the parent, b is the child of a, and c is the child of b
+                    # where a.b.c will contain the s3_table
+                    create_nested_table_group(table_chain, warehouse_tables, s3_table)
 
-                        if prefix is not None and isinstance(prefix, str) and prefix != "":
-                            table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                            table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
-                        else:
-                            table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
-                            table_chain.append(table_name_stripped)
-
-                        # For a chain of type a.b.c, we want to create a nested table group
-                        # where a is the parent, b is the child of a, and c is the child of b
-                        # where a.b.c will contain the s3_table
-                        create_nested_table_group(table_chain, warehouse_tables, s3_table)
-
-                        joined_table_chain = ".".join(table_chain)
-                        s3_table.name = joined_table_chain
-                        warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-            except Exception as e:
-                capture_exception(e)
-                continue
+                    joined_table_chain = ".".join(table_chain)
+                    s3_table.name = joined_table_chain
+                    warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
     def define_mappings(store: TableStore, get_table: Callable):
         table: Table | None = None
