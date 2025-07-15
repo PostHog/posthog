@@ -74,7 +74,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
         )
 
-        # Apply date and property filters
         filters = self._get_filters(table_name="web_bounces_combined")
         if filters:
             query.where = filters
@@ -134,7 +133,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             ),
         )
 
-        # Apply date and property filters to the main query
         filters = self._get_filters(table_name="web_stats_combined")
         if filters:
             query.where = filters

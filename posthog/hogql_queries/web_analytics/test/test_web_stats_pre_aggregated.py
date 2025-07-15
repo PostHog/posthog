@@ -324,7 +324,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         response = self._calculate_breakdown_query(WebStatsBreakdown.INITIAL_UTM_SOURCE, use_preagg=True)
 
         expected_results = [
-            ["", (2.0, None), (2.0, None), ""],  # user_1, user_3 (no utm_source)
+            [None, (2.0, None), (2.0, None), ""],  # user_1, user_3 (no utm_source)
             ["facebook", (1.0, None), (1.0, None), ""],  # user_2
             ["google", (2.0, None), (3.0, None), ""],  # user_0 (1 view), user_5 (2 views)
             ["twitter", (1.0, None), (1.0, None), ""],  # user_4
