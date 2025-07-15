@@ -248,14 +248,18 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Test Function 1",
                     "type": "destination",
+                    "succeeded": 95,
                     "failed": 5,
+                    "filtered": 2,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
                 },
                 {
                     "id": "test-hog-function-2",
                     "name": "Test Function 2",
                     "type": "transformation",
+                    "succeeded": 200,
                     "failed": 50,
+                    "filtered": 10,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
@@ -281,7 +285,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function",
                     "name": "Test Function",
                     "type": "destination",
+                    "succeeded": 80,
                     "failed": 10,
+                    "filtered": 5,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
                 }
             ],
@@ -309,7 +315,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test",
                     "name": "Test",
                     "type": "destination",
+                    "succeeded": 50,
                     "failed": 10,
+                    "filtered": 3,
                     "url": "test",
                 }
             ],
@@ -338,7 +346,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        # Create test data in app_metrics2 table with failures
+        # Create test data in app_metrics2 table with all metric types
         create_app_metric2(
             team_id=self.team.id,
             app_source="hog_function",
@@ -347,6 +355,24 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             metric_kind="failure",
             metric_name="failed",
             count=5,  # This will trigger the digest
+        )
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),
+            metric_kind="success",
+            metric_name="succeeded",
+            count=95,
+        )
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),
+            metric_kind="filter",
+            metric_name="filtered",
+            count=3,
         )
 
         # Test 1: Enable digest for this team - should send email since there are failures
@@ -402,7 +428,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             app_source="hog_function",
             app_source_id=str(hog_function.id),
             timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
-            metric_kind="failure",
+            metric_kind="success",
             metric_name="succeeded",
             count=100,
         )

@@ -18,7 +18,8 @@
                 <a href="{{ function.url }}" target="_blank">{{ function.name }}</a>
             </h3>
             <p class="muted">Type: {{ function.type|capfirst }}</p>
-            <p class="danger">❌ failed {{ function.failed }} times</p>
+            <p>✅ Succeeded: {{ function.succeeded }} | ❌ Failed: {{ function.failed }} | 🔄 Filtered: {{ function.filtered }}</p>
+            </div>
         </div>
     {% endfor %}
 </div>
