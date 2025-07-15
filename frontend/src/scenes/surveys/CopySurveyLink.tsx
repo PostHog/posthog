@@ -8,7 +8,7 @@ export function CopySurveyLink({ surveyId }: { surveyId: string }): JSX.Element 
             icon={<IconLink />}
             onClick={() => {
                 const url = new URL(window.location.origin)
-                url.pathname = `/surveys/${surveyId}`
+                url.pathname = `/external_surveys/${surveyId}`
                 copyToClipboard(url.toString(), 'survey link')
             }}
         >
