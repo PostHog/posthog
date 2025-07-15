@@ -139,8 +139,12 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
                             ast.And(
                                 exprs=[
-                                    self._created_before_or_on_expr(),
-                                    self._ended_after_or_on_expr(),
+                                    self._period_lteq_expr(
+                                        ast.Field(chain=["started_at"]), ast.Field(chain=["period_start"])
+                                    ),
+                                    self._period_gteq_expr(
+                                        ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])
+                                    ),
                                 ]
                             ),
                         ],
@@ -157,8 +161,14 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
                             ast.And(
                                 exprs=[
-                                    self._created_before_or_on_expr(offset=-1),
-                                    self._ended_after_or_on_expr(offset=-1),
+                                    self._period_lteq_expr(
+                                        ast.Field(chain=["started_at"]),
+                                        self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                                    ),
+                                    self._period_gteq_expr(
+                                        ast.Field(chain=["ended_at"]),
+                                        self._add_period_expr(ast.Field(chain=["period_start"]), -1),
+                                    ),
                                 ]
                             ),
                         ],
@@ -171,7 +181,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            self._created_on_expr(),
+                            self._period_eq_expr(ast.Field(chain=["started_at"]), ast.Field(chain=["period_start"])),
                         ],
                     ),
                 ),
@@ -182,7 +192,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
                         distinct=True,
                         args=[
                             ast.Field(chain=[RevenueAnalyticsSubscriptionView.get_generic_view_alias(), "id"]),
-                            self._ended_on_expr(),
+                            self._period_eq_expr(ast.Field(chain=["ended_at"]), ast.Field(chain=["period_start"])),
                         ],
                     ),
                 ),
@@ -280,77 +290,16 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
             ],
         )
 
-    def _created_before_or_on_expr(self, offset: int = 0) -> ast.Expr:
-        period_start: ast.Expr = ast.Field(chain=["period_start"])
-
-        if offset != 0:
-            period_start = ast.Call(
-                name="date_add",
-                args=[
-                    period_start,
-                    ast.Call(
-                        name=f"toInterval{self.query_date_range.interval_name.title()}",
-                        args=[ast.Constant(value=offset)],
-                    ),
-                ],
-            )
-
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                args=[ast.Field(chain=["started_at"])],
-            ),
-            right=period_start,
-        )
-
-    def _created_on_expr(self) -> ast.Expr:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                args=[ast.Field(chain=["started_at"])],
-            ),
-            right=ast.Field(chain=["period_start"]),
-        )
-
-    def _ended_after_or_on_expr(self, offset: int = 0) -> ast.Expr:
-        period_start: ast.Expr = ast.Field(chain=["period_start"])
-
-        if offset != 0:
-            period_start = ast.Call(
-                name="date_add",
-                args=[
-                    period_start,
-                    ast.Call(
-                        name=f"toInterval{self.query_date_range.interval_name.title()}",
-                        args=[ast.Constant(value=offset)],
-                    ),
-                ],
-            )
-
-        return ast.Or(
-            exprs=[
-                ast.Call(name="isNull", args=[ast.Field(chain=["ended_at"])]),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Call(
-                        name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                        args=[ast.Field(chain=["ended_at"])],
-                    ),
-                    right=period_start,
+    def _add_period_expr(self, date: ast.Expr, offset: int) -> ast.Expr:
+        return ast.Call(
+            name="date_add",
+            args=[
+                date,
+                ast.Call(
+                    name=f"toInterval{self.query_date_range.interval_name.title()}",
+                    args=[ast.Constant(value=offset)],
                 ),
             ],
-        )
-
-    def _ended_on_expr(self) -> ast.Expr:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(
-                name=f"toStartOf{self.query_date_range.interval_name.title()}",
-                args=[ast.Field(chain=["ended_at"])],
-            ),
-            right=ast.Field(chain=["period_start"]),
         )
 
     def _build_results(self, response: HogQLQueryResponse) -> list[dict]:
