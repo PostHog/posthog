@@ -1,5 +1,5 @@
 import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
@@ -19,7 +19,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
 
     useLayoutEffect(() => {
         if (earlyAccessFeatures.length > 0 && focusedFeatureFlagKey) {
-            const element = document.getElementById(`feature-preview-${focusedFeatureFlagKey}`)
+            const element = document.getElementById(`${focusedFeatureFlagKey}`)
             if (element) {
                 element.scrollIntoView({ behavior: 'smooth' })
             }
@@ -37,13 +37,12 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                         your organization will need to enable it separately.
                     </LemonBanner>
                 </div>
-                <div className="flex flex-col flex-1 overflow-y-auto">
+                <div className="flex flex-col flex-1 gap-2 overflow-y-auto">
                     {rawEarlyAccessFeaturesLoading ? (
                         <SpinnerOverlay />
                     ) : (
-                        betaFeatures.map((feature, i) => (
-                            <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                                {i > 0 && <LemonDivider className="mt-3 mb-2" />}
+                        betaFeatures.map((feature) => (
+                            <div key={feature.flagKey} id={`${feature.flagKey}`}>
                                 <FeaturePreview feature={feature} />
                             </div>
                         ))
@@ -55,13 +54,12 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                     <h3>Coming soon {disabledConceptFeatureCount > 0 && `(${disabledConceptFeatureCount})`}</h3>
                     <p>Get notified when upcoming features are ready!</p>
                 </div>
-                <div className="flex flex-col flex-1 overflow-y-auto">
+                <div className="flex flex-col flex-1 gap-2 overflow-y-auto">
                     {rawEarlyAccessFeaturesLoading ? (
                         <SpinnerOverlay />
                     ) : (
-                        conceptFeatures.map((feature, i) => (
-                            <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                                {i > 0 && <LemonDivider className="mt-3 mb-2" />}
+                        conceptFeatures.map((feature) => (
+                            <div key={feature.flagKey} id={`${feature.flagKey}`}>
                                 <ConceptPreview feature={feature} />
                             </div>
                         ))
