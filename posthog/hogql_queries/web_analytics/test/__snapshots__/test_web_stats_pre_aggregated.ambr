@@ -427,7 +427,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_viewport_breakdown
   '''
-  SELECT concat(ifNull(toString(web_stats_combined.viewport_width), ''), 'x', ifNull(toString(web_stats_combined.viewport_height), '')) AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(concat(ifNull(toString(web_stats_combined.viewport_width), ''), 'x', ifNull(toString(web_stats_combined.viewport_height), '')), ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
