@@ -16,7 +16,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsFilters, dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,7 +59,7 @@ export function DashboardsTable({
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setFilters, tableSortingChanged } = useActions(dashboardsLogic)
-    const { tableSorting } = useValues(dashboardsLogic)
+    const { tableSorting, currentTab } = useValues(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -232,17 +232,19 @@ export function DashboardsTable({
                 <div className="flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-2">
                         <span>Filter to:</span>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                active={filters.pinned}
-                                type="secondary"
-                                size="small"
-                                onClick={() => setFilters({ pinned: !filters.pinned })}
-                                icon={<IconPin />}
-                            >
-                                Pinned
-                            </LemonButton>
-                        </div>
+                        {currentTab !== DashboardsTab.Pinned && (
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    active={filters.pinned}
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setFilters({ pinned: !filters.pinned })}
+                                    icon={<IconPin />}
+                                >
+                                    Pinned
+                                </LemonButton>
+                            </div>
+                        )}
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 active={filters.shared}
@@ -255,13 +257,15 @@ export function DashboardsTable({
                             </LemonButton>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span>Created by:</span>
-                        <MemberSelect
-                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
-                        />
-                    </div>
+                    {currentTab !== DashboardsTab.Yours && (
+                        <div className="flex items-center gap-2">
+                            <span>Created by:</span>
+                            <MemberSelect
+                                value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                                onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
+                            />
+                        </div>
+                    )}
                     {extraActions}
                 </div>
             </div>
