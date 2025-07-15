@@ -1055,7 +1055,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Try to invite a user to the private team
         response = self.client.post(
@@ -1091,12 +1091,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         # Make the team private by creating an access control with level 'none'
-        AccessControl.objects.create(team=team, resource="team", resource_id=str(team.id), access_level="none")
+        AccessControl.objects.create(team=team, resource="project", resource_id=str(team.id), access_level="none")
 
         # Give the member admin access to the team
         AccessControl.objects.create(
             team=team,
-            resource="team",
+            resource="project",
             resource_id=str(team.id),
             organization_member=member_membership,
             access_level="admin",

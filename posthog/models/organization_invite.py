@@ -142,7 +142,7 @@ class OrganizationInvite(UUIDModel):
                 # New access control
                 AccessControl.objects.create(
                     team=team,
-                    resource="team",
+                    resource="project",
                     resource_id=str(team.id),
                     organization_member=parent_membership,
                     access_level="admin" if item["level"] == OrganizationMembership.Level.ADMIN else "member",

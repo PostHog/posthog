@@ -202,7 +202,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             # Check if the team has an access control row that applies to the entire resource
             team_access_controls = AccessControl.objects.filter(
                 team_id=item["id"],
-                resource="team",
+                resource="project",
                 resource_id=str(item["id"]),
                 organization_member=None,
                 role=None,
@@ -219,7 +219,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # Team is private, check if user has admin access
                 user_access = AccessControl.objects.filter(
                     team_id=item["id"],
-                    resource="team",
+                    resource="project",
                     resource_id=str(item["id"]),
                     organization_member__user=self.context["request"].user,
                     access_level="admin",
