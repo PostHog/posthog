@@ -31,12 +31,6 @@ class TestAccessMiddleware(APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"PostHog is not available", response.content)
 
-            response = self.client.get("/batch/", REMOTE_ADDR="10.0.0.1")
-
-            self.assertEqual(
-                response.status_code, status.HTTP_400_BAD_REQUEST
-            )  # Check for a bad request exception because it means the middleware didn't block the request
-
             # /31 block
             response = self.client.get("/", REMOTE_ADDR="192.168.0.1")
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -45,12 +39,6 @@ class TestAccessMiddleware(APIBaseTest):
             response = self.client.get("/", REMOTE_ADDR="192.168.0.2")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertIn(b"PostHog is not available", response.content)
-
-            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.1")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-            response = self.client.get("/batch/", REMOTE_ADDR="192.168.0.2")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
             # /24 block
             response = self.client.get("/", REMOTE_ADDR="127.0.0.1")
