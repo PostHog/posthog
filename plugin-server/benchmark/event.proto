@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package posthog;
+
+message Event {
+  string uuid = 1;
+  string event = 2;
+  map<string, string> properties = 3;
+  string timestamp = 4;
+  int32 team_id = 5;
+  string distinct_id = 6;
+  string elements_chain = 7;
+  string created_at = 8;
+  string person_id = 9;
+  string person_created_at = 10;
+  string person_properties = 11;
+  string group0_properties = 12;
+  string group1_properties = 13;
+  string group2_properties = 14;
+  string group3_properties = 15;
+  string group4_properties = 16;
+  string group0_created_at = 17;
+  string group1_created_at = 18;
+  string group2_created_at = 19;
+  string group3_created_at = 20;
+  string group4_created_at = 21;
+  string person_mode = 22;
+}

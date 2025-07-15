@@ -1,0 +1,24 @@
+{
+    "name": "plugin-server-benchmark",
+    "version": "0.1.0",
+    "description": "Synthetic benchmark tools for plugin-server worker threads.",
+    "main": "generate-events.ts",
+    "type": "module",
+    "scripts": {
+        "generate-events": "node generate-events.js",
+        "single-threaded": "node single-threaded.js",
+        "multi-threaded": "node multi-threaded.js"
+    },
+    "dependencies": {
+        "yargs": "^17.7.2",
+        "protobufjs": "^7.2.5"
+    },
+    "devDependencies": {
+        "@types/yargs": "^17.0.33",
+        "tsx": "^4.0.0",
+        "typescript": "^5.0.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}
