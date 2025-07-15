@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from typing import Optional, Any
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
@@ -9,6 +10,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     EventPropertyFilter,
     PropertyOperator,
+    WebOverviewQueryResponse,
 )
 from posthog.models import Team
 from posthog.api.external_web_analytics.serializers import WebAnalyticsOverviewRequestSerializer
@@ -17,7 +19,7 @@ from posthog.api.external_web_analytics.serializers import WebAnalyticsOverviewR
 class ExternalWebAnalyticsQueryAdapter:
     """
     Adapter that uses the internal WebOverviewQueryRunner to provide data for the external API.
-    It tries to seperate the web anlaytics query runners from the external API.
+    It tries to separate the web analytics query runners from the external API.
     """
 
     def __init__(self, team: Team):
@@ -37,7 +39,7 @@ class ExternalWebAnalyticsQueryAdapter:
             )
         return properties
 
-    def _get_datetime_str(self, date_value) -> str:
+    def _get_datetime_str(self, date_value: date | datetime) -> str:
         return date_value.strftime("%Y-%m-%d")
 
     def _get_default_modifiers(self) -> HogQLQueryModifiers:
@@ -71,7 +73,7 @@ class ExternalWebAnalyticsQueryAdapter:
 
         return self._transform_overview_response(response)
 
-    def _transform_overview_response(self, response) -> dict[str, Any]:
+    def _transform_overview_response(self, response: WebOverviewQueryResponse) -> dict[str, Any]:
         """
         Transform the internal WebOverviewQueryResponse to external API format.
 

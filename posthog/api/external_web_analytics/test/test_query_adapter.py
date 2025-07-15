@@ -231,6 +231,7 @@ class TestExternalWebAnalyticsQueryAdapter(APIBaseTest):
             {"filter_test_accounts": False, "do_path_cleaning": False},
             {"filter_test_accounts": True, "do_path_cleaning": False},
             {"filter_test_accounts": False, "do_path_cleaning": True},
+            {"filter_test_accounts": True, "do_path_cleaning": True},
         ]
 
         with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
