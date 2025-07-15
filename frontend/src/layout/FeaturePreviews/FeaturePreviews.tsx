@@ -6,10 +6,14 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
+import { BasicCard } from 'lib/components/Cards/BasicCard'
+import { Label } from 'lib/ui/Label/Label'
 
 export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagKey?: string }): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
+    const { mainContentRef } = useValues(panelLayoutLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [])
 
@@ -17,11 +21,17 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
     const disabledConceptFeatureCount = conceptFeatures.filter((f) => !f.enabled).length
     const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
 
+    // We use hashes to scroll to the correct feature
+    // example external link: https://app.posthog.com/settings/user-feature-previews#llm-observability
     useLayoutEffect(() => {
         if (earlyAccessFeatures.length > 0 && focusedFeatureFlagKey) {
             const element = document.getElementById(`${focusedFeatureFlagKey}`)
-            if (element) {
-                element.scrollIntoView({ behavior: 'smooth' })
+            if (element && mainContentRef?.current) {
+                const yOffset = -80 // Adjust this value to match your fixed header height
+                const containerRect = mainContentRef.current.getBoundingClientRect()
+                const elementRect = element.getBoundingClientRect()
+                const relativeTop = elementRect.top - containerRect.top + mainContentRef.current.scrollTop
+                mainContentRef.current.scrollTo({ top: relativeTop + yOffset, behavior: 'smooth' })
             }
         }
     }, [focusedFeatureFlagKey, earlyAccessFeatures])
@@ -42,7 +52,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                         <SpinnerOverlay />
                     ) : (
                         betaFeatures.map((feature) => (
-                            <div key={feature.flagKey} id={`${feature.flagKey}`}>
+                            <div key={feature.flagKey}>
                                 <FeaturePreview feature={feature} />
                             </div>
                         ))
@@ -59,7 +69,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                         <SpinnerOverlay />
                     ) : (
                         conceptFeatures.map((feature) => (
-                            <div key={feature.flagKey} id={`${feature.flagKey}`}>
+                            <div key={feature.flagKey}>
                                 <ConceptPreview feature={feature} />
                             </div>
                         ))
@@ -70,36 +80,73 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
     )
 }
 
+interface PreviewCardProps {
+    feature: EnrichedEarlyAccessFeature
+    title: React.ReactNode
+    description: React.ReactNode
+    actions: React.ReactNode
+    children?: React.ReactNode
+}
+
+function PreviewCard({ feature, title, description, actions, children }: PreviewCardProps): JSX.Element {
+    return (
+        <BasicCard
+            className="pl-4 pr-2 pt-2 pb-3 gap-1 @container"
+            id={`${feature.flagKey}`}
+            backgroundColor="var(--bg-surface-primary)"
+        >
+            <div className="flex flex-col justify-between gap-2">
+                <div className="flex flex-col gap-1">
+                    {title}
+                    {description}
+                </div>
+                <div className="flex flex-col gap-2">{actions}</div>
+            </div>
+            {children}
+        </BasicCard>
+    )
+}
+
 function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
     const { updateEarlyAccessFeatureEnrollment, copyExternalFeaturePreviewLink } = useActions(featurePreviewsLogic)
 
     const { flagKey, enabled, name, description } = feature
 
     return (
-        <div className="border rounded flex flex-col pl-4 pr-2 pt-2 pb-3 bg-surface-primary">
-            <div className="flex items-center justify-between">
+        <PreviewCard
+            feature={feature}
+            title={
                 <div className="flex items-center gap-1">
                     <h4 className="font-bold mb-0">{name}</h4>
                     <LemonButton
                         icon={<IconLink />}
-                        size="small"
+                        size="xsmall"
                         onClick={() => copyExternalFeaturePreviewLink(flagKey)}
                     />
                 </div>
-                <LemonButton
-                    type="primary"
-                    disabledReason={
-                        enabled && "You have already expressed your interest. We'll contact you when it's ready"
-                    }
-                    onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true)}
-                    size="small"
-                    sideIcon={enabled ? <IconCheck /> : <IconBell />}
-                >
-                    {enabled ? 'Registered' : 'Get notified'}
-                </LemonButton>
-            </div>
-            <p className="m-0">{description || <i>No description.</i>}</p>
-        </div>
+            }
+            description={
+                <p className="m-0 max-w-prose">
+                    {description || <span className="text-tertiary">No description</span>}
+                </p>
+            }
+            actions={
+                <div className="flex flex-col gap-2">
+                    <LemonButton
+                        type="primary"
+                        disabledReason={
+                            enabled && "You have already expressed your interest. We'll contact you when it's ready"
+                        }
+                        onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true)}
+                        size="small"
+                        sideIcon={enabled ? <IconCheck /> : <IconBell />}
+                        className="w-fit"
+                    >
+                        {enabled ? 'Registered' : 'Get notified'}
+                    </LemonButton>
+                </div>
+            }
+        />
     )
 }
 
@@ -119,37 +166,48 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     const [feedback, setFeedback] = useState('')
 
     return (
-        <div className="border rounded flex flex-col pl-4 pr-2 pt-2 pb-3 bg-surface-primary">
-            <div className="flex items-center justify-between">
+        <PreviewCard
+            feature={feature}
+            title={
                 <div className="flex items-center gap-1">
-                    <h4 className="font-bold mb-0">{name}</h4>
+                    <Label className="flex items-center gap-2 cursor-pointer" htmlFor={`${feature.flagKey}-switch`}>
+                        <LemonSwitch
+                            checked={enabled}
+                            onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}
+                            id={`${feature.flagKey}-switch`}
+                        />
+                        <h4 className="font-bold mb-0">{name}</h4>
+                    </Label>
                     <LemonButton
                         icon={<IconLink />}
-                        size="small"
+                        size="xsmall"
                         onClick={() => copyExternalFeaturePreviewLink(flagKey)}
                     />
                 </div>
-                <LemonSwitch
-                    checked={enabled}
-                    onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}
-                />
-            </div>
-            <div className="flex gap-2 justify-between">
-                <p className="m-0">{description || <i>No description.</i>}</p>
-                <div className="whitespace-nowrap">
-                    {!isFeedbackActive && (
-                        <Link onClick={() => beginEarlyAccessFeatureFeedback(flagKey)}>Give feedback</Link>
-                    )}
-                    {!isFeedbackActive && documentationUrl && <span>&nbsp;•&nbsp;</span>}
-                    {documentationUrl && (
-                        <Link to={documentationUrl} target="_blank">
-                            Learn more
-                        </Link>
-                    )}
-                </div>
-            </div>
-            {isFeedbackActive && (
+            }
+            description={
+                <p className="m-0 max-w-prose">
+                    {description || <span className="text-tertiary">No description</span>}
+                </p>
+            }
+            actions={
                 <div className="flex flex-col gap-2">
+                    <div className="whitespace-nowrap">
+                        {documentationUrl && (
+                            <Link to={documentationUrl} target="_blank">
+                                Learn more
+                            </Link>
+                        )}
+                        {!isFeedbackActive && documentationUrl && <span>&nbsp;•&nbsp;</span>}
+                        {!isFeedbackActive && (
+                            <Link onClick={() => beginEarlyAccessFeatureFeedback(flagKey)}>Give feedback</Link>
+                        )}
+                    </div>
+                </div>
+            }
+        >
+            {isFeedbackActive && (
+                <div className="flex flex-col gap-2 max-w-prose">
                     <LemonTextArea
                         autoFocus
                         placeholder={`What's your experience with ${name} been like?`}
@@ -176,7 +234,6 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                         >
                             Cancel
                         </LemonButton>
-
                         <LemonButton
                             type="primary"
                             onClick={() => {
@@ -193,6 +250,90 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     </div>
                 </div>
             )}
-        </div>
+        </PreviewCard>
+        // <BasicCard
+        //     className="pl-4 pr-2 pt-2 pb-3"
+        //     id={`${feature.flagKey}`}
+        //     backgroundColor="var(--bg-surface-primary)"
+        // >
+        //     <div className="flex flex-col sm:flex-row justify-between gap-2">
+        //         <div className="flex flex-col gap-1">
+        //             <div className="flex items-center gap-1">
+        //                 <Label className="flex items-center gap-2 cursor-pointer" htmlFor={`${feature.flagKey}-switch`}>
+        //                     <LemonSwitch
+        //                         checked={enabled}
+        //                         onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}
+        //                         id={`${feature.flagKey}-switch`}
+        //                     />
+        //                     <h4 className="font-bold mb-0">{name}</h4>
+        //                 </Label>
+        //                 <LemonButton
+        //                     icon={<IconLink />}
+        //                     size="small"
+        //                     onClick={() => copyExternalFeaturePreviewLink(flagKey)}
+        //                 />
+        //             </div>
+        //             <p className="m-0 max-w-prose">{description || <span className="text-tertiary">No description</span>}</p>
+        //         </div>
+        //         <div className="flex flex-col gap-2">
+        //             <div className="whitespace-nowrap">
+        //                 {!isFeedbackActive && (
+        //                     <Link onClick={() => beginEarlyAccessFeatureFeedback(flagKey)}>Give feedback</Link>
+        //                 )}
+        //                 {!isFeedbackActive && documentationUrl && <span>&nbsp;•&nbsp;</span>}
+        //                 {documentationUrl && (
+        //                     <Link to={documentationUrl} target="_blank">
+        //                         Learn more
+        //                     </Link>
+        //                 )}
+        //             </div>
+        //         </div>
+        //     </div>
+        //     {isFeedbackActive && (
+        //         <div className="flex flex-col gap-2">
+        //             <LemonTextArea
+        //                 autoFocus
+        //                 placeholder={`What's your experience with ${name} been like?`}
+        //                 className="mt-2"
+        //                 value={feedback}
+        //                 onChange={(value) => setFeedback(value)}
+        //                 onKeyDown={(e) => {
+        //                     if (e.key === 'Enter' && e.metaKey) {
+        //                         updateEarlyAccessFeatureEnrollment(flagKey, enabled)
+        //                     } else if (e.key === 'Escape') {
+        //                         cancelEarlyAccessFeatureFeedback()
+        //                         setFeedback('')
+        //                         e.stopPropagation() // Don't close the modal
+        //                     }
+        //                 }}
+        //             />
+        //             <div className="flex items-center gap-2">
+        //                 <LemonButton
+        //                     type="secondary"
+        //                     onClick={() => {
+        //                         cancelEarlyAccessFeatureFeedback()
+        //                         setFeedback('')
+        //                     }}
+        //                 >
+        //                     Cancel
+        //                 </LemonButton>
+
+        //                 <LemonButton
+        //                     type="primary"
+        //                     onClick={() => {
+        //                         void submitEarlyAccessFeatureFeedback(feedback).then(() => {
+        //                             setFeedback('')
+        //                         })
+        //                     }}
+        //                     loading={activeFeedbackFlagKeyLoading}
+        //                     className="flex-1"
+        //                     center
+        //                 >
+        //                     Submit feedback
+        //                 </LemonButton>
+        //             </div>
+        //         </div>
+        //     )}
+        // </BasicCard>
     )
 }
