@@ -15,9 +15,9 @@ from ee.session_recordings.session_summary.summarize_session import ExtraSummary
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
 from posthog.models import User
-from posthog.models.notebook.notebook import Notebook
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.temporal.ai.session_summary.activities.notebook import create_summary_notebook
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
 
 logger = structlog.get_logger(__name__)
@@ -77,9 +77,6 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         # Summarize provided sessions
         try:
-            # Create notebook before returning the summary
-            self._create_summary_notebook(session_ids, user)
-            # raise
             result = execute_summarize_session_group(
                 session_ids=session_ids,
                 user_id=user.pk,
@@ -89,6 +86,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 extra_summary_context=extra_summary_context,
                 local_reads_prod=False,
             )
+            create_summary_notebook(session_ids, user, self.team)
             with open("summary.json", "w") as f:
                 f.write(json.dumps(result, indent=4))
             return Response(result, status=status.HTTP_200_OK)
@@ -122,30 +120,3 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
             )
         return min_timestamp, max_timestamp
-
-    def _create_summary_notebook(self, session_ids: list[str], user: User) -> Notebook:
-        """Create a notebook with header and session IDs covered"""
-        notebook_content = {
-            "type": "doc",
-            "content": [
-                {
-                    "type": "heading",
-                    "attrs": {"level": 1},
-                    "content": [{"type": "text", "text": "Summaries generated"}],
-                },
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": f"Session ids covered: {', '.join(session_ids)}"}],
-                },
-            ],
-        }
-
-        notebook = Notebook.objects.create(
-            team=self.team,
-            title="Session Summaries",
-            content=notebook_content,
-            created_by=user,
-            last_modified_by=user,
-        )
-
-        return notebook
