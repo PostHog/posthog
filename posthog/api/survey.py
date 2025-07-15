@@ -1395,7 +1395,6 @@ def surveys(request: Request):
             ),
         )
 
-    # Return all surveys (existing behavior)
     return cors_response(request, JsonResponse(get_surveys_response(team)))
 
 
