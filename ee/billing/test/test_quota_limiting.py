@@ -1269,7 +1269,7 @@ class TestQuotaLimiting(BaseTest):
                     f"@posthog/quota-limiting-suspended/api_queries_read_bytes", 0, -1
                 )
 
-            # Test high trust score (15) - should get 7 day suspension
+            # Test high trust score (15) - should get 5 day suspension
             with freeze_time("2021-01-25T00:00:00Z"):
                 self.organization.customer_trust_scores[trust_key] = 15
                 self.organization.usage["api_queries_read_bytes"] = {"usage": 110, "limit": 100}
@@ -1279,8 +1279,8 @@ class TestQuotaLimiting(BaseTest):
                 quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
                 assert quota_limited_orgs["api_queries_read_bytes"] == {}
                 assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {
-                    org_id: 1612224000
-                }  # 7 day suspension
+                    org_id: 1612094400
+                }  # 5 day suspension
                 assert self.team.api_token.encode("UTF-8") in self.redis_client.zrange(
                     f"@posthog/quota-limiting-suspended/api_queries_read_bytes", 0, -1
                 )
