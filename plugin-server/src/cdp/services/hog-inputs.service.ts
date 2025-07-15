@@ -9,6 +9,45 @@ export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 export class HogInputsService {
     constructor(private integrationManager: IntegrationManagerService) {}
+
+    public async buildInputs(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<Record<string, any>> {
+        // TODO: Load the values from the integrationManager
+
+        const inputs: HogFunctionType['inputs'] = {
+            ...hogFunction.inputs,
+            ...hogFunction.encrypted_inputs,
+        }
+
+        const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
+            ...globals,
+            inputs: {},
+        }
+
+        const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
+            return (input1?.order ?? -1) - (input2?.order ?? -1)
+        })
+
+        for (const [key, input] of orderedInputs) {
+            if (!input) {
+                continue
+            }
+
+            newGlobals.inputs[key] = input.value
+
+            const templating = input.templating ?? 'hog'
+
+            if (templating === 'liquid') {
+                newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
+            } else if (templating === 'hog' && input?.bytecode) {
+                newGlobals.inputs[key] = await formatHogInput(input.bytecode, newGlobals, key)
+            }
+        }
+
+        return newGlobals
+    }
 }
 
 export const formatHogInput = async (
@@ -88,36 +127,4 @@ const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobals
     }
 
     return value
-}
-
-export const buildGlobalsWithInputs = async (
-    globals: HogFunctionInvocationGlobals,
-    inputs: HogFunctionType['inputs']
-): Promise<HogFunctionInvocationGlobalsWithInputs> => {
-    const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
-        ...globals,
-        inputs: {},
-    }
-
-    const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
-        return (input1?.order ?? -1) - (input2?.order ?? -1)
-    })
-
-    for (const [key, input] of orderedInputs) {
-        if (!input) {
-            continue
-        }
-
-        newGlobals.inputs[key] = input.value
-
-        const templating = input.templating ?? 'hog'
-
-        if (templating === 'liquid') {
-            newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
-        } else if (templating === 'hog' && input?.bytecode) {
-            newGlobals.inputs[key] = await formatHogInput(input.bytecode, newGlobals, key)
-        }
-    }
-
-    return newGlobals
 }
