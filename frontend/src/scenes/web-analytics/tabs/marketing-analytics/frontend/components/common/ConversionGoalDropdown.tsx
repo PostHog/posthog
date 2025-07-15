@@ -86,8 +86,8 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
 
                 // Override the schema with the schema from the data warehouse
                 if (data_warehouse?.[0]?.type === EntityTypes.DATA_WAREHOUSE) {
-                    const dwNode = data_warehouse[0] as any
-                    const schema = dwNode as unknown as Record<ConversionGoalSchema, string>
+                    const dwNode = data_warehouse[0] as Record<ConversionGoalSchema, string>
+                    const schema = dwNode
                     const overrideSchema: Record<ConversionGoalSchema, string> = {
                         utm_campaign_name: schema[UTM_CAMPAIGN_NAME_SCHEMA_FIELD],
                         utm_source_name: schema[UTM_SOURCE_NAME_SCHEMA_FIELD],
@@ -107,7 +107,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                     dwFilter.table_name = dwNode.table_name || ''
                     dwFilter.timestamp_field =
                         dwNode.timestamp_field || schema[TIMESTAMP_FIELD_SCHEMA_FIELD] || 'timestamp'
-                    dwFilter.dw_source_type = dwNode.dw_source_type || undefined
+                    dwFilter.dw_source_type = dwNode.dw_source_type
                 }
                 onChange(newFilter)
             }}
