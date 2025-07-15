@@ -70,7 +70,7 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         session_ids = serializer.validated_data["session_ids"]
         focus_area = serializer.validated_data.get("focus_area")
         # Check that sessions exist and get min/max timestamps for follow-up queries
-        sessions_found, min_timestamp, max_timestamp = self._get_sessions_metadata(session_ids)
+        min_timestamp, max_timestamp = self._find_sessions_timestamps(session_ids)
         # Prepare extra context, if provided
         extra_summary_context = None
         if focus_area:
@@ -98,7 +98,7 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
             raise exceptions.APIException("Failed to generate session summaries. Please try again later.")
 
-    def _get_sessions_metadata(self, session_ids: list[str]) -> tuple[set[str], datetime, datetime]:
+    def _find_sessions_timestamps(self, session_ids: list[str]) -> tuple[datetime, datetime]:
         """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
         replay_events = SessionReplayEvents()
         # TODO: Decide if to just check they exist and expect timestamps from the FE (to speed up queries)
@@ -116,7 +116,7 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.ValidationError(
                 f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
             )
-        return sessions_found, min_timestamp, max_timestamp
+        return min_timestamp, max_timestamp
 
 
 #   from posthog.models.notebook.notebook import Notebook
