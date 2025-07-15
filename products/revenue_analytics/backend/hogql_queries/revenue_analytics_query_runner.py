@@ -11,10 +11,10 @@ from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsMetricsQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
-    RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGroupBy,
 )
 from products.revenue_analytics.backend.utils import (
@@ -67,7 +67,7 @@ class RevenueSubqueries:
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
-        RevenueAnalyticsCustomerCountQuery,
+        RevenueAnalyticsMetricsQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsRevenueQuery,

@@ -119,8 +119,8 @@ export enum NodeKind {
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
 
     // Revenue analytics queries
-    RevenueAnalyticsCustomerCountQuery = 'RevenueAnalyticsCustomerCountQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsMetricsQuery = 'RevenueAnalyticsMetricsQuery',
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsRevenueQuery = 'RevenueAnalyticsRevenueQuery',
     RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
@@ -163,8 +163,8 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
-    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsMetricsQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -229,8 +229,8 @@ export type QuerySchema =
     | WebAnalyticsExternalSummaryQuery
 
     // Revenue analytics
-    | RevenueAnalyticsCustomerCountQuery
     | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsMetricsQuery
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsRevenueQuery
     | RevenueAnalyticsTopCustomersQuery
@@ -770,8 +770,8 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
-                    | RevenueAnalyticsCustomerCountQuery
                     | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsMetricsQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsRevenueQuery
                     | RevenueAnalyticsTopCustomersQuery
@@ -802,8 +802,8 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
-        | RevenueAnalyticsCustomerCountQuery
         | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsRevenueQuery
         | RevenueAnalyticsTopCustomersQuery
@@ -1986,19 +1986,6 @@ export interface RevenueAnalyticsRevenueQueryResponse
 }
 export type CachedRevenueAnalyticsRevenueQueryResponse = CachedQueryResponse<RevenueAnalyticsRevenueQueryResponse>
 
-export interface RevenueAnalyticsCustomerCountQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsCustomerCountQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsCustomerCountQuery
-    groupBy: RevenueAnalyticsGroupBy[]
-    interval: IntervalType
-}
-
-export interface RevenueAnalyticsCustomerCountQueryResponse extends AnalyticsQueryResponseBase<unknown> {
-    columns?: string[]
-}
-export type CachedRevenueAnalyticsCustomerCountQueryResponse =
-    CachedQueryResponse<RevenueAnalyticsCustomerCountQueryResponse>
-
 export interface RevenueAnalyticsOverviewQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
     kind: NodeKind.RevenueAnalyticsOverviewQuery
@@ -2016,6 +2003,17 @@ export interface RevenueAnalyticsOverviewQueryResponse
     resolved_date_range?: ResolvedDateRangeResponse
 }
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
+
+export interface RevenueAnalyticsMetricsQuery extends RevenueAnalyticsBaseQuery<RevenueAnalyticsMetricsQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsMetricsQuery
+    groupBy: RevenueAnalyticsGroupBy[]
+    interval: IntervalType
+}
+
+export interface RevenueAnalyticsMetricsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsMetricsQueryResponse = CachedQueryResponse<RevenueAnalyticsMetricsQueryResponse>
 
 export interface RevenueAnalyticsGrowthRateQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {
