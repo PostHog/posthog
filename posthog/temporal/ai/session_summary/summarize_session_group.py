@@ -209,6 +209,8 @@ async def get_llm_single_session_summary_activity(
         output_label=StateActivitiesEnum.SESSION_SUMMARY,
         state_id=inputs.session_id,
     )
+    # Base key includes session ids, so when summarizing this session again, but with different inputs (or order) - we don't use cache
+    # TODO: Should be solved by storing the summary in DB (long-term for using in UI)
     try:
         # Check if the summary is already in Redis. If it is - it's within TTL, so no need to re-generate it with LLM
         # TODO: Think about edge-cases like failed summaries
