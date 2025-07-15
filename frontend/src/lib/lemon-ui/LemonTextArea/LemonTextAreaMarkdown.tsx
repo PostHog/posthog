@@ -90,7 +90,21 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                             key="emoj-picker"
                                             data-attr="lemon-text-area-markdown-emoji-popover"
                                             onSelect={(emoji: string) => {
-                                                onChange?.((value || '')?.trim() + ' ' + emoji)
+                                                if (ref && 'current' in ref && ref.current) {
+                                                    const textArea = ref.current
+                                                    const cursorStart = textArea.selectionStart || 0
+                                                    const cursorEnd = textArea.selectionEnd || 0
+                                                    const textBefore = (value || '').slice(0, cursorStart)
+                                                    const textAfter = (value || '').slice(cursorEnd)
+                                                    const spaceBefore = textBefore.endsWith(' ') ? '' : ' '
+                                                    const spaceAfter = textAfter.startsWith(' ') ? '' : ' '
+                                                    const newValue = textBefore + spaceBefore + emoji + spaceAfter + textAfter
+                                                    onChange?.(newValue)
+                                                    // Restore cursor position after the inserted emoji
+                                                    setTimeout(() => {
+                                                        textArea.selectionStart = textArea.selectionEnd = cursorStart + spaceBefore.length + emoji.length
+                                                    }, 0)
+                                                }
                                                 emojiUsed(emoji)
                                             }}
                                         />,
