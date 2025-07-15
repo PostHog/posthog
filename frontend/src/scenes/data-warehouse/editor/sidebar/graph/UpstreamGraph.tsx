@@ -16,12 +16,14 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
-import { IconArchive, IconTarget } from '@posthog/icons'
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconArchive, IconTarget, IconPencil } from '@posthog/icons'
+import { LemonTag, LemonTagType, LemonButton } from '@posthog/lemon-ui'
+import { useValues, useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import api from 'lib/api'
+import { router } from 'kea-router'
 
 import { LineageNode as LineageNodeType } from '~/types'
 
@@ -48,6 +50,10 @@ const NODE_SEP = 80
 const RANK_SEP = 160
 
 function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
+    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+
+    const { editView } = useActions(multitabEditorLogic({ key: codeEditorKey }))
+
     const getNodeType = (type: string, lastRunAt?: string): string => {
         if (type === 'view') {
             return lastRunAt ? 'Mat. view' : 'View'
@@ -70,6 +76,19 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
     const isMatView = data.type === 'view' && !!data.last_run_at
     const nodeHeight = isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT
 
+    const handleEditView = async (): Promise<void> => {
+        if (data.type === 'view') {
+            try {
+                const view = await api.dataWarehouseSavedQueries.get(data.id)
+                if (view?.query?.query) {
+                    editView(view.query.query, view)
+                }
+            } catch (error) {
+                console.error('Failed to load view:', error)
+            }
+        }
+    }
+
     return (
         <div
             className="bg-bg-light border border-border rounded-md p-3 min-w-[300px] shadow-sm"
@@ -84,7 +103,17 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
-                    <span className="font-medium text-sm truncate max-w-[280px] block">{data.name}</span>
+                    <div className="flex items-center w-full justify-between">
+                        <div className="font-medium text-sm truncate max-w-[240px] block">{data.name}</div>
+                        {data.type === 'view' && (
+                            <LemonButton
+                                size="xxsmall"
+                                type="secondary"
+                                icon={<IconPencil />}
+                                onClick={handleEditView}
+                            />
+                        )}
+                    </div>
                 </Tooltip>
             </div>
 
