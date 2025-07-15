@@ -1,4 +1,5 @@
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 
@@ -6,7 +7,7 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -25,7 +26,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
     (
         period_bucket DateTime,
         team_id UInt64,
