@@ -1,9 +1,11 @@
 import pytest
+from typing import cast
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.plugin import Plugin
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin, AccessSource
@@ -868,7 +870,7 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
                 self.id = 1
 
         unsupported_obj = UnsupportedModel()
-        access_level = self.user_access_control.get_user_access_level(unsupported_obj)
+        access_level = self.user_access_control.get_user_access_level(unsupported_obj)  # type: ignore
         assert access_level is None
 
 
@@ -889,7 +891,9 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
     def test_returns_none_when_no_organization_membership(self):
         """Test that returns None when user has no organization membership"""
         # Create user without org membership
-        user_without_org = User.objects.create_user(email="noorg@example.com", password="password")
+        user_without_org = User.objects.create_user(
+            email="noorg@example.com", password="password", first_name="No", last_name="Org"
+        )
         uac = UserAccessControl(user=user_without_org, team=self.team)
 
         access_level = uac.specific_access_level_for_object(self.dashboard)
@@ -903,7 +907,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
                 self.id = 1
 
         unsupported_obj = UnsupportedModel()
-        access_level = self.user_access_control.specific_access_level_for_object(unsupported_obj)
+        access_level = self.user_access_control.specific_access_level_for_object(unsupported_obj)  # type: ignore
         assert access_level is None
 
     def test_member_specific_access_control(self):
@@ -1017,7 +1021,7 @@ class TestUserAccessControlSpecificAccessLevelForObject(BaseUserAccessControlTes
             def __init__(self):
                 self.id = "test_plugin"
 
-        plugin_obj = MockPlugin()
+        plugin_obj = cast(Plugin, MockPlugin())
         access_level = self.user_access_control.specific_access_level_for_object(plugin_obj)
         assert access_level == "editor"
 
