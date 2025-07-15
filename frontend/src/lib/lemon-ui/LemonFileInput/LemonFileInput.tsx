@@ -172,7 +172,7 @@ export const LemonFileInput = ({
                     onClick={handleCallToActionClick}
                 >
                     {callToAction || (
-                        <LemonButton icon={<IconUploadFile />} type="secondary">
+                        <LemonButton icon={<IconUploadFile />} type="tertiary">
                             Click or drag and drop to upload
                             {accept ? ` ${acceptToDisplayName(accept)}` : ''}
                         </LemonButton>
