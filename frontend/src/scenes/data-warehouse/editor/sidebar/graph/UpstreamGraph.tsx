@@ -22,13 +22,13 @@ import { useValues, useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import api from 'lib/api'
 import { router } from 'kea-router'
 
 import { LineageNode as LineageNodeType } from '~/types'
 
 import { multitabEditorLogic } from '../../multitabEditorLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { dataWarehouseViewsLogic } from '../../../saved_queries/dataWarehouseViewsLogic'
 
 interface UpstreamGraphProps {
     codeEditorKey: string
@@ -53,6 +53,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
     const { editView } = useActions(multitabEditorLogic({ key: codeEditorKey }))
+    const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
 
     const getNodeType = (type: string, lastRunAt?: string): string => {
         if (type === 'view') {
@@ -78,13 +79,9 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
 
     const handleEditView = async (): Promise<void> => {
         if (data.type === 'view') {
-            try {
-                const view = await api.dataWarehouseSavedQueries.get(data.id)
-                if (view?.query?.query) {
-                    editView(view.query.query, view)
-                }
-            } catch (error) {
-                console.error('Failed to load view:', error)
+            const view = dataWarehouseSavedQueries.find((v) => v.id.replace(/-/g, '') === data.id)
+            if (view?.query?.query) {
+                editView(view.query.query, view)
             }
         }
     }
@@ -186,7 +183,7 @@ const getLayoutedElements = (
         id: `edge-${index}`,
         source: edge.source,
         target: edge.target,
-        type: 'bezier',
+        type: 'default',
         animated: false,
         markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -210,6 +207,8 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
         return getLayoutedElements(upstream.nodes, upstream.edges, editingView?.name)
     }, [upstream, editingView?.name])
+
+    const nodeTypes = useMemo(() => getNodeTypes(edges), [edges])
 
     // Fit view when nodes change
     useEffect(() => {
@@ -239,7 +238,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={nodes}
                 edges={edges}
-                nodeTypes={getNodeTypes(edges)}
+                nodeTypes={nodeTypes}
                 fitView
                 fitViewOptions={{ padding: 0.1 }}
                 minZoom={0.1}
