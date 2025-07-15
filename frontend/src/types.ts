@@ -3094,6 +3094,7 @@ export enum SurveyType {
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
+    ExternalSurvey = 'external_survey',
 }
 
 export enum SurveyPosition {

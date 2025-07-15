@@ -11,7 +11,7 @@ import {
 } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
 import { CustomizationProps } from 'scenes/surveys/survey-appearance/types'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, SurveyType } from '~/types'
 
 import { surveysLogic } from '../surveysLogic'
 
@@ -48,13 +48,17 @@ export function Customization({
                     hasRatingButtons={hasRatingButtons}
                     validationErrors={validationErrors}
                 />
-                <SurveyContainerAppearance
-                    appearance={surveyAppearance}
-                    onAppearanceChange={onAppearanceChange}
-                    validationErrors={validationErrors}
-                    surveyType={survey.type}
-                />
-                <LemonDivider />
+                {survey.type !== SurveyType.ExternalSurvey && (
+                    <>
+                        <SurveyContainerAppearance
+                            appearance={surveyAppearance}
+                            onAppearanceChange={onAppearanceChange}
+                            validationErrors={validationErrors}
+                            surveyType={survey.type}
+                        />
+                        <LemonDivider />
+                    </>
+                )}
                 <SurveyColorsAppearance
                     appearance={surveyAppearance}
                     onAppearanceChange={onAppearanceChange}
@@ -118,35 +122,37 @@ export function Customization({
                             checked={survey.appearance?.shuffleQuestions}
                         />
                     </div>
-                    <LemonField.Pure>
-                        <div className="flex flex-row gap-2 items-center font-medium">
-                            <LemonCheckbox
-                                checked={!!survey.appearance?.surveyPopupDelaySeconds}
-                                onChange={(checked) => {
-                                    const surveyPopupDelaySeconds = checked ? 5 : undefined
-                                    onAppearanceChange({ surveyPopupDelaySeconds })
-                                }}
-                            />
-                            Delay survey popup by at least{' '}
-                            <LemonInput
-                                type="number"
-                                data-attr="survey-popup-delay-input"
-                                size="small"
-                                min={1}
-                                max={3600}
-                                value={survey.appearance?.surveyPopupDelaySeconds || NaN}
-                                onChange={(newValue) => {
-                                    if (newValue && newValue > 0) {
-                                        onAppearanceChange({ surveyPopupDelaySeconds: newValue })
-                                    } else {
-                                        onAppearanceChange({ surveyPopupDelaySeconds: undefined })
-                                    }
-                                }}
-                                className="w-12 ignore-error-border"
-                            />{' '}
-                            seconds once the display conditions are met.
-                        </div>
-                    </LemonField.Pure>
+                    {survey.type !== SurveyType.ExternalSurvey && (
+                        <LemonField.Pure>
+                            <div className="flex flex-row gap-2 items-center font-medium">
+                                <LemonCheckbox
+                                    checked={!!survey.appearance?.surveyPopupDelaySeconds}
+                                    onChange={(checked) => {
+                                        const surveyPopupDelaySeconds = checked ? 5 : undefined
+                                        onAppearanceChange({ surveyPopupDelaySeconds })
+                                    }}
+                                />
+                                Delay survey popup by at least{' '}
+                                <LemonInput
+                                    type="number"
+                                    data-attr="survey-popup-delay-input"
+                                    size="small"
+                                    min={1}
+                                    max={3600}
+                                    value={survey.appearance?.surveyPopupDelaySeconds || NaN}
+                                    onChange={(newValue) => {
+                                        if (newValue && newValue > 0) {
+                                            onAppearanceChange({ surveyPopupDelaySeconds: newValue })
+                                        } else {
+                                            onAppearanceChange({ surveyPopupDelaySeconds: undefined })
+                                        }
+                                    }}
+                                    className="w-12 ignore-error-border"
+                                />{' '}
+                                seconds once the display conditions are met.
+                            </div>
+                        </LemonField.Pure>
+                    )}
                 </div>
             </div>
         </>

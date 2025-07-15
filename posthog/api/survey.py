@@ -1472,7 +1472,7 @@ def public_survey_page(request, survey_id: str):
     try:
         survey = (
             Survey.objects.select_related("team")
-            .only("id", "name", "appearance", "archived", "is_publicly_shareable", "team__id", "team__api_token")
+            .only("id", "name", "appearance", "archived", "type", "team__id", "team__api_token")
             .get(id=survey_id)
         )
     except Survey.DoesNotExist:
@@ -1505,7 +1505,7 @@ def public_survey_page(request, survey_id: str):
     )
 
     # Check survey availability (combine checks for consistent error message)
-    if survey.archived or not survey.is_publicly_shareable or not survey_is_running:
+    if survey.archived or survey.type != Survey.SurveyType.EXTERNAL_SURVEY or not survey_is_running:
         logger.info(
             "survey_page_access_denied",
             survey_id=survey_id,

@@ -5,7 +5,7 @@ import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { memo } from 'react'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 
-import { SurveyEventName, SurveyRates, SurveyStats } from '~/types'
+import { SurveyEventName, SurveyRates, SurveyStats, SurveyType } from '~/types'
 
 import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 import { surveyLogic } from './surveyLogic'
@@ -160,9 +160,9 @@ function SurveyStatsStackedBar({
 
 function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { filterSurveyStatsByDistinctId, processedSurveyStats, survey } = useValues(surveyLogic)
-    const { setFilterSurveyStatsByDistinctId, updateSurvey } = useActions(surveyLogic)
+    const { setFilterSurveyStatsByDistinctId } = useActions(surveyLogic)
 
-    const isPubliclyShareable = !!survey.is_publicly_shareable
+    const isPubliclyShareable = survey.type === SurveyType.ExternalSurvey
 
     return (
         <div className="flex flex-col gap-1">
@@ -170,11 +170,6 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
                 <h3 className="mb-0">Survey performance</h3>
                 <div className="flex items-center gap-2">
                     {isPubliclyShareable && <CopySurveyLink surveyId={survey.id} />}
-                    <LemonSwitch
-                        checked={isPubliclyShareable}
-                        onChange={(checked) => updateSurvey({ is_publicly_shareable: checked })}
-                        label="Collect responses via external link"
-                    />
                     {processedSurveyStats && processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 && (
                         <LemonSwitch
                             checked={filterSurveyStatsByDistinctId}

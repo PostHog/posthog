@@ -31,6 +31,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         BUTTON = "button", "button"
         EMAIL = "email", "email"
         FULL_SCREEN = "full_screen", "full screen"
+        EXTERNAL_SURVEY = "external_survey", "external survey"
         API = "api", "api"
 
     class SurveySamplingIntervalType(models.TextChoices):
