@@ -43,6 +43,10 @@ function getMaterializationStatusMessage(
             return `Still going — ${humanFriendlyNumber(
                 rowsMaterialized
             )} rows written... ${percentComplete}% complete.`
+        case progressPercentage === 100:
+            return `Wrapping up — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows processed... ${percentComplete}% complete.`
         default:
             return `Almost there — ${humanFriendlyNumber(
                 rowsMaterialized
