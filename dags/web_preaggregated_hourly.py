@@ -31,26 +31,9 @@ WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
 }
 
 
-def _get_partitions(cluster: ClickhouseCluster, table_name: str) -> list[str]:
-    partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE table = '{table_name}' AND active = 1"
-    partitions_result = cluster.any_host(lambda client: client.execute(partition_query)).result()
-    return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
-
-
-def drop_all_partitions(cluster: ClickhouseCluster, table_name: str) -> None:
-    for partition_id in _get_partitions(cluster, table_name):
-        cluster.any_host(
-            lambda client, pid=partition_id: client.execute(f"ALTER TABLE {table_name} DROP PARTITION '{pid}'")
-        ).result()
-
-
-def swap_partitions_from_staging(cluster: ClickhouseCluster, target_table: str, staging_table: str) -> None:
-    for partition_id in _get_partitions(cluster, staging_table):
-        cluster.any_host(
-            lambda client, pid=partition_id: client.execute(
-                f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}"
-            )
-        ).result()
+def truncate_table(cluster: ClickhouseCluster, table_name: str) -> None:
+    """Truncate table on any host with SYNC and let ClickHouse handle the cluster-wide operation."""
+    cluster.any_host(lambda client: client.execute(f"TRUNCATE TABLE {table_name} SYNC")).result()
 
 
 def pre_aggregate_web_analytics_hourly_data(
@@ -76,11 +59,7 @@ def pre_aggregate_web_analytics_hourly_data(
     # Use a staging table to avoid downtime when swapping data
     staging_table_name = f"{table_name}_staging"
 
-    context.log.info(
-        f"Cleaning staging partitions {staging_table_name}: {_get_partitions(cluster, staging_table_name)}"
-    )
-    drop_all_partitions(cluster, staging_table_name)
-
+    # First, populate the staging table
     insert_query = sql_generator(
         date_start=date_start,
         date_end=date_end,
@@ -90,17 +69,21 @@ def pre_aggregate_web_analytics_hourly_data(
         granularity="hourly",
     )
 
-    context.log.info(f"Populating staging table {staging_table_name} with data from {date_start} to {date_end}")
+    context.log.info(f"Truncating staging table {staging_table_name}")
+    truncate_table(cluster, staging_table_name)
+
+    # We intentionally log the query to make it easier to debug using the UI
+    context.log.info(f"Processing hourly data from {date_start} to {date_end}")
     context.log.info(insert_query)
 
     # Insert into staging table
     sync_execute(insert_query)
 
-    context.log.info(f"Swapping partitions from {staging_table_name} to {table_name}")
-    swap_partitions_from_staging(cluster, table_name, staging_table_name)
+    context.log.info(f"Truncating main table {table_name}")
+    truncate_table(cluster, table_name)
 
-    # Cleaning up staging tables to speed up the next run
-    drop_all_partitions(cluster, staging_table_name)
+    context.log.info(f"Swapping data from {staging_table_name} to {table_name}")
+    sync_execute(f"INSERT INTO {table_name} SELECT * FROM {staging_table_name}")
 
 
 @dagster.asset(
