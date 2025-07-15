@@ -93,7 +93,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             maxLogic,
             ['question', 'threadKeys', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
-            ['compiledContext'],
+            ['compiledContext', 'billingContext'],
         ],
         actions: [
             maxLogic,
@@ -225,6 +225,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         content: prompt,
                         contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
                         ui_context: values.compiledContext || undefined,
+                        billing_context: values.billingContext || undefined,
                         conversation: values.conversation?.id,
                         trace_id: traceId,
                     },

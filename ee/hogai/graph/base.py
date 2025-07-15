@@ -12,7 +12,7 @@ from ee.hogai.utils.helpers import find_last_ui_context
 from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
-from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
+from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext, MaxBillingContext
 from posthog.sync import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
@@ -143,3 +143,12 @@ class AssistantNode(ABC):
         Extracts the trace ID from the runnable config.
         """
         return (config.get("configurable") or {}).get("trace_id") or None
+
+    def _get_billing_context(self, config: RunnableConfig) -> MaxBillingContext | None:
+        """
+        Extracts the billing context from the runnable config.
+        """
+        billing_context = (config.get("configurable") or {}).get("billing_context")
+        if not billing_context:
+            return None
+        return MaxBillingContext.model_validate(billing_context)
