@@ -56,6 +56,33 @@ from temporalio.exceptions import ApplicationError
 logger = structlog.get_logger(__name__)
 
 
+def _get_db_events_per_page(
+    session_ids: list[str], team: Team, min_timestamp_str: str, max_timestamp_str: str, page_size: int, offset: int
+) -> CachedSessionBatchEventsQueryResponse:
+    """Fetch events for multiple sessions in a single query and return the response. Separate function to run in a single db_sync_to_async call."""
+    query = create_session_batch_events_query(
+        session_ids=session_ids,
+        after=min_timestamp_str,
+        before=max_timestamp_str,
+        max_total_events=page_size,
+        offset=offset,
+    )
+    runner = SessionBatchEventsQueryRunner(query=query, team=team)
+    response = runner.run()
+    if not isinstance(response, CachedSessionBatchEventsQueryResponse):
+        raise ValueError(
+            f"Failed to fetch events for sessions {session_ids} in team {team.id} "
+            f"when fetching batch events for group summary"
+        )
+    return response
+
+
+def _get_db_columns(response_columns: list) -> list[str]:
+    """Get the columns from the response and remove the properties prefix for backwards compatibility."""
+    columns = [str(x).replace("properties.", "") for x in response_columns]
+    return columns
+
+
 @temporalio.activity.defn
 async def fetch_session_batch_events_activity(
     inputs: SessionGroupSummaryInputs,
@@ -89,7 +116,8 @@ async def fetch_session_batch_events_activity(
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata)(
         session_ids=sessions_to_fetch,
         team_id=inputs.team_id,
-        recording_start_time=datetime.fromisoformat(inputs.min_timestamp_str),
+        recordings_min_timestamp=datetime.fromisoformat(inputs.min_timestamp_str),
+        recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
     )
     # Fetch events for all uncached sessions
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
@@ -97,24 +125,17 @@ async def fetch_session_batch_events_activity(
     columns, offset, page_size = None, 0, DEFAULT_TOTAL_EVENTS_PER_QUERY
     # Paginate
     while True:
-        # Get DB data
-        query = create_session_batch_events_query(
+        response = await database_sync_to_async(_get_db_events_per_page)(
             session_ids=sessions_to_fetch,
-            after=inputs.min_timestamp_str,
-            before=inputs.max_timestamp_str,
-            max_total_events=page_size,
+            team=team,
+            min_timestamp_str=inputs.min_timestamp_str,
+            max_timestamp_str=inputs.max_timestamp_str,
+            page_size=page_size,
             offset=offset,
         )
-        runner = SessionBatchEventsQueryRunner(query=query, team=team)
-        response = await database_sync_to_async(runner.run)()
-        if not isinstance(response, CachedSessionBatchEventsQueryResponse):
-            raise ValueError(
-                f"Failed to fetch events for sessions {sessions_to_fetch} in team {inputs.team_id} "
-                f"when fetching batch events for group summary"
-            )
         # Store columns from first response (should be the same for all sessions)
         if columns is None:
-            columns = cast(list[str], response.columns)
+            columns = _get_db_columns(response.columns)
         # Accumulate events for each session
         if response.session_events:
             for session_item in response.session_events:
