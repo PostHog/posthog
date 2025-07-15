@@ -351,7 +351,7 @@ export default function SurveyEdit(): JSX.Element {
                                                             active={value === SurveyType.ExternalSurvey}
                                                             onClick={() => onChange(SurveyType.ExternalSurvey)}
                                                             title="External survey"
-                                                            description="Collect responses via an external link, hosted on PostHog"
+                                                            description="Collect responses via an external link, hosted on PostHog. Price is the same as an in-app survey, but this might change in the future."
                                                             value={SurveyType.Widget}
                                                         >
                                                             <LemonTag type="warning">BETA</LemonTag>
