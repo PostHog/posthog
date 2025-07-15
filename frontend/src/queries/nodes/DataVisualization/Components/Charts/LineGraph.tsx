@@ -192,7 +192,7 @@ export const LineGraph = (): JSX.Element => {
                     type: graphType,
                     fill: isAreaChart ? 'origin' : false,
                     yAxisID,
-                    ...(settings?.display?.trendLine
+                    ...(settings?.display?.trendLine && xData && yData && xData.data.length == data.length
                         ? {
                               trendlineLinear: {
                                   colorMin: hexToRGBA(color, 0.6),
