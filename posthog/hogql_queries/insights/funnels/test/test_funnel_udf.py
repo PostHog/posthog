@@ -272,6 +272,63 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
         self.assertEqual(result[4]["name"], "step five")
         self.assertEqual(result[4]["count"], 4)  # users who completed the funnel
 
+    def test_funnel_with_optional_steps_same_event(self):
+        # Define users with different numbers of the same event
+        journeys_for(
+            {
+                "zero_events": [],  # person who does nothing
+                "one_event": [{"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)}],
+                "two_events": [
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                ],
+                "three_events": [
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                ],
+                "four_events": [
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 0, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 1, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 2, 0)},
+                    {"event": "same_event", "timestamp": datetime(2012, 1, 15, 0, 3, 0)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="same_event"),  # Step 1: required
+                EventsNode(event="same_event", optionalInFunnel=True),  # Step 2: optional
+                EventsNode(event="same_event"),  # Step 3: required
+                EventsNode(event="same_event"),  # Step 4: required
+                EventsNode(event="same_event"),  # Step 5: required
+            ],
+            dateRange=DateRange(
+                date_from="2012-01-01 00:00:00",
+                date_to="2012-02-01 23:59:59",
+            ),
+            funnelsFilter=FunnelsFilter(),
+        )
+
+        result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        self.assertEqual(result[0]["name"], "same_event")
+        self.assertEqual(result[0]["count"], 4)  # all users who did at least 1 event
+
+        self.assertEqual(result[1]["name"], "same_event")
+        self.assertEqual(result[1]["count"], 0)  # in this case, the next step takes precedence over the optional step
+
+        self.assertEqual(result[2]["name"], "same_event")
+        self.assertEqual(result[2]["count"], 3)  # users who did two events
+
+        self.assertEqual(result[3]["name"], "same_event")
+        self.assertEqual(result[3]["count"], 2)  # users who did three events
+
+        self.assertEqual(result[4]["name"], "same_event")
+        self.assertEqual(result[4]["count"], 1)  # users who completed the funnel (4 events)
+
     maxDiff = None
 
 

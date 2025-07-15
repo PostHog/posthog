@@ -2,6 +2,7 @@ import uuid
 from abc import ABC
 from functools import cached_property
 from typing import Any, Optional, Union, cast
+import itertools
 
 from rest_framework.exceptions import ValidationError
 
@@ -103,15 +104,36 @@ class FunnelBase(ABC):
                     if is_equal(entity, exclusion) or is_superset(entity, exclusion):
                         raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
 
-        # validate that the first step is not optional
-        if self.context.query.series and getattr(self.context.query.series[0], "optionalInFunnel", False):
-            raise ValidationError("The first step of a funnel cannot be optional.")
+        has_optional_steps = any(getattr(node, "optionalInFunnel", False) for node in self.context.query.series)
 
-        # validate that optional steps are only allowed in STEPS funnels
-        if self.context.funnelsFilter.funnelVizType not in (FunnelVizType.STEPS, None) and any(
-            getattr(step, "optionalInFunnel", False) for step in self.context.query.series
-        ):
-            raise ValidationError("Optional funnel steps are only supported in steps funnels.")
+        if has_optional_steps:
+            # validate that optional steps are only allowed in Ordered Steps funnels
+            allows_optional_steps = (
+                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, None)
+                and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+            )
+            if not allows_optional_steps:
+                raise ValidationError(
+                    'Optional funnel steps are only supported in funnels with step order Sequential or Strict and the graph type "Conversion Steps".'
+                )
+
+            # validate that the first step is not optional
+            if self.context.query.series and getattr(self.context.query.series[0], "optionalInFunnel", False):
+                raise ValidationError("The first step of a funnel cannot be optional.")
+
+            # Validate that an optional step never follows a required step that is exactly the same right after it
+            # In that case, the optional step will show up as never converting.
+            # Not trying to be overly clever here - putting filters in different order or using SQL queries that are slightly different could
+            # get around this, but want to stop the naive case from spawning support issues.
+            for i, j in itertools.pairwise(self.context.query.series):
+                if (
+                    (is_equal(i, j) or is_superset(j, i))
+                    and getattr(i, "optionalInFunnel", True)
+                    and not getattr(j, "optionalInFunnel", False)
+                ):
+                    raise ValidationError(
+                        "An optional step cannot be the same as the immediately preceding required step."
+                    )
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
