@@ -196,7 +196,6 @@ describe('Hogflow Executor', () => {
                     queueSource: undefined,
                     queueParameters: undefined,
                     queuePriority: 0,
-                    getPerson: expect.any(Function),
                 },
                 finished: true,
                 logs: [
