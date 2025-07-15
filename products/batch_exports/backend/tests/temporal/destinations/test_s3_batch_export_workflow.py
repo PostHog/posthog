@@ -69,10 +69,10 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
-    SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.temporal.temporary_file import (
     UnsupportedFileFormatError,

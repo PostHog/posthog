@@ -64,11 +64,11 @@ from products.batch_exports.backend.temporal.pipeline.entrypoint import (
 from products.batch_exports.backend.temporal.pipeline.producer import (
     Producer as ProducerFromInternalStage,
 )
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )

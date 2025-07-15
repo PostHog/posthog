@@ -30,12 +30,12 @@ from posthog.temporal.common.clickhouse import (
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_contextvars, get_logger
 from products.batch_exports.backend.temporal.batch_exports import default_fields
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchModel,
     compose_filters_clause,
     generate_query_ranges,
     is_5_min_batch_export,
-    resolve_batch_exports_model,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
 )
