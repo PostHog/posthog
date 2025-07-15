@@ -84,40 +84,37 @@ const getNextUntitledNumber = (tabs: QueryTab[]): number => {
     }
     return untitledNumbers.length + 1
 }
+
 const getStorageItem = async (key: string): Promise<string | null> => {
-    // 1. Try localStorage first (for backward compatibility)
     const lsValue = localStorage.getItem(key)
     if (lsValue) {
-        // Migrate to IndexedDB and clean up localStorage
         try {
             await set(key, lsValue)
             localStorage.removeItem(key)
         } catch (error) {
-            console.warn('Failed to migrate localStorage to IndexedDB:', error)
+            // this can happen if the storage quota is exceeded, or if the user is in private mode when trying to migrate
+            posthog.capture('sql-editor-local-storage-migration-failure', { error })
         }
         return lsValue
     }
-    // 2. Try IndexedDB (primary storage)
     try {
         const dbValue = await get(key)
         if (dbValue) {
             return dbValue
         }
     } catch (error) {
-        console.warn('Failed to read from IndexedDB:', error)
+        // this can happen if the storage quota is exceeded, or if the user is in private mode when trying to read from IndexedDB
+        posthog.capture('sql-editor-indexeddb-read-failure', { error })
     }
-    // 3. Backend API is only used in specific contexts (queryTabState loader)
-    // and should not be called from this function
     return null
 }
 
 const setStorageItem = async (key: string, value: string): Promise<void> => {
-    // Store in IndexedDB (primary storage)
     try {
         await set(key, value)
     } catch (error) {
-        console.warn('Failed to write to IndexedDB, falling back to localStorage:', error)
-        // Fallback to localStorage if IndexedDB fails
+        // this would trigger if theres a problem writing to IndexedDB, and therefore we fall back to localStorage
+        posthog.capture('sql-editor-indexeddb-write-failure', { error })
         localStorage.setItem(key, value)
     }
 }
@@ -346,7 +343,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
         allTabs: [
             [] as QueryTab[],
-            // Removed persist: true
             {
                 addTab: (state, { tab }) => {
                     return [...state, tab]
@@ -403,7 +399,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         // if a view edit starts, store the historyId in the state
         inProgressViewEdits: [
             {} as Record<DataWarehouseSavedQuery['id'], string>,
-            // Removed persist: true
             {
                 setInProgressViewEdit: (state, { viewId, historyId }) => ({
                     ...state,
@@ -569,39 +564,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.updateTab(updatedTab)
                 actions.selectTab(updatedTab)
             } else {
-                if (props.monaco) {
-                    const uri = props.monaco.Uri.parse(`insight-${insight.short_id}-${Date.now()}`)
-                    const model = props.monaco.editor.createModel(query, 'hogQL', uri)
-                    props.editor?.setModel(model)
-
-                    const mountedCodeEditorLogic =
-                        codeEditorLogic.findMounted() ||
-                        codeEditorLogic({
-                            key: props.key,
-                            query: values.sourceQuery?.source.query ?? '',
-                            language: 'hogQL',
-                        })
-
-                    if (mountedCodeEditorLogic) {
-                        initModel(model, mountedCodeEditorLogic)
-                    }
-
-                    const newTab: QueryTab = {
-                        uri,
-                        insight,
-                        name: insight.name ?? '',
-                        sourceQuery: insight.query as DataVisualizationNode | undefined,
-                    }
-
-                    actions.addTab(newTab)
-                    actions.selectTab(newTab)
-
-                    actions.setSourceQuery(insight.query as DataVisualizationNode)
-                } else {
-                    console.warn('Monaco not ready, falling back to createTab')
-                    // Fallback to createTab if Monaco is not ready
-                    actions.createTab(query, undefined, insight)
-                }
+                actions.createTab(query, undefined, insight)
             }
         },
         createTab: async ({ query = '', view, insight }) => {
@@ -620,10 +583,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const nextUntitledNumber = getNextUntitledNumber(values.allTabs)
-            const tabName = view?.name ?? insight?.name ?? `${NEW_QUERY} ${nextUntitledNumber}`
+            const tabName = view?.name || insight?.name || `${NEW_QUERY} ${nextUntitledNumber}`
 
             if (props.monaco) {
-                // use a unique uri for insights
                 const uri = insight
                     ? props.monaco.Uri.parse(`insight-${insight.short_id}-${Date.now()}`)
                     : props.monaco.Uri.parse(currentModelCount.toString())
@@ -792,7 +754,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
             const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
 
-            // Load stored allTabs and inProgressViewEdits from IndexedDB
             const storedAllTabs = await getStorageItem(`${props.key}/allTabs`)
             const storedInProgressViewEdits = await getStorageItem(`${props.key}/inProgressViewEdits`)
 
@@ -801,7 +762,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     const parsedTabs = JSON.parse(storedAllTabs) as QueryTab[]
                     actions.setTabs(parsedTabs)
                 } catch (error) {
-                    console.warn('Failed to parse stored allTabs:', error)
+                    posthog.capture('sql-editor-alltabs-parse-failure', { error })
                 }
             }
 
@@ -816,7 +777,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.setInProgressViewEdit(viewId, historyId)
                     })
                 } catch (error) {
-                    console.warn('Failed to parse stored inProgressViewEdits:', error)
+                    posthog.capture('sql-editor-inprogressviewedits-parse-failure', { error })
                 }
             }
 
@@ -1257,8 +1218,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
                 actions.selectTab(activeTab)
             }
-
-            // Store allTabs in IndexedDB when it changes
+            // make sure that allTabs is stored in IndexedDB when it changes
             if (allTabs.length > 0) {
                 actions.setLocalState(`${props.key}/allTabs`, JSON.stringify(allTabs))
             }
@@ -1270,15 +1230,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.loadUpstream(editingView.id)
             }
         },
-        queryTabState: () => {
-            // Initialize when Monaco and editor are ready, regardless of queryTabState
-            if (props.monaco && props.editor) {
-                actions.initialize()
-            }
-        },
-        // Manual storage handling for reducers that previously used persist: true
+        // used to store inProgressViewEdits in IndexedDB when it changes
         inProgressViewEdits: (inProgressViewEdits) => {
-            // Store inProgressViewEdits in IndexedDB when it changes
             if (Object.keys(inProgressViewEdits).length > 0) {
                 actions.setLocalState(`${props.key}/inProgressViewEdits`, JSON.stringify(inProgressViewEdits))
             }
@@ -1420,7 +1373,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, props }) => ({
+    urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams) => {
             if (!searchParams.open_query && !searchParams.open_view && !searchParams.open_insight) {
                 return
@@ -1431,45 +1384,79 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const createQueryTab = async (): Promise<void> => {
                 if (searchParams.open_view) {
                     // Open view
-                    const view = dataWarehouseViewsLogic.values.dataWarehouseSavedQueryMapById[searchParams.open_view]
-                    if (view) {
-                        const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query.query
-                        actions.editView(queryToOpen, view)
-                        tabAdded = true
+                    const viewId = searchParams.open_view
+
+                    if (values.dataWarehouseSavedQueries.length === 0) {
+                        await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
                     }
+
+                    const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
+                    if (!view) {
+                        lemonToast.error('View not found')
+                        return
+                    }
+
+                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query.query
+
+                    actions.editView(queryToOpen, view)
+                    tabAdded = true
+                    router.actions.replace(router.values.location.pathname)
                 } else if (searchParams.open_insight) {
                     if (searchParams.open_insight === 'new') {
                         // Add new blank tab
                         actions.createTab()
+                        tabAdded = true
                         router.actions.replace(router.values.location.pathname)
                         return
                     }
 
-                    try {
-                        // Load insight data first
-                        const shortId = searchParams.open_insight
-                        const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
-                        if (!insight) {
-                            lemonToast.error('Insight not found')
-                            return
-                        }
-
-                        // Get the query from the insight
-                        let query = ''
-                        if (insight.query?.kind === NodeKind.DataVisualizationNode) {
-                            query = (insight.query as DataVisualizationNode).source.query
-                        }
-
-                        // Use the editInsight action to properly handle tab creation and state management
-                        actions.editInsight(query, insight)
-                        tabAdded = true
-                    } catch (error) {
-                        lemonToast.error('Failed to load insight')
-                        console.error(error)
+                    // Open Insight
+                    const shortId = searchParams.open_insight
+                    const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
+                    if (!insight) {
+                        lemonToast.error('Insight not found')
+                        return
                     }
+
+                    let query = ''
+                    if (insight.query?.kind === NodeKind.DataVisualizationNode) {
+                        query = (insight.query as DataVisualizationNode).source.query
+                    }
+
+                    const queryToOpen = searchParams.open_query ? searchParams.open_query : query
+
+                    actions.editInsight(queryToOpen, insight)
+
+                    // Only run the query if the results aren't already cached locally and we're not using the open_query search param
+                    if (
+                        insight.query?.kind === NodeKind.DataVisualizationNode &&
+                        insight.query &&
+                        !searchParams.open_query
+                    ) {
+                        dataNodeLogic({
+                            key: values.dataLogicKey,
+                            query: (insight.query as DataVisualizationNode).source,
+                        }).mount()
+
+                        const response = dataNodeLogic({
+                            key: values.dataLogicKey,
+                            query: (insight.query as DataVisualizationNode).source,
+                        }).values.response
+
+                        if (!response) {
+                            actions.runQuery()
+                        }
+                    } else {
+                        actions.runQuery()
+                    }
+
+                    tabAdded = true
+                    router.actions.replace(router.values.location.pathname)
                 } else if (searchParams.open_query) {
+                    // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
+                    router.actions.replace(router.values.location.pathname)
                 }
             }
 
