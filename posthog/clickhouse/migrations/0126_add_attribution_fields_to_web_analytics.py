@@ -15,8 +15,6 @@ operations = [
     run_sql_with_exceptions(add_attribution_fields_to_table("web_bounces_hourly"), node_role=NodeRole.ALL),
     run_sql_with_exceptions(add_attribution_fields_to_table("web_stats_hourly_staging"), node_role=NodeRole.ALL),
     run_sql_with_exceptions(add_attribution_fields_to_table("web_bounces_hourly_staging"), node_role=NodeRole.ALL),
-    run_sql_with_exceptions("DROP VIEW IF EXISTS web_stats_combined SYNC", node_role=NodeRole.ALL),
-    run_sql_with_exceptions("DROP VIEW IF EXISTS web_bounces_combined SYNC", node_role=NodeRole.ALL),
     run_sql_with_exceptions(WEB_STATS_COMBINED_VIEW_SQL(), node_role=NodeRole.ALL),
     run_sql_with_exceptions(WEB_BOUNCES_COMBINED_VIEW_SQL(), node_role=NodeRole.ALL),
 ]
