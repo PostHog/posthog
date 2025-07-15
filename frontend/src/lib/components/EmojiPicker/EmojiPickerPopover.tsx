@@ -42,7 +42,7 @@ export interface EmojiPickerPopoverProps {
      * Whether to start with the popover open or closed
      * Defaults to false (closed)
      */
-    defaultOpen: boolean
+    defaultOpen?: boolean
 }
 
 export function EmojiPickerPopover({ onSelect, defaultOpen = false }: EmojiPickerPopoverProps): JSX.Element {
