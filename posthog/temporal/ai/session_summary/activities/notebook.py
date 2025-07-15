@@ -7,23 +7,47 @@ from posthog.models.team import Team
 from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
 
 
+def _sanitize_text_content(text: str) -> str:
+    """Sanitize text content to ensure it's valid for TipTap editor"""
+    if not text or not text.strip():
+        return " "  # Return single space for empty strings
+    return text.strip()
+
+
+def _create_paragraph_with_text(text: str) -> dict[str, Any]:
+    """Create a paragraph node with sanitized text content"""
+    return {
+        "type": "paragraph",
+        "content": [{"type": "text", "text": _sanitize_text_content(text)}],
+    }
+
+
+def _create_heading_with_text(text: str, level: int) -> dict[str, Any]:
+    """Create a heading node with sanitized text content"""
+    return {
+        "type": "heading",
+        "attrs": {"level": level},
+        "content": [{"type": "text", "text": _sanitize_text_content(text)}],
+    }
+
+
 def create_summary_notebook(
     session_ids: list[str],
     user: User,
     team: Team,
     summary: EnrichedSessionGroupSummaryPatternsList,
     domain: str = "PostHog",
-) -> dict[str, Any]:
+) -> Notebook:
     """Create a notebook with session summary patterns converted from EnrichedSessionGroupSummaryPatternsList"""
     notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
-    response = Notebook.objects.create(
+    notebook = Notebook.objects.create(
         team=team,
         title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
         content=notebook_content,
         created_by=user,
         last_modified_by=user,
     )
-    return notebook_content
+    return notebook
 
 
 def _generate_notebook_content_from_summary(
@@ -37,15 +61,8 @@ def _generate_notebook_content_from_summary(
         return {
             "type": "doc",
             "content": [
-                {
-                    "type": "heading",
-                    "attrs": {"level": 1},
-                    "content": [{"type": "text", "text": f"Session Summaries Report - {domain}"}],
-                },
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": "No patterns found."}],
-                },
+                _create_heading_with_text(f"Session Summaries Report - {domain}", 1),
+                _create_paragraph_with_text("No patterns found."),
             ],
         }
 
@@ -58,23 +75,11 @@ def _generate_notebook_content_from_summary(
     content = []
 
     # Title
-    content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 1},
-            "content": [{"type": "text", "text": f"Session Summaries Report - {domain}"}],
-        }
-    )
+    content.append(_create_heading_with_text(f"Session Summaries Report - {domain}", 1))
 
     # Issues to review summary
     session_text = "session" if total_sessions == 1 else "sessions"
-    content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 2},
-            "content": [{"type": "text", "text": f"📊 Issues to review ({total_sessions} {session_text} scope)"}],
-        }
-    )
+    content.append(_create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
 
     # Summary table
     table_content = _create_summary_table(patterns_sorted, total_sessions)
@@ -98,18 +103,8 @@ def _create_summary_table(patterns: list, total_sessions: int) -> list[dict[str,
     table_content = []
 
     # Table header
-    table_content.append(
-        {
-            "type": "paragraph",
-            "content": [{"type": "text", "text": "Pattern | Severity | Sessions | Failure Rate"}],
-        }
-    )
-    table_content.append(
-        {
-            "type": "paragraph",
-            "content": [{"type": "text", "text": "--------|----------|----------|-------------"}],
-        }
-    )
+    table_content.append(_create_paragraph_with_text("Pattern | Severity | Sessions | Failure Rate"))
+    table_content.append(_create_paragraph_with_text("--------|----------|----------|-------------"))
 
     # Table rows
     for pattern in patterns:
@@ -123,12 +118,7 @@ def _create_summary_table(patterns: list, total_sessions: int) -> list[dict[str,
 
         severity_text = pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity
         row_text = f"{pattern.pattern_name} | {severity_icon} {severity_text} | {sessions_percentage} ({sessions_affected}) | {failure_percentage}"
-        table_content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": row_text}],
-            }
-        )
+        table_content.append(_create_paragraph_with_text(row_text))
 
     return table_content
 
@@ -138,21 +128,10 @@ def _create_pattern_section(pattern, total_sessions: int, is_last: bool) -> list
     content = []
 
     # Pattern header
-    content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 2},
-            "content": [{"type": "text", "text": pattern.pattern_name}],
-        }
-    )
+    content.append(_create_heading_with_text(pattern.pattern_name, 2))
 
     # Pattern description
-    content.append(
-        {
-            "type": "paragraph",
-            "content": [{"type": "text", "text": pattern.pattern_description}],
-        }
-    )
+    content.append(_create_paragraph_with_text(pattern.pattern_description))
 
     # Pattern stats
     stats = pattern.stats
@@ -162,61 +141,28 @@ def _create_pattern_section(pattern, total_sessions: int, is_last: bool) -> list
     success_count = int(stats.segments_success_ratio * stats.occurences)
 
     severity_text = pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity
+    content.append(_create_paragraph_with_text(f"**How severe it is:** {severity_text.title()}"))
+
     content.append(
-        {
-            "type": "paragraph",
-            "content": [{"type": "text", "text": f"**How severe it is:** {severity_text.title()}"}],
-        }
+        _create_paragraph_with_text(
+            f"**How many sessions affected:** {sessions_percentage} ({sessions_affected} out of {total_sessions})"
+        )
     )
 
     content.append(
-        {
-            "type": "paragraph",
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"**How many sessions affected:** {sessions_percentage} ({sessions_affected} out of {total_sessions})",
-                }
-            ],
-        }
-    )
-
-    content.append(
-        {
-            "type": "paragraph",
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"**How often user succeeds, despite the pattern:** {success_percentage} ({success_count} out of {stats.occurences})",
-                }
-            ],
-        }
+        _create_paragraph_with_text(
+            f"**How often user succeeds, despite the pattern:** {success_percentage} ({success_count} out of {stats.occurences})"
+        )
     )
 
     # Detection indicators
-    content.append(
-        {
-            "type": "paragraph",
-            "content": [{"type": "text", "text": "🔍 **How we detect this:**"}],
-        }
-    )
+    content.append(_create_paragraph_with_text("🔍 **How we detect this:**"))
 
     for indicator in pattern.indicators:
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": f"- {indicator}"}],
-            }
-        )
+        content.append(_create_paragraph_with_text(f"- {indicator}"))
 
     # Examples section
-    content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 3},
-            "content": [{"type": "text", "text": "Examples"}],
-        }
-    )
+    content.append(_create_heading_with_text("Examples", 3))
 
     # Show up to 3 examples
     events_to_show = pattern.events[:3]
@@ -229,38 +175,16 @@ def _create_pattern_section(pattern, total_sessions: int, is_last: bool) -> list
     # Add note about remaining examples
     if total_events > 3:
         remaining_examples = total_events - 3
+        content.append(_create_paragraph_with_text("---"))
         content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": "---"}],
-            }
-        )
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"*📋 {len(events_to_show)} examples covered, you can research {remaining_examples} remaining examples at PostHog.com*",
-                    }
-                ],
-            }
+            _create_paragraph_with_text(
+                f"*📋 {len(events_to_show)} examples covered, you can research {remaining_examples} remaining examples at PostHog.com*"
+            )
         )
 
-    # Add spacing between patterns (except for the last one)
+    # Add spacing between patterns (except for the last one) - use proper line breaks instead of empty text
     if not is_last:
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": ""}],
-            }
-        )
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": "&nbsp;"}],
-            }
-        )
+        content.append(_create_paragraph_with_text(" "))
 
     return content
 
@@ -271,108 +195,40 @@ def _create_example_section(event_data) -> list[dict[str, Any]]:
     session_id = event_data.target_event.session_id
 
     # Example header
-    content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 4},
-            "content": [{"type": "text", "text": f"Session {session_id}"}],
-        }
-    )
+    content.append(_create_heading_with_text(f"Session {session_id}", 4))
 
     # Quick summary
-    content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 5},
-            "content": [{"type": "text", "text": "Quick summary"}],
-        }
-    )
+    content.append(_create_heading_with_text("Quick summary", 5))
 
+    content.append(_create_paragraph_with_text(f"- **What user was doing:** {event_data.segment_name}"))
     content.append(
-        {
-            "type": "paragraph",
-            "content": [{"type": "text", "text": f"- **What user was doing:** {event_data.segment_name}"}],
-        }
+        _create_paragraph_with_text(f"- **What confirmed the pattern:** {event_data.target_event.description}")
     )
-    content.append(
-        {
-            "type": "paragraph",
-            "content": [
-                {"type": "text", "text": f"- **What confirmed the pattern:** {event_data.target_event.description}"}
-            ],
-        }
-    )
-    content.append(
-        {
-            "type": "paragraph",
-            "content": [{"type": "text", "text": f"- **Where it happened:** {event_data.target_event.current_url}"}],
-        }
-    )
+    content.append(_create_paragraph_with_text(f"- **Where it happened:** {event_data.target_event.current_url}"))
 
     # Outcome section
-    content.append(
-        {
-            "type": "heading",
-            "attrs": {"level": 5},
-            "content": [{"type": "text", "text": "Outcome"}],
-        }
-    )
+    content.append(_create_heading_with_text("Outcome", 5))
 
     # What happened before
     if event_data.previous_events_in_segment:
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": "- **What happened before:**"}],
-            }
-        )
+        content.append(_create_paragraph_with_text("- **What happened before:**"))
         for prev_event in event_data.previous_events_in_segment:
-            content.append(
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": f"    - {prev_event.description}"}],
-                }
-            )
+            content.append(_create_paragraph_with_text(f"    - {prev_event.description}"))
     else:
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": "- **What happened before:** Nothing, start of the segment"}],
-            }
-        )
+        content.append(_create_paragraph_with_text("- **What happened before:** Nothing, start of the segment"))
 
     # What happened after
     if event_data.next_events_in_segment:
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": "- **What happened after:**"}],
-            }
-        )
+        content.append(_create_paragraph_with_text("- **What happened after:**"))
         for next_event in event_data.next_events_in_segment:
-            content.append(
-                {
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": f"    - {next_event.description}"}],
-                }
-            )
+            content.append(_create_paragraph_with_text(f"    - {next_event.description}"))
     else:
-        content.append(
-            {
-                "type": "paragraph",
-                "content": [{"type": "text", "text": "- **What happened after:** Nothing, end of the segment"}],
-            }
-        )
+        content.append(_create_paragraph_with_text("- **What happened after:** Nothing, end of the segment"))
 
     # Outcome
     outcome_status = "Success" if event_data.segment_success else "Failure"
     content.append(
-        {
-            "type": "paragraph",
-            "content": [
-                {"type": "text", "text": f"- **What's the outcome:** {outcome_status}. {event_data.segment_outcome}"}
-            ],
-        }
+        _create_paragraph_with_text(f"- **What's the outcome:** {outcome_status}. {event_data.segment_outcome}")
     )
 
     return content
