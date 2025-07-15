@@ -2,7 +2,6 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
 import re
-import uuid
 from typing import Any, cast, TypedDict
 from urllib.parse import urlparse
 import json
@@ -60,6 +59,8 @@ from posthog.models.surveys.util import (
     SurveyEventProperties,
 )
 import structlog
+from posthog.models.utils import UUIDT
+
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -1442,17 +1443,7 @@ def surveys(request: Request, survey_id: str | None = None):
 
 # Constants for better maintainability
 logger = structlog.get_logger(__name__)
-SURVEY_ID_MAX_LENGTH = 50
 CACHE_TIMEOUT_SECONDS = 300
-
-
-def is_valid_uuid(uuid_string: str) -> bool:
-    """Validate if a string is a valid UUID format."""
-    try:
-        uuid.UUID(uuid_string)
-        return True
-    except (ValueError, TypeError):
-        return False
 
 
 @csrf_exempt
@@ -1465,7 +1456,7 @@ def public_survey_page(request, survey_id: str):
         return cors_response(request, HttpResponse(""))
 
     # Input validation
-    if not is_valid_uuid(survey_id) or len(survey_id) > SURVEY_ID_MAX_LENGTH:
+    if not UUIDT.is_valid_uuid(survey_id):
         logger.warning("survey_page_invalid_id", survey_id=survey_id)
         return render(
             request,
