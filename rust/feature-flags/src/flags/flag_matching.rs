@@ -230,7 +230,7 @@ impl FeatureFlagMatcher {
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
             .iter()
-            .any(|flag| flag.ensure_experience_continuity);
+            .any(|flag| flag.ensure_experience_continuity.unwrap_or(false));
 
         // Process any hash key overrides
         let (hash_key_overrides, flag_hash_key_override_error) = self

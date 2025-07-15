@@ -33,6 +33,30 @@ export function IconWithCount({
     )
 }
 
+export interface IconWithPlusProps {
+    children: React.ReactNode
+}
+
+export function IconWithPlus({ children }: IconWithPlusProps): JSX.Element {
+    return (
+        <div className="relative">
+            {children}
+
+            <div className="absolute flex place-items-center justify-center [&_svg]:size-2.5 [&_path]:fill-[currentColor] [&_path]:stroke-[#E5E7E0] dark:[&_path]:stroke-[black] bottom-0 right-[-3px]">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                        d="M8 1C8.9665 1 9.75 1.7835 9.75 2.75V6.25H13.25C14.2165 6.25 15 7.0335 15 8C15 8.9665 14.2165 9.75 13.25 9.75H9.75V13.25C9.75 14.2165 8.9665 15 8 15C7.0335 15 6.25 14.2165 6.25 13.25V9.75H2.75C1.7835 9.75 1 8.9665 1 8C1 7.0335 1.7835 6.25 2.75 6.25H6.25V2.75C6.25 1.7835 7.0335 1 8 1Z"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                    />
+                </svg>
+            </div>
+        </div>
+    )
+}
+
 export function IconWithBadge({
     content,
     children,
