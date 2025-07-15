@@ -107,14 +107,14 @@ class EnrichedSessionGroupSummaryPattern(RawSessionGroupSummaryPattern):
 class RawSessionGroupSummaryPatternsList(BaseModel):
     """Schema for validating LLM output for patterns extraction"""
 
-    patterns: list[RawSessionGroupSummaryPattern] = Field(..., description="List of patterns to validate", min_length=1)
+    patterns: list[RawSessionGroupSummaryPattern] = Field(..., description="List of patterns to validate", min_length=0)
 
 
 class EnrichedSessionGroupSummaryPatternsList(BaseModel):
     """Enriched patterns with events context ready to be displayed in UI"""
 
     patterns: list[EnrichedSessionGroupSummaryPattern] = Field(
-        ..., description="List of patterns with events context", min_length=1
+        ..., description="List of patterns with events context", min_length=0
     )
 
 
