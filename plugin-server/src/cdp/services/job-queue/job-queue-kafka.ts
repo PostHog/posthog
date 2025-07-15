@@ -21,7 +21,7 @@ export class CyclotronJobQueueKafka {
 
     constructor(
         private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
+        private queues: CyclotronJobQueueKind[],
         private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {}
 
@@ -39,8 +39,8 @@ export class CyclotronJobQueueKafka {
     }
 
     public async startAsConsumer() {
-        const groupId = `cdp-cyclotron-${this.queue}-consumer`
-        const topic = `cdp_cyclotron_${this.queue}`
+        const groupId = `cdp-cyclotron-events-consumer`
+        const topic = `cdp_cyclotron_events`
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })

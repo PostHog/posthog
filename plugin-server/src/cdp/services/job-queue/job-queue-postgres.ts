@@ -30,7 +30,7 @@ export class CyclotronJobQueuePostgres {
 
     constructor(
         private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
+        private queues: CyclotronJobQueueKind[],
         private consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {}
 
@@ -62,18 +62,20 @@ export class CyclotronJobQueuePostgres {
         // The consumer always needs the producers as well
         await this.startAsProducer()
 
-        this.cyclotronWorker = new CyclotronWorker({
-            pool: {
-                dbUrl: this.config.CYCLOTRON_DATABASE_URL,
-            },
-            queueName: this.queue,
-            includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
-            batchMaxSize: this.config.CONSUMER_BATCH_SIZE, // Use the common value
-            pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
-            includeEmptyBatches: true,
-            shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
-        })
-        await this.cyclotronWorker.connect((jobs) => this.consumeCyclotronJobs(jobs))
+        for (const queue of this.queues) {
+            this.cyclotronWorker = new CyclotronWorker({
+                pool: {
+                    dbUrl: this.config.CYCLOTRON_DATABASE_URL,
+                },
+                queueName: queue,
+                includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
+                batchMaxSize: this.config.CONSUMER_BATCH_SIZE, // Use the common value
+                pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
+                includeEmptyBatches: true,
+                shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+            })
+            await this.cyclotronWorker.connect((jobs) => this.consumeCyclotronJobs(jobs))
+        }
     }
 
     public async stopConsumer() {

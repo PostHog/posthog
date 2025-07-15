@@ -16,17 +16,37 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
-    private queue: CyclotronJobQueueKind
+    private queues: CyclotronJobQueueKind[]
 
-    constructor(hub: Hub, queue: CyclotronJobQueueKind = 'hog') {
+    constructor(hub: Hub, queues: CyclotronJobQueueKind[] = ['hog', 'native', 'plugin', 'segment']) {
         super(hub)
-        this.queue = queue
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
+        this.queues = queues
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queues, (batch) => this.processBatch(batch))
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
-        return await Promise.all(loadedInvocations.map((item) => this.hogExecutor.executeWithAsyncFunctions(item)))
+
+        console.log(
+            'loadedInvocations',
+            loadedInvocations.map((item) => item.hogFunction.name)
+        )
+
+        return await Promise.all(
+            loadedInvocations.map((item) => {
+                if (item.queue === 'hog') {
+                    return this.hogExecutor.executeWithAsyncFunctions(item)
+                } else if (item.queue === 'native') {
+                    return this.nativeDestinationExecutorService.execute(item)
+                } else if (item.queue === 'plugin') {
+                    return this.pluginExecutor.execute(item)
+                } else if (item.queue === 'segment') {
+                    return this.segmentDestinationExecutorService.execute(item)
+                } else {
+                    throw new Error(`Unsupported queue: ${item.queue}`)
+                }
+            })
+        )
     }
 
     protected async loadHogFunctions(

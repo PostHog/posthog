@@ -55,7 +55,7 @@ export class CyclotronJobQueue {
 
     constructor(
         private config: PluginsServerConfig,
-        private queue: CyclotronJobQueueKind,
+        private queues: CyclotronJobQueueKind[],
         private _consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
         this.consumerMode = this.config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE
@@ -63,10 +63,10 @@ export class CyclotronJobQueue {
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
 
-        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queue, (invocations) =>
+        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config, this.queues, (invocations) =>
             this.consumeBatch(invocations, 'kafka')
         )
-        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queue, (invocations) =>
+        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config, this.queues, (invocations) =>
             this.consumeBatch(invocations, 'postgres')
         )
 
@@ -82,11 +82,11 @@ export class CyclotronJobQueue {
         source: CyclotronJobQueueSource
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
-            .labels({ queue: this.queue, source })
+            .labels({ queue: this.queues.join(','), source })
             .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
 
         const result = await this._consumeBatch!(invocations)
-        counterJobsProcessed.inc({ queue: this.queue, source }, invocations.length)
+        counterJobsProcessed.inc({ queue: this.queues.join(','), source }, invocations.length)
 
         return result
     }
