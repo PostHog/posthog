@@ -179,6 +179,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    const hasProjectAccessFeature = useFeatureFlag('INVITE_PROJECT_ACCESS')
 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
@@ -274,7 +275,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 )}
             </div>
 
-            {hasAdvancedPermissions && 'hasProjectAccessFeature' && <ProjectAccessSelector inviteIndex={index} />}
+            {hasAdvancedPermissions && hasProjectAccessFeature && <ProjectAccessSelector inviteIndex={index} />}
         </div>
     )
 }
