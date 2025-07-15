@@ -1365,7 +1365,7 @@ def get_surveys_response(team: Team):
 
 
 @csrf_exempt
-def surveys(request: Request, survey_id: str | None = None):
+def surveys(request: Request):
     token = get_token(None, request)
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
@@ -1394,48 +1394,6 @@ def surveys(request: Request, survey_id: str | None = None):
                 status_code=status.HTTP_401_UNAUTHORIZED,
             ),
         )
-
-    # If survey_id is provided, return individual survey
-    if survey_id:
-        try:
-            survey = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").get(
-                id=survey_id, team=team
-            )
-        except Survey.DoesNotExist:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "surveys",
-                    "Survey not found.",
-                    type="not_found",
-                    code="survey_not_found",
-                    status_code=status.HTTP_404_NOT_FOUND,
-                ),
-            )
-
-        # Check if survey is archived
-        if survey.archived:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "surveys",
-                    "This survey is no longer available.",
-                    type="not_found",
-                    code="survey_archived",
-                    status_code=status.HTTP_404_NOT_FOUND,
-                ),
-            )
-
-        # Return individual survey response
-        serialized_survey = SurveyAPISerializer(survey).data
-        response_data = {
-            "survey": serialized_survey,
-            "project_config": {
-                "api_host": request.build_absolute_uri("/").rstrip("/"),
-                "token": team.api_token,
-            },
-        }
-        return cors_response(request, JsonResponse(response_data))
 
     # Return all surveys (existing behavior)
     return cors_response(request, JsonResponse(get_surveys_response(team)))
