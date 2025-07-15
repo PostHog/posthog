@@ -78,7 +78,7 @@ class FilterOptionsNode(AssistantNode):
 
     def _get_model(self, state: FilterOptionsState):
         return MaxChatOpenAI(
-            model="gpt-4o", streaming=False, temperature=0.2, user=self._user, team=self._team
+            model="gpt-4.1", streaming=False, temperature=0.2, user=self._user, team=self._team
         ).bind_tools(
             [
                 RetrieveEntityPropertiesTool,
@@ -116,7 +116,7 @@ class FilterOptionsNode(AssistantNode):
                     )
                     messages.append(
                         (
-                            "system",
+                            "assistant",
                             f"Tool execution result: {tool_context} \n\nContinue with the next appropriate tool call if needed.",
                         )
                     )
@@ -166,12 +166,6 @@ class FilterOptionsNode(AssistantNode):
             {
                 "core_memory": self.core_memory.text if self.core_memory else "",
                 "groups": self._all_entities,
-                "project_datetime": self.project_now,
-                "project_timezone": self.project_timezone,
-                "project_name": self._team.name,
-                "organization_name": self._team.organization.name,
-                "user_full_name": self._user.get_full_name(),
-                "user_email": self._user.email,
                 "change": change,
                 "current_filters": current_filters,
             },
