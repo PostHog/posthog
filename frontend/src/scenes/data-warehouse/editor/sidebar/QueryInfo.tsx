@@ -397,12 +397,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     onChange={(mode) => setUpstreamViewMode(mode)}
                                     options={[
                                         {
-                                            value: 'table',
-                                            label: 'Table',
-                                        },
-                                        {
                                             value: 'graph',
                                             label: 'Graph',
+                                        },
+                                        {
+                                            value: 'table',
+                                            label: 'Table',
                                         },
                                     ]}
                                     size="small"
