@@ -23,4 +23,9 @@ def start_of_week(dt: datetime) -> datetime:
 
 
 def start_of_month(dt: datetime) -> datetime:
-    return datetime(year=dt.year, month=dt.month, day=1, tzinfo=dt.tzinfo)
+    """Return the start of the month for the given datetime."""
+    # Fast path for naive datetimes with no tzinfo
+    if dt.tzinfo is None:
+        return datetime(dt.year, dt.month, 1)
+    # For aware datetimes, avoid named arguments for faster instantiation
+    return datetime(dt.year, dt.month, 1, 0, 0, 0, 0, dt.tzinfo)
