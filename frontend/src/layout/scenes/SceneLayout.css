@@ -1,0 +1,17 @@
+.scene-layout {
+    container-name: scenelayout;
+    container-type: size;
+    min-height: calc(100vh - var(--scene-layout-header-height));
+}
+
+.scene-layout__content-panel {
+    z-index: var(--z-top-navigation);
+    width: var(--scene-layout-panel-width);
+    border-left: 1px solid var(--border-primary);
+}
+
+.storybook-test-runner main,
+.storybook-test-runner .scene-layout {
+    container-name: unset;
+    container-type: unset;
+}
