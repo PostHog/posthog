@@ -184,6 +184,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         max_steps = self.context.max_steps
         funnelsFilter = self.context.funnelsFilter
 
+        inner_select = self._inner_aggregation_query()
+
         if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             for exclusion in funnelsFilter.exclusions or []:
                 if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
@@ -194,14 +196,13 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ):
                 raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
 
-        inner_select = self._inner_aggregation_query()
-
-        # step_results = ",".join(
-        #    [f"countIf(ifNull(equals(step_reached, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)]
-        # )
-        step_results = ",".join(
-            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i+1}" for i in range(self.context.max_steps)]
-        )
+            step_results = ",".join(
+                [f"countIf(ifNull(equals(step_reached, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)]
+            )
+        else:
+            step_results = ",".join(
+                [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i+1}" for i in range(self.context.max_steps)]
+            )
         step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
 
         conversion_time_arrays = ",".join(
@@ -389,6 +390,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
     def _format_single_funnel(self, results, with_breakdown=False):
         max_steps = self.context.max_steps
+        funnelsFilter = self.context.funnelsFilter
 
         # Format of this is [step order, person count (that reached that step), array of person uuids]
         steps = []
@@ -400,7 +402,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             step_index = max_steps - 1 - index
 
             if results and len(results) > 0:
-                total_people = results[step_index]
+                if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+                    # Unordered funnels don't use the bitmask yet
+                    total_people += results[step_index]
+                else:
+                    total_people = results[step_index]
 
             serialized_result = self._serialize_step(
                 step, total_people, step_index, [], self.context.query.samplingFactor
