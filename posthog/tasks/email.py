@@ -506,10 +506,6 @@ def send_error_tracking_issue_assigned(assignment: ErrorTrackingIssueAssignment,
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_hog_functions_digest_email(digest_data: dict) -> None:
-    """
-    Send HogFunctions digest email to a specific team using pre-calculated data.
-    All calculations should be done in tasks.py before calling this function.
-    """
     if not is_email_available(with_absolute_urls=True):
         return
 
@@ -521,8 +517,8 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         logger.exception(f"Team {team_id} not found for HogFunctions digest email")
         return
 
-    # Get members to email (using plugin_disabled setting as it's similar context)
-    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
+    # Get members to email TODO: implement a new setting for this
+    memberships_to_email = get_members_to_notify(team, "hog_functions_digest")
     if not memberships_to_email:
         return
 
