@@ -1,5 +1,6 @@
 import LRUCache from 'lru-cache'
 
+import { sanitizeString } from '~/utils/db/utils'
 import { logger } from '~/utils/logger'
 
 import { Hub, Team } from '../../../types'
@@ -152,7 +153,7 @@ export class GroupsManagerService {
             if (typeof groupsProperty === 'object' && groupsProperty !== null) {
                 Object.entries(groupsProperty).forEach(([groupType, groupKey]) => {
                     if (typeof groupType === 'string' && typeof groupKey === 'string') {
-                        validGroupsProperty[groupType] = groupKey
+                        validGroupsProperty[sanitizeString(groupType)] = sanitizeString(groupKey)
                     }
                 })
             }
