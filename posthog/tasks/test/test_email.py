@@ -286,7 +286,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         self._create_user("test2@posthog.com")
-        self.user.partial_notification_settings = {"hog_functions_digest": False}
+        self.user.partial_notification_settings = {"plugin_disabled": False}
         self.user.save()
 
         digest_data = {
@@ -318,7 +318,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Should only be sent to user2 (user1 has notifications disabled)
         assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
 
-        self.user.partial_notification_settings = {"hog_functions_digest": True}
+        self.user.partial_notification_settings = {"plugin_disabled": True}
         self.user.save()
         send_hog_functions_digest_email(digest_data)
 

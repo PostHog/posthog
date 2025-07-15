@@ -517,8 +517,8 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         logger.exception(f"Team {team_id} not found for HogFunctions digest email")
         return
 
-    # Get members to email TODO: implement a new setting for this
-    memberships_to_email = get_members_to_notify(team, "hog_functions_digest")
+    # Get members to email
+    memberships_to_email = get_members_to_notify(team, "plugin_disabled")
     if not memberships_to_email:
         return
 
