@@ -282,12 +282,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsArpuQuery]: {
-        name: 'Revenue Analytics ARPU',
-        description: 'View revenue analytics ARPU data.',
-        icon: IconPiggyBank,
-        inMenu: true,
-    },
     [NodeKind.RevenueAnalyticsCustomerCountQuery]: {
         name: 'Revenue Analytics Customer Count',
         description: 'View revenue analytics customer and subscription count.',

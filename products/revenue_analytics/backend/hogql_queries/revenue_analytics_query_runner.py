@@ -10,7 +10,6 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
-    RevenueAnalyticsArpuQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsRevenueQuery,
@@ -68,7 +67,6 @@ class RevenueSubqueries:
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
     query: Union[
-        RevenueAnalyticsArpuQuery,
         RevenueAnalyticsCustomerCountQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsOverviewQuery,

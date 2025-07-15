@@ -40,7 +40,6 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
-    RevenueAnalyticsArpuQuery,
     RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
@@ -152,10 +151,6 @@ export function isHogQLASTQuery(node?: Record<string, any> | null): node is HogQ
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
-}
-
-export function isRevenueAnalyticsArpuQuery(node?: Record<string, any> | null): node is RevenueAnalyticsArpuQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsArpuQuery
 }
 
 export function isRevenueAnalyticsCustomerCountQuery(
