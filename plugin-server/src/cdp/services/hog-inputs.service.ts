@@ -49,7 +49,7 @@ export class HogInputsService {
             }
         }
 
-        return newGlobals
+        return newGlobals.inputs
     }
 
     public async buildInputsWithGlobals(
