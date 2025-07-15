@@ -129,12 +129,14 @@ export async function createHub(
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const pubSub = new PubSub(serverConfig)
+    await pubSub.start()
     const rustyHook = new RustyHook(serverConfig)
     const actionManager = new ActionManager(postgres, pubSub)
     const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const geoipService = new GeoIPService(serverConfig)
+    await geoipService.get()
 
     const hub: Hub = {
         ...serverConfig,
@@ -162,7 +164,7 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
-        geoipService: new GeoIPService(serverConfig),
+        geoipService,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
@@ -178,11 +180,6 @@ export async function createHub(
         cookielessManager,
         pubSub,
     }
-
-    await hub.pubSub.start()
-
-    // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
-    await hub.geoipService.get()
 
     return hub
 }
