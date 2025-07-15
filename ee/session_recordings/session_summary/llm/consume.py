@@ -4,6 +4,7 @@ import os
 from typing import Any
 import openai
 import structlog
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.session_recordings.session_summary.llm.call import call_llm, stream_llm
 from ee.session_recordings.session_summary.output_data import (
     enrich_raw_session_summary_with_meta,
@@ -15,7 +16,13 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 from collections.abc import AsyncGenerator
 
-from ee.session_recordings.session_summary.summarize_session import SessionSummaryPrompt
+from ee.session_recordings.session_summary.patterns.output_data import (
+    RawSessionGroupPatternAssignmentsList,
+    RawSessionGroupSummaryPatternsList,
+    load_pattern_assignments_from_llm_content,
+    load_patterns_from_llm_content,
+)
+from ee.session_recordings.session_summary.summarize_session import PatternsPrompt
 
 logger = structlog.get_logger(__name__)
 
@@ -48,7 +55,8 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
-def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session_id: str) -> str:
+def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk) -> str:
+    """Return text content from a ChatCompletion or streaming chunk."""
     if isinstance(llm_response, ChatCompletion):
         content = llm_response.choices[0].message.content
     elif isinstance(llm_response, ChatCompletionChunk):
@@ -70,6 +78,7 @@ def _convert_llm_content_to_session_summary_json_str(
     session_duration: int,
     final_validation: bool = False,
 ) -> str | None:
+    """Parse and enrich LLM YAML output, returning a JSON string."""
     # Try to parse the accumulated text as YAML
     raw_session_summary = load_raw_session_summary_from_llm_content(
         raw_content=content, allowed_event_ids=allowed_event_ids, session_id=session_id
@@ -100,21 +109,50 @@ def _convert_llm_content_to_session_summary_json_str(
     return json.dumps(session_summary.data)
 
 
-async def get_llm_session_group_summary(prompt: SessionSummaryPrompt, user_id: int, session_ids: list[str]) -> str:
+async def get_llm_session_group_patterns_extraction(
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
+) -> RawSessionGroupSummaryPatternsList:
+    """Call LLM to extract patterns from multiple sessions."""
     sessions_identifier = ",".join(session_ids)
     result = await call_llm(
-        input_prompt=prompt.summary_prompt,
+        input_prompt=prompt.patterns_prompt,
         user_key=user_id,
         session_id=sessions_identifier,
         system_prompt=prompt.system_prompt,
+        model=SESSION_SUMMARIES_SYNC_MODEL,
+        reasoning=True,
+        trace_id=trace_id,
     )
-    raw_content = _get_raw_content(result, sessions_identifier)
+    raw_content = _get_raw_content(result)
     if not raw_content:
         raise ValueError(
-            f"No content consumed when calling LLM for session group summary, session_ids {sessions_identifier}"
+            f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
         )
-    # TODO: Force LLM to return event ids and use them to enrich group summary with metadata
-    return raw_content
+    patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
+    return patterns
+
+
+async def get_llm_session_group_patterns_assignment(
+    prompt: PatternsPrompt, user_id: int, session_ids: list[str], trace_id: str | None = None
+) -> RawSessionGroupPatternAssignmentsList:
+    """Call LLM to assign events to extracted patterns."""
+    sessions_identifier = ",".join(session_ids)
+    result = await call_llm(
+        input_prompt=prompt.patterns_prompt,
+        user_key=user_id,
+        session_id=sessions_identifier,
+        system_prompt=prompt.system_prompt,
+        model=SESSION_SUMMARIES_SYNC_MODEL,
+        reasoning=True,
+        trace_id=trace_id,
+    )
+    raw_content = _get_raw_content(result)
+    if not raw_content:
+        raise ValueError(
+            f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
+        )
+    patterns = load_pattern_assignments_from_llm_content(raw_content, sessions_identifier)
+    return patterns
 
 
 async def get_llm_single_session_summary(
@@ -130,14 +168,22 @@ async def get_llm_single_session_summary(
     session_start_time_str: str,
     session_duration: int,
     system_prompt: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
+    """Generate a single session summary in one LLM call."""
     try:
         result = await call_llm(
-            input_prompt=summary_prompt, user_key=user_id, session_id=session_id, system_prompt=system_prompt
+            input_prompt=summary_prompt,
+            user_key=user_id,
+            session_id=session_id,
+            system_prompt=system_prompt,
+            model=SESSION_SUMMARIES_SYNC_MODEL,
+            reasoning=True,
+            trace_id=trace_id,
         )
-        raw_content = _get_raw_content(result, session_id)
+        raw_content = _get_raw_content(result)
         if not raw_content:
-            raise ValueError(f"No content consumed when calling LLM for session summary, session_id {session_id}")
+            raise ValueError(f"No content consumed when calling LLM for session summary, sessions {session_id}")
         session_summary_str = _convert_llm_content_to_session_summary_json_str(
             content=raw_content,
             allowed_event_ids=allowed_event_ids,
@@ -190,18 +236,22 @@ async def stream_llm_single_session_summary(
     session_start_time_str: str,
     session_duration: int,
     system_prompt: str | None = None,
+    trace_id: str | None = None,
 ) -> AsyncGenerator[str, None]:
+    """Stream LLM summary for a session, yielding JSON chunks."""
     try:
         accumulated_content = ""
         accumulated_usage = 0
-        # TODO: Find a way to time the first chunk and the time of total stream consumption (extend "openai_completion" timer)
         stream = await stream_llm(
-            input_prompt=summary_prompt, user_key=user_id, session_id=session_id, system_prompt=system_prompt
+            input_prompt=summary_prompt,
+            user_key=user_id,
+            session_id=session_id,
+            system_prompt=system_prompt,
+            trace_id=trace_id,
         )
         async for chunk in stream:
-            # TODO: Check if the usage is accumulated by itself or do we need to do it manually
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
-            raw_content = _get_raw_content(chunk, session_id)
+            raw_content = _get_raw_content(chunk)
             if not raw_content:
                 # If no content provided yet (for example, first streaming response), skip the chunk
                 continue
@@ -286,6 +336,7 @@ async def stream_llm_single_session_summary(
 def _track_session_summary_generation(
     summary_prompt: str, raw_session_summary: str, session_summary: str, results_base_dir_path: str
 ) -> None:
+    """Persist prompt/response pairs for offline analysis."""
     from pathlib import Path
 
     # Count how many child directories there are in the results_base_dir

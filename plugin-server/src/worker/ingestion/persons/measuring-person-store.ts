@@ -2,8 +2,14 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
-import { DB } from '../../../utils/db/db'
+import {
+    DistinctPersonIdentifiers,
+    InternalPerson,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+} from '../../../types'
+import { DB, MoveDistinctIdsResult } from '../../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import {
     observeLatencyByVersion,
@@ -27,6 +33,7 @@ type MethodName =
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'fetchPersonIdsByDistinctId'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
@@ -100,8 +107,8 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         }
     }
 
-    flush(): Promise<void> {
-        return Promise.resolve()
+    flush(): Promise<TopicMessage[]> {
+        return Promise.resolve([])
     }
 
     reportBatch(): void {
@@ -260,8 +267,9 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         const mainStorePropertyUpdates = { toSet: propertiesToSet, toUnset: propertiesToUnset, hasChanges: true }
 
         const update: Partial<InternalPerson> = { ...otherUpdates }
-        if (applyEventPropertyUpdates(mainStorePropertyUpdates, person.properties)) {
-            update.properties = person.properties
+        const [updatedPerson, wasUpdated] = applyEventPropertyUpdates(mainStorePropertyUpdates, person)
+        if (wasUpdated) {
+            update.properties = updatedPerson.properties
         }
 
         return await this.updatePersonForUpdate(person, update, distinctId, tx)
@@ -295,6 +303,13 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         return response
     }
 
+    async fetchPersonIdsByDistinctId(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
+        this.incrementCount('fetchPersonIdsByDistinctId', distinctId)
+        this.incrementDatabaseOperation('fetchPersonIdsByDistinctId', distinctId)
+        const result = await this.db.fetchPersonIdsByDistinctId(distinctId, teamId)
+        return result
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -315,7 +330,7 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.clearCache()
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)

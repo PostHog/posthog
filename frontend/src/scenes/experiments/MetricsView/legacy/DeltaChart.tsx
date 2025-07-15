@@ -19,7 +19,7 @@ import {
     countDataForVariant,
     credibleIntervalForVariant,
     exposureCountDataForVariant,
-} from '../../experimentCalculations'
+} from '../../legacyExperimentCalculations'
 import { experimentLogic } from '../../experimentLogic'
 import { VariantTag } from '../../ExperimentView/components'
 import { ChartEmptyState } from '../shared/ChartEmptyState'

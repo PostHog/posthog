@@ -118,12 +118,16 @@ class BatchImportConfigBuilder:
         export_source: DateRangeExportSource,
         access_key_key: str = "api_key",
         secret_key_key: str = "secret_key",
+        is_eu_region: bool = False,
     ) -> Self:
         # there is a bunch of annoying business logic around how each endpoint behaves (what requests an endpoint expects, what it responds with, etc.)
         # jam a bunch of that messy configuration here to keep it off the batch-import-worker and out of the client
         match export_source:
             case DateRangeExportSource.AMPLITUDE:
-                base_url = "https://amplitude.com/api/2/export"
+                if is_eu_region:
+                    base_url = "https://analytics.eu.amplitude.com/api/2/export"
+                else:
+                    base_url = "https://amplitude.com/api/2/export"
                 auth_config = {
                     "type": "basic_auth",
                     "username_secret": access_key_key,
@@ -137,10 +141,13 @@ class BatchImportConfigBuilder:
                     "date_format": "%Y%m%dT%H",
                     # The smallest duration we can request from amplitude is 1 hour at a time
                     "interval_duration": 3600,
-                    "timeout_seconds": 60,
+                    "timeout_seconds": 180,
                 }
             case DateRangeExportSource.MIXPANEL:
-                base_url = "https://data.mixpanel.com/api/2.0/export"
+                if is_eu_region:
+                    base_url = "https://data-eu.mixpanel.com/api/2.0/export"
+                else:
+                    base_url = "https://data.mixpanel.com/api/2.0/export"
                 auth_config = {
                     "type": "mixpanel_auth",
                     "secret_key_secret": secret_key_key,

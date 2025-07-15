@@ -73,7 +73,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 >
                     <Combobox>
                         <Combobox.Search placeholder="Filter organizations..." />
-                        <Combobox.Content className="max-h-[calc(90vh-100px)]">
+                        <Combobox.Content>
                             <Label intent="menu" className="px-2">
                                 Organizations
                             </Label>

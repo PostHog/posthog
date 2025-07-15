@@ -8,7 +8,7 @@ use crate::{
     },
     team::team_models::Team,
 };
-use common_database::Client as DatabaseClient;
+use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use std::sync::Arc;
@@ -17,14 +17,14 @@ use std::sync::Arc;
 pub struct FlagService {
     redis_reader: Arc<dyn RedisClient + Send + Sync>,
     redis_writer: Arc<dyn RedisClient + Send + Sync>,
-    pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+    pg_client: PostgresReader,
 }
 
 impl FlagService {
     pub fn new(
         redis_reader: Arc<dyn RedisClient + Send + Sync>,
         redis_writer: Arc<dyn RedisClient + Send + Sync>,
-        pg_client: Arc<dyn DatabaseClient + Send + Sync>,
+        pg_client: PostgresReader,
     ) -> Self {
         Self {
             redis_reader,
@@ -57,7 +57,7 @@ impl FlagService {
                         (Ok(token), false)
                     }
                     Err(e) => {
-                        tracing::error!("Token validation failed for token '{}': {:?}", token, e);
+                        tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
                         inc(
                             TOKEN_VALIDATION_ERRORS_COUNTER,
                             &[("reason".to_string(), "token_not_found".to_string())],
@@ -296,7 +296,7 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
                 FeatureFlag {
@@ -314,7 +314,7 @@ mod tests {
                     },
                     deleted: false,
                     active: false,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
                 FeatureFlag {
@@ -343,7 +343,7 @@ mod tests {
                     },
                     deleted: false,
                     active: true,
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: Some(false),
                     version: Some(1),
                 },
             ],
