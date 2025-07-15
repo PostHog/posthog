@@ -12,6 +12,7 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
+    LemonTag,
     LemonTextArea,
     Link,
     Popover,
@@ -352,7 +353,9 @@ export default function SurveyEdit(): JSX.Element {
                                                             title="External survey"
                                                             description="Collect responses via an external link, hosted on PostHog"
                                                             value={SurveyType.Widget}
-                                                        />
+                                                        >
+                                                            <LemonTag type="warning">BETA</LemonTag>
+                                                        </PresentationTypeCard>
                                                     )}
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
