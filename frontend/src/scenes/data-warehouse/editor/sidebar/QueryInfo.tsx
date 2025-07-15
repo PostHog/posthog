@@ -535,9 +535,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 dataSource={upstream.nodes}
                             />
                         ) : (
-                            <div className="h-96 border border-border rounded-lg overflow-hidden">
-                                <UpstreamGraph codeEditorKey={codeEditorKey} />
-                            </div>
+                            <UpstreamGraph codeEditorKey={codeEditorKey} />
                         )}
                     </>
                 )}
