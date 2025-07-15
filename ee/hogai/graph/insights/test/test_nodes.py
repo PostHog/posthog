@@ -135,9 +135,10 @@ class TestInsightSearchNode(BaseTest):
 
     def test_format_search_results_no_results(self):
         """Test formatting when no results are found."""
-        result = self.node._format_search_results([], "test query")
+        state = AssistantState(messages=[])
+        result = self.node._format_search_results([], "test query", state)
 
-        self.assertIn("No insights found matching 'test query'", result)
+        self.assertIn("No genuinely relevant insights found matching 'test query'", result)
         self.assertIn("Suggest that the user try", result)
 
     def test_format_search_results_with_results(self):
@@ -147,14 +148,47 @@ class TestInsightSearchNode(BaseTest):
         # Use actual insight IDs
         selected_insights = [self.insight1.id, self.insight2.id]
 
-        result = self.node._format_search_results(selected_insights, "pageviews")
+        state = AssistantState(messages=[])
+        result = self.node._format_search_results(selected_insights, "pageviews", state)
 
-        self.assertIn("Found 2 insights matching 'pageviews'", result)
+        self.assertIn("Found 2 existing insights matching 'pageviews'", result)
         self.assertIn("**1. Daily Pageviews**", result)
         self.assertIn("**2. User Signup Funnel**", result)
         self.assertIn("Track daily website traffic", result)
         self.assertIn("Track user conversion through signup", result)
         self.assertIn("INSTRUCTIONS: Ask the user if they want to modify one of these insights", result)
+
+    def test_format_search_results_from_create_flow(self):
+        """Test formatting when called from create_and_query_insight flow."""
+        self.node._load_all_insights()
+
+        # Test with results found
+        selected_insights = [self.insight1.id]
+        state = AssistantState(
+            messages=[], root_tool_insight_type="trends", root_tool_insight_plan="Show me daily pageviews"
+        )
+
+        result = self.node._format_search_results(selected_insights, "pageviews", state)
+
+        self.assertIn("Found 1 existing insight", result)
+        self.assertIn("Daily Pageviews", result)
+        self.assertIn("I found 1 genuinely relevant insight for your request", result)
+        self.assertIn("create a new trends instead", result)
+
+    def test_format_search_results_from_create_flow_no_results(self):
+        """Test formatting when no results found in create flow."""
+        self.node._load_all_insights()
+
+        state = AssistantState(
+            messages=[], root_tool_insight_type="funnel", root_tool_insight_plan="Show me conversion funnel"
+        )
+
+        result = self.node._format_search_results([], "conversion", state)
+
+        self.assertIn("No existing insights were found that are genuinely relevant", result)
+        self.assertIn("I'll proceed to create a new funnel", result)
+        self.assertIn("Show me conversion funnel", result)
+        self.assertIn("INSTRUCTIONS: Clear the search_insights_query", result)
 
     def test_create_error_response(self):
         """Test creating error response."""
@@ -233,7 +267,7 @@ class TestInsightSearchNode(BaseTest):
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_search_insights_iteratively_fallback(self, mock_openai):
-        """Test iterative search fallback when LLM fails."""
+        """Test iterative search returns empty when LLM fails."""
         self.node._load_all_insights()
 
         # Mock LLM to raise an exception
@@ -241,10 +275,8 @@ class TestInsightSearchNode(BaseTest):
 
         result = self.node._search_insights_iteratively("test query")
 
-        # Should fallback to first 3 insights
-        self.assertEqual(len(result), 2)  # We only have 2 insights in test data
-        self.assertIn(self.insight1.id, result)
-        self.assertIn(self.insight2.id, result)
+        # Should return empty list (no fallback to random insights)
+        self.assertEqual(len(result), 0)
 
     @patch("ee.hogai.graph.insights.nodes.ChatOpenAI")
     def test_run_with_iterative_search(self, mock_openai):
