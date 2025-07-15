@@ -332,11 +332,8 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
             return null
         }
 
-        let chosenSampleRate = change.after
-        if (hasBefore && chosenSampleRate === null) {
-            // removing the sample rate is equivalent to 100%
-            chosenSampleRate = 1
-        }
+        // removing the sample rate is equivalent to 100%
+        const chosenSampleRate = change.after ?? 1
 
         return {
             description: [
