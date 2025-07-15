@@ -254,6 +254,7 @@ export function SessionRecordingsPlaylistTopSettings({
         menuItems.push({
             label: 'Add to new collection...',
             onClick: () => setIsNewCollectionDialogOpen(true),
+            'data-attr': 'add-to-new-collection',
         })
 
         if (!playlistsLoading) {
