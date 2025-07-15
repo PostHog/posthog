@@ -737,7 +737,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 scope="Replay",
                 activity="bulk_deleted",
                 detail=Detail(
-                    name=f"Bulk deletion of {deleted_count} session recordings",
+                    name=f"{deleted_count} session recordings",
                     changes=None,
                 ),
             )
