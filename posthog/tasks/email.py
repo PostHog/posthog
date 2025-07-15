@@ -522,7 +522,7 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
     if not memberships_to_email:
         return
 
-    campaign_key = f"hog_functions_daily_digest_{team_id}_{digest_data['date_str']}"
+    campaign_key = f"hog_functions_daily_digest_{team_id}_{timezone.now().strftime('%Y-%m-%d')}"
 
     message = EmailMessage(
         campaign_key=campaign_key,
@@ -530,7 +530,6 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         template_name="hog_functions_daily_digest",
         template_context={
             "team": team,
-            "date": digest_data["formatted_date"],
             "functions": digest_data["functions"],
             "site_url": settings.SITE_URL,
         },
@@ -549,15 +548,9 @@ def send_hog_functions_daily_digest() -> None:
     Send daily digest email to teams with HogFunctions that have failures.
     Queries ClickHouse first to find failures, then fans out to team-specific tasks.
     """
-    from datetime import timedelta
     from posthog.clickhouse.client import sync_execute
 
     logger.info("Starting HogFunctions daily digest task")
-
-    # Calculate date string for email subject/content
-    yesterday = timezone.now() - timedelta(days=1)
-    date_str = yesterday.strftime("%Y-%m-%d")
-    formatted_date = yesterday.strftime("%B %d, %Y")
 
     # Query ClickHouse to find all functions with failures
     failures_query = """
@@ -611,16 +604,14 @@ def send_hog_functions_daily_digest() -> None:
 
     # Fan out to team-specific tasks
     for team_id, failed_hog_function_ids in teams_with_failures.items():
-        send_team_hog_functions_digest.delay(team_id, failed_hog_function_ids, date_str, formatted_date)
+        send_team_hog_functions_digest.delay(team_id, failed_hog_function_ids)
         logger.info(f"Scheduled digest for team {team_id} with {len(failed_hog_function_ids)} failed functions")
 
     logger.info("Completed HogFunctions daily digest task")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
-def send_team_hog_functions_digest(
-    team_id: int, failed_hog_function_ids: list[str], date_str: str, formatted_date: str
-) -> None:
+def send_team_hog_functions_digest(team_id: int, failed_hog_function_ids: list[str]) -> None:
     """
     Send daily digest email for a specific team with their failed HogFunctions.
     """
@@ -714,8 +705,6 @@ def send_team_hog_functions_digest(
     # Prepare data for email (no summary totals needed)
     digest_data = {
         "team_id": team_id,
-        "date_str": date_str,
-        "formatted_date": formatted_date,
         "functions": function_metrics,
     }
 

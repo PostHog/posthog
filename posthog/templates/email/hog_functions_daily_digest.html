@@ -4,11 +4,11 @@
 
 {% block preheader %}Data Pipeline Failures Alert{% endblock %}
 
-{% block heading %}Data Pipeline Failures Alert for {{ date }}{% endblock %}
+{% block heading %}Data Pipeline Failures Alert{% endblock %}
 
 {% block section %}
 <p>
-    Your data pipelines had failures on <strong>{{ date }}</strong> in project <strong>{{ team.name }}</strong>. Here's what needs attention:
+    Your data pipelines had failures in the last 24 hours in project <strong>{{ team.name }}</strong>. Here's what needs attention:
 </p>
 
 <div class="mb mt">
