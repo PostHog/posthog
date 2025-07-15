@@ -2,6 +2,7 @@ import './LemonFileInput.scss'
 
 import clsx from 'clsx'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
@@ -51,12 +52,19 @@ export const LemonFileInput = ({
     let dragCounter = 0
     const [drag, setDrag] = useState(false)
     const dropRef = createRef<HTMLDivElement>()
+    const fileInputRef = createRef<HTMLInputElement>()
 
     useEffect(() => {
         if (value && value !== files) {
             setFiles(value)
         }
     }, [value])
+
+    const handleCallToActionClick = (): void => {
+        if (!disabled && fileInputRef.current) {
+            fileInputRef.current.click()
+        }
+    }
 
     const onInputChange = (e: ChangeEvent<HTMLInputElement>): void => {
         e.preventDefault()
@@ -147,27 +155,29 @@ export const LemonFileInput = ({
                 )}
                 aria-disabled={disabled}
             >
-                <label
+                <input
+                    ref={fileInputRef}
+                    className="hidden"
+                    type="file"
+                    multiple={multiple}
+                    accept={accept}
+                    onChange={onInputChange}
+                    disabled={disabled}
+                />
+                <div
                     className={clsx(
                         'text-secondary inline-flex flow-row items-center gap-1',
                         disabled ? 'cursor-not-allowed' : 'cursor-pointer'
                     )}
+                    onClick={handleCallToActionClick}
                 >
-                    <input
-                        className="hidden"
-                        type="file"
-                        multiple={multiple}
-                        accept={accept}
-                        onChange={onInputChange}
-                        disabled={disabled}
-                    />
                     {callToAction || (
-                        <>
-                            <IconUploadFile className="text-2xl" /> Click or drag and drop to upload
+                        <LemonButton icon={<IconUploadFile />} type="secondary">
+                            Click or drag and drop to upload
                             {accept ? ` ${acceptToDisplayName(accept)}` : ''}
-                        </>
+                        </LemonButton>
                     )}
-                </label>
+                </div>
                 {files.length > 0 && showUploadedFiles && (
                     <div className="flex flex-row gap-2">
                         {files.map((x, i) => (
