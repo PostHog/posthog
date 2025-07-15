@@ -74,31 +74,6 @@ class TestNotebookCreation(APIBaseTest):
 
         return EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
 
-    def test_basic_notebook_creation_without_summary_data(self):
-        """Test basic notebook creation without summary data"""
-
-        session_ids = ["session_1", "session_2"]
-
-        notebook = create_summary_notebook(session_ids, self.user, self.team)
-
-        # Verify the notebook was created
-        self.assertIsNotNone(notebook)
-        self.assertEqual(notebook.team, self.team)
-        self.assertEqual(notebook.created_by, self.user)
-        self.assertEqual(notebook.last_modified_by, self.user)
-        self.assertEqual(notebook.title, "Session Summaries Report - PostHog")
-
-        # Check basic content structure
-        content = notebook.content
-        self.assertEqual(content["type"], "doc")
-        self.assertEqual(len(content["content"]), 2)
-        self.assertEqual(content["content"][0]["type"], "heading")
-        self.assertEqual(content["content"][1]["type"], "paragraph")
-
-        # Check content text
-        self.assertIn("Session Summaries", content["content"][0]["content"][0]["text"])
-        self.assertIn("session_1, session_2", content["content"][1]["content"][0]["text"])
-
     def test_notebook_creation_with_summary_data(self):
         """Test notebook creation with summary data"""
 

@@ -430,7 +430,7 @@ class TestSummarizeSessionGroupWorkflow:
                 min_timestamp=datetime.now() - timedelta(days=1),
                 max_timestamp=datetime.now(),
             )
-            assert EnrichedSessionGroupSummaryPatternsList(**result) == expected_patterns
+            assert result == expected_patterns
 
     @pytest.mark.asyncio
     async def test_summarize_session_group_workflow(
