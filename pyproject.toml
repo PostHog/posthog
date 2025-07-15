@@ -154,6 +154,7 @@ dependencies = [
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-exporter-otlp-proto-grpc==1.33.1",
     "async-lru>=2.0.5",
+    "asgiref==3.9.1",
 ]
 
 [dependency-groups]

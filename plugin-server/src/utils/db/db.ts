@@ -18,6 +18,7 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
+    DistinctPersonIdentifiers,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -71,6 +72,11 @@ import {
     timeoutGuard,
     unparsePersonPartial,
 } from './utils'
+
+export type MoveDistinctIdsResult =
+    | { readonly success: true; readonly messages: TopicMessage[] }
+    | { readonly success: false; readonly error: 'TargetNotFound' }
+    | { readonly success: false; readonly error: 'SourceNotFound' }
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig
@@ -576,6 +582,24 @@ export class DB {
         }
     }
 
+    public async fetchPersonIdsByDistinctId(
+        distinctId: string,
+        teamId: number
+    ): Promise<DistinctPersonIdentifiers | null> {
+        const queryString = `SELECT posthog_person.id as person_id, posthog_person.uuid, posthog_person.team_id, posthog_persondistinctid.distinct_id
+            FROM posthog_person JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE posthog_persondistinctid.team_id = $1 AND posthog_persondistinctid.distinct_id = $2 LIMIT 1`
+
+        const { rows } = await this.postgres.query<DistinctPersonIdentifiers>(
+            PostgresUse.PERSONS_WRITE,
+            queryString,
+            [teamId, distinctId],
+            'fetchPersonIdsByDistinctId'
+        )
+
+        return rows.length > 0 ? rows[0] : null
+    }
+
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -939,7 +963,7 @@ export class DB {
         source: InternalPerson,
         target: InternalPerson,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -962,9 +986,14 @@ export class DB {
             ) {
                 // this is caused by a race condition where the _target_ person was deleted after fetching but
                 // before the update query ran and will trigger a retry with updated persons
-                throw new RaceConditionError(
-                    'Failed trying to move distinct IDs because target person no longer exists.'
-                )
+                logger.warn('😵', 'Target person no longer exists', {
+                    team_id: target.team_id,
+                    person_id: target.id,
+                })
+                return {
+                    success: false,
+                    error: 'TargetNotFound',
+                }
             }
 
             throw error
@@ -973,9 +1002,14 @@ export class DB {
         // this is caused by a race condition where the _source_ person was deleted after fetching but
         // before the update query ran and will trigger a retry with updated persons
         if (movedDistinctIdResult.rows.length === 0) {
-            throw new RaceConditionError(
-                `Failed trying to move distinct IDs because the source person no longer exists.`
-            )
+            logger.warn('😵', 'Source person no longer exists', {
+                team_id: source.team_id,
+                person_id: source.id,
+            })
+            return {
+                success: false,
+                error: 'SourceNotFound',
+            }
         }
 
         const kafkaMessages = []
@@ -991,7 +1025,7 @@ export class DB {
                 ],
             })
         }
-        return kafkaMessages
+        return { success: true, messages: kafkaMessages }
     }
 
     // Cohort & CohortPeople

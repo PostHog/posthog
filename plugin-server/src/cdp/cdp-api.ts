@@ -9,19 +9,24 @@ import { CdpSourceWebhooksConsumer } from './consumers/cdp-source-webhooks.consu
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { HogExecutorExecuteOptions, HogExecutorService } from './services/hog-executor.service'
-import { createHogFlowInvocation, HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
+import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { MessagingMailjetManagerService } from './services/messaging/mailjet-manager.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import { convertToHogFunctionInvocationGlobals } from './utils'
+import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
+import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
+    private nativeDestinationExecutorService: NativeDestinationExecutorService
+    private segmentDestinationExecutorService: SegmentDestinationExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     private hogFlowManager: HogFlowManagerService
@@ -37,6 +42,8 @@ export class CdpApi {
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
+        this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
+        this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
         this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
@@ -247,7 +254,14 @@ export class CdpApi {
                             : undefined,
                     }
 
-                    const response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                    let response: any = null
+                    if (isNativeHogFunction(compoundConfiguration)) {
+                        response = await this.nativeDestinationExecutorService.execute(invocation)
+                    } else if (isSegmentPluginHogFunction(compoundConfiguration)) {
+                        response = await this.segmentDestinationExecutorService.execute(invocation)
+                    } else {
+                        response = await this.hogExecutor.executeWithAsyncFunctions(invocation, options)
+                    }
 
                     logs = logs.concat(response.logs)
                     if (response.error) {
@@ -367,7 +381,17 @@ export class CdpApi {
                 },
             }
 
-            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration)
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: globals.event,
+                person: globals.person,
+                groups: globals.groups,
+            })
+
+            const invocation = this.hogFlowExecutor.createHogFlowInvocation(
+                triggerGlobals,
+                compoundConfiguration,
+                filterGlobals
+            )
             const response = await this.hogFlowExecutor.executeTest(invocation)
 
             res.json({
