@@ -11,6 +11,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -123,6 +124,39 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
             className="max-w-80"
         >
             Open in query debugger
+        </LemonButton>
+    )
+}
+
+const RetryButton = ({
+    onRetry,
+    query,
+}: {
+    onRetry: () => void
+    query?: Record<string, any> | Node | null
+}): JSX.Element => {
+    let sideAction = {}
+    if (query) {
+        sideAction = {
+            dropdown: {
+                overlay: (
+                    <LemonMenuOverlay
+                        items={[
+                            {
+                                label: 'Open in query debugger',
+                                to: urls.debugQuery(query),
+                            },
+                        ]}
+                    />
+                ),
+                placement: 'bottom-end',
+            },
+        }
+    }
+
+    return (
+        <LemonButton size="small" type="primary" onClick={() => onRetry()} sideAction={sideAction}>
+            Try again
         </LemonButton>
     )
 }
@@ -528,6 +562,7 @@ export interface InsightErrorStateProps {
     query?: Record<string, any> | Node | null
     queryId?: string | null
     fixWithAIComponent?: JSX.Element
+    onRetry?: () => void
 }
 
 export function InsightErrorState({
@@ -536,6 +571,7 @@ export function InsightErrorState({
     query,
     queryId,
     fixWithAIComponent,
+    onRetry,
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -585,7 +621,7 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                <QueryDebuggerButton query={query} />
+                {onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />}
                 {fixWithAIComponent ?? null}
             </div>
             <QueryIdDisplay queryId={queryId} />
