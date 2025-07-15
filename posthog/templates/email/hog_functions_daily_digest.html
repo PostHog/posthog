@@ -12,27 +12,6 @@
 </p>
 
 <div class="mb mt">
-    <h2>Summary</h2>
-    <p>
-        <strong>{{ total_functions }}</strong> function{{ total_functions|pluralize }} ran 
-        <strong>{{ total_runs }}</strong> time{{ total_runs|pluralize }}
-    </p>
-    
-    {% if total_succeeded > 0 %}
-        <p>✅ <strong>{{ total_succeeded }}</strong> successful run{{ total_succeeded|pluralize }}</p>
-    {% endif %}
-    
-    {% if total_failed > 0 %}
-        <p class="danger">❌ <strong>{{ total_failed }}</strong> failed run{{ total_failed|pluralize }}</p>
-    {% endif %}
-    
-    {% if total_filtered > 0 %}
-        <p>🔍 <strong>{{ total_filtered }}</strong> filtered run{{ total_filtered|pluralize }}</p>
-    {% endif %}
-</div>
-
-<div class="mb mt">
-    <h2>Function Details</h2>
     {% for function in functions %}
         <div class="mb">
             <h3>

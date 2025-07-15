@@ -250,7 +250,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-1",
                     "name": "Test Function 1",
                     "type": "destination",
-                    "status": "HEALTHY",
                     "succeeded": 150,
                     "failed": 5,
                     "filtered": 10,
@@ -261,7 +260,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function-2",
                     "name": "Test Function 2",
                     "type": "transformation",
-                    "status": "DEGRADED",
                     "succeeded": 200,
                     "failed": 50,
                     "filtered": 0,
@@ -269,11 +267,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
                 },
             ],
-            "total_functions": 2,
-            "total_succeeded": 350,
-            "total_failed": 55,
-            "total_filtered": 10,
-            "total_runs": 405,
         }
 
         send_hog_functions_digest_email(digest_data)
@@ -298,7 +291,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test-hog-function",
                     "name": "Test Function",
                     "type": "destination",
-                    "status": "HEALTHY",
                     "succeeded": 100,
                     "failed": 0,
                     "filtered": 5,
@@ -306,11 +298,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
                 }
             ],
-            "total_functions": 1,
-            "total_succeeded": 100,
-            "total_failed": 0,
-            "total_filtered": 5,
-            "total_runs": 100,
         }
 
         send_hog_functions_digest_email(digest_data)
@@ -337,7 +324,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "id": "test",
                     "name": "Test",
                     "type": "destination",
-                    "status": "HEALTHY",
                     "succeeded": 1,
                     "failed": 0,
                     "filtered": 0,
@@ -345,11 +331,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "url": "test",
                 }
             ],
-            "total_functions": 1,
-            "total_succeeded": 1,
-            "total_failed": 0,
-            "total_filtered": 0,
-            "total_runs": 1,
         }
 
         send_hog_functions_digest_email(digest_data)

@@ -532,11 +532,6 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
             "team": team,
             "date": digest_data["formatted_date"],
             "functions": digest_data["functions"],
-            "total_functions": digest_data["total_functions"],
-            "total_succeeded": digest_data["total_succeeded"],
-            "total_failed": digest_data["total_failed"],
-            "total_filtered": digest_data["total_filtered"],
-            "total_runs": digest_data["total_runs"],
             "site_url": settings.SITE_URL,
         },
     )
@@ -545,7 +540,7 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
         message.add_recipient(email=membership.user.email, name=membership.user.first_name)
 
     message.send()
-    logger.info(f"Sent HogFunctions digest email to team {team_id} with {digest_data['total_functions']} functions")
+    logger.info(f"Sent HogFunctions digest email to team {team_id} with {len(digest_data['functions'])} functions")
 
 
 @shared_task(ignore_result=True)
@@ -700,11 +695,8 @@ def send_team_hog_functions_digest(
         if hog_function_id in functions_data:
             functions_data[hog_function_id]["metrics"][metric_name] = count
 
-    # Build function metrics with calculated totals, only include functions with failures
+    # Build function metrics, only include functions with failures
     function_metrics = []
-    team_total_succeeded = 0
-    team_total_failed = 0
-    team_total_filtered = 0
 
     for function_data in functions_data.values():
         metrics = function_data["metrics"]
@@ -727,25 +719,17 @@ def send_team_hog_functions_digest(
             }
 
             function_metrics.append(function_info)
-            team_total_succeeded += succeeded
-            team_total_failed += failed
-            team_total_filtered += filtered
 
     if not function_metrics:
         logger.info(f"No functions with failures found for team {team_id}")
         return
 
-    # Pre-calculate all totals and formatted data for email
+    # Prepare data for email (no summary totals needed)
     digest_data = {
         "team_id": team_id,
         "date_str": date_str,
         "formatted_date": formatted_date,
         "functions": function_metrics,
-        "total_functions": len(function_metrics),
-        "total_succeeded": team_total_succeeded,
-        "total_failed": team_total_failed,
-        "total_filtered": team_total_filtered,
-        "total_runs": team_total_succeeded + team_total_failed,
     }
 
     send_hog_functions_digest_email.delay(digest_data)
