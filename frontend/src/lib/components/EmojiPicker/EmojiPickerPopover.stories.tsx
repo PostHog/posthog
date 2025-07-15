@@ -27,7 +27,7 @@ export default meta
 
 const BasicTemplate: StoryFn<typeof EmojiPickerPopover> = (props) => {
     return (
-        <div className="w-[750px] h-[750px] border rounded">
+        <div className="w-[325px] h-[370px] border rounded">
             <EmojiPickerPopover {...props} />
         </div>
     )

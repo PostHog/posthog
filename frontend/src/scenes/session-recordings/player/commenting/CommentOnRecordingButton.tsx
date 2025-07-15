@@ -7,6 +7,7 @@ import {
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { IconComment } from 'lib/lemon-ui/icons'
+import { IconEmoji } from '@posthog/icons'
 
 export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {
@@ -55,8 +56,9 @@ export function CommentOnRecordingButton(): JSX.Element {
             }
             data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
             active={isCommenting}
-            icon={<IconComment className="text-xl" />}
+            icon={<IconComment className="text-lg" />}
             sideAction={{
+                icon: <IconEmoji className="text-lg" />,
                 dropdown: {
                     placement: 'bottom-end',
                     overlay: <EmojiCommentRow />,
