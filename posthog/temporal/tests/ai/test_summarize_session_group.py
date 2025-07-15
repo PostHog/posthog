@@ -35,7 +35,7 @@ from posthog import constants
 from collections.abc import AsyncGenerator
 from posthog.temporal.tests.ai.conftest import AsyncRedisTestContext
 from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatCompletionMessage
-from datetime import datetime
+from datetime import datetime, timedelta
 from temporalio.testing import WorkflowEnvironment
 from posthog.temporal.ai import WORKFLOWS
 
@@ -407,7 +407,13 @@ class TestSummarizeSessionGroupWorkflow:
             new=AsyncMock(return_value=expected_patterns),
         ):
             # Wait for workflow to complete and get result
-            result = execute_summarize_session_group(session_ids=session_ids, user_id=mock_user.id, team=mock_team)
+            result = execute_summarize_session_group(
+                session_ids=session_ids,
+                user_id=mock_user.id,
+                team=mock_team,
+                min_timestamp=datetime.now() - timedelta(days=1),
+                max_timestamp=datetime.now(),
+            )
             assert result == expected_patterns
 
     @pytest.mark.asyncio
