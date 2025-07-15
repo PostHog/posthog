@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -42,7 +41,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import tag_queries, Product
-from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, CHQueryErrorCannotScheduleTask
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -997,13 +995,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not SessionReplayEvents().exists(str(recording.session_id), self.team):
             raise exceptions.NotFound("Recording not found")
 
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
-        if not environment_is_allowed or not has_openai_api_key:
-            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("session summary is not enabled for this user")
+        # TODO: Enable back after testing
+        # environment_is_allowed = settings.DEBUG or is_cloud()
+        # has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
+        # if not environment_is_allowed or not has_openai_api_key:
+        #     raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
+        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        #     raise exceptions.ValidationError("session summary is not enabled for this user")
 
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
