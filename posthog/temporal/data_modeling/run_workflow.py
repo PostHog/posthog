@@ -517,7 +517,7 @@ async def materialize_model(
             "Decimal value does not fit in precision" in error_message
             or "Rescaling Decimal128 value would cause data loss" in error_message
         ):
-            error_message = f"Decimal precision too high. Try reducing the precision of the decimal columns or using toInt() or toFloat() to a different column type."
+            error_message = f"Decimal precision issue. Try reducing the precision of the decimal columns, or using toInt() or toFloat() to a cast to a different column type."
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
             await mark_job_as_failed(job, error_message, logger)
