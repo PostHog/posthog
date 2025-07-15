@@ -9,6 +9,7 @@ from dags.web_preaggregated_utils import (
     CLICKHOUSE_SETTINGS_HOURLY,
     merge_clickhouse_settings,
     WEB_ANALYTICS_CONFIG_SCHEMA,
+    web_analytics_retry_policy_def,
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client import sync_execute
@@ -17,7 +18,7 @@ from posthog.models.web_preaggregated.sql import (
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_INSERT_SQL,
 )
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE, ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster
 
 
 WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
@@ -30,21 +31,39 @@ WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA = {
 }
 
 
+def _get_partitions(cluster: ClickhouseCluster, table_name: str) -> list[str]:
+    partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE table = '{table_name}' AND active = 1"
+    partitions_result = cluster.any_host(lambda client: client.execute(partition_query)).result()
+    return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
+
+
+def drop_all_partitions(cluster: ClickhouseCluster, table_name: str) -> None:
+    for partition_id in _get_partitions(cluster, table_name):
+        cluster.any_host(
+            lambda client, pid=partition_id: client.execute(f"ALTER TABLE {table_name} DROP PARTITION '{pid}'")
+        ).result()
+
+
+def swap_partitions_from_staging(cluster: ClickhouseCluster, target_table: str, staging_table: str) -> None:
+    for partition_id in _get_partitions(cluster, staging_table):
+        cluster.any_host(
+            lambda client, pid=partition_id: client.execute(
+                f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}"
+            )
+        ).result()
+
+
 def pre_aggregate_web_analytics_hourly_data(
     context: dagster.AssetExecutionContext,
     table_name: str,
     sql_generator: Callable,
+    cluster: ClickhouseCluster,
 ) -> None:
     config = context.op_config
     team_ids = config.get("team_ids", TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED)
     extra_settings = config.get("extra_clickhouse_settings", "")
     hours_back = config["hours_back"]
-
-    # Merge hourly settings with any extra settings
     clickhouse_settings = merge_clickhouse_settings(CLICKHOUSE_SETTINGS_HOURLY, extra_settings)
-    swap_settings = {
-        "distributed_ddl_task_timeout": "600",
-    }
 
     # Process the last N hours to handle any late-arriving data
     # Align with hour boundaries to match toStartOfHour() used in SQL, where we convert this to UTC,
@@ -57,7 +76,11 @@ def pre_aggregate_web_analytics_hourly_data(
     # Use a staging table to avoid downtime when swapping data
     staging_table_name = f"{table_name}_staging"
 
-    # First, populate the staging table
+    context.log.info(
+        f"Cleaning staging partitions {staging_table_name}: {_get_partitions(cluster, staging_table_name)}"
+    )
+    drop_all_partitions(cluster, staging_table_name)
+
     insert_query = sql_generator(
         date_start=date_start,
         date_end=date_end,
@@ -67,22 +90,17 @@ def pre_aggregate_web_analytics_hourly_data(
         granularity="hourly",
     )
 
-    sync_execute(
-        f"TRUNCATE TABLE {staging_table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)} SYNC",
-        settings=swap_settings,
-    )
-
-    # We intentionally log the query to make it easier to debug using the UI
-    context.log.info(f"Processing hourly data from {date_start} to {date_end}")
+    context.log.info(f"Populating staging table {staging_table_name} with data from {date_start} to {date_end}")
     context.log.info(insert_query)
 
     # Insert into staging table
     sync_execute(insert_query)
 
-    # Truncate main table and insert from staging
-    context.log.info(f"Swapping data from {staging_table_name} to {table_name}")
-    sync_execute(f"TRUNCATE TABLE {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)} SYNC", settings=swap_settings)
-    sync_execute(f"INSERT INTO {table_name} SELECT * FROM {staging_table_name}")
+    context.log.info(f"Swapping partitions from {staging_table_name} to {table_name}")
+    swap_partitions_from_staging(cluster, table_name, staging_table_name)
+
+    # Cleaning up staging tables to speed up the next run
+    drop_all_partitions(cluster, staging_table_name)
 
 
 @dagster.asset(
@@ -91,6 +109,7 @@ def pre_aggregate_web_analytics_hourly_data(
     config_schema=WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA,
     metadata={"table": "web_bounces_hourly"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    retry_policy=web_analytics_retry_policy_def,
 )
 def web_bounces_hourly(
     context: dagster.AssetExecutionContext,
@@ -101,7 +120,7 @@ def web_bounces_hourly(
     """
     query_tagging.get_query_tags().with_dagster(dagster_tags(context))
     return pre_aggregate_web_analytics_hourly_data(
-        context=context, table_name="web_bounces_hourly", sql_generator=WEB_BOUNCES_INSERT_SQL
+        context=context, table_name="web_bounces_hourly", sql_generator=WEB_BOUNCES_INSERT_SQL, cluster=cluster
     )
 
 
@@ -111,6 +130,7 @@ def web_bounces_hourly(
     config_schema=WEB_ANALYTICS_HOURLY_CONFIG_SCHEMA,
     metadata={"table": "web_stats_hourly"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    retry_policy=web_analytics_retry_policy_def,
 )
 def web_stats_hourly(
     context: dagster.AssetExecutionContext,
@@ -124,6 +144,7 @@ def web_stats_hourly(
         context=context,
         table_name="web_stats_hourly",
         sql_generator=WEB_STATS_INSERT_SQL,
+        cluster=cluster,
     )
 
 

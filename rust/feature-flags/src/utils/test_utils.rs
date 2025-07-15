@@ -284,7 +284,7 @@ pub async fn insert_flag_for_team_in_pg(
             name: Some("flag1 description".to_string()),
             active: true,
             deleted: false,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             team_id,
             filters: json!({
                 "groups": [
@@ -542,7 +542,7 @@ pub fn create_test_flag(
         }),
         deleted: deleted.unwrap_or(false),
         active: active.unwrap_or(true),
-        ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
+        ensure_experience_continuity: Some(ensure_experience_continuity.unwrap_or(false)),
         version: Some(1),
     }
 }
