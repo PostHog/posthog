@@ -102,7 +102,7 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
                 <Tooltip title={data.name} placement="top">
                     <div className="flex items-center w-full justify-between">
                         <div className="font-medium text-sm truncate max-w-[240px] block">{data.name}</div>
-                        {data.type === 'view' && (
+                        {data.type === 'view' && !data.isCurrentView && (
                             <LemonButton
                                 size="xxsmall"
                                 type="secondary"
