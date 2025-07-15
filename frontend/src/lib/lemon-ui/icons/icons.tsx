@@ -33,11 +33,11 @@ export function IconWithCount({
     )
 }
 
-export interface IconWithPlusVariantProps {
+export interface IconWithPlusProps {
     children: React.ReactNode
 }
 
-export function IconWithPlus({ children }: IconWithPlusVariantProps): JSX.Element {
+export function IconWithPlus({ children }: IconWithPlusProps): JSX.Element {
     return (
         <div className="relative">
             {children}
