@@ -5,16 +5,19 @@ import { PluginsServerConfig } from '../types'
 import { createRedis } from './db/redis'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
+import { PromiseScheduler } from './promise-scheduler'
 
 export class PubSub {
     private eventEmitter: EventEmitter
     private serverConfig: PluginsServerConfig
     private redisSubscriber?: Redis
     private redisPublisher?: Promise<Redis>
+    private promises: PromiseScheduler
 
     constructor(serverConfig: PluginsServerConfig) {
         this.eventEmitter = new EventEmitter()
         this.serverConfig = serverConfig
+        this.promises = new PromiseScheduler()
     }
 
     public async start(): Promise<void> {
@@ -34,6 +37,7 @@ export class PubSub {
             throw new Error('Unstarted PubSub cannot be stopped!')
         }
 
+        await this.promises.waitForAll()
         await this.redisSubscriber.unsubscribe()
 
         if (this.redisSubscriber) {
@@ -63,12 +67,12 @@ export class PubSub {
         await redisPublisher.publish(channel, message)
     }
 
-    public async on<T extends Record<string, any>>(channel: string, listener: (message: T) => void): Promise<void> {
+    public on<T extends Record<string, any>>(channel: string, listener: (message: T) => void): void {
         if (!this.redisSubscriber) {
             throw new Error('PubSub must be started before subscribing to channels!')
         }
 
-        await this.redisSubscriber.subscribe(channel)
+        void this.promises.schedule(this.redisSubscriber.subscribe(channel))
         this.eventEmitter.on(channel, (message) => listener(message ? parseJSON(message) : {}))
     }
 }

@@ -39,17 +39,13 @@ export class HogFlowManagerService {
             name: 'hog_flow_manager',
             loader: async (ids) => await this.fetchHogFlows(ids),
         })
-    }
 
-    public async start(): Promise<void> {
-        await this.hub.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
+        this.hub.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
             const { teamId, hogFlowIds } = message
             logger.debug('⚡', '[PubSub] Reloading hog flows!', { teamId, hogFlowIds })
             this.onHogFlowsReloaded(teamId, hogFlowIds)
         })
     }
-
-    public async stop(): Promise<void> {}
 
     public async getHogFlowsForTeams(teamIds: Team['id'][]): Promise<Record<Team['id'], HogFlow[]>> {
         const result = teamIds.reduce<Record<Team['id'], HogFlow[]>>((acc, teamId) => {

@@ -91,18 +91,13 @@ export class HogFunctionManagerService {
             name: 'hog_function_manager',
             loader: async (ids) => await this.fetchHogFunctions(ids),
         })
-    }
 
-    public async start(): Promise<void> {
-        await this.hub.pubSub.on<{ integrationIds: IntegrationType['id'][] }>(
-            'reload-integrations',
-            ({ integrationIds }) => {
-                logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds })
-                this.onIntegrationsReloaded(integrationIds)
-            }
-        )
+        this.hub.pubSub.on<{ integrationIds: IntegrationType['id'][] }>('reload-integrations', ({ integrationIds }) => {
+            logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds })
+            this.onIntegrationsReloaded(integrationIds)
+        })
 
-        await this.hub.pubSub.on<{ teamId: Team['id']; hogFunctionIds: HogFunctionType['id'][] }>(
+        this.hub.pubSub.on<{ teamId: Team['id']; hogFunctionIds: HogFunctionType['id'][] }>(
             'reload-hog-functions',
             ({ teamId, hogFunctionIds }) => {
                 logger.debug('⚡', '[PubSub] Reloading hog functions!', { teamId, hogFunctionIds })
@@ -110,8 +105,6 @@ export class HogFunctionManagerService {
             }
         )
     }
-
-    public async stop(): Promise<void> {}
 
     public async getHogFunctionsForTeams(
         teamIds: Team['id'][],

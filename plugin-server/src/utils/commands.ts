@@ -13,7 +13,13 @@ import { logger } from './logger'
  * don't need access to the pubsub redis
  */
 export class ServerCommands {
-    constructor(private hub: Hub) {}
+    constructor(private hub: Hub) {
+        this.hub.pubSub.on('reload-plugins', async (message) => await this.reloadPlugins(message))
+        this.hub.pubSub.on<{ pluginId: string }>(
+            'populate-plugin-capabilities',
+            async (message) => await this.populatePluginCapabilities(message)
+        )
+    }
 
     public get service(): PluginServerService {
         return {
@@ -34,14 +40,6 @@ export class ServerCommands {
         if (this.hub?.capabilities.appManagementSingleton) {
             await populatePluginCapabilities(this.hub, Number(pluginId))
         }
-    }
-
-    async start(): Promise<void> {
-        await this.hub.pubSub.on('reload-plugins', async (message) => await this.reloadPlugins(message))
-        await this.hub.pubSub.on<{ pluginId: string }>(
-            'populate-plugin-capabilities',
-            async (message) => await this.populatePluginCapabilities(message)
-        )
     }
 
     public router(): express.Router {

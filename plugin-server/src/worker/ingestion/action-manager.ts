@@ -18,6 +18,16 @@ export class ActionManager {
         this.started = false
         this.ready = false
         this.actionCache = {}
+
+        this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>(
+            'reload-action',
+            async ({ actionId, teamId }) => {
+                await this.reloadAction(teamId, actionId)
+            }
+        )
+        this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>('drop-action', ({ actionId, teamId }) => {
+            this.dropAction(teamId, actionId)
+        })
     }
 
     public async start(): Promise<void> {
@@ -26,16 +36,6 @@ export class ActionManager {
             return
         }
         this.started = true
-
-        await this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>(
-            'reload-action',
-            async ({ actionId, teamId }) => {
-                await this.reloadAction(teamId, actionId)
-            }
-        )
-        await this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>('drop-action', ({ actionId, teamId }) => {
-            this.dropAction(teamId, actionId)
-        })
 
         await this.reloadAllActions()
 
