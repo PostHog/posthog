@@ -1543,13 +1543,7 @@ def public_survey_page(request, survey_id: str):
 
     response = render(request, "surveys/public_survey.html", context)
 
-    # Security headers
-    response["X-Frame-Options"] = "DENY"
-    response["X-Content-Type-Options"] = "nosniff"
-    response["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response["Permissions-Policy"] = "accelerometer=(), camera=(), microphone=(), geolocation=()"
-    response["X-XSS-Protection"] = "1; mode=block"
-
+    response["X-Frame-Options"] = "DENY"  # Override global SAMEORIGIN to prevent iframe embedding
     # Cache headers
     response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
     response["Vary"] = "Accept-Encoding"  # Enable compression caching
