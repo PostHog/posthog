@@ -3,9 +3,8 @@ import dataclasses
 from datetime import datetime, timedelta
 import hashlib
 import json
-from typing import Sequence, cast
+from typing import cast
 import uuid
-from dagster import Any
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
@@ -24,7 +23,7 @@ from ee.session_recordings.session_summary.summarize_session import (
 )
 from posthog import constants
 from posthog.models.team.team import Team
-from posthog.schema import CachedSessionBatchEventsQueryResponse, SessionEventsItem
+from posthog.schema import CachedSessionBatchEventsQueryResponse
 from posthog.session_recordings.constants import DEFAULT_TOTAL_EVENTS_PER_QUERY
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
@@ -94,7 +93,7 @@ async def fetch_session_batch_events_activity(
     )
     # Fetch events for all uncached sessions
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
-    all_session_events: dict[str, list[Sequence[Any]]] = {}  # session_id -> list of events
+    all_session_events: dict[str, list[tuple]] = {}  # session_id -> list of events
     columns, offset, page_size = None, 0, DEFAULT_TOTAL_EVENTS_PER_QUERY
     # Paginate
     while True:
@@ -122,7 +121,7 @@ async def fetch_session_batch_events_activity(
                 session_id = session_item.session_id
                 if session_id not in all_session_events:
                     all_session_events[session_id] = []
-                all_session_events[session_id].extend(cast(list[Sequence[Any]], session_item.events))
+                all_session_events[session_id].extend([tuple(event) for event in session_item.events])
         # Check if we have more pages
         if not hasattr(response, "hasMore") or not response.hasMore:
             break
