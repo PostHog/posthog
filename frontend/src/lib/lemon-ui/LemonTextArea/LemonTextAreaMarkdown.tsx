@@ -84,7 +84,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                         />,
                                         <EmojiPickerPopover
                                             onSelect={(emoji: string) => {
-                                                onChange?.(value + ' ' + emoji)
+                                                onChange?.(value.trim() + ' ' + emoji)
                                             }}
                                         />,
                                     ]}
