@@ -1,10 +1,8 @@
 from datetime import datetime
-import os
+import json
 from typing import cast
 
-import posthoganalytics
 import structlog
-from django.conf import settings
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -16,8 +14,8 @@ from rest_framework.viewsets import GenericViewSet
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import tag_queries, Product
-from posthog.cloud_utils import is_cloud
 from posthog.models import User
+from posthog.models.notebook.notebook import Notebook
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
@@ -56,13 +54,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         tag_queries(product=Product.SESSION_SUMMARY)
         user = cast(User, request.user)
 
-        # Validate environment requirements
-        environment_is_allowed = settings.DEBUG or is_cloud()
-        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
-        if not environment_is_allowed or not has_openai_api_key:
-            raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("Session summaries are not enabled for this user")
+        # TODO: Enable back after testing
+        # # Validate environment requirements
+        # environment_is_allowed = settings.DEBUG or is_cloud()
+        # has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
+        # if not environment_is_allowed or not has_openai_api_key:
+        #     raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
+        # if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        #     raise exceptions.ValidationError("Session summaries are not enabled for this user")
 
         # Validate input
         serializer = self.get_serializer(data=request.data)
@@ -78,6 +77,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         # Summarize provided sessions
         try:
+            # Create notebook before returning the summary
+            self._create_summary_notebook(session_ids, user)
+            # raise
             result = execute_summarize_session_group(
                 session_ids=session_ids,
                 user_id=user.pk,
@@ -87,7 +89,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 extra_summary_context=extra_summary_context,
                 local_reads_prod=False,
             )
-            return Response(result.model_dump(exclude_none=True), status=status.HTTP_200_OK)
+            with open("summary.json", "w") as f:
+                f.write(json.dumps(result, indent=4))
+            return Response(result, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
                 f"Failed to generate session group summary for sessions {session_ids} from team {self.team.pk} by user {user.pk}: {err}",
@@ -119,41 +123,29 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             )
         return min_timestamp, max_timestamp
 
+    def _create_summary_notebook(self, session_ids: list[str], user: User) -> Notebook:
+        """Create a notebook with header and session IDs covered"""
+        notebook_content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "heading",
+                    "attrs": {"level": 1},
+                    "content": [{"type": "text", "text": "Summaries generated"}],
+                },
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": f"Session ids covered: {', '.join(session_ids)}"}],
+                },
+            ],
+        }
 
-#   from posthog.models.notebook.notebook import Notebook
-#   from posthog.models.team import Team
-#   from posthog.models.user import User
+        notebook = Notebook.objects.create(
+            team=self.team,
+            title="Session Summaries",
+            content=notebook_content,
+            created_by=user,
+            last_modified_by=user,
+        )
 
-#   # Create notebook content
-#   notebook_content = {
-#       "type": "doc",
-#       "content": [
-#           {
-#               "type": "heading",
-#               "attrs": {"level": 1},
-#               "content": [{"type": "text", "text": "My Notebook Title"}]
-#           },
-#           {
-#               "type": "ph-image",
-#               "attrs": {
-#                   "height": 300,
-#                   "title": "Example Image",
-#                   "nodeId": "unique-image-id",
-#                   "src": "https://example.com/image.jpg",
-#                   "file": None
-#               }
-#           },
-#           {
-#               "type": "paragraph",
-#               "content": [
-#                   {"type": "text", "text": "Check out "},
-#                   {
-#                       "type": "text",
-#                       "marks": [{"type": "link", "attrs": {"href": "https://posthog.com", "target": "_blank"}}],
-#                       "text": "PostHog"
-#                   },
-#                   {"type": "text", "text": " for more information!"}
-#               ]
-#           }
-#       ]
-#   }
+        return notebook
