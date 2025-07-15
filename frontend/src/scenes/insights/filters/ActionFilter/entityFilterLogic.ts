@@ -52,6 +52,8 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
+        // The first step of a funnel cannot be optional
+        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
     }))
 
     return {
@@ -91,6 +93,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             math_hogql: filter.math_hogql,
             index: filter.index,
             math_group_type_index: filter.math_group_type_index,
+            optionalInFunnel: filter.optionalInFunnel,
         }),
         updateFilter: (
             filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {

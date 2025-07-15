@@ -25,9 +25,13 @@ export function FunnelBarHorizontal({
     showPersonsModal: showPersonsModalProp = true,
 }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter, breakdownFilter } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const {
+        visibleStepsWithConversionMetrics,
+        aggregationTargetLabel,
+        funnelsFilter,
+        breakdownFilter,
+        isStepOptional,
+    } = useValues(funnelDataLogic(insightProps))
 
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
@@ -39,11 +43,19 @@ export function FunnelBarHorizontal({
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
 
+    // Check if any steps are optional
+    const hasOptionalSteps = steps.some((_, stepIndex) => isStepOptional(stepIndex + 1))
+
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-horizontal" className={clsx('FunnelBarHorizontal')} ref={graphRef}>
+        <div
+            data-attr="funnel-bar-horizontal"
+            className={clsx('FunnelBarHorizontal', { 'has-optional-steps': hasOptionalSteps })}
+            ref={graphRef}
+        >
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
+                const isOptional = isStepOptional(stepIndex + 1)
                 const showLineBefore = stepIndex > 0
                 const showLineAfter = stepIndex < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(
@@ -59,12 +71,11 @@ export function FunnelBarHorizontal({
                     step.nested_breakdown?.length !== undefined &&
                     !(step.nested_breakdown.length === 1)
 
-                const dropOffCount = step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
-
                 return (
-                    <section key={step.order} className="funnel-step">
-                        <div className="funnel-series-container">
+                    <section key={step.order} className={clsx('funnel-step', { 'funnel-step--optional': isOptional })}>
+                        <div className={clsx('funnel-series-container', { 'optional-step': isOptional })}>
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
+                            {isOptional && hasOptionalSteps && <div className="optional-connector" />}
                             {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                 <SeriesGlyph variant="funnel-step-glyph">
                                     <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
@@ -83,6 +94,7 @@ export function FunnelBarHorizontal({
                                         <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
                                     )}
                                 </div>
+                                {isOptional ? <div className="ml-1 text-xs">(optional)</div> : null}
                                 {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
@@ -203,7 +215,7 @@ export function FunnelBarHorizontal({
                                         />
                                         <b>
                                             {pluralize(
-                                                dropOffCount,
+                                                step.droppedOffFromPrevious,
                                                 aggregationTargetLabel.singular,
                                                 aggregationTargetLabel.plural
                                             )}
