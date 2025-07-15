@@ -49,6 +49,8 @@ from .trends.nodes import (
     TrendsPlannerToolsNode,
 )
 
+from .insights.nodes import InsightSearchNode
+
 global_checkpointer = DjangoCheckpointer()
 
 
@@ -320,6 +322,7 @@ class AssistantGraph(BaseAssistantGraph):
             "root": AssistantNodeName.ROOT,
             "memory_onboarding": AssistantNodeName.MEMORY_ONBOARDING,
             "end": AssistantNodeName.END,
+            "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
         }
         root_node = RootNode(self._team, self._user)
         builder.add_node(AssistantNodeName.ROOT, root_node)
@@ -456,6 +459,22 @@ class AssistantGraph(BaseAssistantGraph):
         builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
+    def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
+        builder = self._graph
+        path_map = {
+            "end": end_node,
+            "root": AssistantNodeName.ROOT,
+        }
+
+        insights_search_node = InsightSearchNode(self._team, self._user)
+        builder.add_node(AssistantNodeName.INSIGHTS_SEARCH, insights_search_node)
+        builder.add_conditional_edges(
+            AssistantNodeName.INSIGHTS_SEARCH,
+            insights_search_node.router,
+            path_map=cast(dict[Hashable, str], path_map),
+        )
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         return (
             self.add_title_generator()
@@ -465,5 +484,6 @@ class AssistantGraph(BaseAssistantGraph):
             .add_root()
             .add_insights()
             .add_inkeep_docs()
+            .add_insights_search()
             .compile(checkpointer=checkpointer)
         )
