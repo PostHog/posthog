@@ -58,10 +58,10 @@ describe('groupsListLogic', () => {
         logic.mount()
 
         // Group 1 logic should not pick up group 0 filters
-        expect((logic.values.query.source as GroupsQuery).properties).toBeUndefined()
+        expect((logic.values.query.source as GroupsQuery).properties).toEqual([])
     })
 
-    it('should clear filters when navigating to clean URL', async () => {
+    it('should not clear filters when navigating to clean URL', async () => {
         logic = groupsListLogic({ groupTypeIndex: 0 })
         logic.mount()
 
@@ -75,7 +75,7 @@ describe('groupsListLogic', () => {
         // Navigate to clean URL (no properties parameter)
         router.actions.push('/groups/0', {})
 
-        expect((logic.values.query.source as GroupsQuery).properties).toBeUndefined()
+        expect((logic.values.query.source as GroupsQuery).properties).toEqual(mockFilters)
     })
 
     it('should update groupFilters state when filters are set', async () => {
@@ -171,7 +171,7 @@ describe('groupsListLogic', () => {
         logic.mount()
 
         // Should not crash and should not apply any filters
-        expect((logic.values.query.source as GroupsQuery).properties).toBeUndefined()
+        expect((logic.values.query.source as GroupsQuery).properties).toEqual([])
     })
 
     it('should handle missing team ID gracefully', async () => {

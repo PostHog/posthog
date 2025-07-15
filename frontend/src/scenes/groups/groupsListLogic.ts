@@ -125,12 +125,12 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 } catch (error: any) {
                     posthog.captureException('Failed to parse properties', error)
                 }
-            } else if (values.query.source.properties?.length) {
+            } else {
                 actions.setQuery({
                     ...values.query,
                     source: {
                         ...values.query.source,
-                        properties: undefined,
+                        properties: values.groupFilters,
                     },
                 })
             }
@@ -149,21 +149,6 @@ export const groupsListLogic = kea<groupsListLogicType>([
                 },
             })
             actions.setQueryWasModified(false)
-        }
-
-        const shouldRestoreFiltersFromLocalStorage =
-            values.query.source.kind === NodeKind.GroupsQuery &&
-            !values.query.source?.properties?.length &&
-            values.groupFilters?.length
-        // node kind check is repeated because otherwise the type checking fails
-        if (shouldRestoreFiltersFromLocalStorage && values.query.source.kind === NodeKind.GroupsQuery) {
-            actions.setQuery({
-                ...values.query,
-                source: {
-                    ...values.query.source,
-                    properties: values.groupFilters,
-                },
-            })
         }
     }),
 ])
