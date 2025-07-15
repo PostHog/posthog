@@ -16,38 +16,16 @@ export type IntegrationType = {
 
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationType>
-    private started: boolean
-    private pubSub: PubSub
 
     constructor(private hub: Hub) {
-        this.started = false
-
-        this.pubSub = new PubSub(this.hub, {
-            'reload-integrations': (message) => {
-                const { integrationIds } = parseJSON(message) as {
-                    integrationIds: IntegrationType['id'][]
-                }
-                logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds })
-                this.onIntegrationsReloaded(integrationIds)
-            },
-        })
         this.lazyLoader = new LazyLoader({
             name: 'integration_manager',
             loader: async (ids) => await this.fetchIntegrations(ids),
         })
-    }
-
-    public async start(): Promise<void> {
-        // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
-        if (this.started) {
-            return
-        }
-        this.started = true
-        await this.pubSub.start()
-    }
-
-    public async stop(): Promise<void> {
-        await this.pubSub.stop()
+        this.hub.pubSub.on<{ integrationIds: IntegrationType['id'][] }>('reload-integrations', (message) => {
+            logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds: message.integrationIds })
+            this.onIntegrationsReloaded(message.integrationIds)
+        })
     }
 
     public async get(id: IntegrationType['id']): Promise<IntegrationType | null> {
