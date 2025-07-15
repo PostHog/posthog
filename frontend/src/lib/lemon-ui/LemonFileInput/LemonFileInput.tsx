@@ -14,8 +14,8 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * are the files currently being uploaded?
      */
     loading?: boolean
-    /** Whether input field is disabled */
-    disabled?: boolean
+    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
+    disabledReason?: string | null
     /** if this is not provided then this component is the drop target
      * and is styled when a file is dragged over it
      * if this alternativeDropTargetRef is provided,
@@ -38,7 +38,7 @@ export const LemonFileInput = ({
     onChange,
     multiple,
     loading,
-    disabled,
+    disabledReason,
     // e.g. '.json' or 'image/*'
     accept,
     alternativeDropTargetRef,
@@ -61,7 +61,7 @@ export const LemonFileInput = ({
     }, [value])
 
     const handleCallToActionClick = (): void => {
-        if (!disabled && fileInputRef.current) {
+        if (disabledReason === undefined && fileInputRef.current) {
             fileInputRef.current.click()
         }
     }
@@ -153,7 +153,7 @@ export const LemonFileInput = ({
                     'FileDropTarget flex flex-col gap-1',
                     !alternativeDropTargetRef?.current && drag && 'FileDropTarget--active'
                 )}
-                aria-disabled={disabled}
+                aria-disabled={!!disabledReason}
             >
                 <input
                     ref={fileInputRef}
@@ -162,17 +162,17 @@ export const LemonFileInput = ({
                     multiple={multiple}
                     accept={accept}
                     onChange={onInputChange}
-                    disabled={disabled}
+                    disabled={!!disabledReason}
                 />
                 <div
                     className={clsx(
                         'text-secondary inline-flex flow-row items-center gap-1',
-                        disabled ? 'cursor-not-allowed' : 'cursor-pointer'
+                        disabledReason ? 'cursor-not-allowed' : 'cursor-pointer'
                     )}
                     onClick={handleCallToActionClick}
                 >
                     {callToAction || (
-                        <LemonButton icon={<IconUploadFile />} type="tertiary">
+                        <LemonButton icon={<IconUploadFile />} type="tertiary" disabledReason={disabledReason}>
                             Click or drag and drop to upload
                             {accept ? ` ${acceptToDisplayName(accept)}` : ''}
                         </LemonButton>
