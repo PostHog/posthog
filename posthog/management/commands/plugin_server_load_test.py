@@ -99,7 +99,9 @@ class Command(BaseCommand):
 
         start_time = time.monotonic()
         for event in ordered_events:
-            # using non-batch capture internal atm since these are ordered; will be slower to exec in serial
+            # revisit if this tool is still a thing:
+            # we're using non-batch capture internal atm since these events ordered.
+            # loop will exec in serial; batch is better for load test
             new_capture_internal(
                 token,
                 event.distinct_id,
