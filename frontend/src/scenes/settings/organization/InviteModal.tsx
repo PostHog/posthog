@@ -96,7 +96,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                         }))}
                         onChange={(projectId) => {
                             if (projectId) {
-                                addProjectAccess(Number(projectId), 'member')
+                                addProjectAccess(Number(projectId), TeamMembershipLevel.Member)
                             }
                         }}
                     />
@@ -154,10 +154,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                                         }
                                         onChange={(level) => {
                                             if (level) {
-                                                updateProjectAccess(
-                                                    access.id,
-                                                    level === TeamMembershipLevel.Member ? 'member' : 'admin'
-                                                )
+                                                updateProjectAccess(access.id, level)
                                             }
                                         }}
                                     />
@@ -182,7 +179,6 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
-    const hasProjectAccessFeature = useFeatureFlag('INVITE_PROJECT_ACCESS')
 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
@@ -278,7 +274,7 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
                 )}
             </div>
 
-            {hasAdvancedPermissions && hasProjectAccessFeature && <ProjectAccessSelector inviteIndex={index} />}
+            {hasAdvancedPermissions && 'hasProjectAccessFeature' && <ProjectAccessSelector inviteIndex={index} />}
         </div>
     )
 }
