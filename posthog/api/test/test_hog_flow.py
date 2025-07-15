@@ -12,22 +12,29 @@ class TestHogFlowAPI(APIBaseTest):
                     "type": "webhook",
                     "filters": {},
                 },
-                "actions": {
-                    "action_1": {
+                "actions": [
+                    {
+                        "name": "action_1",
                         "hasCompiledConfigInputs": True,
                         "config": {"inputs": {"key": "value"}},
-                    }
-                },
+                    },
+                    {
+                        "name": "action_2",
+                        "hasCompiledConfigInputs": False,
+                        "config": {"inputs": {"key": "value"}},
+                    },
+                ],
             },
             format="json",
         )
         self.assertEqual(response.status_code, 201, response.json())
         hog_flow = HogFlow.objects.get(pk=response.json()["id"])
-        self.assertIn("bytecode", hog_flow.actions["action_1"]["config"]["inputs"])
+        self.assertIn("bytecode", hog_flow.actions[0]["config"]["inputs"])
+        self.assertNotIn("bytecode", hog_flow.actions[1]["config"]["inputs"])
 
         # Test that the bytecode is generated correctly
         self.assertListEqual(
-            hog_flow.actions["action_1"]["config"]["inputs"]["bytecode"]["key"],
+            hog_flow.actions[0]["config"]["inputs"]["bytecode"]["key"],
             ["_H", 1, 32, "value"],
         )
 
@@ -40,41 +47,43 @@ class TestHogFlowAPI(APIBaseTest):
                     "type": "webhook",
                     "filters": {},
                 },
-                "actions": {
-                    "action_1": {
+                "actions": [
+                    {
+                        "name": "action_1",
                         "hasCompiledConfigInputs": True,
                         "config": {"inputs": {"key": "value"}},
                     }
-                },
+                ],
             },
             format="json",
         )
         self.assertEqual(response.status_code, 201, response.json())
         hog_flow = HogFlow.objects.get(pk=response.json()["id"])
         self.assertListEqual(
-            hog_flow.actions["action_1"]["config"]["inputs"]["bytecode"]["key"],
+            hog_flow.actions[0]["config"]["inputs"]["bytecode"]["key"],
             ["_H", 1, 32, "value"],
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{hog_flow.id}",
             {
-                "actions": {
-                    "action_1": {
+                "actions": [
+                    {
+                        "name": "action_1",
                         "hasCompiledConfigInputs": True,
                         "config": {"inputs": {"key": "new_value"}},
                     }
-                },
+                ],
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, 200, response.json())
         hog_flow = HogFlow.objects.get(pk=response.json()["id"])
-        self.assertIn("bytecode", hog_flow.actions["action_1"]["config"]["inputs"])
+        self.assertIn("bytecode", hog_flow.actions[0]["config"]["inputs"])
 
         # Test that the bytecode is generated correctly
         self.assertListEqual(
-            hog_flow.actions["action_1"]["config"]["inputs"]["bytecode"]["key"],
+            hog_flow.actions[0]["config"]["inputs"]["bytecode"]["key"],
             ["_H", 1, 32, "new_value"],
         )
