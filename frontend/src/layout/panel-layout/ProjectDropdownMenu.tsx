@@ -1,10 +1,11 @@
-import { IconCheck, IconChevronRight, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonSnack, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import {
     PopoverPrimitive,
@@ -16,7 +17,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-
+import { cn } from 'lib/utils/css-classes'
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
@@ -30,7 +31,11 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-export function ProjectDropdownMenu({ buttonProps }: { buttonProps?: ButtonPrimitiveProps }): JSX.Element | null {
+export function ProjectDropdownMenu({
+    buttonProps = { className: 'font-semibold' },
+}: {
+    buttonProps?: ButtonPrimitiveProps
+}): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
@@ -43,22 +48,12 @@ export function ProjectDropdownMenu({ buttonProps }: { buttonProps?: ButtonPrimi
             <PopoverPrimitiveTrigger asChild>
                 <ButtonPrimitive
                     data-attr="tree-navbar-project-dropdown-button"
-                    className="flex-1 min-w-0 max-w-fit"
                     size="sm"
                     {...buttonProps}
+                    className={cn('flex-1 max-w-fit min-w-[40px]', buttonProps.className)}
                 >
-                    <span className="truncate font-semibold">{currentTeam.name ?? 'Project'}</span>
-                    <IconChevronRight
-                        className={`
-                        size-3 
-                        text-secondary 
-                        rotate-90 
-                        group-data-[state=open]/button-primitive:rotate-270 
-                        transition-transform 
-                        duration-200 
-                        prefers-reduced-motion:transition-none
-                    `}
-                    />
+                    <span className="truncate">{currentTeam.name ?? 'Project'}</span>
+                    <DropdownMenuOpenIndicator />
                 </ButtonPrimitive>
             </PopoverPrimitiveTrigger>
             <PopoverPrimitiveContent
