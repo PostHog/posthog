@@ -42,9 +42,17 @@ export interface EmojiPickerPopoverProps {
      * Defaults to false (closed)
      */
     defaultOpen?: boolean
+    /**
+     * the data-attr to set on the button that opens and closes the popover
+     */
+    'data-attr'?: string
 }
 
-export function EmojiPickerPopover({ onSelect, defaultOpen = false }: EmojiPickerPopoverProps): JSX.Element {
+export function EmojiPickerPopover({
+    onSelect,
+    defaultOpen = false,
+    'data-attr': dataAttr,
+}: EmojiPickerPopoverProps): JSX.Element {
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(defaultOpen)
 
     return (
@@ -82,6 +90,7 @@ export function EmojiPickerPopover({ onSelect, defaultOpen = false }: EmojiPicke
             }
         >
             <LemonButton
+                data-attr={dataAttr}
                 icon={<IconEmojiAdd />}
                 onClick={() => {
                     setEmojiPickerOpen(!emojiPickerOpen)

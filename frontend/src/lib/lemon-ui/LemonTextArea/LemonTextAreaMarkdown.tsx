@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { IconMarkdown, IconUploadFile } from 'lib/lemon-ui/icons'
@@ -12,10 +12,12 @@ import React, { useRef, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(
     function LemonTextAreaMarkdown({ value, onChange, className, ...editAreaProps }, ref): JSX.Element {
         const { objectStorageAvailable } = useValues(preflightLogic)
+        const { emojiUsed } = useActions(emojiUsageLogic)
 
         const [isPreviewShown, setIsPreviewShown] = useState(false)
         const dropRef = useRef<HTMLDivElement>(null)
@@ -84,8 +86,10 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                         />,
                                         <EmojiPickerPopover
                                             key="emoj-picker"
+                                            data-attr="lemon-text-area-markdown-emoji-popover"
                                             onSelect={(emoji: string) => {
                                                 onChange?.((value || '')?.trim() + ' ' + emoji)
+                                                emojiUsed(emoji)
                                             }}
                                         />,
                                     ]}

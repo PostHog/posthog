@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import {
-    playerCommentOverlayLogic,
-    quickEmojis,
-} from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
+import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { IconComment } from 'lib/lemon-ui/icons'
 import { IconEmoji } from '@posthog/icons'
+import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
+import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { useCallback, useState } from 'react'
 
 export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void }): JSX.Element {
     const {
@@ -16,21 +16,23 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
     } = useValues(sessionRecordingPlayerLogic)
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
     const { addEmojiComment } = useActions(theBuiltOverlayLogic)
+    const { favouriteEmojis } = useValues(emojiUsageLogic)
+    const { emojiUsed } = useActions(emojiUsageLogic)
+
+    const onSelectedEmoji = useCallback((emoji: string) => {
+        addEmojiComment(emoji)
+        emojiUsed(emoji)
+        onSelectEmoji?.()
+    }, [])
 
     return (
         <div className="flex flex-row items-center justify-around">
-            {quickEmojis.map((emoji) => (
-                <LemonButton
-                    key={emoji}
-                    onClick={() => {
-                        addEmojiComment(emoji)
-                        onSelectEmoji?.()
-                    }}
-                    data-attr="emoji-quick-comment-button"
-                >
-                    {emoji}
+            {favouriteEmojis.map((emoji) => (
+                <LemonButton key={emoji} onClick={() => onSelectedEmoji(emoji)} data-attr="emoji-quick-comment-button">
+                    <span className="text-xl">{emoji}</span>
                 </LemonButton>
             ))}
+            <EmojiPickerPopover onSelect={onSelectedEmoji} data-attr="quick-comment-emoji-popover" />
         </div>
     )
 }
@@ -38,6 +40,8 @@ export function EmojiCommentRow({ onSelectEmoji }: { onSelectEmoji?: () => void 
 export function CommentOnRecordingButton(): JSX.Element {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
+
+    const [quickEmojiIsOpen, setQuickEmojiIsOpen] = useState<boolean>(false)
 
     return (
         <LemonButton
@@ -59,9 +63,25 @@ export function CommentOnRecordingButton(): JSX.Element {
             icon={<IconComment className="text-lg" />}
             sideAction={{
                 icon: <IconEmoji className="text-lg" />,
+                onClick: () => {
+                    setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                },
                 dropdown: {
                     placement: 'bottom-end',
-                    overlay: <EmojiCommentRow />,
+                    overlay: (
+                        <EmojiCommentRow
+                            onSelectEmoji={() => {
+                                setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                            }}
+                        />
+                    ),
+                    // because of the emoji picker popover
+                    // we have to manually manage when the overlay closes
+                    visible: quickEmojiIsOpen,
+                    closeOnClickInside: false,
+                    onClickOutside: () => {
+                        setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                    },
                 },
                 'data-attr': 'emoji-comment-dropdown',
             }}
