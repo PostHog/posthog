@@ -409,13 +409,12 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return patterns_assignments
 
 
-async def _execute_workflow(
-    inputs: SessionGroupSummaryInputs, workflow_id: str
-) -> EnrichedSessionGroupSummaryPatternsList:
+async def _execute_workflow(inputs: SessionGroupSummaryInputs, workflow_id: str) -> dict:
     """Execute the workflow and return the final group summary."""
     client = await async_connect()
     retry_policy = RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS))
-    result: EnrichedSessionGroupSummaryPatternsList = await client.execute_workflow(
+    # Temporal returns EnrichedSessionGroupSummaryPatternsList deserialized to dict
+    result: dict = await client.execute_workflow(
         "summarize-session-group",
         inputs,
         id=workflow_id,
@@ -440,7 +439,7 @@ def execute_summarize_session_group(
     max_timestamp: datetime,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
-) -> EnrichedSessionGroupSummaryPatternsList:
+) -> dict:
     """
     Start the workflow and return the final summary for the group of sessions.
     """
