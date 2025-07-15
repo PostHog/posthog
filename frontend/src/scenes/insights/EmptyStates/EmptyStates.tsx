@@ -11,7 +11,6 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
@@ -52,7 +51,6 @@ import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
-import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -125,36 +123,6 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
             className="max-w-80"
         >
             Open in query debugger
-        </LemonButton>
-    )
-}
-
-const RetryButton = ({ query }: { query: Node }): JSX.Element => {
-    const { insightProps } = useValues(insightLogic)
-    const { loadData } = useActions(insightDataLogic(insightProps))
-
-    return (
-        <LemonButton
-            size="small"
-            type="primary"
-            onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
-            sideAction={{
-                dropdown: {
-                    overlay: (
-                        <LemonMenuOverlay
-                            items={[
-                                {
-                                    label: 'Open in query debugger',
-                                    to: urls.debugQuery(query),
-                                },
-                            ]}
-                        />
-                    ),
-                    placement: 'bottom-end',
-                },
-            }}
-        >
-            Try again
         </LemonButton>
     )
 }
@@ -617,7 +585,7 @@ export function InsightErrorState({
             )}
 
             <div className="flex gap-2 mt-4">
-                {query && <RetryButton query={query as Node} />}
+                <QueryDebuggerButton query={query} />
                 {fixWithAIComponent ?? null}
             </div>
             <QueryIdDisplay queryId={queryId} />
