@@ -22,15 +22,16 @@ import {
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import {} from 'lib/components/Cards/InsightCard/InsightDetails'
+import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import {} from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import posthog from 'posthog-js'
 import React, { useEffect, useMemo, useState } from 'react'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { twMerge } from 'tailwind-merge'
 
@@ -384,11 +385,15 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     isEditingInsight: boolean
 }): JSX.Element | null {
     const { insight } = useValues(insightSceneLogic)
-    const { suggestedInsight, previousQuery } = useValues(insightSceneLogic)
-    const { onRejectSuggestedInsight } = useActions(insightSceneLogic)
 
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
+    // const [isApplied, setIsApplied] = useState(false)
+
+    // Get insight props for the logic
+    const insightProps = { dashboardItemId: insight?.short_id }
+    const { previousQuery } = useValues(insightLogic(insightProps))
+    const { onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -431,37 +436,24 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               </LemonButton>
                           </div>
                           <div className="flex items-center gap-1.5">
-                              {isEditingInsight && suggestedInsight && previousQuery && (
+                              {isEditingInsight && previousQuery && (
                                   <LemonButton
                                       onClick={() => onRejectSuggestedInsight()}
-                                      status="danger"
+                                      // status="danger"
                                       icon={<IconX />}
                                       size="xsmall"
                                       tooltip="Reject Max's changes"
-                                  >
-                                      Reject changes
-                                  </LemonButton>
+                                  />
                               )}
-                              {/* {isEditingInsight ? (
-                                <LemonButton
-                                    onClick={() => {
-                                        setQuery(query)
-                                        setIsApplied(true)
-                                    }}
-                                    sideIcon={isApplied ? <IconCheck /> : <IconSync />}
-                                    size="xsmall"
-                                >
-                                    Apply to current insight
-                                </LemonButton>
-                            ) : (
-                                <LemonButton
-                                    to={urls.insightNew({ query })}
-                                    icon={<IconOpenInNew />}
-                                    size="xsmall"
-                                    targetBlank
-                                    tooltip="Open as new insight"
-                                />
-                            )} */}
+                              {isEditingInsight && (
+                                  <LemonButton
+                                      to={urls.insightNew({ query })}
+                                      icon={<IconOpenInNew />}
+                                      size="xsmall"
+                                      targetBlank
+                                      tooltip="Open as new insight"
+                                  />
+                              )}
                               <LemonButton
                                   icon={isCollapsed ? <IconEye /> : <IconHide />}
                                   onClick={() => setIsCollapsed(!isCollapsed)}
@@ -471,17 +463,17 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                               />
                           </div>
                       </div>
-                      {/* {isSummaryShown && (
-                        <>
-                            <SeriesSummary query={query.source} heading={null} />
-                            {!isHogQLQuery(query.source) && (
-                                <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                    <PropertiesSummary properties={query.source.properties} />
-                                    <BreakdownSummary query={query.source} />
-                                </div>
-                            )}
-                        </>
-                    )} */}
+                      {isSummaryShown && (
+                          <>
+                              <SeriesSummary query={query.source} heading={null} />
+                              {!isHogQLQuery(query.source) && (
+                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                      <PropertiesSummary properties={query.source.properties} />
+                                      <BreakdownSummary query={query.source} />
+                                  </div>
+                              )}
+                          </>
+                      )}
                   </MessageTemplate>
               </>
           )

@@ -1,10 +1,11 @@
-import { IconInfo, IconX } from '@posthog/icons'
+import { IconInfo, IconRefresh, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import {} from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { objectsEqual } from 'lib/utils'
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -23,7 +24,7 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -82,36 +83,60 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
 
-    const { setSuggestedInsight, onRejectSuggestedInsight } = useActions(insightSceneLogic)
-    const { previousQuery } = useValues(insightSceneLogic)
+    const { handleInsightSuggested, onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(
+        insightLogic(insightProps)
+    )
+    const { previousQuery, hasRejected, suggestedQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
-    // const storePreviousQuery = (query: any) => {
-    //     console.log('🔄 storePreviousQuery called with:', query)
-    //     console.log('🔄 current previousQuery state:', previousQuery)
-    //     _storePreviousQuery(query)
-    //     console.log('🔄 storePreviousQuery completed')
-    // }
-    // const hasScrolled = useRef(false)
+    const hasScrolled = useRef(false)
+
+    // Count differences between objects
+    const countDifferences = useCallback(
+        (obj1: any, obj2: any): { count: number; diffs: { key: string; val1: any; val2: any }[] } => {
+            let count = 0
+            let diffs = []
+            const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
+
+            for (const key of keys) {
+                const val1 = obj1?.[key]
+                const val2 = obj2?.[key]
+                if (Array.isArray(val1) && Array.isArray(val2)) {
+                    const val1Set = new Set(val1)
+                    const val2Set = new Set(val2)
+                    const hasChanged =
+                        val1Set.size !== val2Set.size || !Array.from(val1Set).every((item: any) => val2Set.has(item))
+                    if (hasChanged) {
+                        count += 1
+                        diffs.push({ key, val1, val2 })
+                    }
+                } else if (typeof val1 === 'object' && typeof val2 === 'object' && val1 && val2) {
+                    const { count: subCount, diffs: subDiffs } = countDifferences(val1, val2)
+                    count += subCount
+                    diffs.push(...subDiffs)
+                } else if (val1 !== val2) {
+                    count += 1
+                    diffs.push({ key, val1, val2 })
+                }
+            }
+            return { count, diffs }
+        },
+        [query, previousQuery]
+    )
 
     // Reset scroll flag when banner disappears
-    // useEffect(() => {
-    //     console.log('🔄 EditorFilters useEffect triggered', {
-    //         suggestedInsight: !!suggestedInsight,
-    //         previousQuery: !!previousQuery
-    //     })
-    //     if (!suggestedInsight || !previousQuery) {
-    //         hasScrolled.current = false
-    //     }
-    // }, [suggestedInsight, previousQuery])
+    useEffect(() => {
+        if (!previousQuery) {
+            hasScrolled.current = false
+        }
+    }, [previousQuery])
 
     if (!querySource) {
         return null
     }
 
     // MaxTool should not be active when insights are embedded (e.g., in notebooks)
-    const maxToolActive = !embedded
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -440,18 +465,18 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 | AssistantHogQLQuery
                         ) => {
                             const source = castAssistantQuery(toolOutput)
+                            let node: DataVisualizationNode | InsightVizNode
                             if (isHogQLQuery(source)) {
-                                const node = {
+                                node = {
                                     kind: NodeKind.DataVisualizationNode,
                                     source,
                                 } satisfies DataVisualizationNode
-
-                                setSuggestedInsight(node)
-                                setQuery(node)
                             } else {
-                                const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            }
 
-                                setSuggestedInsight(node)
+                            if (!objectsEqual(node.source, query)) {
+                                handleInsightSuggested(node)
                                 setQuery(node)
                             }
                         }}
@@ -480,81 +505,71 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         </div>
                     </MaxTool>
 
-                    {/* {query && previousQuery && (
-                        <div className="flex flex-col items-end gap-2">
-                            <div className="text-xs text-muted bg-surface-secondary px-2 py-1 rounded border">
-                                <span className="font-semibold">Max changed:</span>{' '}
-                                {(() => {
-                                    // Count differences between objects
-                                    const countDifferences = (obj1: any, obj2: any, only_count = ["breakdownFilter", "series",]): number => {
-                                        console.log('--------------------------------')
-                                        console.log(suggestedInsight)
-                                        console.log(previousQuery)
-                                        console.log('--------------------------------')
-                                        let count = 0
-                                        const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
-
-                                        for (const key of keys) {
-                                            const val1 = obj1?.[key]
-                                            const val2 = obj2?.[key]
-                                            if (val1 !== val2) {
-                                                // if (typeof val1 === 'object' && typeof val2 === 'object' && val1 && val2) {
-                                                //     count += countDifferences(val1, val2)
-                                                // } else {
-                                                //     count += 1
-                                                // }
-                                                count += 1
-                                            }
-                                        }
-                                        return count
-                                    }
-
-                                    const diffCount = countDifferences(suggestedInsight.source, previousQuery.source)
-                                    return `${diffCount} ${diffCount === 1 ? 'parameter' : 'parameters'}`
-                                })()}
-                            </div>
-                            <div
-                                className="inline-block bg-white border border-gray-300 rounded-md"
-                                // style={{ clipPath: 'polygon(0% 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%)' }}
-                                ref={(el) => {
-                                    if (el && !hasScrolled.current) {
-                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                        hasScrolled.current = true
-                                    }
-                                }}
-                            >
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => onRejectSuggestedInsight()}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                    icon={<IconX />}
-                                    className="!bg-transparent border-0"
-                                >
-                                    Reject Max's changes
-                                </LemonButton>
-                            </div>
-                        </div>
-                    )} */}
-
-                    {previousQuery && (
-                        <div className="w-full px-2 ">
+                    {(previousQuery || suggestedQuery) && (
+                        <div
+                            className="w-full px-2"
+                            ref={(el) => {
+                                if (el && !hasScrolled.current) {
+                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    hasScrolled.current = true
+                                }
+                            }}
+                        >
                             <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
                                 <div className="text-sm text-muted flex items-center gap-2 no-wrap">
-                                    <span className="size-2 bg-accent-active rounded-full" />3 changes from Max
+                                    <span className="size-2 bg-accent-active rounded-full" />
+                                    {(() => {
+                                        // Use suggestedQuery if available, otherwise use previousQuery
+                                        const comparisonQuery = suggestedQuery || previousQuery
+                                        const { count, diffs } = countDifferences(query, comparisonQuery)
+
+                                        let diffString = ''
+                                        diffs.forEach((diff) => {
+                                            diffString += `${diff.key}: ${diff.val1} -> ${diff.val2}\n`
+                                        })
+
+                                        return (
+                                            <div className="flex items-center gap-1">
+                                                <span>
+                                                    {count} {count === 1 ? 'change' : 'changes'}
+                                                </span>
+                                                {diffString && (
+                                                    <Tooltip
+                                                        title={<div className="whitespace-pre-line">{diffString}</div>}
+                                                    >
+                                                        <IconInfo className="text-sm text-muted cursor-help" />
+                                                    </Tooltip>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
                                 </div>
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        onRejectSuggestedInsight()
-                                        // storePreviousQuery(null)
-                                    }}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                    icon={<IconX />}
-                                >
-                                    Reject changes
-                                </LemonButton>
+                                <div className="flex gap-2">
+                                    {hasRejected && (
+                                        <LemonButton
+                                            status="default"
+                                            onClick={() => {
+                                                onReapplySuggestedInsight()
+                                            }}
+                                            tooltipPlacement="top"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                        >
+                                            Reapply
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => {
+                                            onRejectSuggestedInsight()
+                                        }}
+                                        tooltipPlacement="top"
+                                        size="small"
+                                        icon={<IconX />}
+                                    >
+                                        Reject changes
+                                    </LemonButton>
+                                </div>
                             </div>
                         </div>
                     )}
