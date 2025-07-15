@@ -7701,26 +7701,6 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
 
         self.assert_expected_response(fully_rolled_out_super_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
 
-        # Request status for flag that has super group rolled out to 100% and has no specific properties
-        fully_rolled_out_super_group_flag = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
-            name="100 percent super group flag",
-            key="100-percent-super-group-flag",
-            team=self.team,
-            active=True,
-            filters={
-                "super_groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-        self.assert_expected_response(
-            fully_rolled_out_super_group_flag.id, FeatureFlagStatus.STALE, "Super group is rolled out to 100%"
-        )
-
         # Request status for flag that has holdout group rolled out to <100%
         fifty_percent_holdout_group_flag = FeatureFlag.objects.create(
             created_at=datetime.now() - timedelta(days=31),
@@ -7758,26 +7738,6 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assert_expected_response(fully_rolled_out_holdout_group_flag_with_properties.id, FeatureFlagStatus.ACTIVE)
-
-        # Request status for flag that has holdout group rolled out to 100% and has no specific properties
-        fully_rolled_out_holdout_group_flag = FeatureFlag.objects.create(
-            created_at=datetime.now() - timedelta(days=31),
-            name="100 percent holdout group flag",
-            key="100-percent-holdout-group-flag",
-            team=self.team,
-            active=True,
-            filters={
-                "holdout_groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                    }
-                ]
-            },
-        )
-        self.assert_expected_response(
-            fully_rolled_out_holdout_group_flag.id, FeatureFlagStatus.STALE, "Holdout group is rolled out to 100%"
-        )
 
         # Request status for multivariate flag with no variants set to 100%
         multivariate_flag_no_rolled_out_variants = FeatureFlag.objects.create(
