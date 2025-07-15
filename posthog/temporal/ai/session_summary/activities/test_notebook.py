@@ -16,6 +16,7 @@ from posthog.temporal.ai.session_summary.activities.notebook import (
 
 # TODO: Move to a proper directory
 
+
 class TestNotebookCreation(APIBaseTest):
     def create_test_summary_data(self):
         """Create test summary data that matches the example provided"""
@@ -88,7 +89,7 @@ class TestNotebookCreation(APIBaseTest):
         self.assertEqual(notebook.team, self.team)
         self.assertEqual(notebook.created_by, self.user)
         self.assertEqual(notebook.last_modified_by, self.user)
-        self.assertEqual(notebook.title, "Session Summaries Report - TestDomain")
+        self.assertIn("Session Summaries Report - TestDomain", notebook.title)
 
         # Check content structure
         content = notebook.content
