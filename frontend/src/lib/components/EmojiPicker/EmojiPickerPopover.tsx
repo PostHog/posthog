@@ -30,28 +30,6 @@ const EmojiPickerEmojiButton = ({ emoji, ...props }: EmojiPickerListEmojiProps):
     </button>
 )
 
-const EmojiLoading = (): JSX.Element => {
-    return (
-        // get a type issue here that .Loading can't be used as a component,
-        // but it's just TS being silly
-        // @ts-expect-error
-        <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
-            Loading…
-        </EmojiPicker.Loading>
-    )
-}
-
-const EmojiEmpty = (): JSX.Element => {
-    return (
-        // get a type issue here that .Empty can't be used as a component,
-        // but it's just TS being silly
-        // @ts-expect-error
-        <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
-            No emoji found.
-        </EmojiPicker.Empty>
-    )
-}
-
 export interface EmojiPickerPopoverProps {
     /**
      * The action to take when a user selects an emoji
@@ -84,8 +62,12 @@ export function EmojiPickerPopover({ onSelect, defaultOpen = false }: EmojiPicke
                 >
                     <EmojiPicker.Search className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border" />
                     <EmojiPicker.Viewport className="relative flex-1 outline-hidden">
-                        <EmojiLoading />
-                        <EmojiEmpty />
+                        <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
+                            Loading…
+                        </EmojiPicker.Loading>
+                        <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
+                            No emoji found.
+                        </EmojiPicker.Empty>
                         <EmojiPicker.List
                             className="select-none pb-1.5"
                             components={{
@@ -99,7 +81,6 @@ export function EmojiPickerPopover({ onSelect, defaultOpen = false }: EmojiPicke
             }
         >
             <LemonButton
-                key="emoji"
                 icon={<IconEmojiAdd />}
                 onClick={() => {
                     setEmojiPickerOpen(!emojiPickerOpen)
