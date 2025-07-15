@@ -9,6 +9,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { promiseRetry } from '../../../utils/retries'
 import { captureIngestionWarning } from '../utils'
+import { BatchWritingPersonsStoreForBatch } from './batch-writing-person-store'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
@@ -99,8 +100,10 @@ export const isDistinctIdIllegal = (id: string): boolean => {
  */
 export class PersonMergeService {
     private personCreateService: PersonCreateService
+    private usingBatchWritingStore: boolean
     constructor(private context: PersonContext) {
         this.personCreateService = new PersonCreateService(context)
+        this.usingBatchWritingStore = context.personStore instanceof BatchWritingPersonsStoreForBatch
     }
 
     async handleIdentifyOrAlias(): Promise<[InternalPerson | undefined, Promise<void>]> {
@@ -149,7 +152,13 @@ export class PersonMergeService {
                 },
             })
             mergeFinalFailuresCounter.inc()
-            console.error('handleIdentifyOrAlias failed', e, this.context.event)
+            logger.error('handleIdentifyOrAlias failed', {
+                error: e,
+                distinctId: this.context.distinctId,
+                event_name: this.context.event.event,
+                anon_distinct_id: String(this.context.eventProperties['$anon_distinct_id']),
+                alias: String(this.context.eventProperties['alias']),
+            })
         } finally {
             clearTimeout(timeout)
         }
@@ -542,40 +551,41 @@ export class PersonMergeService {
 
                 return [mergedPerson, kafkaAck]
             } catch (error) {
-                if (error instanceof SourcePersonNotFoundError && attempt < maxRetries) {
-                    const refreshedPerson = await this.refreshPersonData(
-                        sourceDistinctId,
-                        currentSourcePerson.id,
-                        attempt,
-                        'source'
-                    )
+                if (attempt < maxRetries) {
+                    if (error instanceof SourcePersonNotFoundError) {
+                        const refreshedPerson = await this.refreshPersonData(
+                            sourceDistinctId,
+                            currentSourcePerson.id,
+                            attempt,
+                            'source'
+                        )
 
-                    if (!refreshedPerson) {
-                        return [currentTargetPerson, Promise.resolve()]
+                        if (!refreshedPerson) {
+                            return [currentTargetPerson, Promise.resolve()]
+                        }
+
+                        currentSourcePerson = refreshedPerson
+                        continue
+                    } else if (error instanceof TargetPersonNotFoundError) {
+                        const refreshedPerson = await this.refreshPersonData(
+                            targetDistinctId,
+                            currentTargetPerson.id,
+                            attempt,
+                            'target'
+                        )
+
+                        if (!refreshedPerson) {
+                            return [currentTargetPerson, Promise.resolve()]
+                        }
+
+                        currentTargetPerson = refreshedPerson
+                        continue
+                    } else {
+                        throw error
                     }
-
-                    currentSourcePerson = refreshedPerson
-                    continue
-                } else if (error instanceof TargetPersonNotFoundError && attempt < maxRetries) {
-                    const refreshedPerson = await this.refreshPersonData(
-                        targetDistinctId,
-                        currentTargetPerson.id,
-                        attempt,
-                        'target'
-                    )
-
-                    if (!refreshedPerson) {
-                        return [currentTargetPerson, Promise.resolve()]
-                    }
-
-                    currentTargetPerson = refreshedPerson
-                    continue
-                } else {
-                    throw error
                 }
             }
         }
-
         throw new MergeRaceConditionError(
             `Failed to merge persons due to concurrent merges, ` +
                 `source person: ${sourcePerson.id}, target person: ${targetPerson.id}, team: ${this.context.team.id} ` +
@@ -619,19 +629,16 @@ export class PersonMergeService {
             distinctId,
         })
 
-        // Refresh the person data using fetchPersonIdsByDistinctId to get latest person ID
-        const personData = await this.context.personStore.fetchPersonIdsByDistinctId(distinctId, this.context.team.id)
-
-        if (!personData) {
-            logger.info(`${personType} person no longer exists, skipping merge`, {
-                [`${personType}PersonId`]: currentPersonId,
-                teamId: this.context.team.id,
-                attempt,
-            })
-            return null
+        // Remove the distinct ID from the cache so that we don't try to use it again, if the store is the batch writing store
+        // TODO: this should be removed once we clean up the person store code
+        if (this.usingBatchWritingStore) {
+            ;(this.context.personStore as BatchWritingPersonsStoreForBatch).removeDistinctIdFromCache(
+                this.context.team.id,
+                distinctId
+            )
         }
 
-        // Fetch the refreshed person data using the new person ID
+        // Fetch the refreshed person data using the new distinct ID
         const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)
 
         if (!refreshedPerson) {
