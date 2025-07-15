@@ -15,7 +15,14 @@ import { PipelineStage, ProductKey } from '~/types'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
-import { CustomerCountTile, OverviewTile, RevenueGrowthRateTile, RevenueTile, TopCustomersTile } from './tiles'
+import {
+    ArpuTile,
+    CustomerCountTile,
+    OverviewTile,
+    RevenueGrowthRateTile,
+    RevenueTile,
+    TopCustomersTile,
+} from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -191,20 +198,12 @@ const RevenueAnalyticsTables = (): JSX.Element => {
         <div className="flex flex-col gap-4 mt-4">
             <OverviewTile />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="col-span-2">
-                    <RevenueTile />
-                </div>
-                <div className="col-span-2">
-                    <CustomerCountTile />
-                </div>
-
-                <div className="col-span-1">
-                    <RevenueGrowthRateTile />
-                </div>
-                <div className="col-span-1">
-                    <TopCustomersTile />
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <RevenueTile />
+                <ArpuTile />
+                <CustomerCountTile />
+                <RevenueGrowthRateTile />
+                <TopCustomersTile />
             </div>
         </div>
     )
