@@ -615,7 +615,7 @@ def WEB_BOUNCES_EXPORT_SQL(
 
 def create_combined_view_sql(table_prefix):
     return f"""
-    CREATE VIEW IF NOT EXISTS {table_prefix}_combined AS
+    CREATE OR REPLACE VIEW {table_prefix}_combined AS
     SELECT * FROM {table_prefix}_daily WHERE period_bucket < toStartOfDay(now(), 'UTC')
     UNION ALL
     SELECT * FROM {table_prefix}_hourly WHERE period_bucket >= toStartOfDay(now(), 'UTC')
