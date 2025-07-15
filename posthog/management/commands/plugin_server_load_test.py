@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import new_capture_internal
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.models import Team
 from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION
@@ -99,19 +99,17 @@ class Command(BaseCommand):
 
         start_time = time.monotonic()
         for event in ordered_events:
-            capture_internal(
-                event={
+            # using non-batch capture internal atm since these are ordered; will be slower to exec in serial
+            new_capture_internal(
+                token,
+                event.distinct_id,
+                {
                     **dataclasses.asdict(event),
                     "timestamp": event.timestamp.isoformat(),
                     "person_id": str(event.person_id),
                     "person_created_at": event.person_created_at.isoformat(),
                 },
-                distinct_id=event.distinct_id,
-                ip="",
-                site_url="",
-                token=token,
-                now=event.timestamp,
-                sent_at=event.timestamp,
+                True,  # allow person profile processing to occur as cfg for this token (team/project)
             )
 
         while True:
