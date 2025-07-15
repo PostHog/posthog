@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Literal, cast
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
@@ -29,6 +30,12 @@ WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
     WebStatsBreakdown.EXIT_PAGE,
 ]
 
+def _nullif_empty_decorator(func):
+    def wrapper(self):
+        result = func(self)
+        return wrap_with_null_if_empty(result)
+
+    return wrapper
 
 class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
@@ -203,15 +210,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
 
-    def _nullif_empty_decorator(func):
-        def wrapper(self):
-            result = func(self)
-            if self.runner.query.breakdownBy == WebStatsBreakdown.VIEWPORT:
-                return result
-            return ast.Call(name="nullIf", args=[result, ast.Constant(value="")])
-
-        return wrapper
-
     @_nullif_empty_decorator
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
@@ -258,7 +256,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        """Apply path cleaning to path expressions, similar to the non-pre-aggregated version"""
         if not self.runner.query.doPathCleaning:
             return path_expr
 
