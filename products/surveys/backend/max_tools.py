@@ -26,7 +26,7 @@ class SurveyCreatorTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
-    def _create_survey_from_instructions(self, instructions: str) -> tuple[str, dict[str, Any]]:
+    def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationOutput:
         """
         Create a survey from natural language instructions.
         """
@@ -68,29 +68,27 @@ class SurveyCreatorTool(MaxTool):
 
             result = self._create_survey_from_instructions(instructions)
             try:
-                validated_output = SurveyCreationOutput.model_validate(result.model_dump())
-
-                if not validated_output.questions:
+                if not result.questions:
                     return "❌ Survey must have at least one question", {
                         "error": "validation_failed",
                         "details": "No questions provided",
                     }
 
                 # Convert to PostHog survey format
-                survey_data = self._convert_to_posthog_format(validated_output, team)
+                survey_data = self._convert_to_posthog_format(result, team)
 
                 # Set launch date if requested
-                if validated_output.should_launch:
+                if result.should_launch:
                     survey_data["start_date"] = datetime.now()
 
                 # Create the survey directly using Django ORM
                 survey = Survey.objects.create(team=team, created_by=user, **survey_data)
 
-                launch_msg = " and launched" if validated_output.should_launch else ""
+                launch_msg = " and launched" if result.should_launch else ""
                 return f"✅ Survey '{survey.name}' created{launch_msg} successfully!", {
                     "survey_id": str(survey.id),
                     "survey_name": survey.name,
-                    "launched": validated_output.should_launch,
+                    "launched": result.should_launch,
                     "questions_count": len(survey.questions),
                 }
 
