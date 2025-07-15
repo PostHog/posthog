@@ -219,27 +219,26 @@ export function Playlist({
                         </div>
                     </div>
                 </div>
-                {!isFiltersExpanded && (
-                    <div
-                        className={clsx(
-                            'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
-                            {
-                                'Playlist--wide': size !== 'small',
-                                'Playlist--embedded': embedded,
-                            }
-                        )}
-                    >
-                        {content && (
-                            <div className="Playlist__main h-full">
-                                {' '}
-                                {typeof content === 'function' ? content({ activeItem }) : content}
-                            </div>
-                        )}
-                    </div>
-                )}
-                {isFiltersExpanded && filterContent && (
-                    <div className="bg-surface-primary border rounded-md p-2 w-full">{filterContent}</div>
-                )}
+                <div
+                    className={clsx(
+                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
+                        {
+                            'Playlist--wide': size !== 'small',
+                            'Playlist--embedded': embedded,
+                        }
+                    )}
+                >
+                    {!isFiltersExpanded && content && (
+                        <div className="Playlist__main h-full">
+                            {' '}
+                            {typeof content === 'function' ? content({ activeItem }) : content}
+                        </div>
+                    )}
+
+                    {isFiltersExpanded && filterContent && (
+                        <div className="bg-surface-primary p-2 w-full min-h-full">{filterContent}</div>
+                    )}
+                </div>
             </div>
         </>
     )

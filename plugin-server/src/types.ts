@@ -426,6 +426,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
+    cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     mmdb?: boolean
@@ -901,6 +902,13 @@ export interface Person {
     // sent with `$process_person_profile=false`. This is an unexpected branch that we want to flag
     // for debugging and billing purposes, and typically means a misconfigured SDK.
     force_upgrade?: boolean
+}
+
+export interface DistinctPersonIdentifiers {
+    person_id: string
+    uuid: string
+    distinct_id: string
+    team_id: number
 }
 
 /** Clickhouse Person model. */
