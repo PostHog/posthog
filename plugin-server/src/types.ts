@@ -905,7 +905,7 @@ export interface Person {
 }
 
 export interface DistinctPersonIdentifiers {
-    id: string
+    person_id: string
     uuid: string
     distinct_id: string
     team_id: number

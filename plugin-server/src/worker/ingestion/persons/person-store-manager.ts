@@ -347,8 +347,8 @@ export class PersonStoreManagerForBatch implements PersonsStoreForBatch {
         return mainResult
     }
 
-    async fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
-        const result = await this.mainStore.fetchPersonIdsById(distinctId, teamId)
+    async fetchPersonIdsByDistinctId(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
+        const result = await this.mainStore.fetchPersonIdsByDistinctId(distinctId, teamId)
         return result
     }
 

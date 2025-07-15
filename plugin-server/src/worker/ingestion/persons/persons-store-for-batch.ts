@@ -35,7 +35,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Fetches person IDs by distinct ID for retry logic
      */
-    fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null>
+    fetchPersonIdsByDistinctId(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null>
 
     /**
      * Creates a new person

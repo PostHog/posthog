@@ -33,7 +33,7 @@ type MethodName =
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
-    | 'fetchPersonIdsById'
+    | 'fetchPersonIdsByDistinctId'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
@@ -303,10 +303,10 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         return response
     }
 
-    async fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
-        this.incrementCount('fetchPersonIdsById', distinctId)
-        this.incrementDatabaseOperation('fetchPersonIdsById', distinctId)
-        const result = await this.db.fetchPersonIdsById(distinctId, teamId)
+    async fetchPersonIdsByDistinctId(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
+        this.incrementCount('fetchPersonIdsByDistinctId', distinctId)
+        this.incrementDatabaseOperation('fetchPersonIdsByDistinctId', distinctId)
+        const result = await this.db.fetchPersonIdsByDistinctId(distinctId, teamId)
         return result
     }
 

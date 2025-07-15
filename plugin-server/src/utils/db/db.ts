@@ -591,8 +591,11 @@ export class DB {
         }
     }
 
-    public async fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
-        const queryString = `SELECT posthog_person.id, posthog_person.uuid, posthog_person.team_id, posthog_persondistinctid.distinct_id
+    public async fetchPersonIdsByDistinctId(
+        distinctId: string,
+        teamId: number
+    ): Promise<DistinctPersonIdentifiers | null> {
+        const queryString = `SELECT posthog_person.id as person_id, posthog_person.uuid, posthog_person.team_id, posthog_persondistinctid.distinct_id
             FROM posthog_person JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
             WHERE posthog_persondistinctid.team_id = $1 AND posthog_persondistinctid.distinct_id = $2 LIMIT 1`
 
@@ -600,7 +603,7 @@ export class DB {
             PostgresUse.PERSONS_WRITE,
             queryString,
             [teamId, distinctId],
-            'fetchPersonIdsById'
+            'fetchPersonIdsByDistinctId'
         )
 
         return rows.length > 0 ? rows[0] : null

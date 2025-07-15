@@ -41,7 +41,7 @@ import { PersonsStoreForBatch } from './persons-store-for-batch'
 type MethodName =
     | 'fetchForChecking'
     | 'fetchForUpdate'
-    | 'fetchPersonIdsById'
+    | 'fetchPersonIdsByDistinctId'
     | 'fetchPerson'
     | 'updatePersonAssertVersion'
     | 'updatePersonNoAssert'
@@ -377,10 +377,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
         return fetchPromise
     }
-    async fetchPersonIdsById(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
-        this.incrementCount('fetchPersonIdsById', distinctId)
-        this.incrementDatabaseOperation('fetchPersonIdsById', distinctId)
-        const result = await this.db.fetchPersonIdsById(distinctId, teamId)
+    async fetchPersonIdsByDistinctId(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
+        this.incrementCount('fetchPersonIdsByDistinctId', distinctId)
+        this.incrementDatabaseOperation('fetchPersonIdsByDistinctId', distinctId)
+        const result = await this.db.fetchPersonIdsByDistinctId(distinctId, teamId)
         return result
     }
 

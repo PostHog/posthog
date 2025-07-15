@@ -529,8 +529,8 @@ export class PersonMergeService {
                         sourceDistinctId,
                     })
 
-                    // Refresh the source person data using fetchPersonIdsById to get latest person ID
-                    const personData = await this.context.personStore.fetchPersonIdsById(
+                    // Refresh the source person data using fetchPersonIdsByDistinctId to get latest person ID
+                    const personData = await this.context.personStore.fetchPersonIdsByDistinctId(
                         sourceDistinctId,
                         this.context.team.id
                     )
@@ -572,8 +572,8 @@ export class PersonMergeService {
                         targetDistinctId,
                     })
 
-                    // Refresh the target person data using fetchPersonIdsById to get latest person ID
-                    const personData = await this.context.personStore.fetchPersonIdsById(
+                    // Refresh the target person data using fetchPersonIdsByDistinctId to get latest person ID
+                    const personData = await this.context.personStore.fetchPersonIdsByDistinctId(
                         targetDistinctId,
                         this.context.team.id
                     )
