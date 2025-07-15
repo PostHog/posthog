@@ -1,11 +1,11 @@
 import './InviteModal.scss'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -16,6 +16,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { inviteLogic } from './inviteLogic'
+import { AvailableFeature } from '~/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -38,8 +40,149 @@ export function EmailUnavailableMessage(): JSX.Element {
     )
 }
 
+export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }): JSX.Element {
+    const { invitesToSend, availableProjects, projectAccessControls } = useValues(inviteLogic)
+    const {
+        updateInviteAtIndex,
+        addProjectAccess: addProjectAccessAction,
+        removeProjectAccess: removeProjectAccessAction,
+    } = useActions(inviteLogic)
+
+    const invite = invitesToSend[inviteIndex]
+    const selectedProjects = invite.private_project_access || []
+
+    // Check if organization level is admin or owner (which will override project access)
+    const isOrgLevelAdminOrOwner =
+        invite.level === OrganizationMembershipLevel.Admin || invite.level === OrganizationMembershipLevel.Owner
+
+    const availableProjectsToShow = availableProjects.filter(
+        (project: any) => !selectedProjects.some((selected) => selected.id === project.id)
+    )
+
+    const addProjectAccess = (projectId: number, level: TeamMembershipLevel): void => {
+        addProjectAccessAction(inviteIndex, projectId, level)
+    }
+
+    const removeProjectAccess = (projectId: number): void => {
+        removeProjectAccessAction(inviteIndex, projectId)
+    }
+
+    const updateProjectAccess = (projectId: number, level: TeamMembershipLevel): void => {
+        const newAccess = selectedProjects.map((access) => (access.id === projectId ? { ...access, level } : access))
+        updateInviteAtIndex({ private_project_access: newAccess }, inviteIndex)
+    }
+
+    if (availableProjects.length === 0 && selectedProjects.length === 0) {
+        return <></>
+    }
+
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center gap-2">
+                <h4 className="text-sm font-medium mb-0">Project access</h4>
+                <Tooltip title="Give this user access to specific projects. These access controls will be applied when the user accepts the invite and joins the organization. Learn more about access controls in our docs.">
+                    <Link to="https://posthog.com/docs/settings/access-control" target="_blank">
+                        <IconInfo className="text-muted-alt" />
+                    </Link>
+                </Tooltip>
+                {availableProjectsToShow.length > 0 && (
+                    <LemonSelect
+                        icon={<IconPlus />}
+                        className="bg-bg-light"
+                        placeholder="Add project"
+                        options={availableProjectsToShow.map((project: any) => ({
+                            value: project.id,
+                            label: project.name,
+                        }))}
+                        onChange={(projectId) => {
+                            if (projectId) {
+                                addProjectAccess(Number(projectId), 'member')
+                            }
+                        }}
+                    />
+                )}
+            </div>
+
+            {isOrgLevelAdminOrOwner && (
+                <LemonBanner type="warning" className="text-xs">
+                    This user will have {OrganizationMembershipLevel[invite.level]} access on the organization level,
+                    which will override any project-specific access controls.
+                </LemonBanner>
+            )}
+
+            {selectedProjects.length > 0 && (
+                <div className="space-y-2">
+                    {selectedProjects.map((access) => {
+                        const project = availableProjects.find((p: any) => p.id === access.id)
+                        if (!project) {
+                            return null
+                        }
+
+                        const defaultLevel = projectAccessControls[project.id]?.access_level
+                        const isLowerThanDefault = defaultLevel === 'admin' && access.level === 'member'
+
+                        return (
+                            <div key={access.id} className="space-y-2">
+                                {isLowerThanDefault && (
+                                    <LemonBanner type="warning" className="text-xs">
+                                        The default access level for {project.name} is Admin. Your selection of Member
+                                        will be overridden by the default Admin access.
+                                    </LemonBanner>
+                                )}
+                                <div className="flex items-center gap-2 p-2 bg-bg-light rounded border">
+                                    <div className="flex-1">
+                                        <span className="font-medium">{project.name}</span>{' '}
+                                        {defaultLevel && <span>(default: {defaultLevel})</span>}
+                                    </div>
+                                    <LemonSelect
+                                        className="bg-bg-light"
+                                        size="small"
+                                        options={[
+                                            {
+                                                value: TeamMembershipLevel.Member,
+                                                label: TeamMembershipLevel[TeamMembershipLevel.Member],
+                                            },
+                                            {
+                                                value: TeamMembershipLevel.Admin,
+                                                label: TeamMembershipLevel[TeamMembershipLevel.Admin],
+                                            },
+                                        ]}
+                                        value={
+                                            access.level === 'member'
+                                                ? TeamMembershipLevel.Member
+                                                : TeamMembershipLevel.Admin
+                                        }
+                                        onChange={(level) => {
+                                            if (level) {
+                                                updateProjectAccess(
+                                                    access.id,
+                                                    level === TeamMembershipLevel.Member ? 'member' : 'admin'
+                                                )
+                                            }
+                                        }}
+                                    />
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconTrash />}
+                                        status="danger"
+                                        onClick={() => removeProjectAccess(access.id)}
+                                    />
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function InviteRow({ index, isDeletable }: { index: number; isDeletable: boolean }): JSX.Element {
     const name = PLACEHOLDER_NAMES[index % PLACEHOLDER_NAMES.length]
+
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPermissions = hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)
+    const hasProjectAccessFeature = useFeatureFlag('INVITE_PROJECT_ACCESS')
 
     const { invitesToSend } = useValues(inviteLogic)
     const { updateInviteAtIndex, inviteTeamMembers, deleteInviteAtIndex } = useActions(inviteLogic)
@@ -58,79 +201,84 @@ export function InviteRow({ index, isDeletable }: { index: number; isDeletable: 
     }))
 
     return (
-        <div className="flex gap-2">
-            <div className="flex-2">
-                <LemonInput
-                    placeholder={`${name.toLowerCase()}@posthog.com`}
-                    type="email"
-                    className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
-                    onChange={(v) => {
-                        let isValid = true
-                        if (v && !isEmail(v)) {
-                            isValid = false
-                        }
-                        updateInviteAtIndex({ target_email: v, isValid }, index)
-                    }}
-                    value={invitesToSend[index]?.target_email}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                            inviteTeamMembers()
-                        }
-                    }}
-                    autoFocus={index === 0}
-                    data-attr="invite-email-input"
-                />
-            </div>
-            {preflight?.email_service_available && (
-                <div className="flex-1 flex gap-1 items-center justify-between">
+        <div className="space-y-4 bg-surface-secondary py-4 px-4 rounded-md">
+            <div className="flex gap-2">
+                <div className="flex-2">
                     <LemonInput
-                        placeholder={name}
-                        className="flex-1"
+                        placeholder={`${name.toLowerCase()}@posthog.com`}
+                        type="email"
+                        className={`error-on-blur${!invitesToSend[index]?.isValid ? ' errored' : ''}`}
                         onChange={(v) => {
-                            updateInviteAtIndex({ first_name: v }, index)
+                            let isValid = true
+                            if (v && !isEmail(v)) {
+                                isValid = false
+                            }
+                            updateInviteAtIndex({ target_email: v, isValid }, index)
                         }}
+                        value={invitesToSend[index]?.target_email}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                                 inviteTeamMembers()
                             }
                         }}
+                        autoFocus={index === 0}
+                        data-attr="invite-email-input"
                     />
                 </div>
-            )}
-            {allowedLevelsOptions.length > 1 && (
-                <div className="flex-1 flex gap-1 items-center justify-between">
-                    <LemonSelect
-                        fullWidth
-                        data-attr="invite-row-org-member-level"
-                        options={allowedLevelsOptions}
-                        value={invitesToSend[index].level || allowedLevels[0]}
-                        onChange={(v) => {
-                            updateInviteAtIndex({ level: v }, index)
-                        }}
-                    />
-                </div>
-            )}
-            {!preflight?.email_service_available && (
-                <div className="flex-1 flex gap-1 items-center justify-between">
-                    <LemonButton
-                        type="primary"
-                        className="flex-1"
-                        disabled={!isEmail(invitesToSend[index].target_email)}
-                        onClick={() => {
-                            inviteTeamMembers()
-                        }}
-                        fullWidth
-                        center
-                        data-attr="invite-generate-invite-link"
-                    >
-                        Submit
-                    </LemonButton>
-                </div>
-            )}
+                {preflight?.email_service_available && (
+                    <div className="flex-1 flex gap-1 items-center justify-between">
+                        <LemonInput
+                            placeholder={name}
+                            className="flex-1"
+                            onChange={(v) => {
+                                updateInviteAtIndex({ first_name: v }, index)
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    inviteTeamMembers()
+                                }
+                            }}
+                        />
+                    </div>
+                )}
+                {allowedLevelsOptions.length > 1 && (
+                    <div className="flex-1 flex gap-1 items-center justify-between">
+                        <LemonSelect
+                            className="bg-bg-light"
+                            fullWidth
+                            data-attr="invite-row-org-member-level"
+                            options={allowedLevelsOptions}
+                            value={invitesToSend[index].level || allowedLevels[0]}
+                            onChange={(v) => {
+                                updateInviteAtIndex({ level: v }, index)
+                            }}
+                        />
+                    </div>
+                )}
+                {!preflight?.email_service_available && (
+                    <div className="flex-1 flex gap-1 items-center justify-between">
+                        <LemonButton
+                            type="primary"
+                            className="flex-1"
+                            disabled={!isEmail(invitesToSend[index].target_email)}
+                            onClick={() => {
+                                inviteTeamMembers()
+                            }}
+                            fullWidth
+                            center
+                            data-attr="invite-generate-invite-link"
+                        >
+                            Submit
+                        </LemonButton>
+                    </div>
+                )}
 
-            {isDeletable && (
-                <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
-            )}
+                {isDeletable && (
+                    <LemonButton icon={<IconTrash />} status="danger" onClick={() => deleteInviteAtIndex(index)} />
+                )}
+            </div>
+
+            {hasAdvancedPermissions && hasProjectAccessFeature && <ProjectAccessSelector inviteIndex={index} />}
         </div>
     )
 }
@@ -164,11 +312,11 @@ export function InviteTeamMatesComponent(): JSX.Element {
                     Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to upgrade your license.
                 </LemonBanner>
             )}
-            <div className="deprecated-space-y-2">
+            <div className="deprecated-space-y-4">
                 <div className="flex gap-2">
                     <b className="flex-2">Email address</b>
                     {preflight?.email_service_available && <b className="flex-1">Name (optional)</b>}
-                    {allowedLevelsOptions.length > 1 && <b className="flex-1">Level</b>}
+                    {allowedLevelsOptions.length > 1 && <b className="flex-1">Organization level</b>}
                     {!preflight?.email_service_available && <b className="flex-1" />}
                     {areInvitesDeletable && <b className="w-12" />}
                 </div>
@@ -177,10 +325,10 @@ export function InviteTeamMatesComponent(): JSX.Element {
                     <InviteRow index={index} key={index.toString()} isDeletable={areInvitesDeletable} />
                 ))}
 
-                <div className="mt-2">
+                <div className="mt-2 flex justify-end">
                     {areInvitesCreatable && (
-                        <LemonButton type="secondary" icon={<IconPlus />} onClick={appendInviteRow} fullWidth center>
-                            Add email address
+                        <LemonButton type="secondary" icon={<IconPlus />} onClick={appendInviteRow}>
+                            Add
                         </LemonButton>
                     )}
                 </div>

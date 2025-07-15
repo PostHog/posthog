@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -19,6 +19,7 @@ export interface InviteRowState {
     level: OrganizationMembershipLevel
     isValid: boolean
     message?: string
+    private_project_access: Array<{ id: number; level: 'member' | 'admin' }>
 }
 
 const EMPTY_INVITE: InviteRowState = {
@@ -26,6 +27,7 @@ const EMPTY_INVITE: InviteRowState = {
     first_name: '',
     level: OrganizationMembershipLevel.Member,
     isValid: true,
+    private_project_access: [],
 }
 
 export const inviteLogic = kea<inviteLogicType>([
@@ -43,6 +45,12 @@ export const inviteLogic = kea<inviteLogicType>([
         appendInviteRow: true,
         resetInviteRows: true,
         setIsInviteConfirmed: (inviteConfirmed: boolean) => ({ inviteConfirmed }),
+        addProjectAccess: (inviteIndex: number, projectId: number, level: TeamMembershipLevel) => ({
+            inviteIndex,
+            projectId,
+            level,
+        }),
+        removeProjectAccess: (inviteIndex: number, projectId: number) => ({ inviteIndex, projectId }),
     }),
     loaders(({ values }) => ({
         invitedTeamMembersInternal: [
@@ -53,8 +61,10 @@ export const inviteLogic = kea<inviteLogicType>([
                         return []
                     }
 
-                    const payload: Pick<OrganizationInviteType, 'target_email' | 'first_name' | 'level' | 'message'>[] =
-                        values.invitesToSend.filter((invite) => invite.target_email)
+                    const payload: Pick<
+                        OrganizationInviteType,
+                        'target_email' | 'first_name' | 'level' | 'message' | 'private_project_access'
+                    >[] = values.invitesToSend.filter((invite) => invite.target_email)
                     if (values.message) {
                         payload.forEach((payload) => (payload.message = values.message))
                     }
@@ -62,6 +72,29 @@ export const inviteLogic = kea<inviteLogicType>([
                         'api/organizations/@current/invites/bulk/',
                         payload
                     )
+                },
+            },
+        ],
+        projectAccessControls: [
+            {} as Record<number, { access_level: string }>,
+            {
+                loadProjectAccessControl: async (projectId: number) => {
+                    try {
+                        const accessControls = await api.get(`api/projects/${projectId}/access_controls`)
+                        // Look for project-level access control (resource: "project", organization_member: null, role: null)
+                        const projectAccessControl = accessControls.access_controls?.find(
+                            (control: any) =>
+                                control.resource === 'project' &&
+                                control.organization_member === null &&
+                                control.role === null
+                        )
+                        return {
+                            ...values.projectAccessControls,
+                            [projectId]: projectAccessControl || { access_level: accessControls.default_access_level },
+                        }
+                    } catch {
+                        return values.projectAccessControls
+                    }
                 },
             },
         ],
@@ -113,6 +146,29 @@ export const inviteLogic = kea<inviteLogicType>([
                 appendInviteRow: (state) => [...state, EMPTY_INVITE],
                 resetInviteRows: () => [EMPTY_INVITE],
                 inviteTeamMembersSuccess: () => [EMPTY_INVITE],
+                addProjectAccess: (state, { inviteIndex, projectId, level }) => {
+                    const newState = [...state]
+                    const invite = { ...newState[inviteIndex] }
+
+                    // Remove existing access for this project if it exists
+                    invite.private_project_access = invite.private_project_access.filter(
+                        (access) => access.id !== projectId
+                    )
+
+                    // Add new access
+                    invite.private_project_access.push({ id: projectId, level })
+                    newState[inviteIndex] = invite
+                    return newState
+                },
+                removeProjectAccess: (state, { inviteIndex, projectId }) => {
+                    const newState = [...state]
+                    const invite = { ...newState[inviteIndex] }
+                    invite.private_project_access = invite.private_project_access.filter(
+                        (access) => access.id !== projectId
+                    )
+                    newState[inviteIndex] = invite
+                    return newState
+                },
             },
         ],
         message: [
@@ -146,6 +202,12 @@ export const inviteLogic = kea<inviteLogicType>([
                 )
             },
         ],
+        availableProjects: [
+            () => [organizationLogic.selectors.currentOrganization],
+            (currentOrganization: any) => {
+                return currentOrganization?.teams || []
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         inviteTeamMembersSuccess: (): void => {
@@ -169,6 +231,10 @@ export const inviteLogic = kea<inviteLogicType>([
                     activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
                 }, 1000)
             }
+        },
+        addProjectAccess: ({ projectId }) => {
+            // Load access control for the project when it's added
+            actions.loadProjectAccessControl(projectId)
         },
     })),
     urlToAction(({ actions }) => ({
