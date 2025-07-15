@@ -13,11 +13,13 @@ from ee.hogai.graph.query_executor.prompts import (
 from ee.hogai.utils.types import AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.schema import (
+    AssistantFunnelsFilter,
     AssistantFunnelsQuery,
     AssistantMessage,
     AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
+    AssistantToolCall,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     FunnelVizType,
@@ -31,9 +33,9 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
     maxDiff = None
 
-    @patch("ee.hogai.graph.query_executor.nodes.process_query_dict", side_effect=process_query_dict)
+    @patch("ee.hogai.graph.query_executor.query_executor.process_query_dict", side_effect=process_query_dict)
     def test_node_runs(self, mock_process_query_dict):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
         new_state = node.run(
             AssistantState(
                 messages=[
@@ -42,11 +44,11 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
                         content="Text",
                         id="test2",
                         tool_calls=[
-                            {
-                                "id": "tool1",
-                                "name": "create_and_query_insight",
-                                "args": {"query_kind": "trends", "query_description": "test query"},
-                            }
+                            AssistantToolCall(
+                                id="tool1",
+                                name="create_and_query_insight",
+                                args={"query_kind": "trends", "query_description": "test query"},
+                            )
                         ],
                     ),
                     VisualizationMessage(
@@ -77,11 +79,11 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertFalse(new_state.root_tool_insight_type)
 
     @patch(
-        "ee.hogai.graph.query_executor.nodes.process_query_dict",
+        "ee.hogai.graph.query_executor.query_executor.process_query_dict",
         side_effect=ValueError("You have not glibbled the glorp before running this."),
     )
     def test_node_handles_internal_error(self, mock_process_query_dict):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
         new_state = node.run(
             AssistantState(
                 messages=[
@@ -108,13 +110,13 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertIsNotNone(msg.id)
 
     @patch(
-        "ee.hogai.graph.query_executor.nodes.process_query_dict",
+        "ee.hogai.graph.query_executor.query_executor.process_query_dict",
         side_effect=ValidationError(
             "This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam."
         ),
     )
     def test_node_handles_exposed_error(self, mock_process_query_dict):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
         new_state = node.run(
             AssistantState(
                 messages=[
@@ -144,7 +146,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         self.assertIsNotNone(msg.id)
 
     def test_node_requires_a_viz_message_in_state(self):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
 
         with self.assertRaisesMessage(
             ValueError, "Expected a visualization message, found <class 'posthog.schema.HumanMessage'>"
@@ -164,8 +166,8 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             )
 
     def test_fallback_to_json(self):
-        node = QueryExecutorNode(self.team)
-        with patch("ee.hogai.graph.query_executor.nodes.process_query_dict") as mock_process_query_dict:
+        node = QueryExecutorNode(self.team, self.user)
+        with patch("ee.hogai.graph.query_executor.query_executor.process_query_dict") as mock_process_query_dict:
             mock_process_query_dict.return_value = QueryStatus(
                 id="test", team_id=self.team.pk, query_async=True, complete=True, results=[{"test": "test"}]
             )
@@ -198,7 +200,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
             self.assertIsNotNone(msg.id)
 
     def test_get_example_prompt(self):
-        node = QueryExecutorNode(self.team)
+        node = QueryExecutorNode(self.team, self.user)
 
         # Test Trends Query
         trends_message = VisualizationMessage(
@@ -222,7 +224,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         funnel_time_message = VisualizationMessage(
             answer=AssistantFunnelsQuery(
                 series=[],
-                funnelsFilter={"funnelVizType": FunnelVizType.TIME_TO_CONVERT},
+                funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
             ),
             plan="Plan",
             id="test",
@@ -234,7 +236,7 @@ class TestQueryExecutorNode(ClickhouseTestMixin, BaseTest):
         funnel_trends_message = VisualizationMessage(
             answer=AssistantFunnelsQuery(
                 series=[],
-                funnelsFilter={"funnelVizType": FunnelVizType.TRENDS},
+                funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
             ),
             plan="Plan",
             id="test",

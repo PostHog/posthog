@@ -2,7 +2,6 @@ import { defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { PersonType } from '~/types'
 
@@ -34,13 +33,10 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                         ) as q
                     group by p
                     order by c desc
-                        limit 5
+                        limit 10
                 `
 
-                const qResponse = await api.query<HogQLQuery>({
-                    kind: NodeKind.HogQLQuery,
-                    query: q,
-                })
+                const qResponse = await api.queryHogQL(q)
 
                 breakpoint()
 

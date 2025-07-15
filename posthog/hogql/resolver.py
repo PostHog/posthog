@@ -377,8 +377,8 @@ class Resolver(CloningVisitor):
             else:
                 is_global = isinstance(node.type.table, EventsTable) and self._is_next_s3(node.next_join)
 
-            if is_global:
-                node.next_join.join_type = "GLOBAL JOIN"
+            if is_global and node.next_join is not None:
+                node.next_join.join_type = f"GLOBAL {node.next_join.join_type}"
 
             if node.constraint and node.constraint.constraint_type == "ON":
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -650,6 +650,7 @@ class Resolver(CloningVisitor):
                 #
                 # from rich.pretty import pprint
                 # pprint(self.context.database, max_depth=3)
+                # breakpoint()
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.

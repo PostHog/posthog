@@ -14,7 +14,7 @@ from posthog.models.utils import (
     UUIDModel,
     sane_repr,
 )
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -28,12 +28,21 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         SNOWFLAKE = "Snowflake", "Snowflake"
         SALESFORCE = "Salesforce", "Salesforce"
         MYSQL = "MySQL", "MySQL"
+        MONGODB = "MongoDB", "MongoDB"
         MSSQL = "MSSQL", "MSSQL"
         VITALLY = "Vitally", "Vitally"
         BIGQUERY = "BigQuery", "BigQuery"
         CHARGEBEE = "Chargebee", "Chargebee"
         GOOGLEADS = "GoogleAds", "GoogleAds"
         TEMPORALIO = "TemporalIO", "TemporalIO"
+        DOIT = "DoIt", "DoIt"
+        GOOGLESHEETS = "GoogleSheets", "GoogleSheets"
+        METAADS = "MetaAds", "MetaAds"
+        KLAVIYO = "Klaviyo", "Klaviyo"
+        MAILCHIMP = "Mailchimp", "Mailchimp"
+        BRAZE = "Braze", "Braze"
+        MAILJET = "Mailjet", "Mailjet"
+        REDSHIFT = "Redshift", "Redshift"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"

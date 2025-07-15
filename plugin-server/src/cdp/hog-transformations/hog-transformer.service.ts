@@ -8,12 +8,11 @@ import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
-import { HogFunctionManagerService } from '../services/hog-function-manager.service'
-import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
-import { HogWatcherService, HogWatcherState } from '../services/hog-watcher.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { convertToHogFunctionFilterGlobal } from '../utils'
-import { filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
+import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
+import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { cleanNullValues } from './transformation-functions'
 
@@ -116,8 +115,8 @@ export class HogTransformerService {
         return {
             project: {
                 id: event.team_id,
-                name: 'WHERE TO GET THIS FROM??',
-                url: this.hub.SITE_URL ?? 'http://localhost:8000',
+                name: '',
+                url: this.hub.SITE_URL,
             },
             event: {
                 uuid: event.uuid,
@@ -198,7 +197,7 @@ export class HogTransformerService {
 
                     // Check if function has filters - if not, always apply
                     if (hogFunction.filters?.bytecode) {
-                        const filterResults = filterFunctionInstrumented({
+                        const filterResults = await filterFunctionInstrumented({
                             fn: hogFunction,
                             filters: hogFunction.filters,
                             filterGlobals,
@@ -217,9 +216,7 @@ export class HogTransformerService {
                                         },
                                         hogFunction
                                     ),
-                                    {
-                                        queue: 'hog',
-                                    },
+                                    {},
                                     {
                                         metrics: filterResults.metrics,
                                         logs: filterResults.logs,
@@ -333,16 +330,16 @@ export class HogTransformerService {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = buildGlobalsWithInputs(globals, {
-            ...(hogFunction.inputs ?? {}),
-            ...(hogFunction.encrypted_inputs ?? {}),
+        const globalsWithInputs = await buildGlobalsWithInputs(globals, {
+            ...hogFunction.inputs,
+            ...hogFunction.encrypted_inputs,
         })
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
 
         const result = isLegacyPluginHogFunction(hogFunction)
             ? await this.pluginExecutor.execute(invocation)
-            : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+            : await this.hogExecutor.execute(invocation, { functions: transformationFunctions })
         return result
     }
 

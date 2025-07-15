@@ -1,6 +1,6 @@
 import Ajv from 'ajv'
 
-import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import { RevenueAnalyticsPropertyFilters, WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import schema from './schema.json'
@@ -24,6 +24,14 @@ export const isWebAnalyticsPropertyFilters = (data: unknown): data is WebAnalyti
     const validator = ajv.getSchema('#/definitions/WebAnalyticsPropertyFilters')
     if (!validator) {
         throw new Error('Could not find validator for WebAnalyticsPropertyFilters')
+    }
+    return validator(data) as boolean
+}
+
+export const isRevenueAnalyticsPropertyFilters = (data: unknown): data is RevenueAnalyticsPropertyFilters => {
+    const validator = ajv.getSchema('#/definitions/RevenueAnalyticsPropertyFilters')
+    if (!validator) {
+        throw new Error('Could not find validator for RevenueAnalyticsPropertyFilters')
     }
     return validator(data) as boolean
 }

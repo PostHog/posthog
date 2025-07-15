@@ -1,5 +1,4 @@
 import { FEATURE_FLAGS } from 'lib/constants'
-import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -73,10 +72,10 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'LLM observability',
+            category: 'Analytics',
             iconType: 'ai',
             href: urls.llmObservabilityDashboard(),
             flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
-            visualOrder: PRODUCT_VISUAL_ORDER.llmObservability,
             tags: ['beta'],
         },
     ],

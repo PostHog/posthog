@@ -8,6 +8,7 @@ from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
+    AssistantHogQLQuery,
     AssistantRetentionEventsNode,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
@@ -21,9 +22,13 @@ from posthog.test.base import BaseTest
 from ..format import (
     FunnelResultsFormatter,
     RetentionResultsFormatter,
+    SQLResultsFormatter,
     TrendsResultsFormatter,
     _format_duration,
+    _format_matrix,
     _format_number,
+    _format_percentage,
+    _replace_breakdown_labels,
     _strip_datetime_seconds,
 )
 
@@ -41,6 +46,102 @@ class TestFormatHelpers(BaseTest):
         self.assertEqual(_format_duration(0.5), "500ms")
         self.assertEqual(_format_duration(45, seconds_precision=2), "45s")
         self.assertEqual(_format_duration(90000, max_units=2), "1d 1h")
+
+    def test_format_matrix(self):
+        matrix = [
+            ["header1", "header2", "header3"],
+            ["row1col1", "row1col2", "row1col3"],
+            ["row2col1", "row2col2", "row2col3"],
+        ]
+        expected = "header1|header2|header3\nrow1col1|row1col2|row1col3\nrow2col1|row2col2|row2col3"
+        self.assertEqual(_format_matrix(matrix), expected)
+
+    def test_format_matrix_empty(self):
+        self.assertEqual(_format_matrix([]), "")
+
+    def test_format_matrix_single_row(self):
+        matrix = [["single", "row"]]
+        self.assertEqual(_format_matrix(matrix), "single|row")
+
+    def test_format_percentage(self):
+        self.assertEqual(_format_percentage(0.5), "50%")
+        self.assertEqual(_format_percentage(0.123), "12.3%")
+        self.assertEqual(_format_percentage(1.0), "100%")
+        self.assertEqual(_format_percentage(0.0), "0%")
+        self.assertEqual(_format_percentage(0.999), "99.9%")
+        self.assertEqual(_format_percentage(0.1234), "12.34%")
+        self.assertEqual(_format_percentage(0.12345), "12.35%")  # Tests rounding
+
+    def test_replace_breakdown_labels(self):
+        # Test with breakdown other string
+        self.assertEqual(
+            _replace_breakdown_labels("test $$_posthog_breakdown_other_$$"), "test Other (i.e. all remaining values)"
+        )
+        # Test with breakdown null string
+        self.assertEqual(_replace_breakdown_labels("test $$_posthog_breakdown_null_$$"), "test None (i.e. no value)")
+        # Test with both
+        self.assertEqual(
+            _replace_breakdown_labels("$$_posthog_breakdown_other_$$ and $$_posthog_breakdown_null_$$"),
+            "Other (i.e. all remaining values) and None (i.e. no value)",
+        )
+        # Test with normal string
+        self.assertEqual(_replace_breakdown_labels("normal text"), "normal text")
+
+
+class TestSQLResultsFormatter(BaseTest):
+    def test_format_basic(self):
+        query = AssistantHogQLQuery(query="SELECT 1")
+        results = [
+            {"column1": "value1", "column2": "value2"},
+            {"column1": "value3", "column2": "value4"},
+        ]
+        columns = ["column1", "column2"]
+
+        formatter = SQLResultsFormatter(query, results, columns)
+        expected = "column1|column2\nvalue1|value2\nvalue3|value4"
+        self.assertEqual(formatter.format(), expected)
+
+    def test_format_empty_results(self):
+        query = AssistantHogQLQuery(query="SELECT 1")
+        results = []
+        columns = ["column1", "column2"]
+
+        formatter = SQLResultsFormatter(query, results, columns)
+        expected = "column1|column2"
+        self.assertEqual(formatter.format(), expected)
+
+    def test_format_single_column(self):
+        query = AssistantHogQLQuery(query="SELECT count()")
+        results = [{"count": 42}, {"count": 100}]
+        columns = ["count"]
+
+        formatter = SQLResultsFormatter(query, results, columns)
+        expected = "count\n42\n100"
+        self.assertEqual(formatter.format(), expected)
+
+    def test_format_with_none_values(self):
+        query = AssistantHogQLQuery(query="SELECT id, name")
+        results = [
+            {"id": 1, "name": "test"},
+            {"id": 2, "name": None},
+        ]
+        columns = ["id", "name"]
+
+        formatter = SQLResultsFormatter(query, results, columns)
+        expected = "id|name\n1|test\n2|None"
+        self.assertEqual(formatter.format(), expected)
+
+    def test_format_with_numeric_values(self):
+        query = AssistantHogQLQuery(query="SELECT count, avg")
+        results = [
+            {"count": 100, "avg": 15.5},
+            {"count": 200, "avg": 25.75},
+        ]
+        columns = ["count", "avg"]
+
+        formatter = SQLResultsFormatter(query, results, columns)
+        expected = "count|avg\n100|15.5\n200|25.75"
+        self.assertEqual(formatter.format(), expected)
 
 
 class TestCompression(BaseTest):

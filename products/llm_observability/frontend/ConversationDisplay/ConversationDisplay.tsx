@@ -32,6 +32,8 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                 <MetadataHeader
                     inputTokens={eventProperties.$ai_input_tokens}
                     outputTokens={eventProperties.$ai_output_tokens}
+                    cacheReadTokens={eventProperties.$ai_cache_read_input_tokens}
+                    cacheWriteTokens={eventProperties.$ai_cache_creation_input_tokens}
                     totalCostUsd={eventProperties.$ai_total_cost_usd}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}

@@ -56,7 +56,7 @@ BEGIN
     DELETE FROM posthog_persondistinctid CASCADE;
     DELETE FROM posthog_person CASCADE;
     DELETE FROM posthog_team CASCADE;
-    
+
     -- Then handle remaining tables
     FOR r IN (
         SELECT tablename
@@ -251,7 +251,8 @@ export async function createUserTeamAndOrganization(
     userId: number = commonUserId,
     userUuid: string = commonUserUuid,
     organizationId: string = commonOrganizationId,
-    organizationMembershipId: string = commonOrganizationMembershipId
+    organizationMembershipId: string = commonOrganizationMembershipId,
+    teamOverrides: Record<string, any> = {}
 ): Promise<void> {
     await insertRow(db, 'posthog_user', {
         id: userId,
@@ -278,8 +279,10 @@ export async function createUserTeamAndOrganization(
         available_product_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
-        slug: Math.round(Math.random() * 10000),
+        members_can_use_personal_api_keys: true,
+        slug: new UUIDT().toString(),
     } as RawOrganization)
+    await updateOrganizationAvailableFeatures(db, organizationId, [{ key: 'data_pipelines', name: 'Data Pipelines' }])
     await insertRow(db, 'posthog_organizationmembership', {
         id: organizationMembershipId,
         organization_id: organizationId,
@@ -294,7 +297,10 @@ export async function createUserTeamAndOrganization(
         name: 'TEST PROJECT',
         created_at: new Date().toISOString(),
     })
-    await insertRow(db, 'posthog_team', {
+
+    // Map drop_events_older_than_seconds to drop_events_older_than for database insertion
+    const { drop_events_older_than_seconds, ...otherTeamOverrides } = teamOverrides
+    const teamData: Record<string, any> = {
         id: teamId,
         project_id: teamId,
         organization_id: organizationId,
@@ -321,8 +327,17 @@ export async function createUserTeamAndOrganization(
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        base_currency: 'USD',
         cookieless_server_hash_mode: CookielessServerHashMode.Stateful,
-    })
+        ...otherTeamOverrides,
+    }
+
+    // Convert seconds to interval if drop_events_older_than_seconds is provided
+    if (typeof drop_events_older_than_seconds === 'number') {
+        teamData.drop_events_older_than = `${drop_events_older_than_seconds} seconds`
+    }
+
+    await insertRow(db, 'posthog_team', teamData)
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
@@ -387,16 +402,31 @@ export const createOrganization = async (pg: PostgresRouter) => {
         for_internal_metrics: false,
         available_product_features: [],
         domain_whitelist: [],
+        members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
         slug: new UUIDT().toString(),
     })
     return organizationId
 }
 
+export const updateOrganizationAvailableFeatures = async (
+    pg: PostgresRouter,
+    organizationId: string,
+    features: { key: string; name: string }[]
+) => {
+    await pg.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_organization SET available_product_features = $1 WHERE id = $2`,
+        [features, organizationId],
+        'change-team-available-features'
+    )
+}
+
 export const createTeam = async (
     pg: PostgresRouter,
     projectOrOrganizationId: ProjectId | string,
-    token?: string
+    token?: string,
+    teamSettings?: Record<string, any>
 ): Promise<number> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
     const id = Math.round(Math.random() * 1000000000)
@@ -450,6 +480,8 @@ export const createTeam = async (
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        base_currency: 'USD',
+        ...teamSettings,
     })
     return id
 }

@@ -8,6 +8,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
+import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
@@ -68,7 +69,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             <div className="sm:flex justify-between gap-x-4">
                 {/* Header */}
                 <div className="flex gap-x-4">
-                    <div className="w-8">{getProductIcon(addon.name, addon.icon_key, 'text-2xl')}</div>
+                    <div>{getProductIcon(addon.name, addon.icon_key, 'text-2xl shrink-0')}</div>
                     <div>
                         <div className="flex gap-x-2 items-center mt-0 mb-2 ">
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
@@ -101,14 +102,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 </div>
                             )}
                         </div>
-                        <p className="ml-0 mb-0">
-                            {addon.description}{' '}
-                            {addon.docs_url && (
-                                <>
-                                    <Link to={addon.docs_url}>Read the docs</Link> for more information.
-                                </>
-                            )}
-                        </p>
+                        <p className="ml-0 mb-0">{addon.description} </p>
                         {is_enhanced_persons_og_customer && (
                             <p className="mt-2 mb-0">
                                 <Link
@@ -130,29 +124,10 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
             {/* Features */}
             <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
-                {addonFeatures?.length > 2 && (
-                    <div>
-                        <p className="ml-0 mb-2 max-w-200">Features included:</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                            {addonFeatures
-                                .filter((feature) => !feature.entitlement_only)
-                                .map((feature, index) => (
-                                    <div
-                                        className="flex gap-x-2 items-center mb-2"
-                                        key={'addon-features-' + addon.type + index}
-                                    >
-                                        <IconCheckCircle className="text-success" />
-                                        <Tooltip key={feature.key} title={feature.description}>
-                                            <b>
-                                                {feature.name}
-                                                {feature.note ? ': ' + feature.note : ''}
-                                            </b>
-                                        </Tooltip>
-                                    </div>
-                                ))}
-                        </div>
-                    </div>
-                )}
+                <BillingAddonFeaturesList
+                    addonFeatures={addonFeatures?.filter((feature) => !feature.entitlement_only) || []}
+                    addonType={addon.type}
+                />
 
                 {addon.type === 'mobile_replay' && addon.subscribed && (
                     <>
@@ -190,6 +165,14 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         {showTierBreakdown && <BillingProductPricingTable product={addon} />}
                     </>
                 )}
+
+                <p className="ml-0 mb-0 mt-2">
+                    {addon.docs_url && (
+                        <>
+                            <Link to={addon.docs_url}>Read the docs</Link> for more information.
+                        </>
+                    )}
+                </p>
             </div>
 
             {/* Pricing modal */}

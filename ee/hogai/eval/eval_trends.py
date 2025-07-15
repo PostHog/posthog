@@ -1,74 +1,30 @@
-from ee.hogai.graph import InsightsAssistantGraph
-from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
-from ee.models.assistant import Conversation
-from .conftest import MaxEval
-import pytest
-from braintrust import EvalCase
 from datetime import datetime
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+import pytest
+from braintrust import EvalCase
+
+from ee.hogai.graph.trends.toolkit import TRENDS_SCHEMA
 from posthog.schema import (
-    AssistantTrendsQuery,
+    AssistantEventMultipleBreakdownFilterType,
+    AssistantGenericMultipleBreakdownFilter,
+    AssistantTrendsBreakdownFilter,
     AssistantTrendsEventsNode,
     AssistantTrendsFilter,
-    AssistantTrendsBreakdownFilter,
-    AssistantGenericMultipleBreakdownFilter,
-    AssistantEventMultipleBreakdownFilterType,
-    HumanMessage,
+    AssistantTrendsQuery,
     NodeKind,
-    VisualizationMessage,
 )
-from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
 
-
-@pytest.fixture
-def call_node(demo_org_team_user):
-    # This graph structure will first get a plan, then generate the trends query.
-    graph = (
-        InsightsAssistantGraph(demo_org_team_user[1])
-        .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-        .add_trends_planner(next_node=AssistantNodeName.TRENDS_GENERATOR)  # Planner output goes to generator
-        .add_trends_generator(AssistantNodeName.END)  # Generator output is the final output
-        .compile()
-    )
-
-    def callable(query: str) -> PlanAndQueryOutput:
-        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        # Initial state for the graph
-        initial_state = AssistantState(
-            messages=[HumanMessage(content=f"Answer this question: {query}")],
-            root_tool_insight_plan=query,  # User query is the initial plan for the planner
-            root_tool_call_id="eval_test_trends",
-            root_tool_insight_type="trends",
-        )
-
-        # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = graph.invoke(
-            initial_state,
-            {"configurable": {"thread_id": conversation.id}},
-        )
-        final_state = AssistantState.model_validate(final_state_raw)
-
-        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
-            return {"plan": None, "query": None}
-
-        # Ensure the answer is of the expected type for Trends eval
-        answer = final_state.messages[-1].answer
-        if not isinstance(answer, AssistantTrendsQuery):
-            # This case should ideally not happen if the graph is configured correctly for Trends
-            return {"plan": final_state.messages[-1].plan, "query": None}
-
-        return {"plan": final_state.messages[-1].plan, "query": answer}
-
-    return callable
+from .conftest import MaxEval
+from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
 
 @pytest.mark.django_db
-def eval_trends(call_node):
-    MaxEval(
+async def eval_trends(call_root_for_insight_generation):
+    await MaxEval(
         experiment_name="trends",
-        task=call_node,
+        task=call_root_for_insight_generation,
         scores=[
+            QueryKindSelection(expected=NodeKind.TRENDS_QUERY),
             PlanCorrectness(
                 query_kind=NodeKind.TRENDS_QUERY,
                 evaluation_criteria="""
@@ -143,7 +99,7 @@ Events:
                 ),
             ),
             EvalCase(
-                input="What is the MAU?",
+                input="What is our MAU?",
                 expected=PlanAndQueryOutput(
                     plan="""
 Events:
@@ -261,7 +217,7 @@ Formula:
                 ),
             ),
             EvalCase(
-                input="what is the average session duration?",
+                input="what is our average session duration?",
                 expected=PlanAndQueryOutput(
                     plan="""
 Events:
@@ -343,6 +299,51 @@ Time interval: day
                                 event="$pageview",
                                 math="total",
                                 properties=None,
+                            )
+                        ],
+                    ),
+                ),
+            ),
+            EvalCase(
+                input="How many paid bill events have occurred with amount more than 20 usd in this January?",
+                expected=PlanAndQueryOutput(
+                    plan="""
+Events:
+- paid_bill
+    - math operation: total count
+    - property filter 1:
+        - entity: event
+        - property name: amount_usd
+        - property type: Numeric
+        - operator: greater than
+        - property value: 20
+
+Time period: this January
+Time interval: day
+""",
+                    query=AssistantTrendsQuery(
+                        dateRange={
+                            "date_from": f"{datetime.now().year}-01-01",
+                            "date_to": f"{datetime.now().year}-01-31",
+                        },
+                        filterTestAccounts=True,
+                        interval="day",
+                        trendsFilter=AssistantTrendsFilter(
+                            display="ActionsLineGraph",
+                            showLegend=True,
+                        ),
+                        series=[
+                            AssistantTrendsEventsNode(
+                                event="paid_bill",
+                                math="total",
+                                properties=[
+                                    {
+                                        "key": "amount_usd",
+                                        "value": 20,
+                                        "operator": "gt",
+                                        "type": "event",
+                                    },
+                                ],
                             )
                         ],
                     ),

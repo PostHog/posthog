@@ -285,6 +285,15 @@ class FeatureFlagSerializer(
         variant_list = (filters.get("multivariate") or {}).get("variants", [])
         variants = {variant["key"] for variant in variant_list}
 
+        # Validate rollout percentages for multivariate variants
+        if variant_list:
+            variant_rollout_sum = sum(variant.get("rollout_percentage", 0) for variant in variant_list)
+            if variant_rollout_sum != 100:
+                raise serializers.ValidationError(
+                    "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+                    code="invalid_input",
+                )
+
         for condition in filters["groups"]:
             if condition.get("variant") and condition["variant"] not in variants:
                 raise serializers.ValidationError("Filters are not valid (variant override does not exist)")
@@ -392,16 +401,6 @@ class FeatureFlagSerializer(
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
 
-        variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
-        variant_rollout_sum = 0
-        for variant in variants:
-            variant_rollout_sum += variant.get("rollout_percentage")
-
-        if len(variants) > 0 and variant_rollout_sum != 100:
-            raise exceptions.ValidationError(
-                "Invalid variant definitions: Variant rollout percentages must sum to 100."
-            )
-
         try:
             FeatureFlag.objects.filter(
                 key=validated_data["key"], team__project_id=self.context["project_id"], deleted=True
@@ -440,10 +439,26 @@ class FeatureFlagSerializer(
 
         validated_data["last_modified_by"] = request.user
 
-        if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
-            raise exceptions.ValidationError(
-                "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
-            )
+        if "deleted" in validated_data and validated_data["deleted"] is True:
+            # Check for linked early access features
+            if instance.features.count() > 0:
+                raise exceptions.ValidationError(
+                    "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
+                )
+
+            # Check for linked active (non-deleted) experiments
+            active_experiments = instance.experiment_set.filter(deleted=False)
+            if active_experiments.exists():
+                experiment_ids = list(active_experiments.values_list("id", flat=True))
+                raise exceptions.ValidationError(
+                    f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. Please delete the experiment(s) before deleting the flag."
+                )
+
+            # If all experiments are soft-deleted, rename the key to free it up
+            # Append ID to the key when soft-deleting to prevent key conflicts
+            # This allows the original key to be reused while preserving referential integrity for deleted experiments
+            if instance.experiment_set.filter(deleted=True).exists():
+                validated_data["key"] = f"{instance.key}:deleted:{instance.id}"
 
         # First apply all transformations to validated_data
         validated_key = validated_data.get("key", None)
@@ -468,12 +483,6 @@ class FeatureFlagSerializer(
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
-
-            if validated_key:
-                # Delete any soft deleted feature flags with the same key to prevent conflicts
-                FeatureFlag.objects.filter(
-                    key=validated_key, team__project_id=instance.team.project_id, deleted=True
-                ).delete()
 
             # NOW check for conflicts after all transformations
             if version != -1 and version != locked_version:
@@ -653,7 +662,7 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
         created_by=user,
         creation_mode="template",
     )
-    create_feature_flag_dashboard(feature_flag, usage_dashboard)
+    create_feature_flag_dashboard(feature_flag, usage_dashboard, user)
 
     feature_flag.usage_dashboard = usage_dashboard
     feature_flag.save()

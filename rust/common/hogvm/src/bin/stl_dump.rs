@@ -9,7 +9,7 @@ pub fn main() {
         "RUST_HOGVM_STL = [\n  {}\n]",
         hogvm::stl()
             .iter()
-            .map(|(name, _)| *name)
+            .map(|(name, _)| name.as_str())
             .chain(hog_stl().functions().iter().map(|(name, _)| name.as_str()))
             .map(|n| format!("\"{}\"", n))
             .collect::<Vec<_>>()

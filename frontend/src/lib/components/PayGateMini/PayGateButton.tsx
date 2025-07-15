@@ -1,7 +1,5 @@
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
@@ -16,9 +14,7 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
     const { productWithFeature, featureInfo, gateVariant, isAddonProduct, scrollToProduct } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const { showPaymentEntryModal } = useActions(paymentEntryLogic)
+    const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
     const ctaLink = useMemo(() => {
         if (gateVariant === 'add-card' && !isAddonProduct) {
@@ -46,18 +42,17 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
         return 'Move to PostHog Cloud'
     }, [gateVariant])
 
-    if (
-        gateVariant === 'add-card' &&
-        !isAddonProduct &&
-        featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test'
-    ) {
+    if (gateVariant === 'add-card' && !isAddonProduct) {
         return (
             <LemonButton
                 type="primary"
                 center
                 {...buttonProps}
                 onClick={(ev) => {
-                    showPaymentEntryModal()
+                    startPaymentEntryFlow(
+                        productWithFeature as BillingProductV2Type,
+                        window.location.pathname + window.location.search
+                    )
                     if (buttonProps.onClick) {
                         buttonProps.onClick(ev)
                     }

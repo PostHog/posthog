@@ -39,8 +39,12 @@ import {
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
+import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
+import { lemonToast } from '@posthog/lemon-ui'
+import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
+import { urls } from 'scenes/urls'
 export type PersonUUID = string
 
 interface Params {
@@ -83,6 +87,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 }
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
+export const MAX_SELECTED_RECORDINGS = 20
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -330,6 +335,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['maybeLoadPropertiesForSessions'],
             playerSettingsLogic,
             ['setHideViewedRecordings'],
+            playlistLogic,
+            ['setIsFiltersExpanded'],
         ],
         values: [
             featureFlagLogic,
@@ -358,6 +365,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         loadNext: true,
         loadPrev: true,
+        setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
+        handleBulkAddToPlaylist: (short_id: string) => ({ short_id }),
+        handleBulkDeleteFromPlaylist: (short_id: string) => ({ short_id }),
+        handleSelectUnselectAll: (checked: boolean, type: 'filters' | 'collection') => ({ checked, type }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
@@ -581,6 +592,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
+        selectedRecordingsIds: [
+            [] as string[],
+            {
+                setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -613,6 +630,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
 
         setSelectedRecordingId: () => {
+            // Close filters when selecting a recording
+            actions.setIsFiltersExpanded(false)
+
             // If we are at the end of the list then try to load more
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
             if (recordingIndex === values.sessionRecordings.length - 1) {
@@ -624,6 +644,75 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         setHideViewedRecordings: () => {
             actions.maybeLoadSessionRecordings('older')
+        },
+        handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to show the new recordings
+                        const logic =
+                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
+                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
+                        logic.actions.loadPinnedRecordings()
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } added to collection!`,
+                    error: 'Failed to add to collection!',
+                    pending: `Adding ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } to the collection...`,
+                },
+                {},
+                {
+                    button: {
+                        label: 'View playlist',
+                        action: () => router.actions.push(urls.replayPlaylist(short_id)),
+                    },
+                }
+            )
+        },
+        handleBulkDeleteFromPlaylist: async ({ short_id }: { short_id: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkDeleteRecordingsFromPlaylist(short_id, values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to see the recordings without the deleted ones
+                        const logic =
+                            sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: short_id }) ??
+                            sessionRecordingsPlaylistSceneLogic({ shortId: short_id })
+                        logic.actions.loadPinnedRecordings()
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } removed from collection!`,
+                    error: 'Failed to remove from collection!',
+                    pending: `Removing ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } to the collection...`,
+                }
+            )
+        },
+        handleSelectUnselectAll: ({ checked, type }: { checked: boolean; type: 'filters' | 'collection' }) => {
+            if (checked) {
+                const recordings = type === 'filters' ? values.sessionRecordings : values.pinnedRecordings
+                actions.setSelectedRecordingsIds(recordings.map((s) => s.id))
+            } else {
+                actions.setSelectedRecordingsIds([])
+            }
         },
     })),
     selectors({

@@ -1,5 +1,4 @@
 import { FEATURE_FLAGS } from 'lib/constants'
-import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -25,10 +24,10 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Logs',
+            category: 'Tools',
             iconType: 'live',
             href: urls.logs(),
             flag: FEATURE_FLAGS.LOGS,
-            visualOrder: PRODUCT_VISUAL_ORDER.logs,
             tags: ['alpha'],
         },
     ],

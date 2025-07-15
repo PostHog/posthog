@@ -3,7 +3,7 @@ use std::io::prelude::*;
 use bytes::{Buf, Bytes};
 use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use flate2::read::GzDecoder;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::{debug, error, instrument, warn, Span};
@@ -16,16 +16,42 @@ use crate::{
     },
 };
 
-#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Compression {
     #[default]
     Unsupported,
-
-    #[serde(rename = "gzip", alias = "gzip-js")]
     Gzip,
-
-    #[serde(rename = "lz64")]
     LZString,
+    Base64,
+}
+
+// implement Deserialize directly on the enum so
+// Axum form and URL query parsing don't fail upstream
+// of handler code
+impl<'de> Deserialize<'de> for Compression {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value =
+            String::deserialize(deserializer).unwrap_or("deserialization_error".to_string());
+
+        let result = match value.to_lowercase().as_str() {
+            "gzip" | "gzip-js" => Compression::Gzip,
+            "lz64" | "lz-string" => Compression::LZString,
+            "base64" | "b64" => Compression::Base64,
+            "deserialization_error" => {
+                debug!("compression value did not deserialize");
+                Compression::Unsupported
+            }
+            _ => {
+                debug!("unsupported compression value: {}", value);
+                Compression::Unsupported
+            }
+        };
+
+        Ok(result)
+    }
 }
 
 impl std::fmt::Display for Compression {
@@ -33,6 +59,7 @@ impl std::fmt::Display for Compression {
         match self {
             Compression::Gzip => write!(f, "gzip"),
             Compression::LZString => write!(f, "lz64"),
+            Compression::Base64 => write!(f, "base64"),
             Compression::Unsupported => write!(f, "unsupported"),
         }
     }
@@ -281,7 +308,7 @@ impl RawRequest {
     }
 
     pub fn events(self, path: &str) -> Result<Vec<RawEvent>, CaptureError> {
-        match self {
+        let result = match self {
             RawRequest::Array(events) => Ok(events),
             RawRequest::One(event) => Ok(vec![*event]),
             RawRequest::Batch(req) => Ok(req.batch),
@@ -299,11 +326,32 @@ impl RawRequest {
                         properties: engage_event.properties,
                     }])
                 } else {
-                    Err(CaptureError::RequestHydrationError(String::from(
-                        "non-engage request missing event name attribute",
-                    )))
+                    let err_msg = String::from("non-engage request missing event name attribute");
+                    error!("event hydration from request failed: {}", &err_msg);
+                    Err(CaptureError::RequestHydrationError(err_msg))
                 }
             }
+        };
+
+        // do some basic hydrated event payload filtering here
+        match result {
+            Ok(mut events) => {
+                if events.is_empty() {
+                    warn!("rejected empty batch");
+                    return Err(CaptureError::EmptyBatch);
+                }
+
+                // filter event types we don't want to ingest; return a sentinel
+                // error response if this results in an empty payload
+                events.retain(|event| event.event != "$performance_event");
+                if events.is_empty() {
+                    return Err(CaptureError::EmptyPayloadFiltered);
+                }
+                Ok(events)
+            }
+
+            // pass along payload hydration and other error types
+            _ => result,
         }
     }
 
@@ -383,9 +431,93 @@ mod tests {
     use common_types::RawEvent;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
+    use serde::Deserialize;
     use serde_json::json;
 
     use super::{CaptureError, Compression, RawRequest};
+
+    #[test]
+    fn decode_compression_param() {
+        #[derive(Deserialize, Debug)]
+        struct TestConfig {
+            compression: Option<Compression>,
+        }
+
+        struct CompressionUnit {
+            input: &'static str,
+            output: Option<Compression>,
+        }
+
+        let units = vec![
+            CompressionUnit {
+                input: r#"{"compression": "gzip"}"#,
+                output: Some(Compression::Gzip),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "gzip-js"}"#,
+                output: Some(Compression::Gzip),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "GZIP"}"#,
+                output: Some(Compression::Gzip),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "lz64"}"#,
+                output: Some(Compression::LZString),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "lz-string"}"#,
+                output: Some(Compression::LZString),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "LZ64"}"#,
+                output: Some(Compression::LZString),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "base64"}"#,
+                output: Some(Compression::Base64),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "b64"}"#,
+                output: Some(Compression::Base64),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "BASE64"}"#,
+                output: Some(Compression::Base64),
+            },
+            CompressionUnit {
+                input: r#"{"compression": "foobar"}"#,
+                output: Some(Compression::Unsupported),
+            },
+            CompressionUnit {
+                input: r#"{"compression": ""}"#,
+                output: Some(Compression::Unsupported),
+            },
+            CompressionUnit {
+                input: "{}", // no compression param set
+                output: None,
+            },
+        ];
+
+        for unit in units {
+            let result: Result<TestConfig, _> = serde_json::from_str(unit.input);
+
+            assert!(
+                result.is_ok(),
+                "result was not OK for input({}): {:?}",
+                unit.input,
+                result
+            );
+
+            let got = result.unwrap().compression;
+            assert!(
+                got == unit.output,
+                "result {:?} didn't match expected {:?}",
+                got,
+                unit.output
+            );
+        }
+    }
 
     #[test]
     fn decode_uncompressed_raw_event() {
@@ -417,6 +549,7 @@ mod tests {
                 .expect("cannot find distinct_id")
         );
     }
+
     #[test]
     fn decode_gzipped_raw_event() {
         let base64_payload = "H4sIADQSbmUCAz2MsQqAMAxE936FBEcnR2f/o4i9IRTb0AahiP9urcVMx3t3ucxQjxxn5bCrZUfLQEepYabpkzgRtOOWfyMpCpIyctVXY42PDifvsFoE73BF9hqFWuPu403YepT+WKNHmMnc5gENoFu2kwAAAA==";

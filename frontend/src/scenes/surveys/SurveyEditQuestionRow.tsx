@@ -3,10 +3,11 @@ import './EditSurvey.scss'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
 import {
     MultipleSurveyQuestion,
@@ -17,8 +18,13 @@ import {
     SurveyType,
 } from '~/types'
 
-import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
-import { QuestionBranchingInput } from './QuestionBranchingInput'
+import {
+    defaultSurveyFieldValues,
+    NewSurvey,
+    SCALE_OPTIONS,
+    SURVEY_RATING_SCALE,
+    SurveyQuestionLabel,
+} from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
@@ -183,18 +189,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 value: SurveyQuestionType.Rating,
                                 'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
                             },
-                            ...[
-                                {
-                                    label: 'Single choice select',
-                                    value: SurveyQuestionType.SingleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
-                                },
-                                {
-                                    label: 'Multiple choice select',
-                                    value: SurveyQuestionType.MultipleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
-                                },
-                            ],
+                            {
+                                label: 'Single choice select',
+                                value: SurveyQuestionType.SingleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
+                            },
+                            {
+                                label: 'Multiple choice select',
+                                value: SurveyQuestionType.MultipleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                            },
                         ]}
                     />
                 </LemonField>
@@ -234,7 +238,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         { label: 'Emoji', value: 'emoji' },
                                     ]}
                                     onChange={(val) => {
-                                        const newQuestion = { ...survey.questions[index], display: val, scale: 5 }
+                                        const newQuestion = {
+                                            ...survey.questions[index],
+                                            display: val,
+                                            scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                        }
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
                                         setSurveyValue('questions', newQuestions)
@@ -248,19 +256,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             </LemonField>
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
-                                    options={[
-                                        ...(question.display === 'emoji' ? [{ label: '1 - 3', value: 3 }] : []),
-                                        {
-                                            label: '1 - 5',
-                                            value: 5,
-                                        },
-                                        ...(question.display === 'number'
-                                            ? [
-                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
-                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
-                                              ]
-                                            : []),
-                                    ]}
+                                    options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
                                         const newQuestions = [...survey.questions]
@@ -301,12 +297,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 newChoices[index] = val
                                                                 onChange(newChoices)
                                                             }}
+                                                            suffix={
+                                                                isOpenChoice && (
+                                                                    <LemonTag type="highlight">open-ended</LemonTag>
+                                                                )
+                                                            }
                                                         />
-                                                        {isOpenChoice && (
-                                                            <span className="question-choice-open-ended-footer">
-                                                                open-ended
-                                                            </span>
-                                                        )}
                                                         <LemonButton
                                                             icon={<IconTrash />}
                                                             size="small"

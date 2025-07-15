@@ -1,7 +1,10 @@
 import json
+import structlog
+from datetime import UTC, datetime
 from typing import Optional
 
-import structlog
+from django.http import HttpResponse
+from rest_framework import status
 
 from posthog.exceptions import generate_exception_response
 from posthog.sampling import sample_on_property
@@ -37,16 +40,22 @@ def sample_csp_report(properties: dict, percent: float, add_metadata: bool = Fal
         return True
 
     document_url = properties.get("document_url", "")
-    should_ingest_report = sample_on_property(document_url, percent)
+    now = datetime.now().replace(second=0, microsecond=0)
+    time_str = now.isoformat()
+    sampling_key = f"{document_url}-{time_str}"
+
+    should_ingest_report = sample_on_property(sampling_key, percent)
 
     if add_metadata:
         properties["csp_sampled"] = should_ingest_report
         properties["csp_sample_threshold"] = percent
+        properties["csp_sampling_key"] = sampling_key
 
     if not should_ingest_report:
         logger.debug(
             "CSP report sampled out",
             document_url=document_url,
+            sampling_key=sampling_key,
             sample_rate=percent,
         )
 
@@ -115,6 +124,7 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
     return {
         "event": "$csp_violation",
         "distinct_id": distinct_id,
+        "timestamp": datetime.now(UTC).isoformat(),
         "properties": {
             "$session_id": session_id,
             "$csp_version": version,
@@ -171,7 +181,7 @@ def process_csp_report(request):
                     document_url=properties.get("document_url"),
                     sample_rate=sample_rate,
                 )
-                return None, None
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return (
                 build_csp_event(
@@ -200,7 +210,7 @@ def process_csp_report(request):
                     total_violations=len(violations_props),
                     sample_rate=sample_rate,
                 )
-                return None, None
+                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
             return [
                 build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations

@@ -1,24 +1,28 @@
 use crate::{
     api::{
         errors::FlagError,
-        types::{AnalyticsConfig, FlagsResponse},
+        types::{AnalyticsConfig, ErrorTrackingConfig, FlagsResponse, SessionRecordingField},
     },
     config::Config,
     site_apps::get_decide_site_apps,
     team::team_models::Team,
 };
 use axum::http::HeaderMap;
+use limiters::redis::QuotaResource;
 use std::{collections::HashMap, sync::Arc};
 
-use super::{session_recording, types::RequestContext};
+use crate::billing_limiters::SessionReplayLimiter;
+
+use super::{error_tracking, session_recording, types::RequestContext};
 
 /// Isolates the specific fields needed to build config responses from a RequestContext.
 /// This allows us to extract only the relevant dependencies (config, database client,
-/// redis client, and headers) rather than carrying around the entire RequestContext.
+/// redis client, billing limiter, and headers) rather than carrying around the entire RequestContext.
 pub struct ConfigContext {
     pub config: Config,
     pub reader: Arc<dyn common_database::Client + Send + Sync>,
     pub redis: Arc<dyn common_redis::Client + Send + Sync>,
+    pub session_replay_billing_limiter: SessionReplayLimiter,
     pub headers: HeaderMap,
 }
 
@@ -27,7 +31,8 @@ impl ConfigContext {
         Self {
             config: context.state.config.clone(),
             reader: context.state.reader.clone(),
-            redis: context.state.redis.clone(),
+            redis: context.state.redis_reader.clone(),
+            session_replay_billing_limiter: context.state.session_replay_billing_limiter.clone(),
             headers: context.headers.clone(),
         }
     }
@@ -36,12 +41,14 @@ impl ConfigContext {
         config: Config,
         reader: Arc<dyn common_database::Client + Send + Sync>,
         redis: Arc<dyn common_redis::Client + Send + Sync>,
+        session_replay_billing_limiter: SessionReplayLimiter,
         headers: HeaderMap,
     ) -> Self {
         Self {
             config,
             reader,
             redis,
+            session_replay_billing_limiter,
             headers,
         }
     }
@@ -67,16 +74,41 @@ async fn apply_config_fields(
     context: &ConfigContext,
     team: &Team,
 ) -> Result<(), FlagError> {
+    // Check for recordings quota limits only if enabled
+    let is_recordings_limited = if context.config.flags_session_replay_quota_check {
+        context
+            .session_replay_billing_limiter
+            .is_limited(&team.api_token)
+            .await
+    } else {
+        false
+    };
+
+    if is_recordings_limited {
+        // Add recordings to quota_limited array, preserving any existing limitations
+        match &mut response.quota_limited {
+            Some(existing) => existing.push(QuotaResource::Recordings.as_str().to_string()),
+            None => {
+                response.quota_limited = Some(vec![QuotaResource::Recordings.as_str().to_string()])
+            }
+        }
+    }
+
     // Apply all the core config fields that don't require async operations
     apply_core_config_fields(response, &context.config, team);
 
     // Handle fields that require request context (headers, config, etc)
     // I test this config field in isolation in session_recording.rs, and have integration tests for it in tests/test_flags.rs
-    response.config.session_recording = session_recording::session_recording_config_response(
-        team,
-        &context.headers,
-        &context.config,
-    );
+    response.config.session_recording = if is_recordings_limited {
+        // Disable session recording when quota limited
+        Some(SessionRecordingField::Disabled(false))
+    } else {
+        session_recording::session_recording_config_response(
+            team,
+            &context.headers,
+            &context.config,
+        )
+    };
 
     // Handle fields that require database access
     // I test this config field in isolation in site_apps/mod.rs and have integration tests for it in tests/test_flags.rs
@@ -84,6 +116,33 @@ async fn apply_config_fields(
         Some(get_decide_site_apps(context.reader.clone(), team.id).await?)
     } else {
         Some(vec![])
+    };
+
+    // Handle error tracking configuration
+    response.config.error_tracking = if team.autocapture_exceptions_opt_in.unwrap_or(false) {
+        // Try to get suppression rules, but don't fail if database is unavailable
+        let suppression_rules =
+            match error_tracking::get_suppression_rules(context.reader.clone(), team).await {
+                Ok(rules) => rules,
+                Err(_) => {
+                    // Log error but continue with empty rules, similar to Django behavior
+                    tracing::warn!(
+                        "Failed to fetch suppression rules for team {}, using empty rules",
+                        team.id
+                    );
+                    vec![]
+                }
+            };
+
+        Some(ErrorTrackingConfig {
+            autocapture_exceptions: true,
+            suppression_rules,
+        })
+    } else {
+        Some(ErrorTrackingConfig {
+            autocapture_exceptions: false,
+            suppression_rules: vec![],
+        })
     };
 
     Ok(())
@@ -97,12 +156,12 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
         team.autocapture_web_vitals_allowed_metrics.as_ref();
     let capture_network_timing = team.capture_performance_opt_in.unwrap_or(false);
 
-    response.config.has_feature_flags = Some(!response.flags.is_empty());
     response.config.supported_compression = vec!["gzip".to_string(), "gzip-js".to_string()];
-    response.config.autocapture_opt_out = team.autocapture_opt_out;
+    response.config.autocapture_opt_out = Some(team.autocapture_opt_out.unwrap_or(false));
 
     response.config.analytics = if !*config.debug
         && !config.is_team_excluded(team.id, &config.new_analytics_capture_excluded_team_ids)
+        && !config.new_analytics_capture_endpoint.is_empty()
     {
         Some(AnalyticsConfig {
             endpoint: Some(config.new_analytics_capture_endpoint.clone()),
@@ -161,10 +220,7 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::{
-            ConfigResponse, FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagsResponse,
-            SessionRecordingField,
-        },
+        api::types::{ConfigResponse, FlagsResponse, SessionRecordingField},
         config::{Config, FlexBool, TeamIdCollection},
         handler::{config_response_builder::apply_core_config_fields, session_recording},
         team::team_models::Team,
@@ -234,7 +290,6 @@ mod tests {
             response.config.supported_compression,
             vec!["gzip", "gzip-js"]
         );
-        assert_eq!(response.config.has_feature_flags, Some(false)); // empty flags
         assert_eq!(response.config.default_identified_only, Some(true));
         assert_eq!(response.config.is_authenticated, Some(false));
         assert_eq!(
@@ -242,37 +297,6 @@ mod tests {
             Some(json!({"enable_collect_everything": true}))
         );
         assert_eq!(response.config.toolbar_params, Some(json!({})));
-    }
-
-    #[test]
-    fn test_has_feature_flags_with_flags() {
-        let mut response = create_base_response();
-        response.flags.insert(
-            "test_flag".to_string(),
-            FlagDetails {
-                key: "test_flag".to_string(),
-                enabled: true,
-                variant: None,
-                reason: FlagEvaluationReason {
-                    code: "condition_match".to_string(),
-                    condition_index: Some(0),
-                    description: None,
-                },
-                metadata: FlagDetailsMetadata {
-                    id: 1,
-                    version: 1,
-                    description: None,
-                    payload: None,
-                },
-            },
-        );
-
-        let config = Config::default_test_config();
-        let team = create_base_team();
-
-        apply_core_config_fields(&mut response, &config, &team);
-
-        assert_eq!(response.config.has_feature_flags, Some(true));
     }
 
     #[test]
@@ -317,6 +341,21 @@ mod tests {
 
         let mut response = create_base_response();
         let team = create_base_team(); // team.id = 1
+
+        apply_core_config_fields(&mut response, &config, &team);
+
+        assert!(response.config.analytics.is_none());
+    }
+
+    #[test]
+    fn test_analytics_config_disabled_empty_endpoint() {
+        let mut config = Config::default_test_config();
+        config.debug = FlexBool(false);
+        config.new_analytics_capture_endpoint = "".to_string(); // Empty endpoint
+        config.new_analytics_capture_excluded_team_ids = TeamIdCollection::None; // None means exclude nobody
+
+        let mut response = create_base_response();
+        let team = create_base_team();
 
         apply_core_config_fields(&mut response, &config, &team);
 
@@ -546,7 +585,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.autocapture_opt_out, Some(true));
+        assert!(response.config.autocapture_opt_out.unwrap());
     }
 
     #[test]
@@ -559,7 +598,7 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
-        assert_eq!(response.config.autocapture_opt_out, Some(false));
+        assert!(!response.config.autocapture_opt_out.unwrap());
     }
 
     #[test]
@@ -596,13 +635,15 @@ mod tests {
 
         apply_core_config_fields(&mut response, &config, &team);
 
+        tracing::debug!("response: {:?}", response);
+
         // Test that defaults are applied correctly
         assert_eq!(response.config.surveys, Some(json!(false)));
         assert_eq!(response.config.heatmaps, Some(false));
         assert_eq!(response.config.flags_persistence_default, Some(false));
         assert_eq!(response.config.autocapture_exceptions, Some(json!(false)));
         assert_eq!(response.config.capture_performance, Some(json!(false)));
-        assert!(response.config.autocapture_opt_out.is_none());
+        assert!(!response.config.autocapture_opt_out.unwrap());
         assert!(response.config.capture_dead_clicks.is_none());
     }
 
@@ -772,6 +813,42 @@ mod tests {
             assert!(config.script_config.is_none()); // Should not have script config when script is empty
         } else {
             panic!("Expected SessionRecordingField::Config without script_config");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_empty_domains_allowed() {
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.recording_domains = Some(vec![]); // Empty domains list
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        // Should return config (enabled) when recording_domains is empty list
+        if let Some(SessionRecordingField::Config(_)) = result {
+            // Test passes if we reach this point
+        } else {
+            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
+        }
+    }
+
+    #[test]
+    fn test_session_recording_no_domains_allowed() {
+        let config = Config::default_test_config();
+        let mut team = create_base_team();
+        team.session_recording_opt_in = true;
+        team.recording_domains = None; // No domains list
+
+        let headers = axum::http::HeaderMap::new();
+        let result = session_recording::session_recording_config_response(&team, &headers, &config);
+
+        // Should return config (enabled) when recording_domains is empty list
+        if let Some(SessionRecordingField::Config(_)) = result {
+            // Test passes if we reach this point
+        } else {
+            panic!("Expected SessionRecordingField::Config when recording_domains is empty list");
         }
     }
 }

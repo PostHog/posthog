@@ -1,7 +1,7 @@
 import 'chartjs-adapter-dayjs-3'
 
-import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'chart.js'
 import { useValues } from 'kea'
+import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'lib/Chart'
 import { getSeriesColor } from 'lib/colors'
 import { getGraphColors } from 'lib/colors'
 import { useCallback, useEffect, useRef } from 'react'
@@ -224,7 +224,7 @@ export function BillingLineGraph({
 
                             tooltipEl.style.top = `${tooltipY}px`
                             tooltipEl.style.left = `${tooltipX}px`
-                        } catch (e) {
+                        } catch {
                             hideBillingTooltip()
                         }
                     },

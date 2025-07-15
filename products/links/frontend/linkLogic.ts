@@ -4,7 +4,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/SaveTo/saveToLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -95,10 +94,7 @@ export const linkLogic = kea<linkLogicType>([
                 if (props.id && props.id !== 'new') {
                     actions.saveLink(payload)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Links',
-                        callback: (folder) => actions.saveLink({ ...payload, _create_in_folder: folder }),
-                    })
+                    actions.saveLink({ ...payload, _create_in_folder: 'Unfiled/Links' })
                 }
             },
         },

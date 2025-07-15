@@ -177,17 +177,35 @@ __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 
 def get_api_personal_rate_limiter():
     global __API_CONCURRENT_QUERY_PER_TEAM
+
+    def __applicable(
+        *args,
+        org_id: Optional[str] = None,
+        team_id: Optional[int] = None,
+        is_api: Optional[bool] = None,
+        **kwargs,
+    ) -> bool:
+        return bool(
+            not TEST
+            and org_id
+            and is_api
+            and team_id
+            and (
+                team_id in settings.API_QUERIES_PER_TEAM
+                or (settings.API_QUERIES_LEGACY_TEAM_LIST and team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
+            )
+        )
+
     if __API_CONCURRENT_QUERY_PER_TEAM is None:
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
             max_concurrency=3,
-            applicable=lambda *args, **kwargs: not TEST and kwargs.get("org_id") and kwargs.get("is_api"),
+            applicable=__applicable,
             limit_name="api_per_org",
             get_task_name=lambda *args, **kwargs: f"api:query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: (
                 current_task.request.id if current_task else (kwargs.get("task_id") or generate_short_id())
             ),
             ttl=600,
-            bypass_all=(not settings.API_QUERIES_ENABLED),
             # p20 duration for a query is 133ms, p25 is 164ms, p50 is 458ms, there's a 20% chance that after 134ms
             # the slot is free.
             retry=0.134,
@@ -207,7 +225,14 @@ def get_app_org_rate_limiter():
     if __APP_CONCURRENT_QUERY_PER_ORG is None:
         __APP_CONCURRENT_QUERY_PER_ORG = RateLimit(
             max_concurrency=20,
-            applicable=lambda *args, **kwargs: not TEST and kwargs.get("org_id") and not kwargs.get("is_api"),
+            applicable=lambda *args, **kwargs: (
+                not TEST
+                and kwargs.get("org_id")
+                and not kwargs.get("is_api")
+                # if running in celery, we don't want rate limit to apply
+                # as celery tasks have their own limits on the queues + using @limit_concurrency
+                and not current_task
+            ),
             limit_name="app_per_org",
             get_task_name=lambda *args, **kwargs: f"app:query:per-org:{kwargs.get('org_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
@@ -225,7 +250,12 @@ def get_app_dashboard_queries_rate_limiter():
         __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG = RateLimit(
             max_concurrency=4,
             applicable=(
-                lambda *args, **kwargs: not TEST and not kwargs.get("is_api") and kwargs.get("dashboard_id") is not None
+                lambda *args, **kwargs: not TEST
+                and not kwargs.get("is_api")
+                and kwargs.get("dashboard_id") is not None
+                # if running in celery, we don't want rate limit to apply
+                # as celery tasks have their own limits on the queues + using @limit_concurrency
+                and not current_task
             ),
             limit_name="app_dashboard_queries_per_org",
             get_task_name=lambda *args, **kwargs: f"app:dashboard_query:per-org:{kwargs.get('org_id')}",

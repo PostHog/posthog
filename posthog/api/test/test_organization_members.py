@@ -69,8 +69,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertFalse(membership_queryset.exists(), False)
 
         mock_capture.assert_called_with(
-            self.user.distinct_id,  # requesting user
-            "organization member removed",
+            distinct_id=self.user.distinct_id,  # requesting user
+            event="organization member removed",
             properties={
                 "removed_member_id": user.distinct_id,
                 "removed_by_id": self.user.distinct_id,
@@ -224,8 +224,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(membership_queryset.count(), 0)
 
         mock_capture.assert_called_with(
-            self.user.distinct_id,
-            "organization member removed",
+            distinct_id=self.user.distinct_id,
+            event="organization member removed",
             properties={
                 "removed_member_id": self.user.distinct_id,
                 "removed_by_id": self.user.distinct_id,

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE posthog_errortrackingsymbolset SET last_used = $2 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a26e8281d9bdd7804e79d877a5e59eb4387ad9f91cd9b2ade696d6aed6a87135"
+}

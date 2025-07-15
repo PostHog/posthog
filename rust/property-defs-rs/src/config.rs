@@ -41,25 +41,6 @@ pub struct Config {
     #[envconfig(default = "1000000")]
     pub cache_capacity: usize,
 
-    // We impose a slow-start, where each batch update operation is delayed by
-    // this many milliseconds, multiplied by the % of the cache currently unused. The idea
-    // is that we want to drip-feed updates to the DB during warmup, since
-    // cache fill rate is highest when it's most empty, and cache fill rate
-    // is exactly equivalent to the rate at which we can issue updates to the DB.
-    // The maths here is:
-    //     max(writes/s) = max_concurrent_transactions * update_batch_size / transaction_seconds
-    // By artificially inflating transaction_time, we put a cap on writes/s. This cap is
-    // then loosened as the cache fills, until we're operating in "normal" mode and
-    // only presenting "true" DB backpressure (in the form of write time) to the main loop.
-    #[envconfig(default = "1000")]
-    pub cache_warming_delay_ms: u32,
-
-    // This is the slow-start cutoff. Once the cache is this full, we
-    // don't delay the batch updates any more. 50% is fine for testing,
-    // in production you want to be using closer to 80-90%
-    #[envconfig(default = "0.5")]
-    pub cache_warming_cutoff: f64,
-
     // Each worker maintains a small local batch of updates, which it
     // flushes to the main thread (updating/filtering by the
     // cross-thread cache while it does). This is that batch size.
@@ -115,19 +96,19 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub enable_mirror: bool,
 
-    // TEMP: used to gate the new process_batch_v2 write path code in
-    // the current property-defs-rs deployments *and* new mirror
-    #[envconfig(default = "false")]
-    pub enable_v2: bool,
-
     #[envconfig(default = "100")]
     pub v2_ingest_batch_size: usize,
 
-    // *ONLY* for use in the new property-defs-rs-v2 mirror deploy, and (for now)
+    // For use in the new property-defs-rs-v2 mirror deploy, and (for now)
     // behind `enable_mirror` flag during the refactor/transition. Maps to the new
-    // PROPDEFS isolated PG DB instances in production.
-    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
-    pub database_propdefs_url: String,
+    // isolated propdefs DB instances in production. If unset, defaults to use
+    // database_url and std pool
+    pub database_propdefs_url: Option<String>,
+
+    // RO creds for the new isolated persons DB is required to access
+    // the posthog_grouptypemappings for the team -> group_meta cache.
+    // if unset, defaults to use database_url and std pool
+    pub database_persons_url: Option<String>,
 }
 
 #[derive(Clone)]

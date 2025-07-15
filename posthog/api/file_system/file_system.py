@@ -95,11 +95,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
 
-    # The request has the team/environment in the URL, but want to filter by project not team.
-    param_derived_from_user_current_team = "project_id"
-    # This kludge is needed to avoid the default behavior of returning the project_id as the team_id
-    _skip_team_id_override_kludge = True
-
     def _apply_search_to_queryset(self, queryset: QuerySet, search: str) -> QuerySet:
         """
         Supported token formats
@@ -224,9 +219,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Show all objects belonging to the project, except for hog functions, which are scoped by team.
         """
         queryset = self._scope_by_project(queryset)
-        assert "team_id" in self.parent_query_kwargs
+        # type !~ 'hog_function/.*' or team = $current
         queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
         return queryset
+
+    def _filter_queryset_by_parents_lookups(self, queryset):
+        return self._scope_by_project(queryset)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)

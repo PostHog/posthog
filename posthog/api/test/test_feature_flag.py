@@ -589,6 +589,58 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Invalid variant definitions: Variant rollout percentages must sum to 100.",
         )
 
+    def test_cant_update_multivariate_feature_flag_with_variant_rollout_not_100(self):
+        # Create initial flag
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        feature_flag_id = response.json()["id"]
+
+        # Try to update with invalid percentages
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 40},
+                        ]
+                    },
+                }
+            },
+            format="json",
+        )
+
+        # Verify error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(
+            response.json().get("detail"),
+            "Invalid variant definitions: Variant rollout percentages must sum to 100.",
+        )
+
+        # Verify flag wasn't updated
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"][0]["rollout_percentage"], 50)
+        self.assertEqual(feature_flag.filters["multivariate"]["variants"][1]["rollout_percentage"], 50)
+
     def test_cant_create_feature_flag_without_key(self):
         count = FeatureFlag.objects.count()
         response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", format="json")
@@ -715,7 +767,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {
                                 "key": "third-variant",
                                 "name": "Third Variant",
-                                "rollout_percentage": 0,
+                                "rollout_percentage": 25,
                             },
                         ]
                     },
@@ -2198,30 +2250,32 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         response_invalid_token = self.client.get(f"/api/projects/@current/feature_flags?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    def test_creating_a_feature_flag_with_same_team_and_key_after_deleting(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
+    def test_soft_delete_flag_renames_key_and_allows_reuse(self):
+        # Create flag and experiment, then soft-delete experiment
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag1")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        exp.deleted = True
+        exp.save()
+        # Soft-delete flag: should rename key
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 200
+        flag.refresh_from_db()
+        assert flag.deleted is True
+        assert flag.key == f"flag1:deleted:{flag.id}"
+        # Should now be able to create a new flag with the original key
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/", {"name": "Flag1", "key": "flag1"})
+        assert response.status_code == 201
+        assert response.json()["key"] == "flag1"
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {"name": "Alpha feature", "key": "alpha-feature"},
+    def test_soft_delete_flag_blocked_with_active_experiment(self):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
+        response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"deleted": True})
+        assert response.status_code == 400
+        assert (
+            response.json()["detail"]
+            == f"Cannot delete a feature flag that is linked to active experiment(s) with ID(s): {exp.id}. Please delete the experiment(s) before deleting the flag."
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.json()["id"])
-        self.assertEqual(instance.key, "alpha-feature")
-
-    def test_updating_a_feature_flag_with_same_team_and_key_of_a_deleted_one(self):
-        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="alpha-feature", deleted=True)
-
-        instance = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="beta-feature")
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{instance.pk}",
-            {"key": "alpha-feature"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        instance.refresh_from_db()
-        self.assertEqual(instance.key, "alpha-feature")
 
     def test_my_flags_is_not_nplus1(self) -> None:
         self.client.post(

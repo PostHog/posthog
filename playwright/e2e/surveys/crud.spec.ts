@@ -149,6 +149,7 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr=survey-name]').click()
 
         await page.locator('[data-attr=save-survey]').first().click()
+
         await expect(page.locator('button[data-attr="launch-survey"]')).toContainText('Launch')
 
         await page.reload()

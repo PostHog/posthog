@@ -1,3 +1,4 @@
+from typing import cast
 from decimal import Decimal
 
 from posthog.hogql import ast
@@ -9,6 +10,7 @@ from posthog.schema import (
 )
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.views.revenue_analytics_invoice_item_view import RevenueAnalyticsInvoiceItemView
 
 ORDER_BY_MONTH_ASC = ast.OrderExpr(expr=ast.Field(chain=["month"]), order="ASC")
 
@@ -20,11 +22,19 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # If there are no revenue views, we return a query that returns 0 for all values
-        charge_subquery, _, _, _ = self.revenue_subqueries()
-        if charge_subquery is None:
-            return ast.SelectQuery.empty()
+        if self.revenue_subqueries.invoice_item is None:
+            return ast.SelectQuery.empty(
+                columns=[
+                    "month",
+                    "revenue",
+                    "previous_month_revenue",
+                    "month_over_month_growth_rate",
+                    "three_month_growth_rate",
+                    "six_month_growth_rate",
+                ]
+            )
 
-        monthly_revenue_cte = self.monthly_revenue_cte(charge_subquery)
+        monthly_revenue_cte = self.monthly_revenue_cte()
         revenue_with_growth_cte = self.revenue_with_growth_cte(monthly_revenue_cte)
 
         return ast.SelectQuery(
@@ -44,24 +54,42 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
             },
         )
 
-    def monthly_revenue_cte(self, select_from: ast.SelectQuery | ast.SelectSetQuery) -> ast.CTE:
+    def monthly_revenue_cte(self) -> ast.CTE:
         return ast.CTE(
             name="monthly_revenue",
             expr=ast.SelectQuery(
                 select=[
                     ast.Alias(
                         alias="month",
-                        expr=ast.Call(name="toStartOfMonth", args=[ast.Field(chain=["timestamp"])]),
+                        expr=ast.Call(
+                            name="toStartOfMonth",
+                            args=[
+                                ast.Field(chain=[RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"])
+                            ],
+                        ),
                     ),
                     ast.Alias(
                         alias="revenue",
                         expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
                     ),
                 ],
-                select_from=ast.JoinExpr(table=select_from),
+                select_from=self._append_joins(
+                    ast.JoinExpr(
+                        alias=RevenueAnalyticsInvoiceItemView.get_generic_view_alias(),
+                        table=self.revenue_subqueries.invoice_item,  # Guaranteed to be not None because we check for that in `to_query`
+                    ),
+                    self.joins_for_properties(RevenueAnalyticsInvoiceItemView),
+                ),
+                where=ast.And(
+                    exprs=[
+                        self.timestamp_where_clause(
+                            [RevenueAnalyticsInvoiceItemView.get_generic_view_alias(), "timestamp"]
+                        ),
+                        *self.where_property_exprs,
+                    ]
+                ),
                 group_by=[ast.Field(chain=["month"])],
                 order_by=[ORDER_BY_MONTH_ASC],
-                where=self.timestamp_where_clause(),
             ),
             cte_type="subquery",
         )
@@ -135,7 +163,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                 Decimal(str(round(result[4], 10))) if result[4] is not None else None,  # three_month_growth_rate
                 Decimal(str(round(result[5], 10))) if result[5] is not None else None,  # six_month_growth_rate
             )
-            for result in response.results
+            for result in cast(list[tuple], response.results)
         ]
 
         return RevenueAnalyticsGrowthRateQueryResponse(

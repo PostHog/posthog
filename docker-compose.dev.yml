@@ -14,13 +14,61 @@ services:
             service: proxy
         ports:
             - 8010:8000
-        depends_on:
-            - replay-capture
-            - capture
-            - feature-flags
         extra_hosts:
             - 'web:host-gateway'
             - 'plugins:host-gateway'
+            - 'capture:host-gateway'
+            - 'replay-capture:host-gateway'
+            - 'feature-flags:host-gateway'
+        environment:
+            CADDYFILE: |
+                http://localhost:8000 {
+                    @replay-capture {
+                        path /s
+                        path /s/*
+                    }
+
+                    @capture {
+                        path /e
+                        path /e/*
+                        path /i/v0/*
+                        path /batch
+                        path /batch*
+                        path /capture
+                        path /capture*
+                    }
+
+                    @flags {
+                        path /flags
+                        path /flags*
+                    }
+
+                    @webhooks {
+                        path /public/webhooks
+                        path /public/webhooks/*
+                    }
+
+                    handle @capture {
+                        reverse_proxy capture:3307
+                    }
+
+                    handle @replay-capture {
+                        reverse_proxy replay-capture:3306
+                    }
+
+                    handle @flags {
+                        reverse_proxy host.docker.internal:3001
+                    }
+
+                    handle @webhooks {
+                        reverse_proxy plugins:6738
+                    }
+
+                    handle {
+                        reverse_proxy web:8000
+                    }
+                }
+
     db:
         extends:
             file: docker-compose.base.yml
@@ -128,26 +176,6 @@ services:
             - '2080:2080'
         environment:
             - LISTEN_PORT=2080
-
-    # capture-rs
-    capture:
-        extends:
-            file: docker-compose.base.yml
-            service: capture
-        environment:
-            - DEBUG=1
-        depends_on:
-            - redis
-            - kafka
-
-    # replay capture-rs
-    replay-capture:
-        extends:
-            file: docker-compose.base.yml
-            service: replay-capture
-        depends_on:
-            - redis
-            - kafka
 
     feature-flags:
         extends:

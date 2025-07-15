@@ -6,6 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
@@ -15,8 +16,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
-
-import { revenueAnalyticsSettingsLogic } from '../settings/revenueAnalyticsSettingsLogic'
+import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 let uniqueNode = 0
 export function RevenueAnalyticsTopCustomersNode(props: {
@@ -24,6 +24,7 @@ export function RevenueAnalyticsTopCustomersNode(props: {
     cachedResults?: AnyResponseType
     context: QueryContext
 }): JSX.Element | null {
+    const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsTopCustomers.${uniqueNode++}`)
     const logic = dataNodeLogic({
@@ -35,7 +36,7 @@ export function RevenueAnalyticsTopCustomersNode(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
 
-    const { baseCurrency } = useValues(revenueAnalyticsSettingsLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const { response, responseLoading, queryId } = useValues(logic)
 
     if (responseLoading) {
@@ -91,7 +92,7 @@ export function RevenueAnalyticsTopCustomersNode(props: {
                             type={GraphType.Line}
                             datasets={datasets}
                             labels={labels}
-                            isInProgress
+                            isInProgress={!dateFilter.dateTo}
                             trendsFilter={{
                                 aggregationAxisFormat: 'numeric',
                                 decimalPlaces: 2,

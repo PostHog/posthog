@@ -21,6 +21,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }) => {
         return { shortId: id as string }
     },
+    settingSectionId: 'environment-replay',
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
@@ -86,12 +87,12 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                         }
                                         fullWidth
                                     >
-                                        {playlist.pinned ? 'Unpin playlist' : 'Pin playlist'}
+                                        {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
                                     </LemonButton>
                                     <LemonDivider />
 
                                     <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
-                                        Delete playlist
+                                        Delete collection
                                     </LemonButton>
                                 </>
                             }
@@ -147,6 +148,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     pinnedRecordings={pinnedRecordings ?? []}
                     canMixFiltersAndPinned={dayjs(playlist.created_at).isBefore('2025-03-11')}
                     updateSearchParams={true}
+                    type="collection"
                 />
             </div>
         </div>

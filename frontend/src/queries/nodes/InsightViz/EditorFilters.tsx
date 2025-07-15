@@ -85,6 +85,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         return null
     }
 
+    // MaxTool should not be active when insights are embedded (e.g., in notebooks)
+    const maxToolActive = !embedded
+
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
@@ -391,6 +394,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 <MaxTool
                     name="create_and_query_insight"
                     displayName="Edit insight"
+                    description="Max can tweak and rework the insight you're viewing"
                     context={{
                         current_query: querySource,
                     }}
@@ -414,14 +418,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         }
                     }}
                     initialMaxPrompt="Show me users who "
+                    className="EditorFiltersWrapper"
+                    active={maxToolActive}
                 >
                     <div
-                        className={clsx(
-                            'EditorFiltersWrapper relative flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary',
-                            {
-                                'p-4 rounded border': !embedded,
-                            }
-                        )}
+                        className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                            'p-4 rounded border': !embedded,
+                        })}
                     >
                         {filterGroupsGroups.map(({ title, editorFilterGroups }) => (
                             <div key={title} className="flex-1 flex flex-col gap-4 max-w-full">

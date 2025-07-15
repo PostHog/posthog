@@ -4,8 +4,12 @@ from rest_framework import serializers
 import yaml
 import structlog
 from ee.session_recordings.session_summary import SummaryValidationError
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
-from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime
+from ee.session_recordings.session_summary.utils import (
+    get_column_index,
+    prepare_datetime,
+    strip_raw_llm_content,
+    unpack_full_event_id,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -18,9 +22,10 @@ class RawKeyActionSerializer(serializers.Serializer):
     event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
-class EnrichedKeyActionSerializer(RawKeyActionSerializer):
+class IntermediateKeyActionSerializer(RawKeyActionSerializer):
     """
-    LLM actions enriched with metadata.
+    Key actions enriched with metadata, but limited set to not feed LLM excessive info
+    when the single summary is not a final step (for example, group summaries)
     """
 
     timestamp = serializers.CharField(max_length=128, required=False, allow_null=True)
@@ -32,6 +37,15 @@ class EnrichedKeyActionSerializer(RawKeyActionSerializer):
     event_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
 
 
+class EnrichedKeyActionSerializer(IntermediateKeyActionSerializer):
+    """
+    LLM actions enriched with metadata, expected to be used in the final summary.
+    """
+
+    session_id = serializers.CharField(max_length=128, required=False, allow_null=True)
+    event_uuid = serializers.CharField(max_length=128, required=False, allow_null=True)
+
+
 class RawSegmentKeyActionsSerializer(serializers.Serializer):
     """
     Key actions grouped by segment.
@@ -41,12 +55,22 @@ class RawSegmentKeyActionsSerializer(serializers.Serializer):
     events = serializers.ListField(child=RawKeyActionSerializer(), required=False, allow_empty=True, allow_null=True)
 
 
-class EnrichedSegmentKeyActionsSerializer(serializers.Serializer):
+class IntermediateSegmentKeyActionsSerializer(RawSegmentKeyActionsSerializer):
     """
-    Key actions grouped by segment, enriched with metadata.
+    Key actions grouped by segment, enriched with metadata, but limited set to not feed LLM excessive info
+    when the single summary is not a final step (for example, group summaries)
     """
 
-    segment_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    events = serializers.ListField(
+        child=IntermediateKeyActionSerializer(), required=False, allow_empty=True, allow_null=True
+    )
+
+
+class EnrichedSegmentKeyActionsSerializer(IntermediateSegmentKeyActionsSerializer):
+    """
+    Key actions grouped by segment, enriched with metadata, expected to be used in the final summary.
+    """
+
     events = serializers.ListField(
         child=EnrichedKeyActionSerializer(), required=False, allow_empty=True, allow_null=True
     )
@@ -121,21 +145,28 @@ class RawSessionSummarySerializer(serializers.Serializer):
     session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
-class SessionSummarySerializer(serializers.Serializer):
+class IntermediateSessionSummarySerializer(RawSessionSummarySerializer):
     """
-    Session summary enriched with metadata.
+    Session summary enriched with metadata, but limited set to not feed LLM excessive info
+    when the single summary is not a final step (for example, group summaries)
     """
 
     segments = serializers.ListField(
         child=EnrichedSegmentSerializer(), required=False, allow_empty=True, allow_null=True
     )
     key_actions = serializers.ListField(
+        child=IntermediateSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
+    )
+
+
+class SessionSummarySerializer(IntermediateSessionSummarySerializer):
+    """
+    Session summary enriched with metadata, expected to be used in the final summary.
+    """
+
+    key_actions = serializers.ListField(
         child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
-    segment_outcomes = serializers.ListField(
-        child=SegmentOutcomeSerializer(), required=False, allow_empty=True, allow_null=True
-    )
-    session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
 def load_raw_session_summary_from_llm_content(
@@ -144,13 +175,11 @@ def load_raw_session_summary_from_llm_content(
     if not raw_content:
         raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
     try:
-        # Strip the first and the last line of the content to load the YAML data only into JSON
-        # TODO Work on a more robust solution
-        json_content: dict = yaml.safe_load(raw_content.strip("```yaml\n").strip("```").strip())  # noqa: B005
-    except Exception as e:
+        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+    except Exception as err:
         raise SummaryValidationError(
-            f"Error loading YAML content into JSON when summarizing session_id {session_id}: {e}"
-        )
+            f"Error loading YAML content into JSON when summarizing session_id {session_id}: {err}"
+        ) from err
     # Validate the LLM output against the schema
     raw_session_summary = RawSessionSummarySerializer(data=json_content)
     if not raw_session_summary.is_valid():
@@ -278,11 +307,11 @@ def _calculate_segment_events_count(
 
 def _calculate_segment_meta(
     raw_segment: dict[str, Any],
-    session_metadata: SessionSummaryMetadata,
     timestamp_index: int,
     event_index_index: int,
     simplified_events_mapping: dict[str, list[Any]],
     raw_key_actions: list[dict[str, Any]] | None,
+    session_duration: int,
     session_id: str,
 ) -> SegmentMetaSerializer:
     # Find first and the last event in the segment
@@ -302,7 +331,7 @@ def _calculate_segment_meta(
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate duration of the segment
-    if not session_metadata.duration:
+    if not session_duration:
         raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
     # If both events aren't hallucinated - calculate the meta
     if start_event_id in simplified_events_mapping and end_event_id in simplified_events_mapping:
@@ -312,7 +341,7 @@ def _calculate_segment_meta(
             timestamp_index=timestamp_index,
             event_index_index=event_index_index,
             simplified_events_mapping=simplified_events_mapping,
-            session_total_duration=session_metadata.duration,
+            session_total_duration=session_duration,
         )
     # If hallucinated - avoid calculating it now and hope for the fallback from the key actions
     else:
@@ -411,7 +440,7 @@ def _calculate_segment_meta(
         timestamp_index=timestamp_index,
         event_index_index=event_index_index,
         simplified_events_mapping=simplified_events_mapping,
-        session_total_duration=session_metadata.duration,
+        session_total_duration=session_duration,
     )
     fallback_events_count, fallback_events_percentage = _calculate_segment_events_count(
         start_event_id=fallback_start_event_id,
@@ -445,11 +474,13 @@ def _calculate_segment_meta(
 def enrich_raw_session_summary_with_meta(
     raw_session_summary: RawSessionSummarySerializer,
     simplified_events_mapping: dict[str, list[Any]],
+    event_ids_mapping: dict[str, str],
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
-    session_metadata: SessionSummaryMetadata,
     session_id: str,
+    session_start_time_str: str,
+    session_duration: int,
 ) -> SessionSummarySerializer:
     timestamp_index = get_column_index(simplified_events_columns, "timestamp")
     window_id_index = get_column_index(simplified_events_columns, "$window_id")
@@ -460,6 +491,7 @@ def enrich_raw_session_summary_with_meta(
     raw_segments = raw_session_summary.data.get("segments")
     raw_key_actions = raw_session_summary.data.get("key_actions")
     summary_to_enrich = dict(raw_session_summary.data)
+    session_start_time = prepare_datetime(session_start_time_str)
     # Enrich LLM segments with metadata
     enriched_segments = []
     if not raw_segments:
@@ -471,7 +503,7 @@ def enrich_raw_session_summary_with_meta(
         # Calculate segment meta
         segment_meta = _calculate_segment_meta(
             raw_segment=raw_segment,
-            session_metadata=session_metadata,
+            session_duration=session_duration,
             timestamp_index=timestamp_index,
             event_index_index=event_index_index,
             simplified_events_mapping=simplified_events_mapping,
@@ -520,7 +552,7 @@ def enrich_raw_session_summary_with_meta(
             # Calculate time to jump to the right place in the player
             timestamp = event_mapping_data[timestamp_index]
             enriched_event["timestamp"] = timestamp
-            ms_since_start = calculate_time_since_start(timestamp, session_metadata.start_time)
+            ms_since_start = calculate_time_since_start(timestamp, session_start_time)
             if ms_since_start is not None:
                 enriched_event["milliseconds_since_start"] = ms_since_start
             # Add full URL of the event page
@@ -537,6 +569,10 @@ def enrich_raw_session_summary_with_meta(
                 enriched_event["event_type"] = event_type
             # Add event index to better link summary event with an actual event
             enriched_event["event_index"] = event_mapping_data[event_index_index]
+            # Add session/event UUIDs to better track events across sessions
+            enriched_event["session_id"], enriched_event["event_uuid"] = unpack_full_event_id(
+                full_event_id=event_ids_mapping.get(event_id), session_id=session_id
+            )
             enriched_events.append(enriched_event)
         # Ensure chronological order of the events
         enriched_events.sort(key=lambda x: x.get("milliseconds_since_start", 0))

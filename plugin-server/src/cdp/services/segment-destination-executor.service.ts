@@ -1,8 +1,7 @@
-import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
-import { PluginsServerConfig } from '~/src/types'
+import { PluginsServerConfig } from '~/types'
 
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
@@ -11,10 +10,9 @@ import { tryCatch } from '../../utils/try-catch'
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
-import { CDP_TEST_ID, isSegmentPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { getNextRetryTime, isFetchResponseRetriable } from './fetch-executor.service'
-import { sanitizeLogMessage } from './hog-executor.service'
+import { getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_segment_execution_duration_ms',
@@ -23,7 +21,7 @@ const pluginExecutionDuration = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200],
 })
 
-class SegmentRetriableError extends Error {
+class SegmentFetchError extends Error {
     constructor(message?: string) {
         super(message)
     }
@@ -44,7 +42,7 @@ export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'>
     }
 }
 
-const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Promise<ModifiedResponse<Data>> => {
+const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: string): ModifiedResponse<Data> => {
     const headers = new Headers() as ModifiedResponse['headers']
     Object.entries(response.headers).forEach(([key, value]) => {
         headers.set(key, value)
@@ -54,7 +52,6 @@ const convertFetchResponse = async <Data = unknown>(response: FetchResponse): Pr
         return Object.fromEntries(headers.entries())
     }
 
-    const text = await response.text()
     let json = undefined as Data
 
     try {
@@ -109,9 +106,8 @@ export class SegmentDestinationExecutorService {
     public async execute(
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
-        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {
-            queue: 'segment',
-        })
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const addLog = createAddLogFunction(result.logs)
 
         // Upsert the tries count on the metadata
         const metadata = (invocation.queueMetadata as { tries: number }) || { tries: 0 }
@@ -120,14 +116,6 @@ export class SegmentDestinationExecutorService {
 
         // Indicates if a retry is possible. Once we have peformed 1 successful non-GET request, we can't retry.
         let retriesPossible = true
-
-        const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
-            result.logs.push({
-                level,
-                timestamp: DateTime.now(),
-                message: sanitizeLogMessage(args),
-            })
-        }
 
         const segmentDestinationId = isSegmentPluginHogFunction(invocation.hogFunction)
             ? invocation.hogFunction.template_id
@@ -229,22 +217,16 @@ export class SegmentDestinationExecutorService {
                         })
                         // Simulate a mini bit of fetch delay
                         await new Promise((resolve) => setTimeout(resolve, 200))
-                        return convertFetchResponse({
-                            status: 200,
-                            headers: {},
-                            json: () =>
-                                Promise.resolve({
-                                    status: 'OK',
-                                    message: 'Test function',
-                                }),
-                            text: () =>
-                                Promise.resolve(
-                                    JSON.stringify({
-                                        status: 'OK',
-                                        message: 'Test function',
-                                    })
-                                ),
-                        } as FetchResponse)
+                        return convertFetchResponse(
+                            {
+                                status: 200,
+                                headers: {},
+                            } as FetchResponse,
+                            JSON.stringify({
+                                status: 'OK',
+                                message: 'Test function',
+                            })
+                        )
                     }
 
                     if (config.debug_mode) {
@@ -254,18 +236,35 @@ export class SegmentDestinationExecutorService {
                     const [fetchError, fetchResponse] = await tryCatch(() =>
                         this.fetch(`${endpoint}${params.toString() ? '?' + params.toString() : ''}`, fetchOptions)
                     )
+                    const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'
 
-                    if (
-                        retriesPossible &&
-                        isFetchResponseRetriable(fetchResponse, fetchError) &&
-                        metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
-                    ) {
-                        // If we it is retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                    if (fetchError || !fetchResponse || fetchResponse.status >= 400) {
+                        if (
+                            !(
+                                retriesPossible &&
+                                isFetchResponseRetriable(fetchResponse, fetchError) &&
+                                metadata.tries < this.serverConfig.CDP_FETCH_RETRIES
+                            )
+                        ) {
+                            retriesPossible = false
+                        }
                         addLog(
-                            'info',
-                            `HTTP request failed with status ${fetchResponse?.status ?? 'unknown'}. Scheduling retry...`
+                            'warn',
+                            `HTTP request failed with status ${fetchResponse?.status} (${
+                                fetchResponseText ?? 'unknown'
+                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
-                        throw new SegmentRetriableError()
+
+                        // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
+                        if (retriesPossible || (options?.throwHttpErrors ?? true)) {
+                            throw new SegmentFetchError(
+                                `Error executing function on event ${
+                                    invocation.state.globals.event.uuid
+                                }: Request failed with status ${fetchResponse?.status} (${
+                                    fetchResponseText ?? 'unknown'
+                                })`
+                            )
+                        }
                     }
 
                     if (method !== 'GET') {
@@ -278,7 +277,7 @@ export class SegmentDestinationExecutorService {
                         throw new Error('HTTP request failed')
                     }
 
-                    const convertedResponse = await convertFetchResponse(fetchResponse)
+                    const convertedResponse = convertFetchResponse(fetchResponse, fetchResponseText)
                     if (config.debug_mode) {
                         addLog(
                             'debug',
@@ -301,12 +300,17 @@ export class SegmentDestinationExecutorService {
 
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
-            if (e instanceof SegmentRetriableError) {
-                // We have retries left so we can trigger a retry
-                result.finished = false
-                result.invocation.queue = 'segment'
-                result.invocation.queuePriority = metadata.tries
-                result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
+            if (e instanceof SegmentFetchError) {
+                if (retriesPossible) {
+                    // We have retries left so we can trigger a retry
+                    result.finished = false
+                    result.invocation.queue = 'segment'
+                    result.invocation.queuePriority = metadata.tries
+                    result.invocation.queueScheduledAt = getNextRetryTime(this.serverConfig, metadata.tries)
+                    return result
+                } else {
+                    result.finished = true
+                }
             }
 
             logger.error('💩', 'Segment destination errored', {

@@ -1,6 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect, useState } from 'react'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { teamLogic } from 'scenes/teamLogic'
@@ -44,7 +43,6 @@ export function ErrorProjectUnavailable(): JSX.Element {
 
     return (
         <div>
-            <PageHeader />
             {!user?.organization ? (
                 <CreateOrganizationModal isVisible inline />
             ) : (user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id || user.team)) ||

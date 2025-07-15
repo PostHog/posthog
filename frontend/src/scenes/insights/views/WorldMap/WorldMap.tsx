@@ -50,6 +50,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     dataIndex: 1,
                                     datasetIndex: 1,
                                     id: 1,
+                                    order: 1,
                                     breakdown_value: currentTooltip[0],
                                     count: currentTooltip[1]?.aggregated_value || 0,
                                 },

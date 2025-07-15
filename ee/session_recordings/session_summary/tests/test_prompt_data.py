@@ -2,7 +2,7 @@ from typing import Any
 import pytest
 from datetime import datetime
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata, SessionSummaryPromptData
-from ee.session_recordings.session_summary.utils import prepare_datetime
+from ee.session_recordings.session_summary.utils import prepare_datetime, get_column_index
 
 
 @pytest.mark.parametrize(
@@ -85,11 +85,11 @@ def test_load_session_data(
     mock_raw_metadata: dict[str, Any],
     mock_filtered_events_columns: list[str],
     mock_events_columns: list[str],
+    mock_session_id: str,
 ) -> None:
     prompt_data = SessionSummaryPromptData()
-    session_id = "test_session_id"
-    events_mapping = prompt_data.load_session_data(
-        mock_filtered_events, mock_raw_metadata, mock_filtered_events_columns, session_id
+    events_mapping, _ = prompt_data.load_session_data(
+        mock_filtered_events, mock_raw_metadata, mock_filtered_events_columns, mock_session_id
     )
     # Verify columns are set correctly with event_id and event_index added
     assert prompt_data.columns == mock_events_columns
@@ -112,12 +112,12 @@ def test_load_session_data(
     assert len(events_mapping) == len(mock_filtered_events)
     # Verify event structure
     first_event = prompt_data.results[0]
-    assert len(first_event) == len(mock_events_columns)  # Event id and index added
-    assert first_event[0] == "$autocapture"  # event type preserved
-    assert first_event[5] == "window_1"  # window_id mapped
-    assert first_event[6] == "url_1"  # url mapped
-    assert isinstance(first_event[-2], str)  # event_id is hex string
-    assert first_event[-1] == 0  # event_index is 0 for first event
+    assert len(first_event) == len(mock_events_columns) - 1  # Event id and index added, uuid removed
+    assert first_event[get_column_index(mock_events_columns, "event")] == "$autocapture"  # event type preserved
+    assert first_event[get_column_index(mock_events_columns, "window_id")] == "window_1"  # window_id mapped
+    assert first_event[get_column_index(mock_events_columns, "$current_url")] == "url_1"  # url mapped
+    assert isinstance(first_event[get_column_index(mock_events_columns, "event_id")], str)  # event_id is hex string
+    assert first_event[get_column_index(mock_events_columns, "event_index")] == 0  # event_index is 0 for first event
 
 
 def test_prepare_metadata_missing_required_fields() -> None:
@@ -136,22 +136,20 @@ def test_prepare_metadata_missing_required_fields() -> None:
         prompt_data._prepare_metadata({"start_time": "2025-03-31T18:40:32.302000Z", "console_error_count": 1})
 
 
-def test_load_session_data_empty_events(mock_raw_metadata: dict[str, Any]) -> None:
+def test_load_session_data_empty_events(mock_raw_metadata: dict[str, Any], mock_session_id: str) -> None:
     prompt_data = SessionSummaryPromptData()
     raw_columns = ["event", "timestamp"]
-    session_id = "test_session_id"
 
     with pytest.raises(ValueError, match="No session events provided"):
-        prompt_data.load_session_data([], mock_raw_metadata, raw_columns, session_id)
+        prompt_data.load_session_data([], mock_raw_metadata, raw_columns, mock_session_id)
 
 
-def test_load_session_data_empty_metadata(mock_filtered_events: list[tuple[Any, ...]]) -> None:
+def test_load_session_data_empty_metadata(mock_filtered_events: list[tuple[Any, ...]], mock_session_id: str) -> None:
     prompt_data = SessionSummaryPromptData()
     raw_columns = ["event", "timestamp"]
-    session_id = "test_session_id"
 
     with pytest.raises(ValueError, match="No session metadata provided"):
-        prompt_data.load_session_data(mock_filtered_events, {}, raw_columns, session_id)
+        prompt_data.load_session_data(mock_filtered_events, {}, raw_columns, mock_session_id)
 
 
 def test_metadata_to_dict() -> None:

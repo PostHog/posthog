@@ -30,7 +30,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useState } from 'react'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
-import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
+import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -75,10 +75,10 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex flex-col deprecated-space-y-2">
+            <div className="flex flex-col deprecated-space-y-2 mt-2">
                 <div className="flex justify-between">
                     <LemonLabel className="text-base">
-                        Enable recordings using feature flag {featureFlagLoading && <Spinner />}
+                        <TriggerMatchTypeTag /> Enable recordings using feature flag {featureFlagLoading && <Spinner />}
                     </LemonLabel>
                     <div className="flex flex-row justify-start">
                         <FlagSelector
@@ -191,7 +191,7 @@ function UrlConfigForm({
                                     } else {
                                         addUrlBlocklist(payload)
                                     }
-                                } catch (error) {
+                                } catch {
                                     lemonToast.error('Failed to apply regex')
                                 }
                             }}
@@ -393,8 +393,13 @@ function EventSelectButton(): JSX.Element {
             overlay={
                 <TaxonomicFilter
                     onChange={(_, value) => {
-                        updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value as string]))))
+                        if (isStringWithLength(value)) {
+                            updateEventTriggerConfig(Array.from(new Set(eventTriggerConfig?.concat([value]))))
+                        }
                         setOpen(false)
+                    }}
+                    excludedProperties={{
+                        [TaxonomicFilterGroupType.Events]: [null], // This will hide "All events"
                     }}
                     taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
                 />
@@ -418,9 +423,11 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col deprecated-space-y-2 mt-4">
+        <div className="flex flex-col deprecated-space-y-2 mt-2">
             <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">Event emitted</LemonLabel>
+                <LemonLabel className="text-base">
+                    <TriggerMatchTypeTag /> Event emitted
+                </LemonLabel>
                 <EventSelectButton />
             </div>
             <SupportedPlatforms
@@ -452,8 +459,10 @@ function Sampling(): JSX.Element {
 
     return (
         <>
-            <div className="flex flex-row justify-between">
-                <LemonLabel className="text-base">Sampling</LemonLabel>
+            <div className="flex flex-row justify-between mt-2">
+                <LemonLabel className="text-base">
+                    <TriggerMatchTypeTag /> Sampling
+                </LemonLabel>
                 <LemonSelect
                     onChange={(v) => {
                         updateCurrentTeam({ session_recording_sample_rate: v })
@@ -607,6 +616,7 @@ function TriggerMatchChoice(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-1">
+            <LemonLabel className="text-base py-2">Trigger matching</LemonLabel>
             <SupportedPlatforms web={{ version: '1.238.0' }} />
             <LemonBanner type="info" className="text-sm" hideIcon={true} dismissKey="replay-trigger-match-1-238-0">
                 <div className="flex flex-row gap-x-4 items-center">
@@ -666,9 +676,22 @@ function TriggerMatchChoice(): JSX.Element {
                     }}
                     value={currentTeam?.session_recording_trigger_match_type_config || 'all'}
                 />
-                <div>triggers match</div>
+                <div>triggers below match</div>
             </div>
         </div>
+    )
+}
+
+function TriggerMatchTypeTag(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    // Let's follow PostHog style of AND / OR from funnels
+    return (
+        <LemonTag type="danger" className="my-2 mr-2">
+            {currentTeam?.session_recording_trigger_match_type_config &&
+            currentTeam?.session_recording_trigger_match_type_config === 'any'
+                ? 'OR'
+                : 'AND'}
+        </LemonTag>
     )
 }
 
@@ -696,8 +719,8 @@ export function ReplayTriggers(): JSX.Element {
                 <UrlTriggerOptions />
                 <EventTriggerOptions />
                 <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
-                    <Sampling />
                     <LinkedFlagSelector />
+                    <Sampling />
                 </PayGateMini>
             </div>
             <MinimumDurationSetting />

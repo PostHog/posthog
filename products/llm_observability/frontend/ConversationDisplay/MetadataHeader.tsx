@@ -12,9 +12,13 @@ export function MetadataHeader({
     latency,
     className,
     isError,
+    cacheReadTokens,
+    cacheWriteTokens,
 }: {
     inputTokens?: number
     outputTokens?: number
+    cacheReadTokens?: number
+    cacheWriteTokens?: number
     totalCostUsd?: number
     model?: string
     latency?: number
@@ -33,6 +37,12 @@ export function MetadataHeader({
                         inputTokens + outputTokens
                     })`}
                 </MetadataTag>
+            )}
+            {typeof cacheReadTokens === 'number' && cacheReadTokens > 0 && (
+                <MetadataTag label="Cache read">{`${cacheReadTokens} tokens`}</MetadataTag>
+            )}
+            {typeof cacheWriteTokens === 'number' && cacheWriteTokens > 0 && (
+                <MetadataTag label="Cache write">{`${cacheWriteTokens} tokens`}</MetadataTag>
             )}
             {model && (
                 <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>

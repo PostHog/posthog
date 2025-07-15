@@ -1,6 +1,6 @@
 import './SidePanel.scss'
 
-import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
+import { IconEllipsis, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -23,7 +23,6 @@ import { SidePanelActivation, SidePanelActivationIcon } from './panels/activatio
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
-import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
@@ -79,12 +78,6 @@ export const SIDE_PANEL_TABS: Record<
         Content: SidePanelSettings,
     },
 
-    [SidePanelTab.FeaturePreviews]: {
-        label: 'Feature previews',
-        Icon: IconFeatures,
-        Content: SidePanelFeaturePreviews,
-    },
-
     [SidePanelTab.Activity]: {
         label: 'Team activity',
         Icon: SidePanelActivityIcon,
@@ -123,7 +116,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const PanelContent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -145,7 +138,7 @@ export function SidePanel(): JSX.Element | null {
         return () => {
             setSidePanelAvailable(false)
         }
-    }, [])
+    }, [setSidePanelAvailable])
 
     if (!visibleTabs.length) {
         return null
@@ -175,12 +168,12 @@ export function SidePanel(): JSX.Element | null {
         return (
             <LemonModal
                 simple
-                isOpen={!!PanelConent && supportsModal}
+                isOpen={!!PanelContent && supportsModal}
                 onClose={closeSidePanel}
                 hideCloseButton
                 width="40rem"
             >
-                {PanelConent ? <PanelConent /> : null}
+                {PanelContent ? <PanelContent /> : null}
             </LemonModal>
         )
     }
@@ -196,8 +189,9 @@ export function SidePanel(): JSX.Element | null {
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
-                ...(theme?.sidebarStyle ?? {}),
+                ...theme?.sidebarStyle,
             }}
+            id="side-panel"
         >
             <Resizer {...resizerLogicProps} />
             <div className="SidePanel3000__bar">
@@ -233,11 +227,11 @@ export function SidePanel(): JSX.Element | null {
                 ) : null}
             </div>
 
-            {PanelConent ? (
+            {PanelContent ? (
                 <div className="SidePanel3000__content">
                     <WithinSidePanelContext.Provider value={true}>
                         <ErrorBoundary>
-                            <PanelConent />
+                            <PanelContent />
                         </ErrorBoundary>
                     </WithinSidePanelContext.Provider>
                 </div>

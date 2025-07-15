@@ -7,7 +7,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { editor } from 'monaco-editor'
 
 import { groupsModel } from '~/models/groupsModel'
-import { HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
+import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
 
 import {
     hogFunctionConfigurationLogic,
@@ -17,7 +17,7 @@ import {
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
 
 export type HogFunctionTestInvocationForm = {
-    globals: string // HogFunctionInvocationGlobals
+    globals: string // CyclotronJobInvocationGlobals
     mock_async_functions: boolean
 }
 
@@ -83,6 +83,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 'exampleInvocationGlobals',
                 'sampleGlobalsError',
                 'type',
+                'currentHogCode',
             ],
             groupsModel,
             ['groupTypes'],
@@ -93,12 +94,12 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
     })),
     actions({
-        setTestResult: (result: HogFunctionTestInvocationResult | null) => ({ result }),
+        setTestResult: (result: CyclotronJobTestInvocationResult | null) => ({ result }),
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
-        saveGlobals: (name: string, globals: HogFunctionInvocationGlobals) => ({ name, globals }),
+        saveGlobals: (name: string, globals: CyclotronJobInvocationGlobals) => ({ name, globals }),
         deleteSavedGlobals: (index: number) => ({ index }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
-        receiveExampleGlobals: (globals: HogFunctionInvocationGlobals | null) => ({ globals }),
+        receiveExampleGlobals: (globals: CyclotronJobInvocationGlobals | null) => ({ globals }),
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
             ({ value, editor, decorations } as CodeEditorValidation),
@@ -114,7 +115,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
 
         testResult: [
-            null as HogFunctionTestInvocationResult | null,
+            null as CyclotronJobTestInvocationResult | null,
             {
                 setTestResult: (_, { result }) => result,
             },
@@ -128,7 +129,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         ],
 
         savedGlobals: [
-            [] as { name: string; globals: HogFunctionInvocationGlobals }[],
+            [] as { name: string; globals: CyclotronJobInvocationGlobals }[],
             { persist: true, prefix: `${getCurrentTeamId()}__` },
             {
                 saveGlobals: (state, { name, globals }) => [...state, { name, globals }],
@@ -315,6 +316,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 const parsedData = tryJsonParse(data.globals)
                 const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
                 configuration.template_id = values.templateId
+                configuration.hog = values.currentHogCode
 
                 // Transformations have a simpler UI just showing the event so we need to map it back to the event
                 const globals =

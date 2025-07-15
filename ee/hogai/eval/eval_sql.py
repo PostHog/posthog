@@ -1,19 +1,42 @@
-from ee.hogai.graph import InsightsAssistantGraph
+import pytest
+from asgiref.sync import sync_to_async
+from braintrust import EvalCase, Score
+from braintrust_core.score import Scorer
+
 from ee.hogai.graph.sql.toolkit import SQL_SCHEMA
-from ee.models.assistant import Conversation
 from posthog.errors import InternalCHQueryError
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team.team import Team
-from .conftest import MaxEval
-import pytest
-from braintrust import EvalCase, Score
-from braintrust_core.score import Scorer
-from asgiref.sync import sync_to_async
+from posthog.schema import AssistantHogQLQuery, NodeKind
 
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from posthog.schema import AssistantHogQLQuery, HumanMessage, NodeKind, VisualizationMessage
-from .scorers import PlanCorrectness, QueryAndPlanAlignment, TimeRangeRelevancy, PlanAndQueryOutput
+from .conftest import MaxEval
+from .scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
+
+QUERY_GENERATION_MAX_RETRIES = 3
+
+
+class RetryEfficiency(Scorer):
+    """Evaluate the efficiency of SQL query generation based on retry attempts. Higher scores for fewer retries."""
+
+    def _name(self):
+        return "retry_efficiency"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        retry_count = output.get("query_generation_retry_count", 0) if output else 0
+
+        # Score is inversely proportional to retry count
+        score = 1.0 if retry_count == 0 else 1 - (retry_count / QUERY_GENERATION_MAX_RETRIES)
+
+        return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        retry_count = output.get("query_generation_retry_count", 0) if output else 0
+
+        # Score is inversely proportional to retry count
+        score = 1.0 if retry_count == 0 else 1 - (retry_count / QUERY_GENERATION_MAX_RETRIES)
+
+        return Score(name=self._name(), score=score, metadata={"query_generation_retry_count": retry_count})
 
 
 class SQLSyntaxCorrectness(Scorer):
@@ -23,15 +46,15 @@ class SQLSyntaxCorrectness(Scorer):
         return "sql_syntax_correctness"
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
-        query = output["query"]
-        if not query or not getattr(query, "query", None):
+        if not output:
             return Score(
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
             )
+        query = {"query": output}
         team = await Team.objects.alatest("created_at")
         try:
             # Try to parse, print, and run the query
-            await sync_to_async(HogQLQueryRunner(query.model_dump(), team).calculate)()
+            await sync_to_async(HogQLQueryRunner(query, team).calculate)()
         except BaseHogQLError as e:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"HogQL-level error: {str(e)}"})
         except InternalCHQueryError as e:
@@ -40,11 +63,11 @@ class SQLSyntaxCorrectness(Scorer):
             return Score(name=self._name(), score=1.0)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
-        query = output["query"]
-        if not query or not getattr(query, "query", None):
+        if not output:
             return Score(
                 name=self._name(), score=None, metadata={"reason": "No SQL query to verify, skipping evaluation"}
             )
+        query = {"query": output}
         team = Team.objects.latest("created_at")
         try:
             # Try to parse, print, and run the query
@@ -57,54 +80,25 @@ class SQLSyntaxCorrectness(Scorer):
             return Score(name=self._name(), score=1.0)
 
 
-@pytest.fixture
-def call_node(demo_org_team_user):
-    # This graph structure will first get a plan, then generate the SQL query.
-    graph = (
-        InsightsAssistantGraph(demo_org_team_user[1])
-        .add_edge(AssistantNodeName.START, AssistantNodeName.SQL_PLANNER)
-        .add_sql_planner(next_node=AssistantNodeName.SQL_GENERATOR)  # Planner output goes to generator
-        .add_sql_generator(AssistantNodeName.END)  # Generator output is the final output
-        .compile()
-    )
-
-    def callable(query: str) -> PlanAndQueryOutput:
-        conversation = Conversation.objects.create(team=demo_org_team_user[1], user=demo_org_team_user[2])
-        # Initial state for the graph
-        initial_state = AssistantState(
-            messages=[HumanMessage(content=f"Answer this question: {query}")],
-            root_tool_insight_plan=query,  # User query is the initial plan for the planner
-            root_tool_call_id="eval_test_sql",
-            root_tool_insight_type="sql",
+class HogQLQuerySyntaxCorrectness(SQLSyntaxCorrectness):
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return await super()._run_eval_async(
+            output["query"].query if output and output.get("query") else None, expected, **kwargs
         )
 
-        # Invoke the graph. The state will be updated through planner and then generator.
-        final_state_raw = graph.invoke(
-            initial_state,
-            {"configurable": {"thread_id": conversation.id}},
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return super()._run_eval_sync(
+            output["query"].query if output and output.get("query") else None, expected, **kwargs
         )
-        final_state = AssistantState.model_validate(final_state_raw)
-
-        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
-            return {"plan": None, "query": None}
-
-        # Ensure the answer is of the expected type for SQL eval
-        answer = final_state.messages[-1].answer
-        if not isinstance(answer, AssistantHogQLQuery):
-            # This case should ideally not happen if the graph is configured correctly for SQL
-            return {"plan": final_state.messages[-1].plan, "query": None}
-
-        return {"plan": final_state.messages[-1].plan, "query": answer}
-
-    return callable
 
 
 @pytest.mark.django_db
-def eval_sql(call_node):
-    MaxEval(
+async def eval_sql(call_root_for_insight_generation):
+    await MaxEval(
         experiment_name="sql",
-        task=call_node,
+        task=call_root_for_insight_generation,
         scores=[
+            QueryKindSelection(expected=NodeKind.HOG_QL_QUERY),
             PlanCorrectness(
                 query_kind=NodeKind.HOG_QL_QUERY,
                 evaluation_criteria="""
@@ -132,12 +126,13 @@ Important points:
 - $identify generally should not be used, as they're mostly for internal purposes, and not useful for insights. A more useful event (or no event filter) should be used.
 - For session duration, `session.$session_duration` should be used instead of things like `properties.$session_duration`.""",
             ),
-            SQLSyntaxCorrectness(),
+            HogQLQuerySyntaxCorrectness(),
             TimeRangeRelevancy(query_kind=NodeKind.HOG_QL_QUERY),
+            RetryEfficiency(),
         ],
         data=[
             EvalCase(
-                input="Count pageviews by browser",
+                input="Count pageviews by browser, using SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count pageviews grouped by browser:
@@ -160,7 +155,7 @@ LIMIT 100
                 ),
             ),
             EvalCase(
-                input="What are the top 10 countries by number of users in the last 7 days?",
+                input="What are the top 10 countries by number of users in the last 7 days? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to find the top 10 countries by number of users in the last 7 days:
@@ -184,7 +179,7 @@ LIMIT 10
                 ),
             ),
             EvalCase(
-                input="Show me the average session duration by day of week",
+                input="Show me the average session duration by day of week, using SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to calculate average session duration by day of week:
@@ -205,7 +200,7 @@ ORDER BY day_of_week
                 ),
             ),
             EvalCase(
-                input="What percentage of users who visited the pricing page made a purchase in this month?",
+                input="What percentage of users who visited the pricing page made a purchase in this month? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to calculate the percentage of users who visited the pricing page and also made a purchase this month:
@@ -239,7 +234,7 @@ LEFT JOIN purchasers p ON pv.person_id = p.person_id
                 ),
             ),
             EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence?",
+                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) in sequence? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count users who completed the full onboarding sequence:
@@ -277,7 +272,7 @@ WHERE welcome_time < profile_time AND profile_time < tutorial_time
                 ),
             ),
             EvalCase(
-                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence?",
+                input="How many users completed the onboarding flow (viewed welcome page, created profile, and completed tutorial) regardless of sequence? Use SQL",
                 expected=PlanAndQueryOutput(
                     plan="""
 Query to count users who completed the full onboarding sequence:
@@ -301,6 +296,47 @@ user_funnel AS (
 SELECT count(*) as users_completed_onboarding
 FROM user_funnel
 WHERE event_count = 3
+"""
+                    ),
+                ),
+            ),
+            EvalCase(
+                # As of May 2025, trends insights don't support "number of distinct values of property" math, so we MUST use SQL here
+                input="The number of distinct values of property $browser seen in each of the last 14 days",
+                expected=PlanAndQueryOutput(
+                    plan="""
+Query:
+- Count distinct values of property $browser seen in each of the last 14 days
+""",
+                    query=AssistantHogQLQuery(
+                        query="""
+SELECT date_trunc('day', timestamp) as day, count(distinct properties.$browser) as distinct_browser_count
+FROM events
+WHERE event = '$pageview'
+GROUP BY day
+ORDER BY day
+"""
+                    ),
+                ),
+            ),
+            EvalCase(
+                input="Sum up the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
+                expected=PlanAndQueryOutput(
+                    plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
+                    query=AssistantHogQLQuery(
+                        query="""
+SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
+"""
+                    ),
+                ),
+            ),
+            EvalCase(
+                input="Calculate the total amounts paid for the 'paid_bill' event over the past month for Hedgebox Inc. Make sure to use SQL.",
+                expected=PlanAndQueryOutput(
+                    plan="Logic:\n- Filter the 'paid_bill' events for the past month.\n- Sum the 'amount_usd' property for these events.\n- Ensure the events are associated with 'Hedgebox Inc.' by filtering using the 'name' property of the 'organization' entity.\n\nSources:\n- Event: 'paid_bill'\n  - Use the 'amount_usd' property to calculate the total amount paid.\n  - Filter events to the past month.\n- Entity: 'organization'\n  - Use the 'name' property to filter for 'Hedgebox Inc.'",
+                    query=AssistantHogQLQuery(
+                        query="""
+SELECT sum(toFloat(properties.amount_usd)) AS total_amount_paid\nFROM events\nWHERE event = 'paid_bill'\n AND timestamp >= now() - INTERVAL 30 DAY\n AND organization.properties.name = 'Hedgebox Inc.'
 """
                     ),
                 ),

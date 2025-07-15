@@ -20,7 +20,7 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
     ref
 ): JSX.Element {
     return (
-        <div className="CommandBar__overlay fixed">
+        <div className="CommandBar__overlay fixed group/colorful-product-icons colorful-product-icons-true">
             <div className="CommandBar__overlay-content">
                 <div
                     data-attr="command-bar"

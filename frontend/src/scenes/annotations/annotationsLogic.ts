@@ -10,7 +10,11 @@ import { AnnotationScope, AnnotationType } from '~/types'
 import { annotationScopeToName } from './annotationModalLogic'
 import type { annotationsLogicType } from './annotationsLogicType'
 
-export function scopeOptions(): LemonSelectOptions<AnnotationType['scope'] | null> {
+const isValidAnnotationScope = (scope: string): scope is AnnotationScope => {
+    return Object.values(AnnotationScope).includes(scope as AnnotationScope)
+}
+
+export const annotationScopesMenuOptions = (): LemonSelectOptions<AnnotationType['scope'] | null> => {
     const scopeOptions: LemonSelectOption<AnnotationType['scope'] | null>[] = Object.values(AnnotationScope).map(
         (scope) => ({
             value: scope,
@@ -23,10 +27,6 @@ export function scopeOptions(): LemonSelectOptions<AnnotationType['scope'] | nul
         label: 'Any',
     })
     return scopeOptions
-}
-
-function isValidAnnotationScope(value: unknown): value is AnnotationScope {
-    return value !== null && Object.values(AnnotationScope).includes(value as AnnotationScope)
 }
 
 export const annotationsLogic = kea<annotationsLogicType>([

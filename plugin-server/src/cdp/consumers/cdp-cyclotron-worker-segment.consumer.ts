@@ -1,4 +1,4 @@
-import { Hub } from '~/src/types'
+import { Hub } from '~/types'
 
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
@@ -23,7 +23,7 @@ export class CdpCyclotronWorkerSegment extends CdpCyclotronWorker {
         return await Promise.all(
             loadedInvocations.map((item) =>
                 this.runInstrumented(
-                    'handleEachBatch.executePluginInvocation',
+                    'handleEachBatch.executeSegmentInvocation',
                     async () => await this.segmentPluginExecutor.execute(item)
                 )
             )

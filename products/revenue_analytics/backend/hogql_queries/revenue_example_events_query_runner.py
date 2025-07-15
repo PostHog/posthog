@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
@@ -11,7 +12,7 @@ from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
 )
 
-from ..views.revenue_analytics_base_view import RevenueAnalyticsBaseView
+from products.revenue_analytics.backend.views.revenue_analytics_charge_view import RevenueAnalyticsChargeView
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -29,9 +30,22 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
     def to_query(self) -> ast.SelectQuery:
         view_names = self.database.get_views()
         all_views = [self.database.get_table(view_name) for view_name in view_names]
-        views = [view for view in all_views if isinstance(view, RevenueAnalyticsBaseView) and view.source_id is None]
+        views = [view for view in all_views if isinstance(view, RevenueAnalyticsChargeView) and view.source_id is None]
         if not views:
-            return ast.SelectQuery.empty()
+            return ast.SelectQuery.empty(
+                columns=[
+                    "event",
+                    "event_name",
+                    "original_amount",
+                    "currency_aware_amount",
+                    "original_currency",
+                    "amount",
+                    "currency",
+                    "person",
+                    "session_id",
+                    "timestamp",
+                ]
+            )
 
         queries: list[ast.SelectQuery] = []
         for view in views:
@@ -76,7 +90,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                                 constraint_type="ON",
                                 expr=ast.CompareOperation(
                                     op=CompareOperationOp.Eq,
-                                    left=ast.Field(chain=["events", "uuid"]),
+                                    left=ast.Call(name="toString", args=[ast.Field(chain=["events", "uuid"])]),
                                     right=ast.Field(chain=["view", "id"]),
                                 ),
                             ),
@@ -128,7 +142,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
                 row[8],
                 row[9],
             )
-            for row in response.results
+            for row in cast(list[tuple[Any, ...]], response.results)
         ]
 
         return RevenueExampleEventsQueryResponse(

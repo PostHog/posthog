@@ -41,6 +41,7 @@ import {
 } from '~/types'
 
 import { WEB_VITALS_THRESHOLDS } from './nodes/WebVitals/definitions'
+import { setLatestVersionsOnQuery } from './utils'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,
@@ -564,7 +565,7 @@ export const stringifiedQueryExamples: Record<string, string> = Object.fromEntri
     Object.entries(queryExamples).map(([key, node]) => [key, JSON.stringify(node)])
 )
 
-export const examples: Record<string, Node> = {
+export const examples: Record<string, Node> = setLatestVersionsOnQuery({
     ...queryExamples,
     HogQLRaw,
     HogQLTable,
@@ -573,7 +574,7 @@ export const examples: Record<string, Node> = {
     Hog,
     Hoggonacci,
     DataWarehouse,
-}
+})
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
     Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node)])

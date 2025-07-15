@@ -1,5 +1,5 @@
-import { ScaleOptions } from 'chart.js'
 import clsx from 'clsx'
+import { ScaleOptions } from 'lib/Chart'
 import { Chart, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -169,6 +169,7 @@ export function Sparkline({
                                             id: i,
                                             dataIndex: 0,
                                             datasetIndex: 0,
+                                            order: i,
                                             label: dp.dataset.label,
                                             color: dp.dataset.borderColor as string,
                                             count: (dp.dataset.data?.[dp.dataIndex] as number) || 0,

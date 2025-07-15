@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
@@ -41,7 +42,7 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode, CurrencyCode
 from .team_caching import get_team_in_cache, set_team_in_cache
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -61,6 +62,16 @@ DEPRECATED_ATTRS = (
     "event_properties_with_usage",
     "event_properties_numerical",
 )
+
+# Django requires a list of tuples for choices
+CURRENCY_CODE_CHOICES = [(code.value, code.value) for code in CurrencyCode]
+
+# Intentionally asserting this here to guarantee we remember
+# to rerun migrations when a new currency is added
+# python manage.py makemigrations
+assert len(CURRENCY_CODE_CHOICES) == 152
+
+DEFAULT_CURRENCY = CurrencyCode.USD.value
 
 
 # keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
@@ -318,6 +329,8 @@ class Team(UUIDClassicModel):
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
+    feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
+    feature_flag_confirmation_message = models.TextField(null=True, blank=True)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -401,11 +414,35 @@ class Team(UUIDClassicModel):
     # DEPRECATED: use `revenue_analytics_config` property instead
     revenue_tracking_config = models.JSONField(null=True, blank=True)
 
+    # Duration for dropping events older than this threshold
+    drop_events_older_than = models.DurationField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(timedelta(hours=1))],  # For safety minimum 1h
+        help_text="Events older than this threshold will be dropped in ingestion. Empty means no timestamp restrictions.",
+    )
+
+    # Consolidated base currency for all analytics (revenue, marketing, etc.)
+    base_currency = models.CharField(
+        max_length=3,
+        choices=CURRENCY_CODE_CHOICES,
+        default=DEFAULT_CURRENCY,
+        null=True,
+        blank=True,
+    )
+
     @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 
         config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self)
+        return config
+
+    @property
+    def marketing_analytics_config(self):
+        from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
+
+        config, _ = TeamMarketingAnalyticsConfig.objects.get_or_create(team=self)
         return config
 
     @property

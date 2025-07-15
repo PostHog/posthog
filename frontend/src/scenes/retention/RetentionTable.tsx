@@ -50,7 +50,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
         >
             <tbody>
                 <tr>
-                    <th className="bg">Cohort</th>
+                    <th className="bg whitespace-nowrap">Cohort</th>
                     {!hideSizeColumn && <th className="bg">Size</th>}
                     {range(0, totalIntervals).map((interval) => (
                         <th key={interval}>{`${retentionFilter?.period} ${interval}`}</th>
@@ -58,7 +58,8 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                 </tr>
 
                 {Object.entries(tableRowsSplitByBreakdownValue).map(([breakdownValue, cohortRows], breakdownIndex) => {
-                    const keyForMeanData = breakdownValue === NO_BREAKDOWN_VALUE ? OVERALL_MEAN_KEY : breakdownValue
+                    const noBreakdown = breakdownValue === NO_BREAKDOWN_VALUE
+                    const keyForMeanData = noBreakdown ? OVERALL_MEAN_KEY : breakdownValue
                     const meanData = retentionMeans[keyForMeanData]
 
                     return (
@@ -71,7 +72,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         !isSingleBreakdown && !isDarkModeOn && expandedBreakdowns[breakdownValue],
                                 })}
                             >
-                                <td className="pr-2">
+                                <td className="pr-2 whitespace-nowrap">
                                     <div className="flex items-center gap-2">
                                         {expandedBreakdowns[breakdownValue] ? (
                                             <IconChevronDown />
@@ -79,7 +80,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             <IconChevronRight />
                                         )}
                                         <span>
-                                            {breakdownValue === NO_BREAKDOWN_VALUE
+                                            {noBreakdown
                                                 ? 'Mean'
                                                 : breakdownValue === null || breakdownValue === ''
                                                 ? RETENTION_EMPTY_BREAKDOWN_VALUE
@@ -88,7 +89,17 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                     </div>
                                 </td>
 
-                                {!hideSizeColumn && <td>{meanData?.totalCohortSize ?? 0}</td>}
+                                {!hideSizeColumn && (
+                                    <td>
+                                        <span className="RetentionTable__TextTab">
+                                            {noBreakdown
+                                                ? cohortRows.length
+                                                    ? Math.round((meanData?.totalCohortSize ?? 0) / cohortRows.length)
+                                                    : 0
+                                                : meanData?.totalCohortSize ?? 0}
+                                        </span>
+                                    </td>
+                                )}
 
                                 {range(0, totalIntervals).map((interval) => (
                                     <td key={interval}>
@@ -115,7 +126,9 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                             'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
                                         })}
                                     >
-                                        <td className={clsx('pl-2', { 'pl-6': !isSingleBreakdown })}>{row.label}</td>
+                                        <td className={clsx('pl-2 whitespace-nowrap', { 'pl-6': !isSingleBreakdown })}>
+                                            {row.label}
+                                        </td>
                                         {!hideSizeColumn && (
                                             <td>
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>

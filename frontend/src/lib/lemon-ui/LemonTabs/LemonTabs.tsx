@@ -15,6 +15,8 @@ export interface AbstractLemonTab<T extends string | number> {
     /** URL of the tab if it can be linked to (which is usually a good practice). */
     link?: string
     tooltipDocLink?: string
+    /** data-attr to be placed on the tab button, useful for autocapture */
+    'data-attr'?: string
 }
 
 /** A tab with content. In this case the LemonTabs component automatically renders content of the active tab. */
@@ -30,6 +32,7 @@ export interface LemonTabsProps<T extends string | number> {
     /** List of tabs. Falsy entries are ignored - they're there to make conditional tabs convenient. */
     tabs: (LemonTab<T> | null | false)[]
     size?: 'small' | 'medium'
+    /** data-attr to be placed on the tab container, useful for autocapture */
     'data-attr'?: string
     barClassName?: string
     className?: string
@@ -102,6 +105,7 @@ export function LemonTabs<T extends string | number>({
                                         : undefined
                                 }
                                 ref={tab.key === activeKey ? selectionRef : undefined}
+                                data-attr={tab['data-attr']}
                             >
                                 {tab.link ? (
                                     <Link className="LemonTabs__tab-content" to={tab.link}>

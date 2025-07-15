@@ -18,7 +18,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
-from posthog.ph_client import get_ph_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
@@ -505,9 +505,10 @@ def clean_stale_partials() -> None:
 
 @shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
     enqueue_cohorts_to_calculate(parallel_count)
+    reset_stuck_cohorts()
 
 
 class Polling:
@@ -644,7 +645,7 @@ def calculate_decide_usage() -> None:
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
-    ph_client = get_ph_client()
+    ph_client = get_regional_ph_client()
 
     if ph_client:
         capture_decide_usage_for_all_teams(ph_client)
@@ -843,10 +844,7 @@ def count_items_in_playlists() -> None:
 
 
 @shared_task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
-    try:
-        from posthog.tasks.warehouse import capture_external_data_rows_synced
-    except ImportError:
-        pass
-    else:
-        capture_external_data_rows_synced()
+def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
+    from posthog.tasks.environments_rollback import environments_rollback_migration
+
+    environments_rollback_migration(organization_id, environment_mappings, user_id)

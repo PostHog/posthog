@@ -98,6 +98,7 @@ pub struct ConfigResponse {
 
     /// If set, disables autocapture
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "autocapture_opt_out")]
     pub autocapture_opt_out: Option<bool>,
 
     /// Originally capturePerformance was replay only and so boolean true
@@ -164,9 +165,16 @@ pub struct ConfigResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_dead_clicks: Option<bool>,
 
-    /// Indicates if the team has any flags enabled (if not we don't need to load them)
+    /// Error tracking configuration
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_feature_flags: Option<bool>,
+    pub error_tracking: Option<ErrorTrackingConfig>,
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorTrackingConfig {
+    pub autocapture_exceptions: bool,
+    pub suppression_rules: Vec<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -281,7 +289,7 @@ pub struct FlagEvaluationReason {
 
 pub trait FromFeatureAndMatch {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self;
-    fn create_error(flag: &FeatureFlag, error_reason: &str) -> Self;
+    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
 }
 
@@ -305,14 +313,14 @@ impl FromFeatureAndMatch for FlagDetails {
         }
     }
 
-    fn create_error(flag: &FeatureFlag, error_reason: &str) -> Self {
+    fn create_error(flag: &FeatureFlag, error_reason: &str, condition_index: Option<i32>) -> Self {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
             variant: None,
             reason: FlagEvaluationReason {
                 code: error_reason.to_string(),
-                condition_index: None,
+                condition_index,
                 description: None,
             },
             metadata: FlagDetailsMetadata {
@@ -367,8 +375,11 @@ pub struct SessionRecordingConfig {
     pub url_blocklist: Option<Value>,
     pub event_triggers: Option<Value>,
     pub trigger_match_type: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub record_canvas: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canvas_fps: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canvas_quality: Option<String>,
 }
 

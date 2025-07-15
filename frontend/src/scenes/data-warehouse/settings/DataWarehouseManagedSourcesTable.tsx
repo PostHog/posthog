@@ -1,4 +1,4 @@
-import { LemonButton, LemonDialog, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -6,10 +6,10 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataJobStatus, manualLinkSources, PipelineNodeTab, PipelineStage } from '~/types'
+import { ExternalDataJobStatus } from '~/types'
 
-import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
+import { availableSourcesDataLogic } from '../new/availableSourcesDataLogic'
 
 export const StatusTagSetting: Record<ExternalDataJobStatus, 'primary' | 'success' | 'danger'> = {
     [ExternalDataJobStatus.Running]: 'primary',
@@ -23,6 +23,11 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading, sourceReloadingById } =
         useValues(dataWarehouseSettingsLogic)
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
+    if (availableSourcesLoading || !availableSources) {
+        return <LemonSkeleton />
+    }
 
     return (
         <LemonTable
@@ -41,12 +46,8 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                     key: 'name',
                     render: (_, source) => (
                         <LemonTableLink
-                            to={urls.pipelineNode(
-                                PipelineStage.Source,
-                                `managed-${source.id}`,
-                                PipelineNodeTab.Schemas
-                            )}
-                            title={SOURCE_DETAILS[source.source_type]?.label ?? source.source_type}
+                            to={urls.dataWarehouseSource(`managed-${source.id}`)}
+                            title={availableSources[source.source_type]?.label ?? source.source_type}
                             description={source.prefix}
                         />
                     ),
@@ -152,10 +153,19 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
     )
 }
 
-export function getDataWarehouseSourceUrl(service: string): string {
-    if (manualLinkSources.includes(service)) {
-        return 'https://posthog.com/docs/cdp/sources/s3'
-    }
+const DOCS_BASE_URL = 'https://posthog.com/docs/cdp/sources/'
 
-    return `https://posthog.com/docs/cdp/sources/${service.toLowerCase()}`
+export function getDataWarehouseSourceUrl(service: string): string {
+    switch (service) {
+        case 'aws':
+            return `${DOCS_BASE_URL}s3`
+        case 'google-cloud':
+            return `${DOCS_BASE_URL}gcs`
+        case 'azure':
+            return `${DOCS_BASE_URL}azure-blob`
+        case 'cloudflare-r2':
+            return `${DOCS_BASE_URL}r2`
+        default:
+            return `${DOCS_BASE_URL}${service.toLowerCase()}`
+    }
 }

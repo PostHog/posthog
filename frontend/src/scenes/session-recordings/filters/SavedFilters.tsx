@@ -18,10 +18,10 @@ export function SavedFilters({
 }: {
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
-    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
+    const savedFiltersLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
     const { savedFilters, paginationSavedFilters, savedFiltersSearch, savedFiltersLoading } =
         useValues(savedFiltersLogic)
-    const { deletePlaylist, setSavedFiltersSearch } = useActions(savedFiltersLogic)
+    const { deletePlaylist, setSavedFiltersSearch, setAppliedSavedFilter } = useActions(savedFiltersLogic)
     const { setActiveFilterTab } = useActions(playlistLogic)
 
     const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
@@ -47,6 +47,7 @@ export function SavedFilters({
                                 if (filter && filter.filters) {
                                     setFilters(filter.filters)
                                     setActiveFilterTab('filters')
+                                    setAppliedSavedFilter(filter)
                                 }
                             }}
                             className="cursor-pointer text-current hover:text-accent"
@@ -78,6 +79,7 @@ export function SavedFilters({
                                 void copyToClipboard(combinedURL, 'link to ' + (playlist.name || playlist.derived_name))
                             }}
                             title="Copy link to saved filter"
+                            tooltip="Copy link to saved filter"
                             icon={<IconCopy />}
                         />
                         <LemonButton
@@ -89,6 +91,7 @@ export function SavedFilters({
                                 }
                             }}
                             title="Delete saved filter"
+                            tooltip="Delete saved filter"
                             icon={<IconTrash />}
                         />
                     </div>

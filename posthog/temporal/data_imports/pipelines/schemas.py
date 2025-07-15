@@ -32,6 +32,11 @@ from posthog.temporal.data_imports.pipelines.temporalio.source import (
     INCREMENTAL_ENDPOINTS as TEMPORALIO_INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS as TEMPORALIO_INCREMENTAL_FIELDS,
 )
+from posthog.temporal.data_imports.pipelines.meta_ads.schemas import (
+    ENDPOINTS as META_ADS_ENDPOINTS,
+    INCREMENTAL_ENDPOINTS as META_ADS_INCREMENTAL_ENDPOINTS,
+    INCREMENTAL_FIELDS as META_ADS_INCREMENTAL_FIELDS,
+)
 
 from posthog.warehouse.models import ExternalDataSource
 from posthog.warehouse.types import IncrementalField
@@ -52,6 +57,10 @@ PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {
     ExternalDataSource.Type.CHARGEBEE: CHARGEBEE_ENDPOINTS,
     ExternalDataSource.Type.GOOGLEADS: (),
     ExternalDataSource.Type.TEMPORALIO: TEMPORALIO_ENDPOINTS,
+    ExternalDataSource.Type.DOIT: (),
+    ExternalDataSource.Type.MONGODB: (),
+    ExternalDataSource.Type.GOOGLESHEETS: (),
+    ExternalDataSource.Type.METAADS: META_ADS_ENDPOINTS,
 }
 
 PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
@@ -68,6 +77,10 @@ PIPELINE_TYPE_INCREMENTAL_ENDPOINTS_MAPPING = {
     ExternalDataSource.Type.CHARGEBEE: CHARGEBEE_INCREMENTAL_ENDPOINTS,
     ExternalDataSource.Type.GOOGLEADS: (),
     ExternalDataSource.Type.TEMPORALIO: TEMPORALIO_INCREMENTAL_ENDPOINTS,
+    ExternalDataSource.Type.DOIT: (),
+    ExternalDataSource.Type.MONGODB: (),
+    ExternalDataSource.Type.GOOGLESHEETS: (),
+    ExternalDataSource.Type.METAADS: META_ADS_INCREMENTAL_ENDPOINTS,
 }
 
 PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str, list[IncrementalField]]] = {
@@ -84,4 +97,8 @@ PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING: dict[ExternalDataSource.Type, dict[str
     ExternalDataSource.Type.CHARGEBEE: CHARGEBEE_INCREMENTAL_FIELDS,
     ExternalDataSource.Type.GOOGLEADS: {},
     ExternalDataSource.Type.TEMPORALIO: TEMPORALIO_INCREMENTAL_FIELDS,
+    ExternalDataSource.Type.DOIT: {},
+    ExternalDataSource.Type.MONGODB: {},
+    ExternalDataSource.Type.GOOGLESHEETS: {},
+    ExternalDataSource.Type.METAADS: META_ADS_INCREMENTAL_FIELDS,
 }

@@ -9,7 +9,7 @@ import type { queryEditorLogicType } from './queryEditorLogicType'
 function prettyJSON(source: string): string {
     try {
         return JSON.stringify(JSON.parse(source), null, 2) + '\n'
-    } catch (e) {
+    } catch {
         return source
     }
 }

@@ -25,7 +25,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         WebStatsBreakdown.COUNTRY,
         WebStatsBreakdown.REGION,
         WebStatsBreakdown.CITY,
-        WebStatsBreakdown.TIMEZONE,
         WebStatsBreakdown.INITIAL_PAGE,
         WebStatsBreakdown.PAGE,
         WebStatsBreakdown.EXIT_PAGE,
@@ -53,7 +52,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {visitors_tuple} AS `context.columns.visitors`,
                 {views_tuple} as `context.columns.views`,
                 {bounce_rate_tuple} as `context.columns.bounce_rate`
-            FROM web_bounces_combined FINAL
+            FROM web_bounces_combined
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
@@ -86,7 +85,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
             FROM
-                web_stats_combined FINAL
+                web_stats_combined
             LEFT JOIN ({bounce_subquery}) bounces
                 ON {join_condition}
             GROUP BY `context.columns.breakdown_value`
@@ -137,7 +136,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     {breakdown_field} as `context.columns.breakdown_value`,
                     {visitors_tuple} AS `context.columns.visitors`,
                     {views_tuple} as `context.columns.views`
-                FROM web_stats_combined FINAL
+                FROM web_stats_combined
                 GROUP BY `context.columns.breakdown_value`
                 """,
                     placeholders={
@@ -219,13 +218,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return ast.Field(chain=["utm_content"])
             case WebStatsBreakdown.COUNTRY:
-                return ast.Field(chain=["country_name"])
+                return ast.Field(chain=["country_code"])
             case WebStatsBreakdown.REGION:
                 return ast.Field(chain=["region_code"])
             case WebStatsBreakdown.CITY:
                 return ast.Field(chain=["city_name"])
-            case WebStatsBreakdown.TIMEZONE:
-                return ast.Field(chain=["time_zone"])
             case WebStatsBreakdown.EXIT_PAGE:
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
 

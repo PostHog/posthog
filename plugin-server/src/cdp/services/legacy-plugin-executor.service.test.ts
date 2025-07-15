@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { FetchResponse } from '~/src/utils/request'
-import { fetch } from '~/src/utils/request'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { FetchResponse } from '~/utils/request'
+import { fetch } from '~/utils/request'
 
 import { createPlugin, createPluginConfig } from '../../../tests/helpers/sql'
 import { Hub, PluginConfig, Team } from '../../types'

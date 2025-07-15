@@ -137,6 +137,14 @@ export function getEventMetadataDefinitionIcon(definition: PropertyDefinition): 
     return <IconList />
 }
 
+export function getRevenueAnalyticsDefinitionIcon(definition: PropertyDefinition): JSX.Element {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.revenue_analytics_properties[definition.id]) {
+        return <IconLogomark />
+    }
+
+    return <IconList />
+}
+
 export function DefinitionHeader({
     to,
     definition,

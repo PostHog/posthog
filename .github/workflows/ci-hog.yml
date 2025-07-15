@@ -3,7 +3,6 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Hog CI
-
 on:
     push:
         branches:
@@ -203,3 +202,15 @@ jobs:
                   NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
             - name: Sleep 60 seconds to allow npm to update the package
               run: sleep 60
+
+    posthog-analytics:
+        name: PostHog CI analytics
+        if: always() && needs.changes.outputs.hog == 'true'
+        needs: [hog-tests, release-hogvm, check-package-version] # last job in this workflow
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: ./.github/actions/ci-analytics
+              with:
+                  posthog-api-key: ${{ secrets.CI_ANALYTICS_TOKEN }}

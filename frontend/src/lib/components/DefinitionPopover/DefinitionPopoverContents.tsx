@@ -124,6 +124,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isDataWarehousePersonProperty,
         isProperty,
         hasSentAs,
+        isVirtual,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -277,6 +278,22 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                         </DefinitionPopover.Grid>
                     </>
                 ) : null}
+                {isVirtual ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title="Virtual"
+                                value={
+                                    <span className="text-xs">
+                                        Virtual properties are computed from other properties, and are not sent
+                                        directly.
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
             </>
         )
     }
@@ -361,6 +378,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         const columnOptions = Object.values(_definition.fields).map((column) => ({
             label: column.name + ' (' + column.type + ')',
             value: column.name,
+            type: column.type,
         }))
         const hogqlOption = { label: 'SQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
@@ -386,6 +404,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 hogQLOnly,
                                 tableName,
                                 optional,
+                                type,
                             }: DataWarehousePopoverField) => {
                                 const fieldValue = key in localDefinition ? localDefinition[key] : undefined
                                 const isHogQL = isUsingHogQLExpression(fieldValue)
@@ -413,7 +432,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                                 fullWidth
                                                 allowClear={!!optional}
                                                 value={isHogQL ? '' : fieldValue}
-                                                options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
+                                                options={[
+                                                    ...columnOptions.filter((col) => !type || col.type === type),
+                                                    ...(allowHogQL ? [hogqlOption] : []),
+                                                ]}
                                                 onChange={(value: string | null) =>
                                                     setLocalDefinition({ [key]: value })
                                                 }

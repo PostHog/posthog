@@ -1,28 +1,35 @@
-from collections import namedtuple
 import datetime
-from collections.abc import Generator
 import os
-from collections.abc import Sequence
+from collections import namedtuple
+from collections.abc import Generator, Sequence
 from unittest import mock
-from _pytest.terminal import TerminalReporter
-from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
-from braintrust import Eval, init_logger
-from braintrust.framework import EvalData, EvalTask, EvalScorer, Input, Output
+
 import pytest
+from _pytest.terminal import TerminalReporter
+from braintrust import EvalAsync, init_logger
+from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
+from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
 from django.test import override_settings
-from ee.models.assistant import CoreMemory
-from posthog.demo.matrix.manager import MatrixManager
-from posthog.models import Team
-from posthog.tasks.demo_create_data import HedgeboxMatrix
+
+from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.eval.scorers import PlanAndQueryOutput
+from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
+from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.models.assistant import Conversation, CoreMemory
 
 # We want the PostHog django_db_setup fixture here
 from posthog.conftest import django_db_setup  # noqa: F401
+from posthog.demo.matrix.manager import MatrixManager
+from posthog.models import Team
+from posthog.schema import HumanMessage, VisualizationMessage
+from posthog.tasks.demo_create_data import HedgeboxMatrix
 
 handler = BraintrustCallbackHandler()
-set_global_handler(handler)
+if os.environ.get("BRAINTRUST_API_KEY"):
+    set_global_handler(handler)
 
 
-def MaxEval(
+async def MaxEval(
     experiment_name: str,
     data: EvalData[Input, Output],
     task: EvalTask[Input, Output],
@@ -32,19 +39,78 @@ def MaxEval(
     # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
     project_name = f"max-ai-{experiment_name}"
     init_logger(project_name)
-    result = Eval(
+    result = await EvalAsync(
         project_name,
         data=data,
         task=task,
         scores=scores,
         trial_count=3 if os.getenv("CI") else 1,
-        timeout=180,
+        timeout=60 * 8,
+        max_concurrency=20,
         is_public=True,
     )
     if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
         with open("eval_results.jsonl", "a") as f:
             f.write(result.summary.as_json() + "\n")
     return result
+
+
+@pytest.fixture
+def call_root_for_insight_generation(demo_org_team_user):
+    # This graph structure will first get a plan, then generate the SQL query.
+
+    insights_subgraph = (
+        # Insights subgraph without query execution, so we only create the queries
+        InsightsAssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
+        .add_query_creation_flow(next_node=AssistantNodeName.END)
+        .compile()
+    )
+    graph = (
+        AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
+        .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+        .add_root(
+            path_map={
+                "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                "root": AssistantNodeName.END,
+                "search_documentation": AssistantNodeName.END,
+                "memory_onboarding": AssistantNodeName.END,
+                "end": AssistantNodeName.END,
+            }
+        )
+        .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
+        .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
+        # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
+        .compile(checkpointer=DjangoCheckpointer())
+    )
+
+    async def callable(query: str) -> PlanAndQueryOutput:
+        conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
+        # Initial state for the graph
+        initial_state = AssistantState(
+            messages=[HumanMessage(content=f"Answer this question: {query}")],
+        )
+
+        # Invoke the graph. The state will be updated through planner and then generator.
+        final_state_raw = await graph.ainvoke(
+            initial_state,
+            {"configurable": {"thread_id": conversation.id}},
+        )
+
+        final_state = AssistantState.model_validate(final_state_raw)
+
+        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
+            return {
+                "plan": None,
+                "query": None,
+                "query_generation_retry_count": final_state.query_generation_retry_count,
+            }
+        return {
+            "plan": final_state.messages[-1].plan,
+            "query": final_state.messages[-1].answer,
+            "query_generation_retry_count": final_state.query_generation_retry_count,
+        }
+
+    return callable
 
 
 @pytest.fixture(scope="package")
@@ -88,7 +154,7 @@ def core_memory(demo_org_team_user, django_db_blocker) -> Generator[CoreMemory, 
 
     Their audience includes professionals and organizations seeking file management and collaboration solutions.
 
-    Hedgebox’s freemium model provides free accounts with limited storage and paid subscription plans for additional features.
+    Hedgebox's freemium model provides free accounts with limited storage and paid subscription plans for additional features.
 
     Core features include file storage, synchronization, sharing, and collaboration tools for seamless file access and sharing.
 

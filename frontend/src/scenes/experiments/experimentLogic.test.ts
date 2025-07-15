@@ -84,7 +84,7 @@ describe('experimentLogic', () => {
         await expectLogic(userLogic).toFinishAllListeners()
     })
 
-    describe('loadMetricResults', () => {
+    describe('loadPrimaryMetricsResults', () => {
         it('given a refresh, loads the metric results', async () => {
             logic.actions.setExperiment(experiment)
 
@@ -120,28 +120,30 @@ describe('experimentLogic', () => {
                 },
             })
 
-            const promise = logic.asyncActions.loadMetricResults(true)
+            const promise = logic.asyncActions.loadPrimaryMetricsResults(true)
 
-            await expectLogic(logic).toDispatchActions(['setMetricResultsLoading', 'setMetricResults']).toMatchValues({
-                metricResults: [],
-                metricResultsLoading: true,
-                primaryMetricsResultErrors: [],
-            })
+            await expectLogic(logic)
+                .toDispatchActions(['setPrimaryMetricsResultsLoading', 'setLegacyPrimaryMetricsResults'])
+                .toMatchValues({
+                    legacyPrimaryMetricsResults: [],
+                    primaryMetricsResultsLoading: true,
+                    primaryMetricsResultsErrors: [],
+                })
 
             await promise
 
             await expectLogic(logic)
-                .toDispatchActions(['setMetricResultsLoading'])
+                .toDispatchActions(['setPrimaryMetricsResultsLoading'])
                 .toMatchValues({
-                    metricResults: [
+                    legacyPrimaryMetricsResults: [
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,
                             fakeInsightId: expect.any(String),
                         },
                         null,
                     ],
-                    metricResultsLoading: false,
-                    primaryMetricsResultErrors: [
+                    primaryMetricsResultsLoading: false,
+                    primaryMetricsResultsErrors: [
                         null,
                         {
                             detail: {
@@ -157,7 +159,7 @@ describe('experimentLogic', () => {
         })
     })
 
-    describe('loadSecondaryMetricResults', () => {
+    describe('loadSecondaryMetricsResults', () => {
         it('given a refresh, loads the secondary metric results', async () => {
             logic.actions.setExperiment(experiment)
 
@@ -193,30 +195,30 @@ describe('experimentLogic', () => {
                 },
             })
 
-            const promise = logic.asyncActions.loadSecondaryMetricResults(true)
+            const promise = logic.asyncActions.loadSecondaryMetricsResults(true)
 
             await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setSecondaryMetricResults'])
+                .toDispatchActions(['setSecondaryMetricsResultsLoading', 'setLegacySecondaryMetricsResults'])
                 .toMatchValues({
-                    secondaryMetricResults: [],
-                    secondaryMetricResultsLoading: true,
-                    secondaryMetricsResultErrors: [],
+                    legacySecondaryMetricsResults: [],
+                    secondaryMetricsResultsLoading: true,
+                    secondaryMetricsResultsErrors: [],
                 })
 
             await promise
 
             await expectLogic(logic)
-                .toDispatchActions(['setSecondaryMetricResultsLoading'])
+                .toDispatchActions(['setSecondaryMetricsResultsLoading'])
                 .toMatchValues({
-                    secondaryMetricResults: [
+                    legacySecondaryMetricsResults: [
                         null,
                         {
                             ...experimentMetricResultsSuccessJson.query_status.results,
                             fakeInsightId: expect.any(String),
                         },
                     ],
-                    secondaryMetricResultsLoading: false,
-                    secondaryMetricsResultErrors: [
+                    secondaryMetricsResultsLoading: false,
+                    secondaryMetricsResultsErrors: [
                         {
                             detail: {
                                 'no-control-variant': true,

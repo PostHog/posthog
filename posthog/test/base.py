@@ -242,7 +242,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # replace cohort tuples
     # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
     query = re.sub(
-        r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[\(\d+, \d+\)\]\)",
+        r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[(\(\d+, \d+\)(?:, \(\d+, \d+\))*)\]\)",
         r"(tuple(\1.cohort_id, \2.version), [(99999, 0)])",
         query,
     )
@@ -531,17 +531,14 @@ class PostHogTestCase(SimpleTestCase):
 
     @contextmanager
     def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
-        for _ in range(max_retries):
+        for attempt in range(max_retries):
             try:
-                yield
-                break  # If the assertion passed, break the loop
+                yield  # Only yield once per context manager instance
+                return  # If we get here, the assertions passed
             except AssertionError:
-                time.sleep(delay)  # If the assertion failed, wait before retrying
-        else:
-            # If we've exhausted all retries and the test is still failing, fail the test
-            # we want to raise the test assertion not some generic error, so run the assertion
-            # one last time
-            yield
+                if attempt == max_retries - 1:
+                    raise  # On last attempt, re-raise the assertion error
+                time.sleep(delay)  # Otherwise, wait before retrying
 
 
 class MemoryLeakTestMixin:
@@ -772,10 +769,21 @@ class QueryMatchingTest:
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         query = clean_varying_query_parts(query, replace_all_numbers)
 
-        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+        try:
+            assert sqlparse.format(query, reindent=True) == self.snapshot
+        except AssertionError:
+            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
+            raise AssertionError(error_message)
+
         if params is not None:
             del params["team_id"]  # Changes every run
-            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+            try:
+                assert params == self.snapshot
+            except AssertionError:
+                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
+                raise AssertionError(params_error_message)
 
 
 @contextmanager
@@ -1028,7 +1036,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
         return value
 
     def capture_select_queries(self):
-        return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))
+        return self.capture_queries(lambda x: re.match(r"[\s(]*(SELECT|WITH)", x, re.I) is not None)
 
     def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
         return self.capture_queries(lambda x: x.startswith(query_prefixes))

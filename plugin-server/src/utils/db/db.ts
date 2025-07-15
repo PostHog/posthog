@@ -18,6 +18,7 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
+    DistinctPersonIdentifiers,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -43,6 +44,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
+import { PersonUpdate } from '../../worker/ingestion/persons/person-update-batch'
 import { parseRawClickHouseEvent } from '../event'
 import { parseJSON } from '../json-parse'
 import { logger } from '../logger'
@@ -70,6 +72,11 @@ import {
     timeoutGuard,
     unparsePersonPartial,
 } from './utils'
+
+export type MoveDistinctIdsResult =
+    | { readonly success: true; readonly messages: TopicMessage[] }
+    | { readonly success: false; readonly error: 'TargetNotFound' }
+    | { readonly success: false; readonly error: 'SourceNotFound' }
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig
@@ -516,7 +523,7 @@ export class DB {
                 AND posthog_persondistinctid.distinct_id = $2`
 
         const { rows } = await this.postgres.query<PersonPropertiesSize>(
-            PostgresUse.COMMON_READ,
+            PostgresUse.PERSONS_READ,
             queryString,
             values,
             'personPropertiesSize'
@@ -573,6 +580,24 @@ export class DB {
         if (rows.length > 0) {
             return this.toPerson(rows[0])
         }
+    }
+
+    public async fetchPersonIdsByDistinctId(
+        distinctId: string,
+        teamId: number
+    ): Promise<DistinctPersonIdentifiers | null> {
+        const queryString = `SELECT posthog_person.id as person_id, posthog_person.uuid, posthog_person.team_id, posthog_persondistinctid.distinct_id
+            FROM posthog_person JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            WHERE posthog_persondistinctid.team_id = $1 AND posthog_persondistinctid.distinct_id = $2 LIMIT 1`
+
+        const { rows } = await this.postgres.query<DistinctPersonIdentifiers>(
+            PostgresUse.PERSONS_WRITE,
+            queryString,
+            [teamId, distinctId],
+            'fetchPersonIdsByDistinctId'
+        )
+
+        return rows.length > 0 ? rows[0] : null
     }
 
     public async createPerson(
@@ -672,109 +697,49 @@ export class DB {
         return [person, kafkaMessages]
     }
 
-    // Potential optimization on the updatePersonDeprecated method
-    public async updatePersonWithMergeOperator(
-        person: InternalPerson,
-        propertiesToSet: Properties,
-        propertiesToUnset: string[],
-        otherUpdates: Partial<InternalPerson> = {},
-        tx?: TransactionClient,
-        tag?: string
-    ): Promise<[InternalPerson, TopicMessage[]]> {
-        const values: any[] = []
-        let paramIndex = 1
-
-        let query = `UPDATE posthog_person SET version = COALESCE(version, 0)::numeric + 1`
-
-        const hasPropertiesToSet = Object.keys(propertiesToSet).length > 0
-        const hasPropertiesToUnset = propertiesToUnset.length > 0
-
-        if (hasPropertiesToSet || hasPropertiesToUnset) {
-            let jsonbExpression = 'properties'
-            if (hasPropertiesToSet) {
-                jsonbExpression = `(${jsonbExpression} || $${paramIndex}::jsonb)`
-                values.push(sanitizeJsonbValue(propertiesToSet))
-                paramIndex++
-            }
-
-            if (hasPropertiesToUnset) {
-                jsonbExpression = `(${jsonbExpression} - $${paramIndex}::text[])`
-                values.push(propertiesToUnset)
-                paramIndex++
-            }
-
-            query += `, properties = ${jsonbExpression}`
-        }
-
-        const hasOtherUpdates = Object.keys(otherUpdates).length > 0
-        if (hasOtherUpdates) {
-            // NOTE: Defensive measure
-            // otherUpdates.version should never be defined
-            // but just in case a future programmer adds it to the otherUpdates object
-            // this will make sure we properly handle it
-            let versionOverride: string | undefined
-            if (otherUpdates.version) {
-                versionOverride = otherUpdates.version.toString()
-            }
-            if (versionOverride) {
-                query = query.replace('version = COALESCE(version, 0)::numeric + 1', `version = ${versionOverride}`)
-            }
-
-            // because we handled the potential version field above, we shouldn't iterate over it here
-            const { version, ...updatesWithoutVersion } = otherUpdates
-            const processedUpdates = unparsePersonPartial(updatesWithoutVersion)
-            Object.entries(processedUpdates).forEach(([field, value]) => {
-                query += `, ${sanitizeSqlIdentifier(field)} = $${paramIndex}`
-                values.push(value)
-                paramIndex++
-            })
-        }
-
-        query += ` WHERE id = $${paramIndex} RETURNING *`
-        values.push(person.id)
-
+    public async updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]> {
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            query,
-            values,
-            `updatePersonWithMergeOperator${tag ? `-${tag}` : ''}`
+            PostgresUse.PERSONS_WRITE,
+            `
+            UPDATE posthog_person SET
+                properties = $1,
+                properties_last_updated_at = $2,
+                properties_last_operation = $3,
+                is_identified = $4,
+                version = COALESCE(version, 0)::numeric + 1
+            WHERE team_id = $5 AND uuid = $6 AND version = $7
+            RETURNING *
+            `,
+            [
+                JSON.stringify(personUpdate.properties),
+                JSON.stringify(personUpdate.properties_last_updated_at),
+                JSON.stringify(personUpdate.properties_last_operation),
+                personUpdate.is_identified,
+                personUpdate.team_id,
+                personUpdate.uuid,
+                personUpdate.version,
+            ],
+            'updatePersonAssertVersion'
         )
 
         if (rows.length === 0) {
-            throw new NoRowsUpdatedError(
-                `Person with team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
-            )
+            return [undefined, []]
         }
 
         const updatedPerson = this.toPerson(rows[0])
 
-        const versionDisparity = updatedPerson.version - person.version - 1
-        if (versionDisparity > 0) {
-            logger.info('🧑‍🦰', 'Person update version mismatch', {
-                team_id: updatedPerson.team_id,
-                person_id: updatedPerson.id,
-                version_disparity: versionDisparity,
-            })
-            personUpdateVersionMismatchCounter.inc()
-        }
-
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        logger.debug(
-            '🧑‍🦰',
-            `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
-        )
-
-        return [updatedPerson, [kafkaMessage]]
+        return [updatedPerson.version, [kafkaMessage]]
     }
 
     // Currently in use, but there are various problems with this function
-    public async updatePersonDeprecated(
+    public async updatePerson(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient,
         tag?: string
-    ): Promise<[InternalPerson, TopicMessage[]]> {
+    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -785,7 +750,7 @@ export class DB {
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
-            return [person, []]
+            return [person, [], false]
         }
 
         const values = [...updateValues, person.id].map(sanitizeJsonbValue)
@@ -805,7 +770,7 @@ export class DB {
         )
         if (rows.length == 0) {
             throw new NoRowsUpdatedError(
-                `Person with team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
+                `Person with id="${person.id}", team_id="${person.team_id}" and uuid="${person.uuid}" couldn't be updated`
             )
         }
         const updatedPerson = this.toPerson(rows[0])
@@ -829,16 +794,29 @@ export class DB {
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
 
-        return [updatedPerson, [kafkaMessage]]
+        return [updatedPerson, [kafkaMessage], versionDisparity > 0]
     }
 
     public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
-        const { rows } = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
-            [person.team_id, person.id],
-            'deletePerson'
-        )
+        let rows: { version: string }[] = []
+        try {
+            const result = await this.postgres.query<{ version: string }>(
+                tx ?? PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
+                [person.team_id, person.id],
+                'deletePerson'
+            )
+            rows = result.rows
+        } catch (error) {
+            if (error.code === '40P01') {
+                // Deadlock detected — assume someone else is deleting and skip.
+                logger.warn('🔒', 'Deadlock detected — assume someone else is deleting and skip.', {
+                    team_id: person.team_id,
+                    person_id: person.id,
+                })
+            }
+            throw error
+        }
 
         let kafkaMessages: TopicMessage[] = []
 
@@ -985,7 +963,7 @@ export class DB {
         source: InternalPerson,
         target: InternalPerson,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -1008,9 +986,14 @@ export class DB {
             ) {
                 // this is caused by a race condition where the _target_ person was deleted after fetching but
                 // before the update query ran and will trigger a retry with updated persons
-                throw new RaceConditionError(
-                    'Failed trying to move distinct IDs because target person no longer exists.'
-                )
+                logger.warn('😵', 'Target person no longer exists', {
+                    team_id: target.team_id,
+                    person_id: target.id,
+                })
+                return {
+                    success: false,
+                    error: 'TargetNotFound',
+                }
             }
 
             throw error
@@ -1019,9 +1002,14 @@ export class DB {
         // this is caused by a race condition where the _source_ person was deleted after fetching but
         // before the update query ran and will trigger a retry with updated persons
         if (movedDistinctIdResult.rows.length === 0) {
-            throw new RaceConditionError(
-                `Failed trying to move distinct IDs because the source person no longer exists.`
-            )
+            logger.warn('😵', 'Source person no longer exists', {
+                team_id: source.team_id,
+                person_id: source.id,
+            })
+            return {
+                success: false,
+                error: 'SourceNotFound',
+            }
         }
 
         const kafkaMessages = []
@@ -1037,7 +1025,7 @@ export class DB {
                 ],
             })
         }
-        return kafkaMessages
+        return { success: true, messages: kafkaMessages }
     }
 
     // Cohort & CohortPeople
@@ -1077,7 +1065,7 @@ export class DB {
         version: number | null
     ): Promise<CohortPeople> {
         const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
             [cohortId, personId, version],
             'addPersonToCohort'
@@ -1094,7 +1082,7 @@ export class DB {
         // When personIDs change, update places depending on a person_id foreign key
 
         await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             // Do two high level things in a single round-trip to the DB.
             //
             // 1. Update cohorts.
@@ -1313,7 +1301,7 @@ export class DB {
         }
 
         const selectResult: QueryResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             queryString,
             [teamId, groupTypeIndex, groupKey],
             'fetchGroup'
@@ -1340,7 +1328,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<number> {
         const result = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1379,7 +1367,7 @@ export class DB {
         tx?: TransactionClient
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $4,
@@ -1420,7 +1408,7 @@ export class DB {
         propertiesLastOperation: PropertiesLastOperation
     ): Promise<number | undefined> {
         const result = await this.postgres.query<{ version: string }>(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `
             UPDATE posthog_group SET
             created_at = $5,

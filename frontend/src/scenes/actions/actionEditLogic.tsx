@@ -218,7 +218,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                         { merge: false }
                     )
                 }
-            } catch (e) {
+            } catch {
                 throw new Error('Could not parse action to copy from URL')
             }
         },

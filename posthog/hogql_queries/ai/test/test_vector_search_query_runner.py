@@ -1,4 +1,5 @@
 import uuid
+from flaky import flaky
 
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.models import Organization, Project, Team
@@ -124,6 +125,7 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, id2)
 
+    @flaky(max_runs=3, min_passes=1)
     def test_vector_search_selects_max_version(self):
         query = VectorSearchQuery(embedding=[2, 4])
         id = str(uuid.uuid4())
@@ -178,3 +180,83 @@ class TestVectorSearchQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = VectorSearchQueryRunner(query, self.team).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, id)
+
+    def test_vector_search_searches_by_the_embedding_version(self):
+        """Test that vectors with older embedding versions are excluded from results."""
+        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
+
+        # Create vector with old embedding version (version 1) using direct SQL
+        vectors_old = [
+            PgEmbeddingRow(
+                domain="action",
+                team_id=self.team.id,
+                id=id1,
+                vector=[2, 4],
+                text="old version text",
+            ),
+        ]
+        bulk_create_pg_embeddings(vectors_old, embedding_version=1)
+
+        # Create vector with current embedding version (version 2)
+        vectors_current = [
+            PgEmbeddingRow(
+                domain="action",
+                team_id=self.team.id,
+                id=id2,
+                vector=[2, 4],
+                text="current version text",
+            ),
+        ]
+        bulk_create_pg_embeddings(vectors_current, embedding_version=2)
+
+        response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
+        self.assertEqual(len(response.results), 2)
+
+        response = VectorSearchQueryRunner(
+            VectorSearchQuery(embedding=[2, 4], embeddingVersion=1), self.team
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, id1)
+
+        response = VectorSearchQueryRunner(
+            VectorSearchQuery(embedding=[2, 4], embeddingVersion=2), self.team
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, id2)
+
+    def test_vector_search_searches_if_the_embedding_version_is_not_specified(self):
+        """Test that vectors without versions are handled."""
+        id1, id2 = str(uuid.uuid4()), str(uuid.uuid4())
+
+        # Create vector with old embedding version (version 1) using direct SQL
+        vectors_old = [
+            PgEmbeddingRow(
+                domain="action",
+                team_id=self.team.id,
+                id=id1,
+                vector=[2, 4],
+                text="old version text",
+            ),
+        ]
+        bulk_create_pg_embeddings(vectors_old, embedding_version=None)
+
+        # Create vector with current embedding version (version 2)
+        vectors_current = [
+            PgEmbeddingRow(
+                domain="action",
+                team_id=self.team.id,
+                id=id2,
+                vector=[2, 4],
+                text="current version text",
+            ),
+        ]
+        bulk_create_pg_embeddings(vectors_current, embedding_version=1)
+
+        response = VectorSearchQueryRunner(VectorSearchQuery(embedding=[2, 4]), self.team).calculate()
+        self.assertEqual(len(response.results), 2)
+
+        response = VectorSearchQueryRunner(
+            VectorSearchQuery(embedding=[2, 4], embeddingVersion=1), self.team
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, id2)

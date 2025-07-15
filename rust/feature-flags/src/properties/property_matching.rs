@@ -327,6 +327,8 @@ fn parse_float_timestamp(value: f64) -> Option<DateTime<Utc>> {
 /// and to test the match_property function
 #[cfg(test)]
 mod test_match_properties {
+    use crate::properties::property_models::PropertyType;
+
     use super::*;
     use serde_json::json;
     use test_case::test_case;
@@ -337,7 +339,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("value")),
             operator: None,
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -391,7 +393,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("value")),
             operator: Some(OperatorType::Exact),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -414,7 +416,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(["value1", "value2", "value3"])),
             operator: Some(OperatorType::Exact),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -459,7 +461,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("value")),
             operator: Some(OperatorType::IsNot),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -497,7 +499,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(["value1", "value2", "value3"])),
             operator: Some(OperatorType::IsNot),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -572,7 +574,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("value")),
             operator: Some(OperatorType::IsSet),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -621,7 +623,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("valUe")),
             operator: Some(OperatorType::Icontains),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -679,7 +681,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("3")),
             operator: Some(OperatorType::Icontains),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -719,7 +721,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(r"\.com$")),
             operator: Some(OperatorType::Regex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -760,7 +762,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("3")),
             operator: Some(OperatorType::Regex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -795,7 +797,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(r"?*")),
             operator: Some(OperatorType::Regex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -818,7 +820,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(4)),
             operator: Some(OperatorType::Regex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -849,7 +851,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(1)),
             operator: Some(OperatorType::Gt),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -892,7 +894,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(1)),
             operator: Some(OperatorType::Lt),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -939,7 +941,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(1)),
             operator: Some(OperatorType::Gte),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -981,7 +983,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("43")),
             operator: Some(OperatorType::Lt),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1028,7 +1030,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("30")),
             operator: Some(OperatorType::Lt),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1108,7 +1110,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("null")),
             operator: Some(OperatorType::IsNot),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1130,7 +1132,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(null)),
             operator: Some(OperatorType::IsSet),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1146,7 +1148,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("nu")),
             operator: Some(OperatorType::Icontains),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1168,7 +1170,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("Nu")),
             operator: Some(OperatorType::Regex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1184,7 +1186,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("Nu")),
             operator: Some(OperatorType::Regex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1218,7 +1220,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("value")),
             operator: None,
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1238,7 +1240,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(["value1", "value2", "value3"])),
             operator: Some(OperatorType::Exact),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1254,7 +1256,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("value")),
             operator: Some(OperatorType::IsSet),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1270,7 +1272,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(null)),
             operator: Some(OperatorType::IsNotSet),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1307,7 +1309,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("valUe")),
             operator: Some(OperatorType::Icontains),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1323,7 +1325,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("valUe")),
             operator: Some(OperatorType::NotIcontains),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1339,7 +1341,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(r"\.com$")),
             operator: Some(OperatorType::Regex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1355,7 +1357,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(r"\.com$")),
             operator: Some(OperatorType::NotRegex),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1371,7 +1373,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(1)),
             operator: Some(OperatorType::Gt),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1387,7 +1389,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(1)),
             operator: Some(OperatorType::Gte),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1403,7 +1405,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(1)),
             operator: Some(OperatorType::Lt),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1419,7 +1421,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!(1)),
             operator: Some(OperatorType::Lte),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1436,7 +1438,7 @@ mod test_match_properties {
             key: "key".to_string(),
             value: Some(json!("2021-01-01")),
             operator: Some(OperatorType::IsDateBefore),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1453,7 +1455,7 @@ mod test_match_properties {
             key: "joined_at".to_string(),
             value: Some(json!("2023-06-04")), // Simple date format in filter
             operator: Some(OperatorType::IsDateAfter),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1488,7 +1490,7 @@ mod test_match_properties {
             key: "date".to_string(),
             value: Some(json!(exact_date)),
             operator: Some(OperatorType::IsDateExact),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1548,7 +1550,7 @@ mod test_match_properties {
             key: "date".to_string(),
             value: Some(json!(target_date)),
             operator: Some(OperatorType::IsDateAfter),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };
@@ -1567,7 +1569,7 @@ mod test_match_properties {
             key: "joined_at".to_string(),
             value: Some(json!("-3d")),
             operator: Some(OperatorType::IsDateBefore),
-            prop_type: "person".to_string(),
+            prop_type: PropertyType::Person,
             group_type_index: None,
             negation: None,
         };

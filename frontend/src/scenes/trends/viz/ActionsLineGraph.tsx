@@ -1,7 +1,6 @@
-import { ChartType, defaults, LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import { useValues } from 'kea'
-import { Chart } from 'lib/Chart'
+import { Chart, ChartType, defaults, LegendOptions } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -36,7 +35,7 @@ export function ActionsLineGraph({
         trendsFilter,
         isLifecycle,
         isStickiness,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         showLegend,
         hiddenLegendIndexes,
         querySource,
@@ -118,10 +117,11 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
+            hideAnnotations={inSharedMode}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
                 context?.onDataPointClick ||
-                (showPersonsModal && !isMultiSeriesFormula(formula) && !isDataWarehouseSeries)
+                (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
                     ? (payload) => {
                           const { index, points } = payload
 

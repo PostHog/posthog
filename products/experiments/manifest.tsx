@@ -1,5 +1,4 @@
 import { IconFlask } from '@posthog/icons'
-import { PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -45,9 +44,9 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: `Experiments`,
+            category: 'Features',
             type: 'experiment',
             href: urls.experiments(),
-            visualOrder: PRODUCT_VISUAL_ORDER.experiments,
         },
     ],
 }
