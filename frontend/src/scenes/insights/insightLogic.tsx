@@ -524,14 +524,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
         },
         onRejectSuggestedInsight: () => {
-            // Revert to previous query
             if (values.previousQuery) {
-                // Use insightDataLogic to set the query back
                 const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
                 if (insightDataLogicInstance) {
                     insightDataLogicInstance.actions.setQuery(values.previousQuery)
                 }
-                // actions.setPreviousQuery(null)
             }
         },
         handleInsightSuggested: ({ suggestedInsight }) => {
