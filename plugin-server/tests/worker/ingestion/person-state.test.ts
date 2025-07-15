@@ -10,7 +10,6 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../src/types'
-import { SourcePersonNotFoundError, TargetPersonNotFoundError } from '../../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse, TransactionClient } from '../../../src/utils/db/postgres'
@@ -20,6 +19,10 @@ import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { MeasuringPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/measuring-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
+import {
+    SourcePersonNotFoundError,
+    TargetPersonNotFoundError,
+} from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'

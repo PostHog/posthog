@@ -9,6 +9,7 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '../../../types'
+import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 
@@ -98,7 +99,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]>
+    ): Promise<MoveDistinctIdsResult>
 
     /**
      * Updates cohorts and feature flags for merged persons

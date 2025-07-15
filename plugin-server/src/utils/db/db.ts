@@ -73,19 +73,10 @@ import {
     unparsePersonPartial,
 } from './utils'
 
-export class SourcePersonNotFoundError extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = 'SourcePersonNotFoundError'
-    }
-}
-
-export class TargetPersonNotFoundError extends Error {
-    constructor(message: string) {
-        super(message)
-        this.name = 'TargetPersonNotFoundError'
-    }
-}
+export type MoveDistinctIdsResult =
+    | { readonly success: true; readonly messages: TopicMessage[] }
+    | { readonly success: false; readonly error: 'TargetNotFound' }
+    | { readonly success: false; readonly error: 'SourceNotFound' }
 
 export interface LogEntryPayload {
     pluginConfig: PluginConfig
@@ -972,7 +963,7 @@ export class DB {
         source: InternalPerson,
         target: InternalPerson,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
+    ): Promise<MoveDistinctIdsResult> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -999,7 +990,10 @@ export class DB {
                     team_id: target.team_id,
                     person_id: target.id,
                 })
-                throw new TargetPersonNotFoundError('Target person no longer exists')
+                return {
+                    success: false,
+                    error: 'TargetNotFound',
+                }
             }
 
             throw error
@@ -1012,7 +1006,10 @@ export class DB {
                 team_id: source.team_id,
                 person_id: source.id,
             })
-            throw new SourcePersonNotFoundError('Source person no longer exists')
+            return {
+                success: false,
+                error: 'SourceNotFound',
+            }
         }
 
         const kafkaMessages = []
@@ -1028,7 +1025,7 @@ export class DB {
                 ],
             })
         }
-        return kafkaMessages
+        return { success: true, messages: kafkaMessages }
     }
 
     // Cohort & CohortPeople

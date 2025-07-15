@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { InternalPerson } from '../../../types'
-import { SourcePersonNotFoundError, TargetPersonNotFoundError } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { logger } from '../../../utils/logger'
@@ -13,6 +12,20 @@ import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+
+export class SourcePersonNotFoundError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'SourcePersonNotFoundError'
+    }
+}
+
+export class TargetPersonNotFoundError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'TargetPersonNotFoundError'
+    }
+}
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -435,7 +448,7 @@ export class PersonMergeService {
         sourceDistinctId: string,
         createdAt: DateTime,
         properties: Properties,
-        maxRetries: number = 3
+        maxRetries: number = 5
     ): Promise<[InternalPerson, Promise<void>]> {
         let currentTargetPerson = targetPerson
         let currentSourcePerson = sourcePerson
@@ -491,12 +504,20 @@ export class PersonMergeService {
                             tx
                         )
 
-                        const distinctIdMessages = await this.context.personStore.moveDistinctIds(
+                        const distinctIdResult = await this.context.personStore.moveDistinctIds(
                             currentSourcePerson,
                             currentTargetPerson,
                             this.context.distinctId,
                             tx
                         )
+
+                        if (!distinctIdResult.success) {
+                            if (distinctIdResult.error === 'SourceNotFound') {
+                                throw new SourcePersonNotFoundError('Source person no longer exists')
+                            } else if (distinctIdResult.error === 'TargetNotFound') {
+                                throw new TargetPersonNotFoundError('Target person no longer exists')
+                            }
+                        }
 
                         const deletePersonMessages = await this.context.personStore.deletePerson(
                             currentSourcePerson,
@@ -504,6 +525,7 @@ export class PersonMergeService {
                             tx
                         )
 
+                        const distinctIdMessages = distinctIdResult.success ? distinctIdResult.messages : []
                         return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
                     }
                 )
@@ -521,90 +543,32 @@ export class PersonMergeService {
                 return [mergedPerson, kafkaAck]
             } catch (error) {
                 if (error instanceof SourcePersonNotFoundError && attempt < maxRetries) {
-                    logger.info('Source person not found, retrying with fresh data', {
-                        sourcePersonId: currentSourcePerson.id,
-                        targetPersonId: currentTargetPerson.id,
-                        teamId: this.context.team.id,
+                    const refreshedPerson = await this.refreshPersonData(
+                        sourceDistinctId,
+                        currentSourcePerson.id,
                         attempt,
-                        sourceDistinctId,
-                    })
-
-                    // Refresh the source person data using fetchPersonIdsByDistinctId to get latest person ID
-                    const personData = await this.context.personStore.fetchPersonIdsByDistinctId(
-                        sourceDistinctId,
-                        this.context.team.id
+                        'source'
                     )
 
-                    if (!personData) {
-                        logger.info('Source person no longer exists, skipping merge', {
-                            sourcePersonId: currentSourcePerson.id,
-                            targetPersonId: currentTargetPerson.id,
-                            teamId: this.context.team.id,
-                            attempt,
-                        })
+                    if (!refreshedPerson) {
                         return [currentTargetPerson, Promise.resolve()]
                     }
 
-                    // Fetch the refreshed person data using the new person ID
-                    const refreshedSourcePerson = await this.context.personStore.fetchForUpdate(
-                        this.context.team.id,
-                        sourceDistinctId
-                    )
-
-                    if (!refreshedSourcePerson) {
-                        logger.info('Source person no longer exists after refresh, skipping merge', {
-                            sourcePersonId: currentSourcePerson.id,
-                            targetPersonId: currentTargetPerson.id,
-                            teamId: this.context.team.id,
-                            attempt,
-                        })
-                        return [currentTargetPerson, Promise.resolve()]
-                    }
-
-                    currentSourcePerson = refreshedSourcePerson
+                    currentSourcePerson = refreshedPerson
                     continue
                 } else if (error instanceof TargetPersonNotFoundError && attempt < maxRetries) {
-                    logger.info('Target person not found, retrying with fresh data', {
-                        sourcePersonId: currentSourcePerson.id,
-                        targetPersonId: currentTargetPerson.id,
-                        teamId: this.context.team.id,
+                    const refreshedPerson = await this.refreshPersonData(
+                        targetDistinctId,
+                        currentTargetPerson.id,
                         attempt,
-                        targetDistinctId,
-                    })
-
-                    // Refresh the target person data using fetchPersonIdsByDistinctId to get latest person ID
-                    const personData = await this.context.personStore.fetchPersonIdsByDistinctId(
-                        targetDistinctId,
-                        this.context.team.id
+                        'target'
                     )
 
-                    if (!personData) {
-                        logger.info('Target person no longer exists, skipping merge', {
-                            sourcePersonId: currentSourcePerson.id,
-                            targetPersonId: currentTargetPerson.id,
-                            teamId: this.context.team.id,
-                            attempt,
-                        })
+                    if (!refreshedPerson) {
                         return [currentTargetPerson, Promise.resolve()]
                     }
 
-                    // Fetch the refreshed person data using the new person ID
-                    const refreshedTargetPerson = await this.context.personStore.fetchForUpdate(
-                        this.context.team.id,
-                        targetDistinctId
-                    )
-
-                    if (!refreshedTargetPerson) {
-                        logger.info('Target person no longer exists after refresh, skipping merge', {
-                            sourcePersonId: currentSourcePerson.id,
-                            targetPersonId: currentTargetPerson.id,
-                            teamId: this.context.team.id,
-                            attempt,
-                        })
-                        return [currentTargetPerson, Promise.resolve()]
-                    }
-
-                    currentTargetPerson = refreshedTargetPerson
+                    currentTargetPerson = refreshedPerson
                     continue
                 } else {
                     throw error
@@ -640,6 +604,46 @@ export class PersonMergeService {
         // Note: Using the same histogram instance from person-state.ts for consistency
         // This could be moved to a shared location if needed
         return
+    }
+
+    private async refreshPersonData(
+        distinctId: string,
+        currentPersonId: string,
+        attempt: number,
+        personType: 'source' | 'target'
+    ): Promise<InternalPerson | null> {
+        logger.info(`${personType} person not found, retrying with fresh data`, {
+            [`${personType}PersonId`]: currentPersonId,
+            teamId: this.context.team.id,
+            attempt,
+            distinctId,
+        })
+
+        // Refresh the person data using fetchPersonIdsByDistinctId to get latest person ID
+        const personData = await this.context.personStore.fetchPersonIdsByDistinctId(distinctId, this.context.team.id)
+
+        if (!personData) {
+            logger.info(`${personType} person no longer exists, skipping merge`, {
+                [`${personType}PersonId`]: currentPersonId,
+                teamId: this.context.team.id,
+                attempt,
+            })
+            return null
+        }
+
+        // Fetch the refreshed person data using the new person ID
+        const refreshedPerson = await this.context.personStore.fetchForUpdate(this.context.team.id, distinctId)
+
+        if (!refreshedPerson) {
+            logger.info(`${personType} person no longer exists after refresh, skipping merge`, {
+                [`${personType}PersonId`]: currentPersonId,
+                teamId: this.context.team.id,
+                attempt,
+            })
+            return null
+        }
+
+        return refreshedPerson
     }
 
     public getUpdateIsIdentified(): boolean {
