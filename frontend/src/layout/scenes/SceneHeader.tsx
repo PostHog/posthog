@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconMenu, IconSlash } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { TopBarSettingsButton } from 'lib/components/TopBarSettingsButton/TopBarSettingsButton'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -21,13 +21,22 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 
 export function SceneHeader({ className }: { className?: string }): JSX.Element | null {
     const { mobileLayout } = useValues(navigationLogic)
-    const { breadcrumbs } = useValues(breadcrumbsLogic)
+    const { breadcrumbs, actionsContainer } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { scenePanelOpen, scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
+
+    const hasActions = useMemo(() => {
+        return !!(
+            actionsContainer &&
+            actionsContainer.children &&
+            actionsContainer.children.length > 0 &&
+            scenePanelIsPresent
+        )
+    }, [actionsContainer, scenePanelIsPresent])
 
     return breadcrumbs.length || projectTreeRefEntry ? (
         <>
@@ -37,6 +46,8 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                     className,
                     {
                         'pr-2': scenePanelIsPresent,
+                        // If no actions, we want the breadcrumbs to take up the full width
+                        'pr-0': !hasActions,
                     }
                 )}
             >
@@ -68,7 +79,14 @@ export function SceneHeader({ className }: { className?: string }): JSX.Element 
                             ))}
                         </ScrollableShadows>
                     )}
-                    <div className="flex gap-2 items-center shrink-0">
+
+                    <div
+                        className={cn('flex gap-2 items-center shrink-0', {
+                            // If no actions, we want the actions to be hidden/remove from document flow,
+                            // Allowing the breadcrumbs to take up the full width
+                            'absolute top-[-9999px]': !hasActions,
+                        })}
+                    >
                         <div className="flex gap-2 items-center justify-end" ref={setActionsContainer} />
 
                         <div className="flex gap-1 items-center">
@@ -149,7 +167,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             <ProjectDropdownMenu
                 buttonProps={{
                     size: 'xxs',
-                    className: '-mr-1 text-primary font-normal p-0 hover:text-primary gap-1 min-w-[40px]',
+                    className: 'text-primary font-normal p-0 hover:text-primary gap-1 min-w-[40px]',
                 }}
             />
         )
