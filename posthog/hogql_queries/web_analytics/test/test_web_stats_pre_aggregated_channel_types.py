@@ -352,8 +352,8 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
             ["Unknown", (1.0, None), (1.0, None), ""],
         ]
 
-        actual_sorted = sorted(response.results, key=lambda x: x[0])
-        expected_sorted = sorted(expected_results, key=lambda x: x[0])
+        actual_sorted = sorted(response.results, key=lambda x: str(x[0]))
+        expected_sorted = sorted(expected_results, key=lambda x: str(x[0]))
 
         assert actual_sorted == expected_sorted
 
