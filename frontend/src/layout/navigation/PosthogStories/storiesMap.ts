@@ -59,7 +59,7 @@ export const storiesMap: storyGroup[] = [
                 title: 'Changelog',
                 description: '55 new CDP destinations',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_cdp_destinations_fffb239171.mp4',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_cdp_destinations_0e8b58be75.mp4',
                 type: StoryType.Video,
             },
             {
@@ -256,7 +256,7 @@ export const storiesMap: storyGroup[] = [
                 title: 'Feature flags',
                 description: 'Roll out changes',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/feature_flags_overview_a1ee3b6dcc.mp4',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/feature_flags_overview_79e6f410ae.mp4',
                 type: StoryType.Video,
             },
             {
@@ -266,10 +266,10 @@ export const storiesMap: storyGroup[] = [
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_image_3c1f74f6ed.png',
                 type: StoryType.Image,
-                seeMoreLink: 'https://posthog.com/docs/feature-flags',
+                seeMoreLink: 'https://app.posthog.com/feature_flags',
                 seeMoreOptions: {
                     backgroundColor: 'black',
-                    text: 'Learn more',
+                    text: 'Get started',
                 },
             },
         ],
