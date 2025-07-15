@@ -50,7 +50,7 @@ export const FunnelLeftToRightEdit: Story = createInsightStory(
     'edit'
 )
 FunnelLeftToRightEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] .StepBar', '.PayGateMini'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
 }
 
 export const FunnelTopToBottom: Story = createInsightStory(
