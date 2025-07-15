@@ -11,9 +11,7 @@ describe('IntegrationManager', () => {
     jest.setTimeout(2000)
     let hub: Hub
     let manager: IntegrationManagerService
-
     let integrations: IntegrationType[]
-
     let teamId1: number
 
     beforeEach(async () => {
