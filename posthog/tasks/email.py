@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import posthoganalytics
 import structlog
@@ -588,7 +588,7 @@ def send_hog_functions_daily_digest() -> None:
         return
 
     # Group by team_id
-    teams_with_failures = {}
+    teams_with_failures: dict[int, list[str]] = {}
     for team_id, hog_function_id in failed_functions:
         if team_id not in teams_with_failures:
             teams_with_failures[team_id] = []
@@ -678,7 +678,7 @@ def send_team_hog_functions_digest(
     )
 
     # Build function data with metrics
-    functions_data = {}
+    functions_data: dict[str, dict[str, Any]] = {}
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
         functions_data[hog_function_id] = {
