@@ -405,10 +405,10 @@ const MarketingDashboard = (): JSX.Element => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         // fallback in case the user is able to access the page but the feature flag is not enabled
         return (
-            <div>
+            <LemonBanner type="info">
                 You can enable marketing analytics in the feature preview settings{' '}
                 <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
-            </div>
+            </LemonBanner>
         )
     }
 
