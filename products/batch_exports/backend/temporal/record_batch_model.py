@@ -12,11 +12,7 @@ from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.logger import get_external_logger, get_logger
 from products.batch_exports.backend.temporal import sql
-
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
 
 Query = str
 QueryParameters = dict[str, typing.Any]
