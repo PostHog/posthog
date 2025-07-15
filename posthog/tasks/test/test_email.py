@@ -243,8 +243,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         digest_data = {
             "team_id": self.team.id,
-            "date_str": "2023-01-15",
-            "formatted_date": "January 15, 2023",
             "functions": [
                 {
                     "id": "test-hog-function-1",
@@ -284,17 +282,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         digest_data = {
             "team_id": self.team.id,
-            "date_str": "2023-01-15",
-            "formatted_date": "January 15, 2023",
             "functions": [
                 {
                     "id": "test-hog-function",
                     "name": "Test Function",
                     "type": "destination",
                     "succeeded": 100,
-                    "failed": 0,
+                    "failed": 10,  # Added failures
                     "filtered": 5,
-                    "total_runs": 100,
+                    "total_runs": 110,  # Updated total
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
                 }
             ],
@@ -317,17 +313,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         digest_data = {
             "team_id": 99999,  # Non-existent team ID
-            "date_str": "2023-01-15",
-            "formatted_date": "January 15, 2023",
             "functions": [
                 {
                     "id": "test",
                     "name": "Test",
                     "type": "destination",
-                    "succeeded": 1,
-                    "failed": 0,
-                    "filtered": 0,
-                    "total_runs": 1,
+                    "succeeded": 90,
+                    "failed": 10,  # Added failures
+                    "filtered": 5,
+                    "total_runs": 100,
                     "url": "test",
                 }
             ],
