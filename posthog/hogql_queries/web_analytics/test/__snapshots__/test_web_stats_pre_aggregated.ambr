@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestWebStatsPreAggregated.test_breakdown_consistency_preagg_vs_regular
   '''
-  SELECT nullIf(web_stats_combined.device_type, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.device_type, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -72,7 +72,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_breakdown_consistency_preagg_vs_regular.2
   '''
-  SELECT nullIf(web_stats_combined.browser, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -143,7 +143,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_breakdown_consistency_preagg_vs_regular.4
   '''
-  SELECT nullIf(web_stats_combined.country_code, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.country_code, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -214,7 +214,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_breakdown_consistency_preagg_vs_regular.6
   '''
-  SELECT nullIf(web_stats_combined.utm_source, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.utm_source, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -286,7 +286,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_browser_breakdown
   '''
-  SELECT nullIf(web_stats_combined.browser, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.browser, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -308,7 +308,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_country_breakdown
   '''
-  SELECT nullIf(web_stats_combined.country_code, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.country_code, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -330,7 +330,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_device_type_breakdown
   '''
-  SELECT nullIf(web_stats_combined.device_type, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.device_type, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -383,7 +383,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_property_filtering
   '''
-  SELECT nullIf(web_stats_combined.device_type, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.device_type, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
@@ -405,7 +405,7 @@
 # ---
 # name: TestWebStatsPreAggregated.test_utm_source_breakdown
   '''
-  SELECT nullIf(web_stats_combined.utm_source, '') AS `context.columns.breakdown_value`,
+  SELECT nullIf(nullIf(web_stats_combined.utm_source, ''), 'null') AS `context.columns.breakdown_value`,
          tuple(uniqMergeIf(web_stats_combined.persons_uniq_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.visitors`,
          tuple(sumMergeIf(web_stats_combined.pageviews_count_state, and(greaterOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(web_stats_combined.period_bucket, toDateTime64('2024-01-02 23:59:59.999999', 6, 'UTC')))), NULL) AS `context.columns.views`
   FROM web_stats_combined
