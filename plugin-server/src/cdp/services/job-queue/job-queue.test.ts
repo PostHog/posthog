@@ -31,7 +31,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, ['hog'], mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('postgres')
         })
@@ -43,7 +43,7 @@ describe('CyclotronJobQueue', () => {
         })
 
         it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, ['hog'], mockConsumeBatch)
             expect(queue).toBeDefined()
             expect(queue['consumerMode']).toBe('kafka')
         })
@@ -54,7 +54,7 @@ describe('CyclotronJobQueue', () => {
             config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config, ['hog'], mockConsumeBatch)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()

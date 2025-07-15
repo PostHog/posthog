@@ -10,9 +10,6 @@ import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
-import { CdpCyclotronWorkerNative } from './cdp/consumers/cdp-cyclotron-worker-native.consumer'
-import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
-import { CdpCyclotronWorkerSegment } from './cdp/consumers/cdp-cyclotron-worker-segment.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
@@ -246,15 +243,6 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.cdpCyclotronWorkerPlugins) {
-                await initPlugins()
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerPlugins(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
             if (capabilities.cdpCyclotronWorkerHogFlow) {
                 serviceLoaders.push(async () => {
                     const worker = new CdpCyclotronWorkerHogFlow(hub)
@@ -270,22 +258,6 @@ export class PluginServer {
                 await serverCommands.start()
                 return serverCommands.service
             })
-
-            if (capabilities.cdpCyclotronWorkerSegment) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerSegment(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
-
-            if (capabilities.cdpCyclotronWorkerNative) {
-                serviceLoaders.push(async () => {
-                    const worker = new CdpCyclotronWorkerNative(hub)
-                    await worker.start()
-                    return worker.service
-                })
-            }
 
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
             this.services.push(...readyServices)

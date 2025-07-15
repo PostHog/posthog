@@ -13,7 +13,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerHogFlow'
 
     constructor(hub: Hub) {
-        super(hub, 'hogflow')
+        super(hub, ['hogflow'])
     }
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {

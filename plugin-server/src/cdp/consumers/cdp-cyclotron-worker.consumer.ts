@@ -29,7 +29,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
         console.log(
             'loadedInvocations',
-            loadedInvocations.map((item) => item.hogFunction.name)
+            loadedInvocations.map((item) => item.queue)
         )
 
         return await Promise.all(
