@@ -570,7 +570,7 @@ def send_hog_functions_daily_digest() -> None:
         logger.info("No HogFunctions with failures found")
         return
 
-    # Extract team IDs from query results (each row is a tuple with one element)
+    # Extract team IDs from query results
     team_ids = [row[0] for row in failed_teams]
 
     # Filter teams based on the feature flag setting

@@ -288,9 +288,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "name": "Test Function",
                     "type": "destination",
                     "succeeded": 100,
-                    "failed": 10,  # Added failures
+                    "failed": 10,
                     "filtered": 5,
-                    "total_runs": 110,  # Updated total
+                    "total_runs": 110,
                     "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
                 }
             ],
@@ -319,7 +319,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                     "name": "Test",
                     "type": "destination",
                     "succeeded": 90,
-                    "failed": 10,  # Added failures
+                    "failed": 10,
                     "filtered": 5,
                     "total_runs": 100,
                     "url": "test",
