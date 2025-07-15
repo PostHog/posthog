@@ -18,6 +18,7 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import {
     AccessControlLevel,
+    AccessControlResourceType,
     ActivityScope,
     CommentType,
     NotebookNodeType,
@@ -35,6 +36,7 @@ import type { notebookLogicType } from './notebookLogicType'
 import { EditorRange, JSONContent, NotebookEditor } from './utils'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { TableOfContentData } from '@tiptap/extension-table-of-contents'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
@@ -471,7 +473,11 @@ export const notebookLogic = kea<notebookLogicType>([
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (shouldBeEditable, previewContent, notebook, mode) =>
-                mode === 'canvas' || (shouldBeEditable && !previewContent && notebook?.user_access_level === 'editor'),
+                mode === 'canvas' ||
+                (shouldBeEditable &&
+                    !previewContent &&
+                    !!notebook?.user_access_level &&
+                    accessLevelSatisfied(AccessControlResourceType.Notebook, notebook.user_access_level, 'editor')),
         ],
     }),
     listeners(({ values, actions, cache }) => ({
@@ -545,7 +551,11 @@ export const notebookLogic = kea<notebookLogicType>([
             )
         },
         setLocalContent: async ({ updateEditor, jsonContent }, breakpoint) => {
-            if (values.mode !== 'canvas' && values.notebook?.user_access_level !== 'editor') {
+            if (
+                values.mode !== 'canvas' &&
+                !!values.notebook?.user_access_level &&
+                !accessLevelSatisfied(AccessControlResourceType.Notebook, values.notebook.user_access_level, 'editor')
+            ) {
                 actions.clearLocalContent()
                 return
             }
