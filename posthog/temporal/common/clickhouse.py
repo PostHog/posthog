@@ -2,28 +2,28 @@ import asyncio
 import collections.abc
 import contextlib
 import datetime as dt
+import decimal
 import enum
+import ipaddress
 import json
 import re
 import ssl
 import typing
 import uuid
-import decimal
-import ipaddress
 from urllib.parse import urljoin
-from pympler import asizeof
 
 import aiohttp
 import pyarrow as pa
 import requests
 import structlog
 from django.conf import settings
+from pympler import asizeof
 from temporalio import activity
 
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import get_query_tags, QueryTags, TemporalTags
-from posthog.exceptions_capture import capture_exception
 import posthog.temporal.common.asyncpa as asyncpa
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import get_internal_logger
 
 logger = structlog.get_logger()

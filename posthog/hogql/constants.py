@@ -1,5 +1,5 @@
-from datetime import date, datetime
 import sys
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal, Optional, TypeAlias
 from uuid import UUID
@@ -107,6 +107,7 @@ class HogQLQuerySettings(BaseModel):
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
     join_algorithm: Optional[str] = None
+    log_comment: Optional[str] = None
 
 
 # Settings applied on top of all HogQL queries.
