@@ -76,6 +76,30 @@ class TestMessageCategoryAPI(APIBaseTest):
         self.assertEqual(category.created_by, self.user)
         self.assertEqual(category.name, "New Category")
 
+    def test_cant_create_category_with_duplicate_key(self):
+        """
+        Tests that creating a category with a duplicate key for the same team is not allowed,
+        but it is allowed for a different team.
+        """
+        MessageCategory.objects.create(team=self.team, name="Category 1", key="duplicate-key")
+
+        # Attempt to create with the same key for the same team
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/message_categories/",
+            {"name": "Category 2", "key": "duplicate-key", "category_type": "notification"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("key", response.json())
+        self.assertIn("already exists", response.json()["key"][0])
+
+        # Verify it's possible to create with the same key for a different team
+        other_team = Team.objects.create(organization=self.organization)
+        response = self.client.post(
+            f"/api/projects/{other_team.id}/message_categories/",
+            {"name": "Category 3", "key": "duplicate-key", "category_type": "notification"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_delete_is_forbidden(self):
         """
         Tests that DELETE /message_categories/:id is forbidden.
