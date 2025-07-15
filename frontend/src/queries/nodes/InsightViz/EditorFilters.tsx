@@ -1,10 +1,11 @@
-import { IconInfo, IconX } from '@posthog/icons'
+import { IconInfo, IconRefresh, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import {} from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { objectsEqual } from 'lib/utils'
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -23,7 +24,7 @@ import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -82,36 +83,60 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
 
-    const { setSuggestedInsight, onRejectSuggestedInsight } = useActions(insightSceneLogic)
-    const { previousQuery } = useValues(insightSceneLogic)
+    const { handleInsightSuggested, onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(
+        insightLogic(insightProps)
+    )
+    const { previousQuery, hasRejected, suggestedQuery } = useValues(insightLogic(insightProps))
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
-    // const storePreviousQuery = (query: any) => {
-    //     console.log('🔄 storePreviousQuery called with:', query)
-    //     console.log('🔄 current previousQuery state:', previousQuery)
-    //     _storePreviousQuery(query)
-    //     console.log('🔄 storePreviousQuery completed')
-    // }
-    // const hasScrolled = useRef(false)
+    const hasScrolled = useRef(false)
+
+    // Count differences between objects
+    const countDifferences = useCallback(
+        (obj1: any, obj2: any): { count: number; diffs: { key: string; val1: any; val2: any }[] } => {
+            let count = 0
+            let diffs = []
+            const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
+
+            for (const key of keys) {
+                const val1 = obj1?.[key]
+                const val2 = obj2?.[key]
+                if (Array.isArray(val1) && Array.isArray(val2)) {
+                    const val1Set = new Set(val1)
+                    const val2Set = new Set(val2)
+                    const hasChanged =
+                        val1Set.size !== val2Set.size || !Array.from(val1Set).every((item: any) => val2Set.has(item))
+                    if (hasChanged) {
+                        count += 1
+                        diffs.push({ key, val1, val2 })
+                    }
+                } else if (typeof val1 === 'object' && typeof val2 === 'object' && val1 && val2) {
+                    const { count: subCount, diffs: subDiffs } = countDifferences(val1, val2)
+                    count += subCount
+                    diffs.push(...subDiffs)
+                } else if (val1 !== val2) {
+                    count += 1
+                    diffs.push({ key, val1, val2 })
+                }
+            }
+            return { count, diffs }
+        },
+        [query, previousQuery]
+    )
 
     // Reset scroll flag when banner disappears
-    // useEffect(() => {
-    //     console.log('🔄 EditorFilters useEffect triggered', {
-    //         suggestedInsight: !!suggestedInsight,
-    //         previousQuery: !!previousQuery
-    //     })
-    //     if (!suggestedInsight || !previousQuery) {
-    //         hasScrolled.current = false
-    //     }
-    // }, [suggestedInsight, previousQuery])
+    useEffect(() => {
+        if (!previousQuery) {
+            hasScrolled.current = false
+        }
+    }, [previousQuery])
 
     if (!querySource) {
         return null
     }
 
     // MaxTool should not be active when insights are embedded (e.g., in notebooks)
-    const maxToolActive = !embedded
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
@@ -133,61 +158,61 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 ...(isRetention
                     ? [
-                        {
-                            key: 'retention-condition',
-                            label: 'Retention condition',
-                            component: RetentionCondition,
-                        },
-                        {
-                            key: 'retention-options',
-                            label: 'Calculation options',
-                            component: RetentionOptions,
-                        },
-                    ]
+                          {
+                              key: 'retention-condition',
+                              label: 'Retention condition',
+                              component: RetentionCondition,
+                          },
+                          {
+                              key: 'retention-options',
+                              label: 'Calculation options',
+                              component: RetentionOptions,
+                          },
+                      ]
                     : []),
                 isFunnels
                     ? {
-                        key: 'query-steps',
-                        component: FunnelsQuerySteps,
-                    }
+                          key: 'query-steps',
+                          component: FunnelsQuerySteps,
+                      }
                     : null,
                 ...(isPaths
                     ? [
-                        {
-                            key: 'event-types',
-                            label: 'Event Types',
-                            component: PathsEventsTypes,
-                        },
-                        hasPathsHogQL && {
-                            key: 'hogql',
-                            label: 'SQL Expression',
-                            component: PathsHogQL,
-                        },
-                        hasPathsAdvanced && {
-                            key: 'wildcard-groups',
-                            label: 'Wildcard Groups',
-                            showOptional: true,
-                            component: PathsWildcardGroups,
-                            tooltip: (
-                                <>
-                                    Use wildcard matching to group events by unique values in path item names. Use an
-                                    asterisk (*) in place of unique values. For example, instead of
-                                    /merchant/1234/payment, replace the unique value with an asterisk
-                                    /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
-                                </>
-                            ),
-                        },
-                        {
-                            key: 'start-target',
-                            label: 'Starts at',
-                            component: PathsTargetStart,
-                        },
-                        hasPathsAdvanced && {
-                            key: 'ends-target',
-                            label: 'Ends at',
-                            component: PathsTargetEnd,
-                        },
-                    ]
+                          {
+                              key: 'event-types',
+                              label: 'Event Types',
+                              component: PathsEventsTypes,
+                          },
+                          hasPathsHogQL && {
+                              key: 'hogql',
+                              label: 'SQL Expression',
+                              component: PathsHogQL,
+                          },
+                          hasPathsAdvanced && {
+                              key: 'wildcard-groups',
+                              label: 'Wildcard Groups',
+                              showOptional: true,
+                              component: PathsWildcardGroups,
+                              tooltip: (
+                                  <>
+                                      Use wildcard matching to group events by unique values in path item names. Use an
+                                      asterisk (*) in place of unique values. For example, instead of
+                                      /merchant/1234/payment, replace the unique value with an asterisk
+                                      /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
+                                  </>
+                              ),
+                          },
+                          {
+                              key: 'start-target',
+                              label: 'Starts at',
+                              component: PathsTargetStart,
+                          },
+                          hasPathsAdvanced && {
+                              key: 'ends-target',
+                              label: 'Ends at',
+                              component: PathsTargetEnd,
+                          },
+                      ]
                     : []),
             ]),
         },
@@ -206,10 +231,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
                 isTrends && hasFormula
                     ? {
-                        key: 'formula',
-                        label: 'Formula',
-                        component: TrendsFormula,
-                    }
+                          key: 'formula',
+                          label: 'Formula',
+                          component: TrendsFormula,
+                      }
                     : null,
             ]),
         },
@@ -234,59 +259,59 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
-                        key: 'toggles',
-                        label: 'Lifecycle Toggles',
-                        component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
-                    }
+                          key: 'toggles',
+                          label: 'Lifecycle Toggles',
+                          component: LifecycleToggles as (props: EditorFilterProps) => JSX.Element | null,
+                      }
                     : null,
                 isStickiness
                     ? {
-                        key: 'stickinessCriteria',
-                        label: () => (
-                            <div className="flex">
-                                <span>Stickiness Criteria</span>
-                                <Tooltip
-                                    closeDelayMs={200}
-                                    title={
-                                        <div className="deprecated-space-y-2">
-                                            <div>
-                                                The stickiness criteria defines how many times a user must perform an
-                                                event inside of a given interval in order to be considered "sticky."
-                                            </div>
-                                        </div>
-                                    }
-                                >
-                                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                                </Tooltip>
-                            </div>
-                        ),
-                        component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
-                    }
+                          key: 'stickinessCriteria',
+                          label: () => (
+                              <div className="flex">
+                                  <span>Stickiness Criteria</span>
+                                  <Tooltip
+                                      closeDelayMs={200}
+                                      title={
+                                          <div className="deprecated-space-y-2">
+                                              <div>
+                                                  The stickiness criteria defines how many times a user must perform an
+                                                  event inside of a given interval in order to be considered "sticky."
+                                              </div>
+                                          </div>
+                                      }
+                                  >
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                  </Tooltip>
+                              </div>
+                          ),
+                          component: StickinessCriteria as (props: EditorFilterProps) => JSX.Element | null,
+                      }
                     : null,
                 isStickiness
                     ? {
-                        key: 'cumulativeStickiness',
-                        label: () => (
-                            <div className="flex">
-                                <span>Compute as</span>
-                                <Tooltip
-                                    closeDelayMs={200}
-                                    title={
-                                        <div className="deprecated-space-y-2">
-                                            <div>
-                                                Choose how to compute stickiness values. Non-cumulative shows exact
-                                                numbers for each day count, while cumulative shows users active for at
-                                                least that many days.
-                                            </div>
-                                        </div>
-                                    }
-                                >
-                                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                                </Tooltip>
-                            </div>
-                        ),
-                        component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
-                    }
+                          key: 'cumulativeStickiness',
+                          label: () => (
+                              <div className="flex">
+                                  <span>Compute as</span>
+                                  <Tooltip
+                                      closeDelayMs={200}
+                                      title={
+                                          <div className="deprecated-space-y-2">
+                                              <div>
+                                                  Choose how to compute stickiness values. Non-cumulative shows exact
+                                                  numbers for each day count, while cumulative shows users active for at
+                                                  least that many days.
+                                              </div>
+                                          </div>
+                                      }
+                                  >
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                  </Tooltip>
+                              </div>
+                          ),
+                          component: CumulativeStickinessFilter as (props: EditorFilterProps) => JSX.Element | null,
+                      }
                     : null,
                 {
                     key: 'properties',
@@ -300,63 +325,63 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
-                        key: 'breakdown',
-                        component: Breakdown,
-                    }
+                          key: 'breakdown',
+                          component: Breakdown,
+                      }
                     : null,
                 hasAttribution
                     ? {
-                        key: 'attribution',
-                        label: () => (
-                            <div className="flex">
-                                <span>Attribution type</span>
-                                <Tooltip
-                                    closeDelayMs={200}
-                                    title={
-                                        <div className="deprecated-space-y-2">
-                                            <div>
-                                                When breaking down funnels, it's possible that the same properties
-                                                don't exist on every event. For example, if you want to break down by
-                                                browser on a funnel that contains both frontend and backend events.
-                                            </div>
-                                            <div>
-                                                In this case, you can choose from which step the properties should be
-                                                selected from by modifying the attribution type. There are four modes
-                                                to choose from:
-                                            </div>
-                                            <ul className="list-disc pl-4">
-                                                <li>
-                                                    First touchpoint: the first property value seen in any of the
-                                                    steps is chosen.
-                                                </li>
-                                                <li>
-                                                    Last touchpoint: the last property value seen from all steps is
-                                                    chosen.
-                                                </li>
-                                                <li>
-                                                    All steps: the property value must be seen in all steps to be
-                                                    considered in the funnel.
-                                                </li>
-                                                <li>
-                                                    Specific step: only the property value seen at the selected step
-                                                    is chosen.
-                                                </li>
-                                            </ul>
-                                            <div>
-                                                Read more in the{' '}
-                                                <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
-                                                    documentation.
-                                                </Link>
-                                            </div>
-                                        </div>
-                                    }
-                                >
-                                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
-                                </Tooltip>
-                            </div>
-                        ),
-                        component: Attribution,
-                    }
+                          key: 'attribution',
+                          label: () => (
+                              <div className="flex">
+                                  <span>Attribution type</span>
+                                  <Tooltip
+                                      closeDelayMs={200}
+                                      title={
+                                          <div className="deprecated-space-y-2">
+                                              <div>
+                                                  When breaking down funnels, it's possible that the same properties
+                                                  don't exist on every event. For example, if you want to break down by
+                                                  browser on a funnel that contains both frontend and backend events.
+                                              </div>
+                                              <div>
+                                                  In this case, you can choose from which step the properties should be
+                                                  selected from by modifying the attribution type. There are four modes
+                                                  to choose from:
+                                              </div>
+                                              <ul className="list-disc pl-4">
+                                                  <li>
+                                                      First touchpoint: the first property value seen in any of the
+                                                      steps is chosen.
+                                                  </li>
+                                                  <li>
+                                                      Last touchpoint: the last property value seen from all steps is
+                                                      chosen.
+                                                  </li>
+                                                  <li>
+                                                      All steps: the property value must be seen in all steps to be
+                                                      considered in the funnel.
+                                                  </li>
+                                                  <li>
+                                                      Specific step: only the property value seen at the selected step
+                                                      is chosen.
+                                                  </li>
+                                              </ul>
+                                              <div>
+                                                  Read more in the{' '}
+                                                  <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
+                                                      documentation.
+                                                  </Link>
+                                              </div>
+                                          </div>
+                                      }
+                                  >
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
+                                  </Tooltip>
+                              </div>
+                          ),
+                          component: Attribution,
+                      }
                     : null,
             ]),
         },
@@ -375,33 +400,33 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         ...(!isCalendarHeatmap
             ? [
-                {
-                    title: 'Advanced options',
-                    defaultExpanded: false,
-                    editorFilters: filterFalsy([
-                        {
-                            key: 'poe',
-                            component: PoeFilter,
-                        },
-                        {
-                            key: 'sampling',
-                            component: SamplingFilter,
-                        },
-                        isTrends &&
-                        isLineGraph && {
-                            key: 'goal-lines',
-                            label: 'Goal lines',
-                            tooltip: (
-                                <>
-                                    Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
-                                    limits (Web Vitals, etc.)
-                                </>
-                            ),
-                            component: GoalLines,
-                        },
-                    ]),
-                },
-            ]
+                  {
+                      title: 'Advanced options',
+                      defaultExpanded: false,
+                      editorFilters: filterFalsy([
+                          {
+                              key: 'poe',
+                              component: PoeFilter,
+                          },
+                          {
+                              key: 'sampling',
+                              component: SamplingFilter,
+                          },
+                          isTrends &&
+                              isLineGraph && {
+                                  key: 'goal-lines',
+                                  label: 'Goal lines',
+                                  tooltip: (
+                                      <>
+                                          Goal lines can be used to highlight specific goals (Revenue, Signups, etc.) or
+                                          limits (Web Vitals, etc.)
+                                      </>
+                                  ),
+                                  component: GoalLines,
+                              },
+                      ]),
+                  },
+              ]
             : []),
     ]
 
@@ -432,18 +457,18 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                 | AssistantHogQLQuery
                         ) => {
                             const source = castAssistantQuery(toolOutput)
+                            let node: DataVisualizationNode | InsightVizNode
                             if (isHogQLQuery(source)) {
-                                const node = {
+                                node = {
                                     kind: NodeKind.DataVisualizationNode,
                                     source,
                                 } satisfies DataVisualizationNode
-
-                                setSuggestedInsight(node)
-                                setQuery(node)
                             } else {
-                                const node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                                node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
+                            }
 
-                                setSuggestedInsight(node)
+                            if (!objectsEqual(node.source, query)) {
+                                handleInsightSuggested(node)
                                 setQuery(node)
                             }
                         }}
@@ -472,81 +497,71 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         </div>
                     </MaxTool>
 
-                    {/* {query && previousQuery && (
-                        <div className="flex flex-col items-end gap-2">
-                            <div className="text-xs text-muted bg-surface-secondary px-2 py-1 rounded border">
-                                <span className="font-semibold">Max changed:</span>{' '}
-                                {(() => {
-                                    // Count differences between objects
-                                    const countDifferences = (obj1: any, obj2: any, only_count = ["breakdownFilter", "series",]): number => {
-                                        console.log('--------------------------------')
-                                        console.log(suggestedInsight)
-                                        console.log(previousQuery)
-                                        console.log('--------------------------------')
-                                        let count = 0
-                                        const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
-
-                                        for (const key of keys) {
-                                            const val1 = obj1?.[key]
-                                            const val2 = obj2?.[key]
-                                            if (val1 !== val2) {
-                                                // if (typeof val1 === 'object' && typeof val2 === 'object' && val1 && val2) {
-                                                //     count += countDifferences(val1, val2)
-                                                // } else {
-                                                //     count += 1
-                                                // }
-                                                count += 1
-                                            }
-                                        }
-                                        return count
-                                    }
-
-                                    const diffCount = countDifferences(suggestedInsight.source, previousQuery.source)
-                                    return `${diffCount} ${diffCount === 1 ? 'parameter' : 'parameters'}`
-                                })()}
-                            </div>
-                            <div
-                                className="inline-block bg-white border border-gray-300 rounded-md"
-                                // style={{ clipPath: 'polygon(0% 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%)' }}
-                                ref={(el) => {
-                                    if (el && !hasScrolled.current) {
-                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                        hasScrolled.current = true
-                                    }
-                                }}
-                            >
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => onRejectSuggestedInsight()}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                    icon={<IconX />}
-                                    className="!bg-transparent border-0"
-                                >
-                                    Reject Max's changes
-                                </LemonButton>
-                            </div>
-                        </div>
-                    )} */}
-
-                    {previousQuery && (
-                        <div className="w-full px-2 ">
+                    {(previousQuery || suggestedQuery) && (
+                        <div
+                            className="w-full px-2"
+                            ref={(el) => {
+                                if (el && !hasScrolled.current) {
+                                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                                    hasScrolled.current = true
+                                }
+                            }}
+                        >
                             <div className="bg-surface-tertiary/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
                                 <div className="text-sm text-muted flex items-center gap-2 no-wrap">
-                                    <span className="size-2 bg-accent-active rounded-full" />3 changes from Max
+                                    <span className="size-2 bg-accent-active rounded-full" />
+                                    {(() => {
+                                        // Use suggestedQuery if available, otherwise use previousQuery
+                                        const comparisonQuery = suggestedQuery || previousQuery
+                                        const { count, diffs } = countDifferences(query, comparisonQuery)
+
+                                        let diffString = ''
+                                        diffs.forEach((diff) => {
+                                            diffString += `${diff.key}: ${diff.val1} -> ${diff.val2}\n`
+                                        })
+
+                                        return (
+                                            <div className="flex items-center gap-1">
+                                                <span>
+                                                    {count} {count === 1 ? 'change' : 'changes'}
+                                                </span>
+                                                {diffString && (
+                                                    <Tooltip
+                                                        title={<div className="whitespace-pre-line">{diffString}</div>}
+                                                    >
+                                                        <IconInfo className="text-sm text-muted cursor-help" />
+                                                    </Tooltip>
+                                                )}
+                                            </div>
+                                        )
+                                    })()}
                                 </div>
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        onRejectSuggestedInsight()
-                                        // storePreviousQuery(null)
-                                    }}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                    icon={<IconX />}
-                                >
-                                    Reject changes
-                                </LemonButton>
+                                <div className="flex gap-2">
+                                    {hasRejected && (
+                                        <LemonButton
+                                            status="default"
+                                            onClick={() => {
+                                                onReapplySuggestedInsight()
+                                            }}
+                                            tooltipPlacement="top"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                        >
+                                            Reapply
+                                        </LemonButton>
+                                    )}
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => {
+                                            onRejectSuggestedInsight()
+                                        }}
+                                        tooltipPlacement="top"
+                                        size="small"
+                                        icon={<IconX />}
+                                    >
+                                        Reject changes
+                                    </LemonButton>
+                                </div>
                             </div>
                         </div>
                     )}

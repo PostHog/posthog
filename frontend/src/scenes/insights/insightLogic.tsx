@@ -123,6 +123,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         setAccessDeniedToInsight: true,
+        handleInsightSuggested: (suggestedInsight: Node | null) => ({ suggestedInsight }),
+        onRejectSuggestedInsight: true,
+        onReapplySuggestedInsight: true,
+        setPreviousQuery: (previousQuery: Node | null) => ({ previousQuery }),
+        setSuggestedQuery: (suggestedQuery: Node | null) => ({ suggestedQuery }),
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -302,6 +307,26 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saveInsight: () => true,
                 saveInsightSuccess: () => false,
                 saveInsightFailure: () => false,
+            },
+        ],
+        previousQuery: [
+            null as Node | null,
+            {
+                setPreviousQuery: (_, { previousQuery }) => previousQuery,
+            },
+        ],
+        suggestedQuery: [
+            null as Node | null,
+            {
+                setSuggestedQuery: (_, { suggestedQuery }) => suggestedQuery,
+            },
+        ],
+        hasRejected: [
+            false,
+            {
+                onRejectSuggestedInsight: () => true,
+                onReapplySuggestedInsight: () => false,
+                handleInsightSuggested: () => false,
             },
         ],
     })),
@@ -496,6 +521,36 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 router.actions.push(urls.insightView(insight.short_id))
             } else {
                 router.actions.push(urls.insightEdit(insight.short_id))
+            }
+        },
+        onRejectSuggestedInsight: () => {
+            // Revert to previous query
+            if (values.previousQuery) {
+                // Use insightDataLogic to set the query back
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    insightDataLogicInstance.actions.setQuery(values.previousQuery)
+                }
+                // actions.setPreviousQuery(null)
+            }
+        },
+        handleInsightSuggested: ({ suggestedInsight }) => {
+            if (suggestedInsight) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    const currentQuery = insightDataLogicInstance.values.query
+                    actions.setPreviousQuery(currentQuery)
+                    actions.setSuggestedQuery(suggestedInsight)
+                }
+            }
+        },
+        onReapplySuggestedInsight: () => {
+            // Reapply the Max AI suggestion
+            if (values.suggestedQuery) {
+                const insightDataLogicInstance = insightDataLogic.findMounted(values.insightProps)
+                if (insightDataLogicInstance) {
+                    insightDataLogicInstance.actions.setQuery(values.suggestedQuery)
+                }
             }
         },
     })),
