@@ -1,8 +1,9 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonTextAreaMarkdown as _LemonTextMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { useState } from 'react'
 
 import { LemonTextArea, LemonTextAreaProps } from './LemonTextArea'
+import { IconTrash } from '@posthog/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 type Story = StoryObj<typeof LemonTextArea>
 const meta: Meta<typeof LemonTextArea> = {
@@ -32,50 +33,9 @@ WithMaxLength.args = { maxLength: 100, value: '1234567890' }
 export const WithMaxLengthExceeded: Story = Template.bind({})
 WithMaxLengthExceeded.args = { maxLength: 5, value: '1234567890' }
 
-export const WithFooter: Story = Template.bind({})
-WithFooter.args = { footer: <div className="text-xs">I am a custom footer</div> }
-
-export const WithFooterAndMaxLength: Story = Template.bind({})
-WithFooterAndMaxLength.args = {
-    footer: <div className="text-xs">I am a custom footer</div>,
+export const WithArbitraryAction: Story = Template.bind({})
+WithArbitraryAction.args = {
     maxLength: 5,
     value: '1234567890',
-}
-
-export const EmptyLemonTextMarkdown = (): JSX.Element => {
-    const [value, setValue] = useState('')
-    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} />
-}
-
-export const LemonTextMarkdownWithText = (): JSX.Element => {
-    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
-    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} />
-}
-
-export const LemonTextMarkdownWithMaxLength = (): JSX.Element => {
-    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
-    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} maxLength={12} />
-}
-
-export const LemonTextMarkdownWithFooter = (): JSX.Element => {
-    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
-    return (
-        <_LemonTextMarkdown
-            value={value}
-            onChange={(newValue) => setValue(newValue)}
-            footer={<div className="text-xs">I am a custom footer</div>}
-        />
-    )
-}
-
-export const LemonTextMarkdownWithMaxLengthAndFooter = (): JSX.Element => {
-    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
-    return (
-        <_LemonTextMarkdown
-            value={value}
-            onChange={(newValue) => setValue(newValue)}
-            maxLength={12}
-            footer={<div className="text-xs">I am a custom footer</div>}
-        />
-    )
+    actions: [<LemonButton key="1" icon={<IconTrash />} size="xsmall" />],
 }
