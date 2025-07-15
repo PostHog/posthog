@@ -12,7 +12,6 @@ from rest_framework.exceptions import ValidationError
 
 
 def use_udf(funnelsFilter: FunnelsFilter, team: Team):
-    return True
     if funnelsFilter.useUdf:
         return True
     funnelVizType = funnelsFilter.funnelVizType
