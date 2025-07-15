@@ -11,6 +11,7 @@ import posthog from 'posthog-js'
 import React, { useRef, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, LemonTextAreaProps>(
     function LemonTextAreaMarkdown({ value, onChange, className, ...editAreaProps }, ref): JSX.Element {
@@ -66,21 +67,19 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                             loading={uploading}
                                             value={filesToUpload}
                                             callToAction={
-                                                objectStorageAvailable ? (
-                                                    <Tooltip title="Click here or drag and drop to upload images">
-                                                        <div className="rounded hover:bg-fill-button-tertiary-hover px-1 py-0.5">
-                                                            {' '}
-                                                            <IconUploadFile className="text-xl" />
-                                                        </div>
-                                                    </Tooltip>
-                                                ) : (
-                                                    <Tooltip title="Enable object storage to add images by dragging and dropping">
-                                                        <div className="rounded px-1 py-0.5">
-                                                            {' '}
-                                                            <IconUploadFile className="text-xl" />
-                                                        </div>
-                                                    </Tooltip>
-                                                )
+                                                <LemonButton
+                                                    icon={<IconUploadFile className="text-xl" />}
+                                                    disabledReason={
+                                                        objectStorageAvailable
+                                                            ? undefined
+                                                            : 'Enable object storage to add images by dragging and dropping'
+                                                    }
+                                                    tooltip={
+                                                        objectStorageAvailable
+                                                            ? 'Click here or drag and drop to upload images'
+                                                            : null
+                                                    }
+                                                />
                                             }
                                         />,
                                         <EmojiPickerPopover
