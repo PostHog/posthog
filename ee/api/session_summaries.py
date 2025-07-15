@@ -50,10 +50,10 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     )
     @action(methods=["POST"], detail=False)
     def create_sessions_summaries(self, request: Request, **kwargs) -> Response:
+        # Validate the user/team
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
         tag_queries(product=Product.SESSION_SUMMARY)
-
         user = cast(User, request.user)
 
         # Validate environment requirements
@@ -75,8 +75,9 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         extra_summary_context = None
         if focus_area:
             extra_summary_context = ExtraSummaryContext(focus_area=focus_area)
+
+        # Summarize provided sessions
         try:
-            # Execute the session group summary
             result = execute_summarize_session_group(
                 session_ids=session_ids,
                 user_id=user.pk,
@@ -86,17 +87,17 @@ class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 extra_summary_context=extra_summary_context,
                 local_reads_prod=False,
             )
-            # Return the enriched patterns list
             return Response(result.model_dump(exclude_none=True), status=status.HTTP_200_OK)
-        except Exception as e:
+        except Exception as err:
             logger.exception(
-                "Failed to generate session group summary",
-                session_ids=session_ids,
+                f"Failed to generate session group summary for sessions {session_ids} from team {self.team.pk} by user {user.pk}: {err}",
                 team_id=self.team.pk,
                 user_id=user.pk,
-                error=str(e),
+                error=str(err),
             )
-            raise exceptions.APIException("Failed to generate session summaries. Please try again later.")
+            raise exceptions.APIException(
+                f"Failed to generate session summaries for sessions {session_ids}. Please try again later."
+            )
 
     def _find_sessions_timestamps(self, session_ids: list[str]) -> tuple[datetime, datetime]:
         """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
