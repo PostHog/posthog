@@ -23,6 +23,7 @@ const EmojiPickerEmojiRow = ({ children, ...props }: EmojiPickerListRowProps): J
 
 const EmojiPickerEmojiButton = ({ emoji, ...props }: EmojiPickerListEmojiProps): JSX.Element => (
     <button
+        data-attr="emoji-picker-button"
         className="flex items-center justify-center rounded-md text-xl size-8 data-[active]:bg-secondary-3000-hover"
         {...props}
     >
