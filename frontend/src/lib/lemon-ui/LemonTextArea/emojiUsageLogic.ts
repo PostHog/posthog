@@ -5,7 +5,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import type { emojiUsageLogicType } from './emojiUsageLogicType'
 
-const quickEmojis = ['💖', '👍', '🤔', '👎', '🌶️']
+export const defaultQuickEmojis = ['💖', '👍', '🤔', '👎', '🌶️']
 
 export const emojiUsageLogic = kea<emojiUsageLogicType>([
     path(['lib', 'lemon-ui', 'LemonTextArea', 'emojiUsage', 'logic']),
@@ -57,7 +57,7 @@ export const emojiUsageLogic = kea<emojiUsageLogicType>([
                 // If we have fewer than 5 favorites, fill with quickEmojis (avoiding duplicates)
                 if (userFavorites.length < 5) {
                     const remainingSlots = 5 - userFavorites.length
-                    const availableQuickEmojis = quickEmojis.filter((emoji) => !userFavorites.includes(emoji))
+                    const availableQuickEmojis = defaultQuickEmojis.filter((emoji) => !userFavorites.includes(emoji))
                     const fillEmojis = availableQuickEmojis.slice(0, remainingSlots)
                     return [...userFavorites, ...fillEmojis]
                 }
