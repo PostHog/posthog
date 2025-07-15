@@ -22,7 +22,6 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
-    RevenueAnalyticsPersonsJoinModeModifier,
     TestBasicQueryResponse,
     TestCachedBasicQueryResponse,
     IntervalType,
@@ -109,7 +108,6 @@ class TestQueryRunner(BaseTest):
                 "optimizeJoinedFilters": False,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                "revenueAnalyticsPersonsJoinMode": RevenueAnalyticsPersonsJoinModeModifier.ID,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.STRING,
                 "useMaterializedViews": True,
@@ -144,7 +142,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_67429a7b0c61b8501e8a94ce1ff98263"
+        assert cache_key == "cache_7583c7c9c2ab66ba5ff7f55ccb617c9a"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -158,7 +156,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_b1f3e920d3349bb9cd9debe535b38e61"
+        assert cache_key == "cache_c2e0cd9925f875dba6539dc1b82078bf"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -169,7 +167,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_4c137679d6e1f4c56dbe8fafd11ed075"
+        assert cache_key == "cache_af770db18dddd01c5c5d6b8f37a36006"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

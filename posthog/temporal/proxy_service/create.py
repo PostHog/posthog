@@ -1,6 +1,8 @@
 import datetime as dt
 import ipaddress
 import json
+import math
+import random
 import typing as t
 import uuid
 from dataclasses import dataclass, asdict
@@ -262,7 +264,10 @@ async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
             spec=ScheduleSpec(
                 intervals=[
                     ScheduleIntervalSpec(
-                        every=dt.timedelta(hours=23),
+                        every=dt.timedelta(hours=24),
+                        offset=dt.timedelta(
+                            hours=math.floor(random.random() * 24), minutes=math.floor(random.random() * 60)
+                        ),
                     )
                 ],
                 jitter=dt.timedelta(hours=1),

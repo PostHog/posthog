@@ -285,8 +285,8 @@ def WEB_STATS_INSERT_SQL(
             e.mat_$device_type AS device_type,
             e.mat_$browser AS browser,
             e.mat_$os AS os,
-            e.mat_$viewport_width AS viewport_width,
-            e.mat_$viewport_height AS viewport_height,
+            accurateCastOrNull(e.mat_$viewport_width, 'Int64') AS viewport_width,
+            accurateCastOrNull(e.mat_$viewport_height, 'Int64') AS viewport_height,
             e.mat_$geoip_country_code AS country_code,
             e.mat_$geoip_city_name AS city_name,
             e.mat_$geoip_subdivision_1_code AS region_code,
@@ -324,8 +324,8 @@ def WEB_STATS_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY
                 raw_sessions.session_id_v7
             SETTINGS {settings}
@@ -461,8 +461,8 @@ def WEB_BOUNCES_INSERT_SQL(
             any(e.mat_$device_type) AS device_type,
             any(e.mat_$browser) AS browser,
             any(e.mat_$os) AS os,
-            any(e.mat_$viewport_width) AS viewport_width,
-            any(e.mat_$viewport_height) AS viewport_height,
+            accurateCastOrNull(any(e.mat_$viewport_width), 'Int64') AS viewport_width,
+            accurateCastOrNull(any(e.mat_$viewport_height), 'Int64') AS viewport_height,
             any(events__session.is_bounce) AS is_bounce,
             any(events__session.session_duration) AS session_duration,
             toUInt64(1) AS total_session_count_state,
@@ -499,8 +499,8 @@ def WEB_BOUNCES_INSERT_SQL(
                 raw_sessions.session_id_v7 AS session_id_v7
             FROM raw_sessions
             WHERE {team_filter}
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') >= toDateTime('{date_start}', '{timezone}')
-                AND toTimeZone(raw_sessions.min_timestamp, '{timezone}') < toDateTime('{date_end}', '{timezone}')
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) >= minus(toDateTime('{date_start}', '{timezone}'), toIntervalHour(24))
+                AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY raw_sessions.session_id_v7
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
