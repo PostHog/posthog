@@ -74,56 +74,7 @@ class FilterGenerationCorrectness(Scorer):
         return "filter_generation_correctness"
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
-        try:
-            actual_filters = output["generated_filter_options"]["data"]
-            actual_filters = MaxRecordingUniversalFilters(**actual_filters)
-        except Exception as e:
-            logger.exception(f"Error parsing filters: {e}")
-            return Score(name=self._name(), score=0.0, metadata={"reason": "LLM returned invalid filter structure"})
-
-        score = 0.0
-        total_checks = 0
-
-        # Check date_from
-        if expected.date_from:
-            total_checks += 1
-            if actual_filters.date_from == expected.date_from:
-                score += 1.0
-
-        # Check date_to
-        if expected.date_to is not None:
-            total_checks += 1
-            if actual_filters.date_to == expected.date_to:
-                score += 1.0
-
-        # Check duration
-        if expected.duration:
-            total_checks += 1
-            if actual_filters.duration == expected.duration:
-                score += 1.0
-
-        # Check filter_group structure
-        if expected.filter_group:
-            total_checks += 1
-            if self._compare_filter_groups(actual_filters.filter_group, expected.filter_group):
-                score += 1.0
-
-        # Check filter_test_accounts
-        if expected.filter_test_accounts is not None:
-            total_checks += 1
-            if actual_filters.filter_test_accounts == expected.filter_test_accounts:
-                score += 1.0
-
-        # Check order
-        if expected.order:
-            total_checks += 1
-            if actual_filters.order == expected.order:
-                score += 1.0
-
-        final_score = score / total_checks if total_checks > 0 else 0.0
-        return Score(
-            name=self._name(), score=final_score, metadata={"total_checks": total_checks, "passed_checks": score}
-        )
+        return self._run_eval_sync(output, expected, **kwargs)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         try:
