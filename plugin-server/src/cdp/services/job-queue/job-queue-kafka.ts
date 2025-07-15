@@ -85,7 +85,7 @@ export class CyclotronJobQueueKafka {
                     .produce({
                         value: Buffer.from(value),
                         key: Buffer.from(x.id),
-                        topic: `cdp_cyclotron_${x.queue}`,
+                        topic: `cdp_cyclotron_events`,
                         headers: {
                             // NOTE: Later we should remove hogFunctionId as it is no longer used
                             hogFunctionId: x.functionId,
