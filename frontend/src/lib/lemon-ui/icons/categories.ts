@@ -191,6 +191,7 @@ export const ELEMENTS = {
         'IconSort',
         'IconSortAlpha',
         'IconExternal',
+        'IconEmojiAdd',
     ],
     Symbols: [
         'IconLock',
@@ -209,6 +210,7 @@ export const ELEMENTS = {
         'IconHide',
         'IconStopFilled',
         'IconListCheck',
+        'IconEmoji',
     ],
     'Arrows & Shapes': [
         'IconArrowLeft',
@@ -288,7 +290,7 @@ export const TEAMS_AND_COMPANIES = {
     'Feature Success': ['IconFlask', 'IconTestTube', 'IconMultivariateTesting', 'IconSplitTesting', 'IconBalance'],
     Pipeline: ['IconWebhooks', 'IconDecisionTree'],
     'Product OS': ['IconNotebook', 'IconHogQL', 'IconDashboard', 'IconSupport'],
-    Logos: ['IconLogomark', 'IconGithub'],
+    Logos: ['IconLogomark', 'IconGithub', 'IconLinear'],
     ErrorTracking: ['IconIssue'],
     LLMObservability: ['IconLlmObservability', 'IconLlmPromptEvaluation', 'IconLlmPromptManagement'],
 }
