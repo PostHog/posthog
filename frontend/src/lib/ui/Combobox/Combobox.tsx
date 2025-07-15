@@ -136,7 +136,7 @@ const Search = ({ placeholder = 'Search...', className, autoFocus = true }: Sear
                 type="text"
                 value={context.searchValue}
                 onChange={(e) => context.setSearchValue(e.target.value)}
-                className={className}
+                className={cn(className, 'w-full')}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
                 role="combobox"
