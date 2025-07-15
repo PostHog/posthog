@@ -25,7 +25,7 @@ from posthog.temporal.ai.session_summary.summarize_session_group import execute_
 logger = structlog.get_logger(__name__)
 
 
-class SessionsSummariesSerializer(serializers.Serializer):
+class SessionSummariesSerializer(serializers.Serializer):
     session_ids = serializers.ListField(
         child=serializers.CharField(),
         min_length=1,
@@ -37,19 +37,19 @@ class SessionsSummariesSerializer(serializers.Serializer):
     )
 
 
-class SessionsSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "session_recording"  # Keeping recording, as Replay is the main source of info for summary, for now
     permission_classes = [IsAuthenticated]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
-    serializer_class = SessionsSummariesSerializer
+    serializer_class = SessionSummariesSerializer
 
     @extend_schema(
-        operation_id="create_sessions_summaries",
+        operation_id="create_session_summaries",
         description="Generate AI summaries per-session and a general summary for a group of session recordings",
-        request=SessionsSummariesSerializer,
+        request=SessionSummariesSerializer,
     )
     @action(methods=["POST"], detail=False)
-    def create_sessions_summaries(self, request: Request, **kwargs) -> Response:
+    def create_session_summaries(self, request: Request, **kwargs) -> Response:
         # Validate the user/team
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
