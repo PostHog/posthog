@@ -1,24 +1,27 @@
 import { convertHogToJS } from '@posthog/hogvm'
 
+import { Hub } from '~/types'
+
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
-import { IntegrationManagerService } from './managers/integration-manager.service'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 export class HogInputsService {
-    constructor(private integrationManager: IntegrationManagerService) {}
+    constructor(private hub: Hub) {}
 
     public async buildInputs(
         hogFunction: HogFunctionType,
-        globals: HogFunctionInvocationGlobals
+        globals: HogFunctionInvocationGlobals,
+        additionalInputs?: Record<string, any>
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
 
         const inputs: HogFunctionType['inputs'] = {
             ...hogFunction.inputs,
             ...hogFunction.encrypted_inputs,
+            ...additionalInputs,
         }
 
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -47,6 +50,17 @@ export class HogInputsService {
         }
 
         return newGlobals
+    }
+
+    public async buildInputsWithGlobals(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals,
+        additionalInputs?: Record<string, any>
+    ): Promise<HogFunctionInvocationGlobalsWithInputs> {
+        return {
+            ...globals,
+            inputs: await this.buildInputs(hogFunction, globals, additionalInputs),
+        }
     }
 }
 
