@@ -34,7 +34,5 @@ class TwilioProvider:
             response = self._make_request("GET", endpoint, params=params)
             return len(response.get("incoming_phone_numbers", [])) > 0
         except requests.exceptions.HTTPError as e:
-            logger.warning(
-                f"Phone number verification failed. Error: {e}"
-            )
+            logger.warning(f"Phone number verification failed. Error: {e}")
             return False
