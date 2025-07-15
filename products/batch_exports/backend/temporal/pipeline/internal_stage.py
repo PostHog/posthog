@@ -378,6 +378,8 @@ async def _write_batch_export_record_batches_to_internal_stage(
                     data_interval_start=data_interval_start,
                     data_interval_end=data_interval_end,
                 )
+                assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
+                assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
                 query, query_parameters = await query_or_model.as_insert_into_s3_query_with_parameters(
                     data_interval_start=interval_start,
                     data_interval_end=interval_end,

@@ -152,6 +152,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
         prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
             hogql_query, context=context, dialect="clickhouse", stack=[]
         )
+        assert prepared_hogql_query is not None
         printed = print_prepared_ast(
             prepared_hogql_query,
             context=context,
