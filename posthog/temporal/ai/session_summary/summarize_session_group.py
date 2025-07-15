@@ -89,7 +89,7 @@ async def fetch_session_batch_events_activity(
     metadata_dict = await database_sync_to_async(SessionReplayEvents().get_group_metadata)(
         session_ids=sessions_to_fetch,
         team_id=inputs.team_id,
-        recording_start_time=inputs.min_timestamp,
+        recording_start_time=datetime.fromisoformat(inputs.min_timestamp_str),
     )
     # Fetch events for all uncached sessions
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
@@ -100,8 +100,8 @@ async def fetch_session_batch_events_activity(
         # Get DB data
         query = create_session_batch_events_query(
             session_ids=sessions_to_fetch,
-            after=inputs.min_timestamp.isoformat(),
-            before=inputs.max_timestamp.isoformat(),
+            after=inputs.min_timestamp_str,
+            before=inputs.max_timestamp_str,
             max_total_events=page_size,
             offset=offset,
         )
@@ -430,8 +430,8 @@ def execute_summarize_session_group(
         user_id=user_id,
         team_id=team.id,
         redis_key_base=redis_key_base,
-        min_timestamp=min_timestamp,
-        max_timestamp=max_timestamp,
+        min_timestamp_str=min_timestamp.isoformat(),
+        max_timestamp_str=max_timestamp.isoformat(),
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
     )

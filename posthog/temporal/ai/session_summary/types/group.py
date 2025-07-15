@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import datetime
 
 from ee.session_recordings.session_summary.summarize_session import ExtraSummaryContext
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
@@ -14,8 +13,8 @@ class SessionGroupSummaryInputs:
     team_id: int
     redis_key_base: str
     # Timestamps required to avoid reading too many days from ClickHouse
-    min_timestamp: datetime
-    max_timestamp: datetime
+    min_timestamp_str: str
+    max_timestamp_str: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
 
