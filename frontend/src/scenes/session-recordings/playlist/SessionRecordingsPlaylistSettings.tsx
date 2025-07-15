@@ -189,22 +189,30 @@ export function SessionRecordingsPlaylistTopSettings({
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems = []
-        if (type === 'collection' && shortId) {
-            menuItems.push({
-                label: 'Remove from collection',
-                onClick: () => handleBulkDeleteFromPlaylist(shortId),
-                'data-attr': 'remove-from-collection',
-            })
+
+        if (!playlistsLoading) {
+            const collections =
+                type === 'collection' && shortId
+                    ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
+                    : playlists.results
+
+            if (collections.length > 0) {
+                menuItems.push({
+                    label: 'Add to collection',
+                    items: collections.map((playlist) => ({
+                        label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
+                        onClick: () => handleBulkAddToPlaylist(playlist.short_id),
+                    })),
+                    'data-attr': 'add-to-collection',
+                })
+            }
         }
 
-        if (type === 'filters' && !playlistsLoading && playlists.results.length > 0) {
+        if (type === 'collection' && shortId) {
             menuItems.push({
-                label: 'Add to collection',
-                items: playlists.results.map((playlist) => ({
-                    label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
-                    onClick: () => handleBulkAddToPlaylist(playlist.short_id),
-                })),
-                'data-attr': 'add-to-collection',
+                label: 'Remove from this collection',
+                onClick: () => handleBulkDeleteFromPlaylist(shortId),
+                'data-attr': 'remove-from-collection',
             })
         }
 
