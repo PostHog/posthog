@@ -5,33 +5,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
-import uuid
 from typing import Any
 from collections import defaultdict, deque
-
-
-def join_components_greedily(components: list[str]) -> list[str]:
-    """
-    Greedily joins components until hitting a UUID.
-    Returns a list where UUIDs are separate items and non-UUID components are joined.
-    """
-    new_components: list[str] = []
-    current_group: list[str] = []
-
-    for component in components:
-        try:
-            uuid.UUID(component)
-            if current_group:
-                new_components.append(".".join(current_group))
-                current_group = []
-            new_components.append(component)
-        except ValueError:
-            current_group.append(component)
-
-    if current_group:
-        new_components.append(".".join(current_group))
-
-    return new_components
 
 
 class LineageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -94,18 +69,18 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     if not root_query:
         return dag
 
-    node_data[model_id] = {
-        "id": model_id,
+    node_data[root_query.name] = {
+        "id": root_query.name,
         "type": "view",
         "name": root_query.name,
         "sync_frequency": root_query.sync_frequency_interval,
         "last_run_at": root_query.last_run_at,
         "status": root_query.status,
     }
-    seen_nodes.add(model_id)
+    seen_nodes.add(root_query.name)
 
-    # Recursively fetch all dependencies
-    to_process = [(model_id, root_query.external_tables)]
+    # Recursively fetch all dependencies with a bfs
+    to_process = [(root_query.name, root_query.external_tables)]
 
     while to_process:
         current_id, external_tables = to_process.pop(0)
@@ -140,43 +115,11 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                             "name": table.name,
                         }
                     else:
-                        try:
-                            external_uuid = uuid.UUID(external_table)
-                            saved_query = DataWarehouseSavedQuery.objects.filter(
-                                id=external_uuid, team_id=team_id
-                            ).first()
-
-                            if saved_query:
-                                node_data[external_table] = {
-                                    "id": external_table,
-                                    "type": "view",
-                                    "name": saved_query.name,
-                                    "sync_frequency": saved_query.sync_frequency_interval,
-                                    "last_run_at": saved_query.last_run_at,
-                                    "status": saved_query.status,
-                                }
-                                to_process.append((external_table, saved_query.external_tables))
-                            else:
-                                table = DataWarehouseTable.objects.filter(id=external_uuid, team_id=team_id).first()
-
-                                if table:
-                                    node_data[external_table] = {
-                                        "id": external_table,
-                                        "type": "table",
-                                        "name": table.name,
-                                    }
-                                else:
-                                    node_data[external_table] = {
-                                        "id": external_table,
-                                        "type": "table",
-                                        "name": external_table,
-                                    }
-                        except ValueError:
-                            node_data[external_table] = {
-                                "id": external_table,
-                                "type": "table",
-                                "name": external_table,
-                            }
+                        node_data[external_table] = {
+                            "id": external_table,
+                            "type": "table",
+                            "name": external_table,
+                        }
 
     # Order nodes by dependency order
     ordered_nodes = topological_sort(list(node_data.keys()), dag["edges"])
