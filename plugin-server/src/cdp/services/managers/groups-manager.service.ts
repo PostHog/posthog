@@ -127,7 +127,7 @@ export class GroupsManagerService {
                 groupIndexes,
                 groupKeys,
             })
-            return []
+            throw e
         }
     }
 
