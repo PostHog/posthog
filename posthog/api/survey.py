@@ -1462,7 +1462,7 @@ def public_survey_page(request, survey_id: str):
             request,
             "surveys/error.html",
             {
-                "error_title": "Invalid Request",
+                "error_title": "Invalid request",
                 "error_message": "The requested survey is not available.",
             },
             status=400,
@@ -1482,7 +1482,7 @@ def public_survey_page(request, survey_id: str):
             request,
             "surveys/error.html",
             {
-                "error_title": "Survey Not Available",
+                "error_title": "Survey not available",
                 "error_message": "The requested survey is not available.",
             },
             status=404,
@@ -1494,7 +1494,7 @@ def public_survey_page(request, survey_id: str):
             request,
             "surveys/error.html",
             {
-                "error_title": "Service Unavailable",
+                "error_title": "Service unavailable",
                 "error_message": "The service is temporarily unavailable. Please try again later.",
             },
             status=503,
