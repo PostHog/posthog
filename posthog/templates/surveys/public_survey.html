@@ -887,7 +887,7 @@
         const config = {
             api_host: window.projectConfig.api_host,
             disable_surveys_automatic_display: true,
-            debug: false,
+            debug: true,
             advanced_disable_toolbar_metrics: true,
             persistence: 'localStorage',
             capture_pageview: false, // Don't capture pageviews for survey pages
@@ -900,6 +900,10 @@
         }
 
         posthog.init(window.projectConfig.token, config);
+        const distinctId = new URLSearchParams(window.location.search).get('distinct_id');
+        if (distinctId) {
+            posthog.identify(distinctId);
+        }
 
         let surveyRendered = false;
         let retryCount = 0;
