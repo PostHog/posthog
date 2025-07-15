@@ -1201,3 +1201,75 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
         assert job.status == DataModelingJob.Status.COMPLETED
         assert job.rows_materialized == 6
         assert job.rows_expected == 6
+
+
+async def test_create_table_activity_row_count_functionality(minio_client, activity_environment, ateam):
+    """Test that create_table_activity properly sets row count using get_count() method."""
+
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="test_row_count_query",
+        query={"query": "SELECT 1 as id, 'test' as name UNION ALL SELECT 2 as id, 'test2' as name"},
+    )
+
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+
+    credential = await DataWarehouseCredential.objects.acreate(
+        team=ateam,
+        access_key="test_key",
+        access_secret="test_secret",
+    )
+
+    table = await DataWarehouseTable.objects.acreate(
+        team=ateam,
+        name="test_table",
+        credential=credential,
+        format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        url_pattern="https://test-bucket/test-path",
+        row_count=0,
+    )
+
+    saved_query.table = table
+    await saved_query.asave()
+
+    create_table_activity_inputs = CreateTableActivityInputs(
+        models=[str(saved_query.id)],  # Pass UUID, not name
+        team_id=ateam.pk,
+    )
+
+    with (
+        patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table,
+        patch.object(DataWarehouseTable, "get_count", return_value=42) as mock_get_count,
+    ):
+        async with asyncio.timeout(10):
+            await activity_environment.run(create_table_activity, create_table_activity_inputs)
+
+    mock_create_table.assert_called_once_with(str(saved_query.id), ateam.pk)
+    mock_get_count.assert_called_once()
+    await table.arefresh_from_db()
+    assert table.row_count == 42
+
+
+@pytest.mark.asyncio
+async def test_create_table_activity_invalid_uuid_fails(activity_environment, ateam):
+    """Test that create_table_activity fails fast when given non-UUID model identifier."""
+
+    create_table_activity_inputs = CreateTableActivityInputs(
+        models=["invalid_model_name"],  # Name instead of UUID
+        team_id=ateam.pk,
+    )
+
+    with (
+        patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table,
+        patch("posthog.temporal.data_modeling.run_workflow.bind_temporal_worker_logger") as mock_logger,
+    ):
+        mock_logger.return_value.aerror = unittest.mock.AsyncMock()
+
+        async with asyncio.timeout(10):
+            await activity_environment.run(create_table_activity, create_table_activity_inputs)
+
+    mock_create_table.assert_not_called()
+
+    mock_logger.return_value.aerror.assert_called_once()
+    error_message = mock_logger.return_value.aerror.call_args[0][0]
+    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in error_message
