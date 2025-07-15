@@ -554,10 +554,8 @@ def send_hog_functions_daily_digest() -> None:
 
     logger.info("Starting HogFunctions daily digest task")
 
-    # Calculate date range for yesterday's data
+    # Calculate date string for email subject/content
     yesterday = timezone.now() - timedelta(days=1)
-    yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-    yesterday_end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
     date_str = yesterday.strftime("%Y-%m-%d")
     formatted_date = yesterday.strftime("%B %d, %Y")
 
@@ -570,17 +568,14 @@ def send_hog_functions_daily_digest() -> None:
     WHERE app_source = 'hog_function'
     AND metric_name = 'failed'
     AND count > 0
-    AND timestamp >= %(start_time)s
-    AND timestamp <= %(end_time)s
-    AND metric_kind = 'other'
+    AND timestamp >= NOW() - INTERVAL 24 HOUR
+    AND timestamp < NOW()
+    AND metric_kind = 'failure'
     """
 
     failed_functions = sync_execute(
         failures_query,
-        {
-            "start_time": yesterday_start,
-            "end_time": yesterday_end,
-        },
+        {},
     )
 
     if not failed_functions:
@@ -629,16 +624,10 @@ def send_team_hog_functions_digest(
     """
     Send daily digest email for a specific team with their failed HogFunctions.
     """
-    from datetime import timedelta
     from posthog.clickhouse.client import sync_execute
     from posthog.models.hog_functions.hog_function import HogFunction
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
-
-    # Calculate date range for yesterday's data
-    yesterday = timezone.now() - timedelta(days=1)
-    yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-    yesterday_end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     # Get HogFunction data from PostgreSQL for the failed functions
     hog_functions = HogFunction.objects.filter(
@@ -660,9 +649,9 @@ def send_team_hog_functions_digest(
     WHERE team_id = %(team_id)s
     AND app_source = 'hog_function'
     AND app_source_id IN %(hog_function_ids)s
-    AND timestamp >= %(start_time)s
-    AND timestamp <= %(end_time)s
-    AND metric_kind = 'other'
+    AND timestamp >= NOW() - INTERVAL 24 HOUR
+    AND timestamp < NOW()
+    AND metric_kind = 'failure'
     GROUP BY team_id, app_source_id, metric_name
     ORDER BY app_source_id, metric_name
     """
@@ -672,8 +661,6 @@ def send_team_hog_functions_digest(
         {
             "team_id": team_id,
             "hog_function_ids": failed_hog_function_ids,
-            "start_time": yesterday_start,
-            "end_time": yesterday_end,
         },
     )
 

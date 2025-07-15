@@ -339,7 +339,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_hog_functions_daily_digest(self, MockEmailMessage: MagicMock) -> None:
-        from datetime import timedelta
         from posthog.test.fixtures import create_app_metric2
 
         # Clean up app_metrics2 table before test
@@ -357,17 +356,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        # Insert test metrics data using the proper fixture
-        yesterday = timezone.now() - timedelta(days=1)
-        yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-
         # Create test data in app_metrics2 table with failures
         create_app_metric2(
             team_id=self.team.id,
             app_source="hog_function",
             app_source_id=str(hog_function.id),
-            timestamp=yesterday_start,
-            metric_kind="other",
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
             metric_name="succeeded",
             count=100,
         )
@@ -375,8 +370,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team_id=self.team.id,
             app_source="hog_function",
             app_source_id=str(hog_function.id),
-            timestamp=yesterday_start,
-            metric_kind="other",
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
             metric_name="failed",
             count=5,  # This will trigger the digest
         )
@@ -384,8 +379,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team_id=self.team.id,
             app_source="hog_function",
             app_source_id=str(hog_function.id),
-            timestamp=yesterday_start,
-            metric_kind="other",
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
             metric_name="filtered",
             count=10,
         )
@@ -416,7 +411,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
 
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
-        from datetime import timedelta
         from posthog.test.fixtures import create_app_metric2
 
         # Clean up app_metrics2 table before test
@@ -438,16 +432,13 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        yesterday = timezone.now() - timedelta(days=1)
-        yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-
         # Only create successful metrics, no failures
         create_app_metric2(
             team_id=self.team.id,
             app_source="hog_function",
             app_source_id=str(hog_function.id),
-            timestamp=yesterday_start,
-            metric_kind="other",
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
             metric_name="succeeded",
             count=100,
         )
@@ -471,8 +462,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team_id=self.team.id,
             app_source="hog_function",
             app_source_id=str(disabled_function.id),
-            timestamp=yesterday_start,
-            metric_kind="other",
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
             metric_name="failed",
             count=5,
         )
@@ -496,8 +487,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team_id=self.team.id,
             app_source="hog_function",
             app_source_id=str(deleted_function.id),
-            timestamp=yesterday_start,
-            metric_kind="other",
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
             metric_name="failed",
             count=5,
         )
