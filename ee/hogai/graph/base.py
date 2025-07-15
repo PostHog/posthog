@@ -1,7 +1,8 @@
+import asyncio
 import datetime
 from abc import ABC
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, final
 from uuid import UUID
 
 from django.utils import timezone
@@ -13,7 +14,6 @@ from ee.models import Conversation, CoreMemory
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxUIContext
-from posthog.sync import database_sync_to_async
 
 from ..utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
@@ -33,15 +33,14 @@ class AssistantNode(ABC):
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
-        try:
-            return await self.arun(state, config)
-        except NotImplementedError:
-            return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+        return await self.arun(state, config)
 
-    # DEPRECATED: Use `arun` instead
+    @final
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        """DEPRECATED. Use `arun` instead."""
-        raise NotImplementedError
+        """
+        Deprecated: Use arun() instead. This method will be removed.
+        """
+        return asyncio.run(self.arun(state, config))
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NotImplementedError
@@ -49,12 +48,6 @@ class AssistantNode(ABC):
     async def _aget_conversation(self, conversation_id: UUID) -> Conversation | None:
         try:
             return await Conversation.objects.aget(team=self._team, id=conversation_id)
-        except Conversation.DoesNotExist:
-            return None
-
-    def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
-        try:
-            return Conversation.objects.get(team=self._team, id=conversation_id)
         except Conversation.DoesNotExist:
             return None
 
@@ -76,6 +69,13 @@ class AssistantNode(ABC):
         if not self.core_memory:
             return ""
         return self.core_memory.formatted_text
+
+    async def _aget_core_memory_text(self) -> str:
+        """Async version of core_memory_text property (formatted/truncated)"""
+        core_memory = await self._aget_core_memory()
+        if not core_memory:
+            return ""
+        return core_memory.formatted_text
 
     @property
     def _utc_now_datetime(self) -> datetime.datetime:

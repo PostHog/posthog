@@ -3,6 +3,8 @@ from functools import cached_property
 from typing import Generic, Optional, TypeVar
 from uuid import uuid4
 
+from async_lru import alru_cache
+
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
@@ -36,6 +38,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+
 Q = TypeVar("Q", bound=BaseModel)
 
 
@@ -63,24 +66,29 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     def _parse_output(cls, output: dict) -> SchemaGeneratorOutput[Q]:
         return parse_pydantic_structured_output(cls.OUTPUT_MODEL)(output)
 
-    def _run_with_prompt(
+    async def _arun_with_prompt(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
         config: Optional[RunnableConfig] = None,
     ) -> PartialAssistantState:
+        # Use async cached version to avoid database queries in async context
+        group_mapping_prompt = await self._aget_group_mapping_prompt()
+
         start_id = state.start_id
         generated_plan = state.plan or ""
         intermediate_steps = state.intermediate_steps or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
-        generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
+        generation_prompt = prompt + self._construct_messages_async(
+            state, group_mapping_prompt, validation_error_message=validation_error_message
+        )
         merger = merge_message_runs()
 
         chain = generation_prompt | merger | self._model | self._parse_output
 
         try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke(
+            message: SchemaGeneratorOutput[Q] = await chain.ainvoke(
                 {
                     "project_datetime": self.project_now,
                     "project_timezone": self.project_timezone,
@@ -142,8 +150,37 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
         return ET.tostring(root, encoding="unicode")
 
+    @alru_cache(maxsize=1)
+    async def _aget_group_mapping_prompt(self) -> str:
+        """Async cached version of _group_mapping_prompt"""
+
+        groups_types = [
+            groups_type
+            async for groups_type in GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by(
+                "group_type_index"
+            )
+        ]
+        if not groups_types:
+            return "The user has not defined any groups."
+
+        root = ET.Element("list of defined groups")
+        root.text = (
+            "\n"
+            + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups_types])
+            + "\n"
+        )
+        return ET.tostring(root, encoding="unicode")
+
     def _construct_messages(
         self, state: AssistantState, validation_error_message: Optional[str] = None
+    ) -> list[BaseMessage]:
+        """
+        Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
+        """
+        return self._construct_messages_async(state, self._group_mapping_prompt, validation_error_message)
+
+    def _construct_messages_async(
+        self, state: AssistantState, group_mapping_prompt: str, validation_error_message: Optional[str] = None
     ) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the generation. Take all previously generated questions, plans, and schemas, and return the history.
@@ -155,7 +192,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         # Add the group mapping prompt to the beginning of the conversation.
         conversation: list[BaseMessage] = [
             HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
-                group_mapping=self._group_mapping_prompt
+                group_mapping=group_mapping_prompt
             )
         ]
 
@@ -214,7 +251,7 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
         if not intermediate_steps:
             return PartialAssistantState()

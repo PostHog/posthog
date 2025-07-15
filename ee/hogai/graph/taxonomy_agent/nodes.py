@@ -3,6 +3,8 @@ from abc import ABC
 from functools import cached_property
 from typing import cast
 
+from async_lru import alru_cache
+
 from git import Optional
 from langchain.agents.format_scratchpad import format_log_to_str
 from langchain_core.agents import AgentAction
@@ -15,6 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplat
 from langchain_core.runnables import RunnableConfig
 from ee.hogai.llm import MaxChatOpenAI
 from pydantic import ValidationError
+from asgiref.sync import sync_to_async
 
 from .parsers import (
     ReActParserException,
@@ -57,13 +60,17 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
-    def _run_with_prompt_and_toolkit(
+    async def _arun_with_prompt_and_toolkit(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
         toolkit: TaxonomyAgentToolkit,
         config: RunnableConfig,
     ) -> PartialAssistantState:
+        # Use async cached versions to avoid database queries in async context
+        team_group_types = await self._aget_team_group_types()
+        react_property_filters_prompt = await self._aget_react_property_filters_prompt()
+
         intermediate_steps = state.intermediate_steps or []
         conversation = (
             prompt
@@ -91,15 +98,15 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         try:
             result = cast(
                 AgentAction,
-                agent.invoke(
+                await agent.ainvoke(
                     {
-                        "react_format": self._get_react_format_prompt(toolkit),
-                        "core_memory": self.core_memory.text if self.core_memory else "",
-                        "tools": toolkit.render_text_description(),
-                        "react_property_filters": self._get_react_property_filters_prompt(),
+                        "react_format": await self._get_react_format_prompt(toolkit),
+                        "core_memory": await self._aget_core_memory_text(),
+                        "tools": await toolkit.render_text_description(),
+                        "react_property_filters": react_property_filters_prompt,
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
-                        "groups": self._team_group_types,
-                        "events": self._format_events_prompt(events_in_context),
+                        "groups": team_group_types,
+                        "events": await self._aformat_events_prompt(events_in_context),
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
@@ -147,12 +154,13 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             team=self._team,
         )
 
-    def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
+    async def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
+        tools = await toolkit.tools()
         return cast(
             str,
             ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
             .format_messages(
-                tool_names=", ".join([t["name"] for t in toolkit.tools]),
+                tool_names=", ".join([t["name"] for t in tools]),
             )[0]
             .content,
         )
@@ -165,8 +173,20 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .content,
         )
 
-    def _format_events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
-        response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
+    @alru_cache(maxsize=1)
+    async def _aget_react_property_filters_prompt(self) -> str:
+        """Async cached version of _get_react_property_filters_prompt"""
+        team_group_types = await self._aget_team_group_types()
+        return cast(
+            str,
+            ChatPromptTemplate.from_template(REACT_PROPERTY_FILTERS_PROMPT, template_format="mustache")
+            .format_messages(groups=team_group_types)[0]
+            .content,
+        )
+
+    async def _aformat_events_prompt(self, events_in_context: list[MaxEventContext]) -> str:
+        query_runner = await sync_to_async(TeamTaxonomyQueryRunner)(TeamTaxonomyQuery(), self._team)
+        response = await sync_to_async(query_runner.run)(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
         )
 
@@ -223,6 +243,15 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             .values_list("group_type", flat=True)
         )
 
+    @alru_cache(maxsize=1)
+    async def _aget_team_group_types(self) -> list[str]:
+        return [
+            group_type
+            async for group_type in GroupTypeMapping.objects.filter(project_id=self._team.project_id)
+            .order_by("group_type_index")
+            .values_list("group_type", flat=True)
+        ]
+
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
@@ -268,7 +297,7 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
     to request additional information.
     """
 
-    def _run_with_toolkit(
+    async def _arun_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
@@ -303,11 +332,9 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             return self._get_reset_state(state, REACT_REACHED_LIMIT_PROMPT)
 
         if input and not output:
-            output = self._handle_tool(input, toolkit)
+            output = await self._ahandle_tool(input, toolkit)
 
-        return PartialAssistantState(
-            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
-        )
+        return PartialAssistantState(intermediate_steps=[*intermediate_steps[:-1], (action, output)])
 
     def router(self, state: AssistantState):
         # Human-in-the-loop. Get out of the product analytics subgraph.
@@ -318,21 +345,24 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             return "plan_found"
         return "continue"
 
-    def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
+    async def _ahandle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
+        """Async version of _handle_tool that wraps toolkit methods in database_sync_to_async"""
         if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
-            output = toolkit.retrieve_event_or_action_properties(input.arguments)
+            output = await toolkit.retrieve_event_or_action_properties(input.arguments)
         elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_or_action_property_values(
+            output = await toolkit.retrieve_event_or_action_property_values(
                 input.arguments.event_name, input.arguments.property_name
             )
         elif input.name == "retrieve_action_property_values":
-            output = toolkit.retrieve_event_or_action_property_values(
+            output = await toolkit.retrieve_event_or_action_property_values(
                 input.arguments.action_id, input.arguments.property_name
             )
         elif input.name == "retrieve_entity_properties":
-            output = toolkit.retrieve_entity_properties(input.arguments)
+            output = await toolkit.retrieve_entity_properties(input.arguments)
         elif input.name == "retrieve_entity_property_values":
-            output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
+            output = await toolkit.retrieve_entity_property_values(
+                input.arguments.entity, input.arguments.property_name
+            )
         else:
             output = toolkit.handle_incorrect_response(input.arguments)
         return output

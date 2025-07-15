@@ -1,6 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingItem, EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from django.utils import timezone
@@ -10,12 +9,13 @@ from ee.hogai.utils.types import AssistantState
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.models.ai.utils import PgEmbeddingRow, bulk_create_pg_embeddings
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from azure.ai.inference.aio import EmbeddingsClient as EmbeddingsClientAsync
 from posthog.schema import MaxActionContext, MaxUIContext, TeamTaxonomyQuery
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 @patch(
-    "azure.ai.inference.EmbeddingsClient.embed",
+    "azure.ai.inference.aio.EmbeddingsClient.embed",
     return_value=EmbeddingsResult(
         id="test",
         model="test",
@@ -24,12 +24,12 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
     ),
 )
 @patch(
-    "ee.hogai.graph.rag.nodes.get_azure_embeddings_client",
-    return_value=EmbeddingsClient(
+    "ee.hogai.graph.rag.nodes.get_async_azure_embeddings_client",
+    return_value=EmbeddingsClientAsync(
         endpoint="https://test.services.ai.azure.com/models", credential=AzureKeyCredential("test")
     ),
 )
-class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
+class TestInsightRagContextNode(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.action = Action.objects.create(
@@ -45,7 +45,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         )
 
     @patch("ee.hogai.graph.rag.nodes.TeamTaxonomyQueryRunner")
-    def test_prewarm_queries(self, mock_team_taxonomy_query_runner, cohere_mock, embed_mock):
+    async def test_prewarm_queries(self, mock_team_taxonomy_query_runner, cohere_mock, embed_mock):
         # Arrange
         team = MagicMock()
         retriever = InsightRagContextNode(team=team, user=self.user)
@@ -54,7 +54,7 @@ class TestInsightRagContextNode(ClickhouseTestMixin, BaseTest):
         mock_team_taxonomy_query_runner.return_value = mock_runner_instance
 
         # Act
-        retriever._prewarm_queries()
+        await retriever._prewarm_queries()
 
         # Assert
         mock_team_taxonomy_query_runner.assert_called_once()

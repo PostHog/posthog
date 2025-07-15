@@ -2,10 +2,10 @@ import re
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from functools import cached_property
 from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
+from async_lru import alru_cache
 from pydantic import BaseModel, Field, RootModel, field_validator
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
@@ -21,6 +21,7 @@ from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
 )
+from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
@@ -112,24 +113,54 @@ class TaxonomyAgentToolkit(ABC):
     def __init__(self, team: Team):
         self._team = team
 
-    @cached_property
-    def tools(self) -> list[ToolkitTool]:
+    @alru_cache(maxsize=1)
+    async def _groups(self):
+        return [
+            group
+            async for group in GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by(
+                "group_type_index"
+            )
+        ]
+
+    @alru_cache(maxsize=1)
+    async def _entity_names(self) -> list[str]:
+        """
+        The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
+        so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
+        to create various tools for different group types. Since we don't use function calling here, we want to limit the
+        number of tools because non-function calling models can't handle many tools.
+        """
+        groups = await self._groups()
+        entities = [
+            "person",
+            "session",
+            *[group.group_type for group in groups],
+        ]
+        return entities
+
+    @alru_cache(maxsize=1)
+    async def tools(self) -> list[ToolkitTool]:
+        """
+        Get the toolkit tools.
+        """
         return [
             {
                 "name": tool["name"],
                 "signature": tool["signature"],
                 "description": dedent(tool["description"]),
             }
-            for tool in self._get_tools()
+            for tool in await self._get_tools()
         ]
 
     @abstractmethod
-    def _get_tools(self) -> list[ToolkitTool]:
+    async def _get_tools(self) -> list[ToolkitTool]:
+        """Get the list of tools for this toolkit."""
         raise NotImplementedError
 
-    @property
-    def _default_tools(self) -> list[ToolkitTool]:
-        stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
+    async def _default_tools(self) -> list[ToolkitTool]:
+        """Get the default tools."""
+        entity_names = await self._entity_names()
+        stringified_entities = ", ".join([f"'{entity}'" for entity in entity_names])
         return [
             {
                 "name": "retrieve_event_properties",
@@ -219,7 +250,7 @@ class TaxonomyAgentToolkit(ABC):
             },
         ]
 
-    def render_text_description(self) -> str:
+    async def render_text_description(self) -> str:
         """
         Render the tool name and description in plain text.
 
@@ -234,32 +265,14 @@ class TaxonomyAgentToolkit(ABC):
             calculator: This tool is used for math
         """
         root = ET.Element("tools")
-        for tool in self.tools:
+        tools = await self.tools()
+        for tool in tools:
             tool_tag = ET.SubElement(root, "tool")
             name_tag = ET.SubElement(tool_tag, "name")
             name_tag.text = f"{tool['name']}{tool['signature']}"
             description_tag = ET.SubElement(tool_tag, "description")
             description_tag.text = tool["description"]
         return ET.tostring(root, encoding="unicode")
-
-    @property
-    def _groups(self):
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
-
-    @cached_property
-    def _entity_names(self) -> list[str]:
-        """
-        The schemas use `group_type_index` for groups complicating things for the agent. Instead, we use groups' names,
-        so the generation step will handle their indexes. Tools would need to support multiple arguments, or we would need
-        to create various tools for different group types. Since we don't use function calling here, we want to limit the
-        number of tools because non-function calling models can't handle many tools.
-        """
-        entities = [
-            "person",
-            "session",
-            *[group.group_type for group in self._groups],
-        ]
-        return entities
 
     def _generate_properties_xml(self, children: list[tuple[str, str | None, str | None]]):
         root = ET.Element("properties")
@@ -296,18 +309,19 @@ class TaxonomyAgentToolkit(ABC):
             enriched_props.append((prop_name, prop_type, description))
         return enriched_props
 
-    def retrieve_entity_properties(self, entity: str) -> str:
+    @alru_cache()
+    async def retrieve_entity_properties(self, entity: str) -> str:
         """
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
-        if entity not in ("person", "session", *[group.group_type for group in self._groups]):
+        if entity not in await self._entity_names():
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
             qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
                 "name", "property_type"
             )
-            props = self._enrich_props_with_descriptions("person", qs)
+            props = self._enrich_props_with_descriptions("person", [prop_def async for prop_def in qs])
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -320,20 +334,22 @@ class TaxonomyAgentToolkit(ABC):
             )
         else:
             group_type_index = next(
-                (group.group_type_index for group in self._groups if group.group_type == entity), None
+                (group.group_type_index for group in await self._groups() if group.group_type == entity), None
             )
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
             ).values_list("name", "property_type")
-            props = self._enrich_props_with_descriptions(entity, qs)
+            props = self._enrich_props_with_descriptions(entity, [prop_def async for prop_def in qs])
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
         return self._generate_properties_xml(props)
 
+    @alru_cache()
+    @database_sync_to_async(thread_sensitive=False)  # Using sync_to_async as all the I/O is our still-sync QueryRunner
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
         if is_event:
@@ -346,15 +362,18 @@ class TaxonomyAgentToolkit(ABC):
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
         return response, verbose_name
 
-    def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
+    @alru_cache()
+    async def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
         Retrieve properties for an event.
         """
         try:
-            response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+            response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
-            if not project_actions:
+            project_actions_exist = await Action.objects.filter(
+                team__project_id=self._team.project_id, deleted=False
+            ).aexists()
+            if not project_actions_exist:
                 return "No actions exist in the project."
             return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
 
@@ -367,7 +386,9 @@ class TaxonomyAgentToolkit(ABC):
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
-        property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
+        property_to_type = {
+            property_definition.name: property_definition.property_type async for property_definition in qs
+        }
         props = [
             (item.property, property_to_type.get(item.property))
             for item in response.results
@@ -408,15 +429,18 @@ class TaxonomyAgentToolkit(ABC):
 
         return prop_values
 
-    def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
+    @alru_cache()
+    async def retrieve_event_or_action_property_values(
+        self, event_name_or_action_id: str | int, property_name: str
+    ) -> str:
         try:
-            property_definition = PropertyDefinition.objects.get(
+            property_definition = await PropertyDefinition.objects.aget(
                 team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
             )
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
 
-        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
+        response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The {verbose_name} does not exist in the taxonomy."
         if not response.results:
@@ -458,9 +482,11 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
-    def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-        if entity not in self._entity_names:
-            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+    @alru_cache()
+    async def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
+        entity_names = await self._entity_names()
+        if entity not in entity_names:
+            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(entity_names)}."
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)
@@ -468,7 +494,9 @@ class TaxonomyAgentToolkit(ABC):
         if entity == "person":
             query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
         else:
-            group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
+            group_index = next(
+                (group.group_type_index for group in await self._groups() if group.group_type == entity), None
+            )
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
             query = ActorsPropertyTaxonomyQuery(
@@ -483,7 +511,7 @@ class TaxonomyAgentToolkit(ABC):
                 prop_type = PropertyDefinition.Type.PERSON
                 group_type_index = None
 
-            property_definition = PropertyDefinition.objects.get(
+            property_definition = await PropertyDefinition.objects.aget(
                 team=self._team,
                 name=property_name,
                 type=prop_type,
@@ -492,9 +520,12 @@ class TaxonomyAgentToolkit(ABC):
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
 
-        response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        )
+        def run_query():
+            return ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+
+        response = await database_sync_to_async(run_query)()
 
         if not isinstance(response, CachedActorsPropertyTaxonomyQueryResponse):
             return f"The entity {entity} does not exist in the taxonomy."
