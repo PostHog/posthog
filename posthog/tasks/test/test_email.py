@@ -409,26 +409,39 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             count=10,
         )
 
-        send_hog_functions_daily_digest()
+        # Test 1: Enable digest for this team - should send email
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
+            send_hog_functions_daily_digest()
 
-        # Should send one digest email
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
-    def test_send_hog_functions_daily_digest_no_functions(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        # Reset mocked messages
+        mocked_email_messages.clear()
 
-        # No HogFunctions created, so no teams should be found
-        send_hog_functions_daily_digest()
+        # Test 2: Team not in allowlist - should not send email
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=["999"]):
+            send_hog_functions_daily_digest()
 
-        # Should not send any emails since no teams with active functions exist
         assert len(mocked_email_messages) == 0
 
-    def test_send_hog_functions_daily_digest_disabled_function(self, MockEmailMessage: MagicMock) -> None:
+        # Test 3: Empty allowlist (default behavior) - should send email
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+    def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
-        # Create disabled HogFunction
+        # Test 1: No HogFunctions created - should not send email
+        send_hog_functions_daily_digest()
+        assert len(mocked_email_messages) == 0
+
+        # Test 2: Disabled HogFunction - should not send email
         HogFunction.objects.create(
             team=self.team,
             name="Disabled Function",
@@ -439,14 +452,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
 
         send_hog_functions_daily_digest()
-
-        # Should not send any emails since no teams with enabled functions exist
         assert len(mocked_email_messages) == 0
 
-    def test_send_hog_functions_daily_digest_deleted_function(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-
-        # Create deleted HogFunction
+        # Test 3: Deleted HogFunction - should not send email
+        HogFunction.objects.all().delete()  # Clear previous function
         HogFunction.objects.create(
             team=self.team,
             name="Deleted Function",
@@ -456,7 +465,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
-        send_hog_functions_daily_digest()
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
+            send_hog_functions_daily_digest()
 
-        # Should not send any emails since no teams with active (non-deleted) functions exist
         assert len(mocked_email_messages) == 0

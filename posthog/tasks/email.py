@@ -579,6 +579,18 @@ def send_hog_functions_daily_digest() -> None:
         logger.info("No teams with active HogFunctions found")
         return
 
+    # Filter teams based on the feature flag setting
+    allowed_team_ids = settings.HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS
+    if allowed_team_ids:
+        # Convert string team IDs to integers for comparison
+        allowed_team_ids_int = [int(team_id) for team_id in allowed_team_ids]
+        team_ids = [team_id for team_id in team_ids if team_id in allowed_team_ids_int]
+        logger.info(f"Filtered to {len(team_ids)} teams based on HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS setting")
+
+        if not team_ids:
+            logger.info("No teams in allowed list have active HogFunctions")
+            return
+
     # Get HogFunction data from PostgreSQL
     hog_functions = HogFunction.objects.filter(team_id__in=team_ids, enabled=True, deleted=False).values(
         "id", "team_id", "name", "type"
