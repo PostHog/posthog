@@ -2754,6 +2754,17 @@ const api = {
         ): Promise<{ count: number; results: string[] }> {
             return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
         },
+
+        async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+            success: boolean
+            deleted_count: number
+            total_requested: number
+        }> {
+            return await new ApiRequest()
+                .recordings()
+                .withAction('bulk_delete')
+                .create({ data: { session_recording_ids } })
+        },
     },
 
     notebooks: {
