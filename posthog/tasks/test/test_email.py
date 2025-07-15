@@ -380,7 +380,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         yesterday = timezone.now() - timedelta(days=1)
         yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Create test data in app_metrics2 table using the fixture
+        # Create test data in app_metrics2 table with failures
         create_app_metric2(
             team_id=self.team.id,
             app_source="hog_function",
@@ -397,7 +397,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             timestamp=yesterday_start,
             metric_kind="other",
             metric_name="failed",
-            count=5,
+            count=5,  # This will trigger the digest
         )
         create_app_metric2(
             team_id=self.team.id,
@@ -409,7 +409,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             count=10,
         )
 
-        # Test 1: Enable digest for this team - should send email
+        # Test 1: Enable digest for this team - should send email since there are failures
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
             send_hog_functions_daily_digest()
 
@@ -426,7 +426,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 0
 
-        # Test 3: Empty allowlist (default behavior) - should send email
+        # Test 3: Empty allowlist (default behavior) - should send email since there are failures
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[]):
             send_hog_functions_daily_digest()
 
@@ -435,14 +435,48 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
 
     def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
+        from datetime import timedelta
+        from posthog.test.fixtures import create_app_metric2
+
+        # Clean up app_metrics2 table before test
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
         # Test 1: No HogFunctions created - should not send email
         send_hog_functions_daily_digest()
         assert len(mocked_email_messages) == 0
 
-        # Test 2: Disabled HogFunction - should not send email
-        HogFunction.objects.create(
+        # Test 2: HogFunction with no failures - should not send email
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Working Function",
+            type="destination",
+            enabled=True,
+            deleted=False,
+            hog="return event",
+        )
+
+        yesterday = timezone.now() - timedelta(days=1)
+        yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Only create successful metrics, no failures
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=yesterday_start,
+            metric_kind="other",
+            metric_name="succeeded",
+            count=100,
+        )
+
+        send_hog_functions_daily_digest()
+        assert len(mocked_email_messages) == 0
+
+        # Test 3: Disabled HogFunction with failures - should not send email
+        HogFunction.objects.all().delete()  # Clear previous functions
+        disabled_function = HogFunction.objects.create(
             team=self.team,
             name="Disabled Function",
             type="destination",
@@ -451,18 +485,40 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             hog="return event",
         )
 
+        # Create failure metrics for disabled function
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(disabled_function.id),
+            timestamp=yesterday_start,
+            metric_kind="other",
+            metric_name="failed",
+            count=5,
+        )
+
         send_hog_functions_daily_digest()
         assert len(mocked_email_messages) == 0
 
-        # Test 3: Deleted HogFunction - should not send email
-        HogFunction.objects.all().delete()  # Clear previous function
-        HogFunction.objects.create(
+        # Test 4: Deleted HogFunction with failures - should not send email
+        HogFunction.objects.all().delete()  # Clear previous functions
+        deleted_function = HogFunction.objects.create(
             team=self.team,
             name="Deleted Function",
             type="destination",
             enabled=True,
             deleted=True,  # Deleted
             hog="return event",
+        )
+
+        # Create failure metrics for deleted function
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(deleted_function.id),
+            timestamp=yesterday_start,
+            metric_kind="other",
+            metric_name="failed",
+            count=5,
         )
 
         with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):

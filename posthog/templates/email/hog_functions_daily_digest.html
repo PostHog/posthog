@@ -2,13 +2,13 @@
 {% load posthog_assets %}
 {% load posthog_filters %}
 
-{% block preheader %}Daily summary of your HogFunctions performance{% endblock %}
+{% block preheader %}Data Pipeline Failures Alert{% endblock %}
 
-{% block heading %}Daily HogFunctions Digest for {{ date }}{% endblock %}
+{% block heading %}Data Pipeline Failures Alert for {{ date }}{% endblock %}
 
 {% block section %}
 <p>
-    Here's a summary of your HogFunctions performance for <strong>{{ date }}</strong> in project <strong>{{ team.name }}</strong>.
+    Your data pipelines had failures on <strong>{{ date }}</strong> in project <strong>{{ team.name }}</strong>. Here's what needs attention:
 </p>
 
 <div class="mb mt">
@@ -64,21 +64,13 @@
                     {% endwith %}
                 {% endwith %}
             {% endif %}
-            
-            {% if function.status == "DISABLED_TEMPORARILY" %}
-                <p class="danger">⚠️ Function is temporarily disabled</p>
-            {% elif function.status == "DISABLED_PERMANENTLY" %}
-                <p class="danger">🚫 Function is permanently disabled</p>
-            {% elif function.status == "DEGRADED" %}
-                <p class="danger">⚠️ Function is in degraded state</p>
-            {% endif %}
         </div>
     {% endfor %}
 </div>
 
 <div class="mb mt text-center">
-    <a class="button" href="{{ site_url }}/project/{{ team.id }}/pipeline/destinations">
-        View HogFunctions Dashboard
+    <a class="button" href="{{ site_url }}/project/{{ team.id }}/pipeline">
+        View Data Pipelines
     </a>
 </div>
 {% endblock %}

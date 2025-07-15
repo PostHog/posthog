@@ -526,7 +526,7 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
 
     message = EmailMessage(
         campaign_key=campaign_key,
-        subject=f"Daily HogFunctions Digest for {team.name}",
+        subject=f"Data Pipeline Failures Alert for {team.name}",
         template_name="hog_functions_daily_digest",
         template_context={
             "team": team,
@@ -551,12 +551,11 @@ def send_hog_functions_digest_email(digest_data: dict) -> None:
 @shared_task(ignore_result=True)
 def send_hog_functions_daily_digest() -> None:
     """
-    Send daily digest email to teams with active HogFunctions & setting hog_functions_digest enabled
-    Collects all metrics using ClickHouse aggregation and sends formatted data to email service.
+    Send daily digest email to teams with HogFunctions that have failures.
+    Queries ClickHouse first to find failures, then fans out to team-specific tasks.
     """
     from datetime import timedelta
     from posthog.clickhouse.client import sync_execute
-    from posthog.models.hog_functions.hog_function import HogFunction
 
     logger.info("Starting HogFunctions daily digest task")
 
@@ -567,42 +566,95 @@ def send_hog_functions_daily_digest() -> None:
     date_str = yesterday.strftime("%Y-%m-%d")
     formatted_date = yesterday.strftime("%B %d, %Y")
 
-    # Get all teams with active, non-deleted HogFunctions from PostgreSQL
-    teams_with_active_functions = (
-        HogFunction.objects.filter(enabled=True, deleted=False).values_list("team_id", flat=True).distinct()
+    # Query ClickHouse to find all functions with failures
+    failures_query = """
+    SELECT DISTINCT
+        team_id,
+        app_source_id as hog_function_id
+    FROM app_metrics2
+    WHERE app_source = 'hog_function'
+    AND metric_name = 'failed'
+    AND count > 0
+    AND timestamp >= %(start_time)s
+    AND timestamp <= %(end_time)s
+    AND metric_kind = 'other'
+    """
+
+    failed_functions = sync_execute(
+        failures_query,
+        {
+            "start_time": yesterday_start,
+            "end_time": yesterday_end,
+        },
     )
 
-    team_ids = list(teams_with_active_functions)
-    logger.info(f"Found {len(team_ids)} teams with active HogFunctions")
-
-    if not team_ids:
-        logger.info("No teams with active HogFunctions found")
+    if not failed_functions:
+        logger.info("No HogFunctions with failures found")
         return
+
+    # Group by team_id
+    teams_with_failures = {}
+    for team_id, hog_function_id in failed_functions:
+        if team_id not in teams_with_failures:
+            teams_with_failures[team_id] = []
+        teams_with_failures[team_id].append(hog_function_id)
 
     # Filter teams based on the feature flag setting
     allowed_team_ids = settings.HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS
     if allowed_team_ids:
         # Convert string team IDs to integers for comparison
         allowed_team_ids_int = [int(team_id) for team_id in allowed_team_ids]
-        team_ids = [team_id for team_id in team_ids if team_id in allowed_team_ids_int]
-        logger.info(f"Filtered to {len(team_ids)} teams based on HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS setting")
+        teams_with_failures = {
+            team_id: hog_function_ids
+            for team_id, hog_function_ids in teams_with_failures.items()
+            if team_id in allowed_team_ids_int
+        }
+        logger.info(
+            f"Filtered to {len(teams_with_failures)} teams based on HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS setting"
+        )
 
-        if not team_ids:
-            logger.info("No teams in allowed list have active HogFunctions")
-            return
-
-    # Get HogFunction data from PostgreSQL
-    hog_functions = HogFunction.objects.filter(team_id__in=team_ids, enabled=True, deleted=False).values(
-        "id", "team_id", "name", "type"
-    )
-
-    if not hog_functions:
-        logger.info("No active HogFunctions found for teams")
+    if not teams_with_failures:
+        logger.info("No teams in allowed list have HogFunctions with failures")
         return
 
-    # Get metrics data from ClickHouse for these HogFunctions
-    hog_function_ids = [str(hf["id"]) for hf in hog_functions]
+    logger.info(f"Found {len(teams_with_failures)} teams with HogFunction failures")
 
+    # Fan out to team-specific tasks
+    for team_id, failed_hog_function_ids in teams_with_failures.items():
+        send_team_hog_functions_digest.delay(team_id, failed_hog_function_ids, date_str, formatted_date)
+        logger.info(f"Scheduled digest for team {team_id} with {len(failed_hog_function_ids)} failed functions")
+
+    logger.info("Completed HogFunctions daily digest task")
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_team_hog_functions_digest(
+    team_id: int, failed_hog_function_ids: list[str], date_str: str, formatted_date: str
+) -> None:
+    """
+    Send daily digest email for a specific team with their failed HogFunctions.
+    """
+    from datetime import timedelta
+    from posthog.clickhouse.client import sync_execute
+    from posthog.models.hog_functions.hog_function import HogFunction
+
+    logger.info(f"Processing HogFunctions digest for team {team_id}")
+
+    # Calculate date range for yesterday's data
+    yesterday = timezone.now() - timedelta(days=1)
+    yesterday_start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    # Get HogFunction data from PostgreSQL for the failed functions
+    hog_functions = HogFunction.objects.filter(
+        team_id=team_id, id__in=failed_hog_function_ids, enabled=True, deleted=False
+    ).values("id", "team_id", "name", "type")
+
+    if not hog_functions:
+        logger.info(f"No active HogFunctions found for team {team_id}")
+        return
+
+    # Get metrics data from ClickHouse for these specific HogFunctions
     metrics_query = """
     SELECT
         team_id,
@@ -610,105 +662,91 @@ def send_hog_functions_daily_digest() -> None:
         metric_name,
         sum(count) as total_count
     FROM app_metrics2
-    WHERE team_id IN %(team_ids)s
+    WHERE team_id = %(team_id)s
     AND app_source = 'hog_function'
     AND app_source_id IN %(hog_function_ids)s
     AND timestamp >= %(start_time)s
     AND timestamp <= %(end_time)s
     AND metric_kind = 'other'
     GROUP BY team_id, app_source_id, metric_name
-    ORDER BY team_id, app_source_id, metric_name
+    ORDER BY app_source_id, metric_name
     """
 
     metrics_data = sync_execute(
         metrics_query,
         {
-            "team_ids": team_ids,
-            "hog_function_ids": hog_function_ids,
+            "team_id": team_id,
+            "hog_function_ids": failed_hog_function_ids,
             "start_time": yesterday_start,
             "end_time": yesterday_end,
         },
     )
 
-    # Group data by team and calculate all aggregations
-    teams_data = {}
-
-    # First, initialize all HogFunctions
+    # Build function data with metrics
+    functions_data = {}
     for hog_function in hog_functions:
-        team_id = hog_function["team_id"]
         hog_function_id = str(hog_function["id"])
-
-        if team_id not in teams_data:
-            teams_data[team_id] = {}
-
-        teams_data[team_id][hog_function_id] = {
+        functions_data[hog_function_id] = {
             "id": hog_function_id,
             "name": hog_function["name"],
             "type": hog_function["type"],
             "metrics": {},
-            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/{hog_function_id}",
+            "url": f"{settings.SITE_URL}/project/{team_id}/pipeline/destinations/hog-{hog_function_id}",
         }
 
-    # Then, add metrics data
+    # Add metrics data
     for row in metrics_data:
-        team_id, hog_function_id, metric_name, count = row
+        _, hog_function_id, metric_name, count = row
+        if hog_function_id in functions_data:
+            functions_data[hog_function_id]["metrics"][metric_name] = count
 
-        if team_id in teams_data and hog_function_id in teams_data[team_id]:
-            teams_data[team_id][hog_function_id]["metrics"][metric_name] = count
+    # Build function metrics with calculated totals, only include functions with failures
+    function_metrics = []
+    team_total_succeeded = 0
+    team_total_failed = 0
+    team_total_filtered = 0
 
-    # Process each team's data and send emails
-    for team_id, functions_data in teams_data.items():
-        try:
-            # Build function metrics with calculated totals
-            function_metrics = []
-            team_total_succeeded = 0
-            team_total_failed = 0
-            team_total_filtered = 0
+    for function_data in functions_data.values():
+        metrics = function_data["metrics"]
+        succeeded = metrics.get("succeeded", 0)
+        failed = metrics.get("failed", 0)
+        filtered = metrics.get("filtered", 0)
+        total_runs = succeeded + failed
 
-            for function_data in functions_data.values():
-                metrics = function_data["metrics"]
-                succeeded = metrics.get("succeeded", 0)
-                failed = metrics.get("failed", 0)
-                filtered = metrics.get("filtered", 0)
-                total_runs = succeeded + failed
+        # Only include functions that actually have failures
+        if failed > 0:
+            function_info = {
+                "id": function_data["id"],
+                "name": function_data["name"],
+                "type": function_data["type"],
+                "succeeded": succeeded,
+                "failed": failed,
+                "filtered": filtered,
+                "total_runs": total_runs,
+                "url": function_data["url"],
+            }
 
-                function_info = {
-                    "id": function_data["id"],
-                    "name": function_data["name"],
-                    "type": function_data["type"],
-                    "succeeded": succeeded,
-                    "failed": failed,
-                    "filtered": filtered,
-                    "total_runs": total_runs,
-                    "url": function_data["url"],
-                }
+            function_metrics.append(function_info)
+            team_total_succeeded += succeeded
+            team_total_failed += failed
+            team_total_filtered += filtered
 
-                function_metrics.append(function_info)
-                team_total_succeeded += succeeded
-                team_total_failed += failed
-                team_total_filtered += filtered
+    if not function_metrics:
+        logger.info(f"No functions with failures found for team {team_id}")
+        return
 
-            # Only send email if there are functions with data
-            if function_metrics:
-                # Pre-calculate all totals and formatted data for email
-                digest_data = {
-                    "team_id": team_id,
-                    "date_str": date_str,
-                    "formatted_date": formatted_date,
-                    "functions": function_metrics,
-                    "total_functions": len(function_metrics),
-                    "total_succeeded": team_total_succeeded,
-                    "total_failed": team_total_failed,
-                    "total_filtered": team_total_filtered,
-                    "total_runs": team_total_succeeded + team_total_failed,
-                }
+    # Pre-calculate all totals and formatted data for email
+    digest_data = {
+        "team_id": team_id,
+        "date_str": date_str,
+        "formatted_date": formatted_date,
+        "functions": function_metrics,
+        "total_functions": len(function_metrics),
+        "total_succeeded": team_total_succeeded,
+        "total_failed": team_total_failed,
+        "total_filtered": team_total_filtered,
+        "total_runs": team_total_succeeded + team_total_failed,
+    }
 
-                send_hog_functions_digest_email.delay(digest_data)
-                logger.info(
-                    f"Scheduled HogFunctions digest email for team {team_id} with {len(function_metrics)} functions"
-                )
-
-        except Exception as e:
-            logger.exception(f"Failed to process HogFunctions digest for team {team_id}: {e}")
-
-    logger.info("Completed HogFunctions daily digest task")
+    send_hog_functions_digest_email.delay(digest_data)
+    logger.info(f"Scheduled HogFunctions digest email for team {team_id} with {len(function_metrics)} failed functions")
