@@ -253,15 +253,22 @@ class SessionReplayEvents:
         self,
         session_ids: list[str],
         team_id: int,
-        recording_start_time: Optional[datetime] = None,
+        recordings_min_timestamp: Optional[datetime] = None,
+        recordings_max_timestamp: Optional[datetime] = None,
     ) -> dict[str, Optional[RecordingMetadata]]:
         """
         Get metadata for a group of sessions in one call.
         """
         if not session_ids:
             return {}
-        optional_timestamp_clause = (
-            "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
+
+        # Minimal timestamp in the recordings provided
+        optional_min_timestamp_clause = (
+            "AND min_first_timestamp >= %(recordings_min_timestamp)s" if recordings_min_timestamp else ""
+        )
+        # Maximal timestamp in the recordings provided
+        optional_max_timestamp_clause = (
+            "AND min_first_timestamp <= %(recordings_max_timestamp)s" if recordings_max_timestamp else ""
         )
         # Get data from DB
         query = f"""
@@ -288,8 +295,8 @@ class SessionReplayEvents:
             PREWHERE
                 team_id = %(team_id)s
                 AND session_id IN %(session_ids)s
-                AND min_first_timestamp <= %(python_now)s
-                {optional_timestamp_clause}
+                {optional_max_timestamp_clause if recordings_max_timestamp else "AND min_first_timestamp <= %(python_now)s"}
+                {optional_min_timestamp_clause}
             GROUP BY
                 session_id
         """
@@ -298,7 +305,8 @@ class SessionReplayEvents:
             {
                 "team_id": team_id,
                 "session_ids": session_ids,
-                "recording_start_time": recording_start_time,
+                "recordings_min_timestamp": recordings_min_timestamp,
+                "recordings_max_timestamp": recordings_max_timestamp,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
