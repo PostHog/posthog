@@ -75,6 +75,8 @@ jobs:
                         - 'common/hogvm/**/*'
                         - 'posthog/**/*'
                         - 'bin/*.py'
+                        - pyproject.toml
+                        - uv.lock
                         - requirements.txt
                         - requirements-dev.txt
                         - mypy.ini
@@ -181,10 +183,10 @@ jobs:
                       # For nested apps like products/user_interviews, we want user_interviews
                       app_name=$(echo $file | sed -E 's|^([^/]+/)*([^/]+)/migrations/.*|\2|')
                       echo "Checking migration $migration_number for app $app_name"
-                      
+
                       # Get SQL output
                       SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
-                      
+
                       # Add to comment body
                       COMMENT_BODY+="#### [\`$file\`](https:\/\/github.com\/${{ github.repository }}\/blob\/${{ github.sha }}\/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"
                     fi
@@ -459,21 +461,21 @@ jobs:
 
                       while [ $attempt -le $max_attempts ]; do
                           echo "Attempt $attempt of $max_attempts to start stack..."
-                          
+
                           if docker compose -f docker-compose.dev.yml down && \
                             docker compose -f docker-compose.dev.yml up -d; then
                               echo "Stack started successfully"
                               exit 0
                           fi
-                          
+
                           echo "Failed to start stack on attempt $attempt"
-                          
+
                           if [ $attempt -lt $max_attempts ]; then
                               sleep_time=$((delay * 2 ** (attempt - 1)))
                               echo "Waiting ${sleep_time} seconds before retry..."
                               sleep $sleep_time
                           fi
-                          
+
                           attempt=$((attempt + 1))
                       done
 
