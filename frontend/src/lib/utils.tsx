@@ -282,19 +282,19 @@ export const assigneeOperatorMap: Record<string, string> = {
 }
 
 export const allOperatorsMapping: Record<string, string> = {
-    ...assigneeOperatorMap,
-    ...stickinessOperatorMap,
-    ...dateTimeOperatorMap,
-    ...stringOperatorMap,
-    ...stringArrayOperatorMap,
-    ...numericOperatorMap,
     ...genericOperatorMap,
-    ...booleanOperatorMap,
-    ...durationOperatorMap,
-    ...selectorOperatorMap,
-    ...cohortOperatorMap,
-    ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
+    ...cohortOperatorMap,
+    ...selectorOperatorMap,
+    ...durationOperatorMap,
+    ...booleanOperatorMap,
+    ...numericOperatorMap,
+    ...stringArrayOperatorMap,
+    ...stringOperatorMap,
+    ...dateTimeOperatorMap,
+    ...stickinessOperatorMap,
+    ...assigneeOperatorMap,
+    ...featureFlagOperatorMap, // Feature flag operators should override any conflicting operators
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
