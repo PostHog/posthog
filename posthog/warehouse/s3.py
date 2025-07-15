@@ -34,7 +34,7 @@ def get_size_of_folder(path: str) -> float:
     return total_mib
 
 
-def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: Optional[str] = None):
+def ensure_bucket_exists(s3_url: str, s3_key: str, s3_secret: str, s3_endpoint: Optional[str] = None) -> None:
     s3_client = boto3.client("s3", aws_access_key_id=s3_key, aws_secret_access_key=s3_secret, endpoint_url=s3_endpoint)
 
     parsed = urlparse(s3_url)
