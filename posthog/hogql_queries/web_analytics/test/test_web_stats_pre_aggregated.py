@@ -388,12 +388,4 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
                 assert preagg_response.usedPreAggregatedTables
                 assert not regular_response.usedPreAggregatedTables
 
-                # Normalize None to empty string for comparison (pre-agg returns "", regular returns None)
-                def normalize_result(result):
-                    normalized = list(result)
-                    normalized[0] = normalized[0] or ""  # Convert None to empty string
-                    return normalized
-
-                assert self._sort_results([normalize_result(r) for r in preagg_response.results]) == self._sort_results(
-                    [normalize_result(r) for r in regular_response.results]
-                )
+                assert self._sort_results(preagg_response.results) == self._sort_results(regular_response.results)

@@ -57,7 +57,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    "breakdown_value": ast.Call(
+                        name="nullIf",
+                        args=[self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])), ast.Constant(value="")],
+                    ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
                     ),
@@ -97,7 +100,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                    "breakdown_value": ast.Call(
+                        name="nullIf",
+                        args=[self._apply_path_cleaning(ast.Field(chain=["pathname"])), ast.Constant(value="")],
+                    ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
@@ -115,7 +121,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "bounce_subquery": self._bounce_rate_query(),
                     "join_condition": ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
+                        left=ast.Call(
+                            name="nullIf",
+                            args=[
+                                self._apply_path_cleaning(ast.Field(chain=["web_stats_combined", "pathname"])),
+                                ast.Constant(value=""),
+                            ],
+                        ),
                         right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
                     ),
                 },
@@ -193,6 +205,16 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
 
+    def _nullif_empty_decorator(func):
+        def wrapper(self):
+            result = func(self)
+            if self.runner.query.breakdownBy == WebStatsBreakdown.VIEWPORT:
+                return result
+            return ast.Call(name="nullIf", args=[result, ast.Constant(value="")])
+
+        return wrapper
+
+    @_nullif_empty_decorator
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
             case WebStatsBreakdown.DEVICE_TYPE:
