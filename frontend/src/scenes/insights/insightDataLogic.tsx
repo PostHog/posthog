@@ -240,11 +240,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
     propsChanged(({ actions, props, values }) => {
         if (props.cachedInsight?.query && !objectsEqual(props.cachedInsight.query, values.query)) {
-            // Only apply cached insight query if there's no internal query override
-            // This prevents infinite loops when suggestions are being applied
-            if (!values.internalQuery) {
-                actions.setQuery(props.cachedInsight.query)
-            }
+            actions.setQuery(props.cachedInsight.query)
         }
     }),
     actionToUrl(({ values }) => ({
