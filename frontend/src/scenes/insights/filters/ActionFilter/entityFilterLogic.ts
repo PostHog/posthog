@@ -93,6 +93,14 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             math_hogql: filter.math_hogql,
             index: filter.index,
             math_group_type_index: filter.math_group_type_index,
+        }),
+        updateFilterOptional: (
+            filter: Partial<ActionFilter> & {
+                index: number
+            }
+        ) => ({
+            type: filter.type as EntityType,
+            index: filter.index,
             optionalInFunnel: filter.optionalInFunnel,
         }),
         updateFilter: (
@@ -247,6 +255,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         updateFilterMath: async ({ index, ...mathProperties }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, ...mathProperties } : filter))
+            )
+        },
+        updateFilterOptional: async ({ index, optionalInFunnel }) => {
+            actions.setFilters(
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, optionalInFunnel } : filter))
             )
         },
         removeLocalFilter: async ({ index }) => {

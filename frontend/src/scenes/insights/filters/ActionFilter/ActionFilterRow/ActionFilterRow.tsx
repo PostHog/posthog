@@ -177,6 +177,7 @@ export function ActionFilterRow({
     const {
         updateFilter,
         selectFilter,
+        updateFilterOptional,
         updateFilterMath,
         removeLocalFilter,
         updateFilterProperty,
@@ -596,7 +597,7 @@ export function ActionFilterRow({
                                                                             <LemonCheckbox
                                                                                 checked={!!filter.optionalInFunnel}
                                                                                 onChange={(checked) => {
-                                                                                    updateFilterMath({
+                                                                                    updateFilterOptional({
                                                                                         ...filter,
                                                                                         optionalInFunnel: checked,
                                                                                         index,
