@@ -462,7 +462,7 @@ class AssistantGraph(BaseAssistantGraph):
     def add_insights_search(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
         path_map = {
-            "end": AssistantNodeName.END,
+            "end": end_node,
             "root": AssistantNodeName.ROOT,
         }
 

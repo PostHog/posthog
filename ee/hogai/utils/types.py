@@ -151,7 +151,7 @@ class _SharedAssistantState(BaseModel):
     """
     query_generation_retry_count: Annotated[int, merge_retry_counts] = Field(default=0)
     """
-    The insight to search for.
+    The user's search query for finding existing insights.
     """
     search_insights_query: Optional[str] = Field(default=None)
 
