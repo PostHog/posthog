@@ -1,4 +1,9 @@
 
+
+#include <cctype>
+
+
+
 // Generated from HogQLLexer.g4 by ANTLR 4.13.2
 
 #pragma once
@@ -35,23 +40,94 @@ public:
     BACKSLASH = 117, COLON = 118, COMMA = 119, CONCAT = 120, DASH = 121, 
     DOLLAR = 122, DOT = 123, EQ_DOUBLE = 124, EQ_SINGLE = 125, GT_EQ = 126, 
     GT = 127, HASH = 128, IREGEX_SINGLE = 129, IREGEX_DOUBLE = 130, LBRACE = 131, 
-    LBRACKET = 132, LPAREN = 133, LT_EQ = 134, LT = 135, NOT_EQ = 136, NOT_IREGEX = 137, 
-    NOT_REGEX = 138, NULL_PROPERTY = 139, NULLISH = 140, PERCENT = 141, 
-    PLUS = 142, QUERY = 143, QUOTE_DOUBLE = 144, QUOTE_SINGLE_TEMPLATE = 145, 
-    QUOTE_SINGLE_TEMPLATE_FULL = 146, QUOTE_SINGLE = 147, REGEX_SINGLE = 148, 
-    REGEX_DOUBLE = 149, RBRACE = 150, RBRACKET = 151, RPAREN = 152, SEMICOLON = 153, 
-    SLASH = 154, UNDERSCORE = 155, MULTI_LINE_COMMENT = 156, SINGLE_LINE_COMMENT = 157, 
-    WHITESPACE = 158, STRING_TEXT = 159, STRING_ESCAPE_TRIGGER = 160, FULL_STRING_TEXT = 161, 
-    FULL_STRING_ESCAPE_TRIGGER = 162
+    LBRACKET = 132, LPAREN = 133, LT_EQ = 134, LT = 135, LT_SLASH = 136, 
+    NOT_EQ = 137, NOT_IREGEX = 138, NOT_REGEX = 139, NULL_PROPERTY = 140, 
+    NULLISH = 141, PERCENT = 142, PLUS = 143, QUERY = 144, QUOTE_DOUBLE = 145, 
+    QUOTE_SINGLE_TEMPLATE = 146, QUOTE_SINGLE_TEMPLATE_FULL = 147, QUOTE_SINGLE = 148, 
+    REGEX_SINGLE = 149, REGEX_DOUBLE = 150, RBRACE = 151, RBRACKET = 152, 
+    RPAREN = 153, SEMICOLON = 154, SLASH = 155, SLASH_GT = 156, UNDERSCORE = 157, 
+    MULTI_LINE_COMMENT = 158, SINGLE_LINE_COMMENT = 159, WHITESPACE = 160, 
+    STRING_TEXT = 161, STRING_ESCAPE_TRIGGER = 162, FULL_STRING_TEXT = 163, 
+    FULL_STRING_ESCAPE_TRIGGER = 164, TAG_WS = 165, TAGC_WS = 166, HOGQLX_TEXT_TEXT = 167, 
+    HOGQLX_TEXT_WS = 168
   };
 
   enum {
-    IN_TEMPLATE_STRING = 1, IN_FULL_TEMPLATE_STRING = 2
+    IN_TEMPLATE_STRING = 1, IN_FULL_TEMPLATE_STRING = 2, HOGQLX_TAG_OPEN = 3, 
+    HOGQLX_TAG_CLOSE = 4, HOGQLX_TEXT = 5
   };
 
   explicit HogQLLexer(antlr4::CharStream *input);
 
   ~HogQLLexer() override;
+
+
+
+  /** Skip over whitespace and end-of-line comments (`// …`, `-- …`, `# …`). */
+  void skipWsAndComments(std::size_t& i) {
+      for (;;) {
+          int ch = _input->LA(i);
+          if (std::isspace(ch)) {                       // regular whitespace
+              ++i;
+              continue;
+          }
+
+          /*  C++ / SQL / Bash-style single-line comments  */
+          if (ch == '/' && _input->LA(i + 1) == '/') {  // //
+              i += 2;
+          } else if (ch == '-' && _input->LA(i + 1) == '-') { // --
+              i += 2;
+          } else if (ch == '#') {                       // #
+              ++i;
+          } else {
+              break;                                    // no more ws / comments
+          }
+          /* consume to EOL or EOF */
+          while (true) {
+              ch = _input->LA(i);
+              if (ch == 0 || ch == '\n' || ch == '\r')
+                  break;
+              ++i;
+          }
+      }
+  }
+
+  /* ───── opening tag test ───── */
+
+  bool isOpeningTag() {
+      /* first char after '<' */
+      int la1 = _input->LA(1);
+      if (!std::isalpha(la1) && la1 != '_')
+          return false;
+
+      /* skip the tag name ([a-zA-Z0-9_-]*) */
+      std::size_t i = 2;
+      while (true) {
+          int ch = _input->LA(i);
+          if (std::isalnum(ch) || ch == '_' || ch == '-')
+              ++i;
+          else
+              break;
+      }
+
+      int ch = _input->LA(i);
+
+      /*  Immediate delimiter → definitely a tag  */
+      if (ch == '>' || ch == '/')
+          return true;
+
+      /*  If the next char is whitespace, look further  */
+      if (std::isspace(ch)) {
+          skipWsAndComments(++i); // step past first space
+          ch = _input->LA(i);
+          /* tag iff next non-ws/non-comment char is alnum/underscore */
+          return std::isalnum(ch) || ch == '_' || ch == '>' || ch == '/';
+      }
+
+      /* anything else (operator chars, ')', '+', …) → not a tag */
+      return false;
+  }
+
 
 
   std::string getGrammarFileName() const override;
@@ -68,6 +144,8 @@ public:
 
   const antlr4::atn::ATN& getATN() const override;
 
+  bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
+
   // By default the static state used to implement the lexer is lazily initialized during the first
   // call to the constructor. You can call this function if you wish to initialize the static state
   // ahead of time.
@@ -78,6 +156,7 @@ private:
   // Individual action functions triggered by action() above.
 
   // Individual semantic predicate functions triggered by sempred() above.
+  bool TAG_LT_OPENSempred(antlr4::RuleContext *_localctx, size_t predicateIndex);
 
 };
 
