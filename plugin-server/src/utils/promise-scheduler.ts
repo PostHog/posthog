@@ -7,11 +7,11 @@ export class PromiseScheduler {
         return promise
     }
 
-    public async waitForAll() {
+    public async waitForAll(): Promise<any> {
         return await Promise.all(this.promises)
     }
 
-    public async waitForAllSettled() {
+    public async waitForAllSettled(): Promise<any> {
         return await Promise.allSettled(this.promises)
     }
 }
