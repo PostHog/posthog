@@ -7,8 +7,6 @@ import { beforeUnload, router } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { asyncSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -33,6 +31,7 @@ import {
     AvailableFeature,
     BaseMathType,
     ChartDisplayType,
+    CyclotronJobFiltersType,
     CyclotronJobInputSchemaType,
     CyclotronJobInputType,
     CyclotronJobInvocationGlobals,
@@ -310,6 +309,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         reportAIHogFunctionAccepted: true,
         reportAIHogFunctionRejected: true,
         reportAIHogFunctionPromptOpen: true,
+        setOldFilters: (oldFilters: CyclotronJobFiltersType) => ({ oldFilters }),
+        setNewFilters: (newFilters: CyclotronJobFiltersType) => ({ newFilters }),
+        clearFiltersDiff: true,
+        reportAIFiltersPrompted: true,
+        reportAIFiltersAccepted: true,
+        reportAIFiltersRejected: true,
+        reportAIFiltersPromptOpen: true,
+        setOldInputs: (oldInputs: CyclotronJobInputSchemaType[]) => ({ oldInputs }),
+        setNewInputs: (newInputs: CyclotronJobInputSchemaType[]) => ({ newInputs }),
+        clearInputsDiff: true,
+        reportAIHogFunctionInputsPrompted: true,
+        reportAIHogFunctionInputsAccepted: true,
+        reportAIHogFunctionInputsRejected: true,
+        reportAIHogFunctionInputsPromptOpen: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -369,6 +382,34 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 clearHogCodeDiff: () => null,
             },
         ],
+        oldFilters: [
+            null as CyclotronJobFiltersType | null,
+            {
+                setOldFilters: (_, { oldFilters }) => oldFilters,
+                clearFiltersDiff: () => null,
+            },
+        ],
+        newFilters: [
+            null as CyclotronJobFiltersType | null,
+            {
+                setNewFilters: (_, { newFilters }) => newFilters,
+                clearFiltersDiff: () => null,
+            },
+        ],
+        oldInputs: [
+            null as CyclotronJobInputSchemaType[] | null,
+            {
+                setOldInputs: (_, { oldInputs }) => oldInputs,
+                clearInputsDiff: () => null,
+            },
+        ],
+        newInputs: [
+            null as CyclotronJobInputSchemaType[] | null,
+            {
+                setNewInputs: (_, { newInputs }) => newInputs,
+                clearInputsDiff: () => null,
+            },
+        ],
     })),
     loaders(({ actions, props, values }) => ({
         template: [
@@ -385,8 +426,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const dbTemplates = !!values.featureFlags[FEATURE_FLAGS.GET_HOG_TEMPLATES_FROM_DB]
-                    const res = await api.hogFunctions.getTemplate(props.templateId, dbTemplates)
+                    const res = await api.hogFunctions.getTemplate(props.templateId)
 
                     if (!res) {
                         throw new Error('Template not found')
@@ -611,10 +651,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             : type === 'source_webhook'
                             ? 'Sources'
                             : 'Destinations'
-                    const folder = await asyncSaveToModal({ defaultFolder: `Unfiled/${typeFolder}` })
-                    if (typeof folder === 'string') {
-                        payload._create_in_folder = folder
-                    }
+                    payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
             },
@@ -1123,6 +1160,23 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        currentInputs: [
+            (s) => [s.newInputs, s.configuration],
+            (newInputs: CyclotronJobInputSchemaType[] | null, configuration: HogFunctionConfigurationType) => {
+                return newInputs ?? configuration.inputs_schema ?? []
+            },
+        ],
+
+        inputsDiff: [
+            (s) => [s.oldInputs, s.newInputs],
+            (oldInputs: CyclotronJobInputSchemaType[] | null, newInputs: CyclotronJobInputSchemaType[] | null) => {
+                if (!oldInputs || !newInputs) {
+                    return null
+                }
+                return { oldInputs, newInputs }
+            },
+        ],
+
         canLoadSampleGlobals: [
             (s) => [s.lastEventQuery],
             (lastEventQuery) => {
@@ -1143,6 +1197,30 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         reportAIHogFunctionPromptOpen: () => {
             posthog.capture('ai_hog_function_prompt_open', { type: values.type })
+        },
+        reportAIFiltersPrompted: () => {
+            posthog.capture('ai_hog_function_filters_prompted', { type: values.type })
+        },
+        reportAIFiltersAccepted: () => {
+            posthog.capture('ai_hog_function_filters_accepted', { type: values.type })
+        },
+        reportAIFiltersRejected: () => {
+            posthog.capture('ai_hog_function_filters_rejected', { type: values.type })
+        },
+        reportAIFiltersPromptOpen: () => {
+            posthog.capture('ai_hog_function_filters_prompt_open', { type: values.type })
+        },
+        reportAIHogFunctionInputsPrompted: () => {
+            posthog.capture('ai_hog_function_inputs_prompted', { type: values.type })
+        },
+        reportAIHogFunctionInputsAccepted: () => {
+            posthog.capture('ai_hog_function_inputs_accepted', { type: values.type })
+        },
+        reportAIHogFunctionInputsRejected: () => {
+            posthog.capture('ai_hog_function_inputs_rejected', { type: values.type })
+        },
+        reportAIHogFunctionInputsPromptOpen: () => {
+            posthog.capture('ai_hog_function_inputs_prompt_open', { type: values.type })
         },
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {

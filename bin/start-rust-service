@@ -36,7 +36,7 @@ case "$RS_SVC" in
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
-    export ADDRESS=0.0.0.0:3303 # avoid port conflict in local dev
+    export ADDRESS=0.0.0.0:3307 # avoid port conflict in local dev
     export KAFKA_HOSTS=localhost:9092
     export REDIS_URL=redis://localhost:6379
     export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
@@ -77,20 +77,6 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS="true"
     ;;
 
-  cyclotron-fetch)
-    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
-    export RUST_BACKTRACE=1
-    export KAFKA_HOSTS=localhost:9092
-    export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron
-    export WORKER_ID=default_worker_id
-    export JOB_POLL_INTERVAL=1s
-    export MAX_CONCURRENT_JOBS=10
-    export DEBUG=1
-    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
-    ;;
-
   cyclotron-janitor)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
@@ -98,6 +84,21 @@ case "$RS_SVC" in
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=clickhouse_app_metrics2
     export DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron
+    export DEBUG=1
+    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    ;;
+
+  feature-flags)
+    # Download MaxMind DB if it doesn't exist
+    ./bin/download-mmdb
+    
+    export RUST_LOG=debug,tower=warn,maxminddb=warn
+    export RUST_BACKTRACE=1
+    export WRITE_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export READ_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export MAXMIND_DB_PATH=../share/GeoLite2-City.mmdb
+    export REDIS_URL=redis://localhost:6379/
+    export ADDRESS=0.0.0.0:3001
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;

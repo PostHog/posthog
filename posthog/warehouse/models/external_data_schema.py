@@ -1,7 +1,7 @@
 import uuid
 from dateutil import parser
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import numpy
 import psycopg2
@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.pipelines.mysql import (
     MySQLSourceConfig,
     get_schemas as get_mysql_schemas,
 )
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.postgres import (
     PostgreSQLSourceConfig,
@@ -35,7 +36,7 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.s3 import get_s3_client
 from posthog.warehouse.types import IncrementalFieldType
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 from .external_data_source import ExternalDataSource
 
@@ -192,15 +193,17 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     def set_partitioning_enabled(
         self,
         partitioning_keys: list[str],
-        partition_count: int,
-        partition_size: int,
-        partition_mode: PartitionMode,
+        partition_count: Optional[int],
+        partition_size: Optional[int],
+        partition_mode: Optional[PartitionMode],
+        partition_format: Optional[PartitionFormat],
     ) -> None:
         self.sync_type_config["partitioning_enabled"] = True
         self.sync_type_config["partition_count"] = partition_count
         self.sync_type_config["partition_size"] = partition_size
         self.sync_type_config["partitioning_keys"] = partitioning_keys
         self.sync_type_config["partition_mode"] = partition_mode
+        self.sync_type_config["partition_format"] = partition_format
         self.save()
 
     def update_sync_type_config_for_reset_pipeline(self) -> None:
@@ -212,6 +215,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.sync_type_config.pop("partition_count", None)
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
+        # We don't reset partition_format
 
         self.save()
 
@@ -274,7 +278,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             self.save()
 
 
-def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
+def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
 
@@ -286,6 +290,9 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
     if field_type == IncrementalFieldType.Date:
         return parser.parse(value).date()
+
+    if field_type == IncrementalFieldType.ObjectID:
+        return str(value)
 
 
 @database_sync_to_async
@@ -445,7 +452,11 @@ def get_postgres_row_count(
         try:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s",
+                    """
+                    SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
+                    UNION ALL
+                    SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s
+                    """,
                     {"schema": schema},
                 )
                 tables = cursor.fetchall()

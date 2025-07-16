@@ -13,7 +13,7 @@ from ee.session_recordings.session_summary.prompt_data import SessionSummaryProm
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.warehouse.util import database_sync_to_async
+from posthog.sync import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +34,7 @@ class _SessionSummaryDBData:
 class _SessionSummaryPromptData:
     prompt_data: SessionSummaryPromptData
     simplified_events_mapping: dict[str, list[str | int | list[str] | None]]
+    event_ids_mapping: dict[str, str]
     url_mapping_reversed: dict[str, str]
     window_mapping_reversed: dict[str, str]
 
@@ -41,6 +42,12 @@ class _SessionSummaryPromptData:
 @dataclass(frozen=True)
 class SessionSummaryPrompt:
     summary_prompt: str
+    system_prompt: str
+
+
+@dataclass(frozen=True)
+class PatternsPrompt:
+    patterns_prompt: str
     system_prompt: str
 
 
@@ -62,6 +69,7 @@ class SingleSessionSummaryLlmInputs:
     summary_prompt: str
     system_prompt: str
     simplified_events_mapping: dict[str, list[str | int | None | list[str]]]
+    event_ids_mapping: dict[str, str]
     simplified_events_columns: list[str]
     url_mapping_reversed: dict[str, str]
     window_mapping_reversed: dict[str, str]
@@ -126,7 +134,7 @@ def prepare_prompt_data(
 ) -> _SessionSummaryPromptData:
     with timer("prepare_prompt_data"):
         prompt_data = SessionSummaryPromptData()
-        simplified_events_mapping = prompt_data.load_session_data(
+        simplified_events_mapping, event_ids_mapping = prompt_data.load_session_data(
             raw_session_events=session_events,
             raw_session_metadata=session_metadata,
             raw_session_columns=session_events_columns,
@@ -140,6 +148,7 @@ def prepare_prompt_data(
     return _SessionSummaryPromptData(
         prompt_data=prompt_data,
         simplified_events_mapping=simplified_events_mapping,
+        event_ids_mapping=event_ids_mapping,
         url_mapping_reversed=url_mapping_reversed,
         window_mapping_reversed=window_mapping_reversed,
     )
@@ -162,10 +171,10 @@ def generate_single_session_summary_prompt(
             "FOCUS_AREA": extra_summary_context.focus_area if extra_summary_context else None,
         },
     )
-    summary_example = load_custom_template(template_dir, f"example.yml")
+    summary_example = load_custom_template(template_dir, "example.yml")
     summary_prompt = load_custom_template(
         template_dir,
-        f"prompt.djt",
+        "prompt.djt",
         {
             "EVENTS_DATA": json.dumps(prompt_data.results),
             "SESSION_METADATA": json.dumps(prompt_data.metadata.to_dict()),
@@ -246,6 +255,7 @@ def prepare_single_session_summary_input(
         summary_prompt=summary_data.prompt.summary_prompt,
         system_prompt=summary_data.prompt.system_prompt,
         simplified_events_mapping=summary_data.prompt_data.simplified_events_mapping,
+        event_ids_mapping=summary_data.prompt_data.event_ids_mapping,
         simplified_events_columns=summary_data.prompt_data.prompt_data.columns,
         url_mapping_reversed=summary_data.prompt_data.url_mapping_reversed,
         window_mapping_reversed=summary_data.prompt_data.window_mapping_reversed,

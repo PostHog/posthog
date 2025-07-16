@@ -37,6 +37,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isReasoningMessage } from './utils'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -109,7 +110,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     })),
 
     actions({
-        askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
+        // null prompt means continuing previous generation
+        askMax: (prompt: string | null, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
         completeThreadGeneration: true,
         addMessage: (message: ThreadMessage) => ({ message }),
@@ -176,9 +178,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
     listeners(({ actions, values, cache, props }) => ({
         askMax: async ({ prompt, generationAttempt }, breakpoint) => {
+            if (!values.dataProcessingAccepted) {
+                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
+            }
             // Clear the question
             actions.setQuestion('')
-            // Set active streaming threads, so we now how many are running
+            // Set active streaming threads, so we know how many are running
             actions.setActiveStreamingThreads(1)
 
             // For a new conversations, set the temporary conversation ID, which will be replaced with the actual conversation ID once the first message is generated
@@ -196,7 +201,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.updateGlobalConversationCache(updatedConversation)
             }
 
-            if (generationAttempt === 0) {
+            if (generationAttempt === 0 && prompt) {
                 const message: ThreadMessage = {
                     type: AssistantMessageType.Human,
                     content: prompt,
@@ -236,7 +241,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const decoder = new TextDecoder()
 
                 const parser = createParser({
-                    onEvent: ({ data, event }) => {
+                    onEvent: async ({ data, event }) => {
                         // A Conversation object is only received when the conversation is new
                         if (event === AssistantEventType.Conversation) {
                             const parsedResponse = parseResponse<Conversation>(data)
@@ -273,7 +278,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                 })
                             } else if (isAssistantToolCallMessage(parsedResponse)) {
                                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                                    values.toolMap[toolName]?.callback(toolResult)
+                                    // Empty message in askMax effectively means "just resume generation with current context"
+                                    await values.toolMap[toolName]?.callback(toolResult)
+                                    // The `navigate` tool is the only one doing client-side formatting currently
+                                    if (toolName === 'navigate') {
+                                        actions.askMax(null) // Continue generation
+                                        parsedResponse.content = parsedResponse.content.replace(
+                                            toolResult.page_key,
+                                            breadcrumbsLogic.values.sceneBreadcrumbsDisplayString
+                                        )
+                                    }
                                 }
                                 actions.addMessage({
                                     ...parsedResponse,
@@ -489,24 +503,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             },
         ],
 
-        inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+        inputDisabled: [
+            (s) => [s.formPending, s.threadLoading, s.dataProcessingAccepted],
+            (formPending, threadLoading, dataProcessingAccepted) =>
+                // Input unavailable when:
+                // - Answer must be provided using a form returned by Max only
+                // - We are awaiting user to approve or reject external AI processing data
+                formPending || (threadLoading && !dataProcessingAccepted),
+        ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading, s.activeStreamingThreads],
-            (
-                formPending,
-                dataProcessingAccepted,
-                question,
-                threadLoading,
-                activeStreamingThreads
-            ): string | undefined => {
+            (s) => [s.formPending, s.question, s.threadLoading, s.activeStreamingThreads],
+            (formPending, question, threadLoading, activeStreamingThreads): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
-                }
-
-                if (!dataProcessingAccepted) {
-                    return 'Please accept the data processing'
                 }
 
                 if (formPending) {

@@ -44,6 +44,8 @@ import {
     HogQLQueryModifiers,
     HogQLVariable,
     InsightVizNode,
+    MarketingAnalyticsTableQuery,
+    MarketingAnalyticsTableQueryResponse,
     NodeKind,
     PersonsNode,
     QueryStatus,
@@ -60,12 +62,14 @@ import {
     isHogQLQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
+    isMarketingAnalyticsTableQuery,
     isPersonsNode,
     isTracesQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
 import type { dataNodeLogicType } from './dataNodeLogicType'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -120,6 +124,26 @@ function addModifiers(query: DataNode, modifiers?: HogQLQueryModifiers): DataNod
         ...query,
         modifiers: { ...query.modifiers, ...modifiers },
     }
+}
+
+function addTags<T extends Record<string, any>>(query: DataNode<T>): DataNode<T> {
+    // find the currently mounted scene logic to get the active scene, but don't use the kea connect()
+    // method to do this as we don't want to mount the sceneLogic if it isn't already mounted
+    const mountedSceneLogic = sceneLogic.findMounted()
+    const activeScene = mountedSceneLogic?.values.activeScene
+
+    const tags = query.tags ? { ...query.tags } : {}
+    if (!tags.scene && activeScene) {
+        tags.scene = activeScene
+    }
+    const result: DataNode<T> = {
+        ...query,
+        tags,
+    }
+    if (result.tags && Object.keys(result.tags).length === 0) {
+        delete result.tags // Remove empty tags object
+    }
+    return result
 }
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
@@ -213,7 +237,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 setResponse: (response) => response,
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
-                    const query = overrideQuery ?? props.query
+                    const query = addTags(overrideQuery ?? props.query)
+
                     // Use the explicit refresh type passed, or determine it based on query type
                     // Default to non-force variants
                     let refresh: RefreshType = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
@@ -359,7 +384,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
                         isErrorTrackingQuery(props.query) ||
-                        isTracesQuery(props.query)
+                        isTracesQuery(props.query) ||
+                        isMarketingAnalyticsTableQuery(props.query)
                     ) {
                         const newResponse =
                             (await performQuery(
@@ -374,6 +400,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | GroupsQueryResponse
                             | ErrorTrackingQueryResponse
                             | TracesQueryResponse
+                            | MarketingAnalyticsTableQueryResponse
                         return {
                             ...queryResponse,
                             results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
@@ -617,7 +644,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isActorsQuery(query) ||
                         isGroupsQuery(query) ||
                         isErrorTrackingQuery(query) ||
-                        isTracesQuery(query)) &&
+                        isTracesQuery(query) ||
+                        isMarketingAnalyticsTableQuery(query)) &&
                     !responseError &&
                     !dataLoading
                 ) {
@@ -629,6 +657,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 | GroupsQueryResponse
                                 | ErrorTrackingQueryResponse
                                 | TracesQueryResponse
+                                | MarketingAnalyticsTableQueryResponse
                         )?.hasMore
                     ) {
                         const sortKey = isTracesQuery(query) ? null : query.orderBy?.[0] ?? 'timestamp DESC'
@@ -659,12 +688,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     | GroupsQueryResponse
                                     | ErrorTrackingQueryResponse
                                     | TracesQueryResponse
+                                    | MarketingAnalyticsTableQueryResponse
                             )?.results
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | ActorsQuery | GroupsQuery | ErrorTrackingQuery | TracesQuery
+                            } as
+                                | EventsQuery
+                                | ActorsQuery
+                                | GroupsQuery
+                                | ErrorTrackingQuery
+                                | TracesQuery
+                                | MarketingAnalyticsTableQuery
                         }
                     }
                 }

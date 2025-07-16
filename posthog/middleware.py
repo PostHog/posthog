@@ -37,7 +37,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
+from posthog.settings import SITE_URL, PROJECT_SWITCHING_TOKEN_ALLOWLIST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -48,6 +48,7 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "_health",
     "flags",
     "messaging-preferences",
+    "i",
 ]
 
 default_cookie_options = {
@@ -78,7 +79,7 @@ class AllowIPMiddleware:
     def get_forwarded_for(self, request: HttpRequest):
         forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         if forwarded_for is not None:
-            return [ip.strip() for ip in forwarded_for.split(",")]
+            return [ip.strip() for ip in forwarded_for.split(",") if ip.strip()]
         else:
             return []
 
@@ -122,8 +123,6 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
-            return self._accept(request)
-        if DEBUG and request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return self._accept(request)
         return result
 
@@ -302,8 +301,7 @@ class CHQueries:
 
         with suppress(Exception):
             if request_id := structlog.get_context(self.logger).get("request_id"):
-                uuid.UUID(request_id)  # just to verify it is a real UUID
-                tag_queries(http_request_id=request_id)
+                tag_queries(http_request_id=uuid.UUID(request_id))
 
         tag_queries(
             user_id=user.pk,

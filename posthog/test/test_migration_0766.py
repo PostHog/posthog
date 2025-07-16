@@ -3,6 +3,10 @@ import uuid
 
 from posthog.test.base import NonAtomicTestMigrations
 
+import pytest
+
+pytestmark = pytest.mark.skip("old migrations slow overall test run down")
+
 
 class FixSubTemplateIdsToTemplateIdsMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0765_hogflows"

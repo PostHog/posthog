@@ -95,7 +95,7 @@ pub async fn main() -> Result<(), Error> {
                     .pause(
                         context.clone(),
                         error_msg,
-                        user_facing_error_message.to_string(),
+                        Some(user_facing_error_message.to_string()),
                     )
                     .await
                 {

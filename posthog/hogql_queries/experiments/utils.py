@@ -3,6 +3,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentVariantResultFrequentist,
+    ExperimentVariantResultBayesian,
     ExperimentQueryResponse,
     ExperimentStatsBase,
     ExperimentSignificanceCode,
@@ -15,6 +16,7 @@ from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     ProportionStatistic,
 )
+from products.experiments.stats.bayesian.method import BayesianMethod, BayesianConfig
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
@@ -192,6 +194,53 @@ def get_frequentist_experiment_result_new_format(
                 sum=test_variant.sum,
                 sum_squares=test_variant.sum_squares,
                 significant=result.is_significant,
+            )
+        )
+
+    return ExperimentQueryResponse(
+        baseline=control_variant,
+        variant_results=variants,
+    )
+
+
+def get_bayesian_experiment_result_new_format(
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+    control_variant: ExperimentStatsBase,
+    test_variants: list[ExperimentStatsBase],
+) -> ExperimentQueryResponse:
+    """
+    Get experiment results using the new Bayesian method with the new format
+    """
+    # Configure Bayesian method
+    # TODO: Consider allowing user configuration of these parameters
+    config = BayesianConfig(
+        ci_level=0.95,
+        difference_type=DifferenceType.RELATIVE,  # Default to relative differences
+        inverse=False,  # Default to "higher is better"
+        proper_prior=False,  # Use non-informative prior by default
+    )
+    method = BayesianMethod(config)
+
+    control_stat = metric_variant_to_statistic(metric, control_variant)
+
+    variants: list[ExperimentVariantResultBayesian] = []
+
+    for test_variant in test_variants:
+        test_stat = metric_variant_to_statistic(metric, test_variant)
+        result = method.run_test(test_stat, control_stat)
+
+        # Convert credible interval to percentage
+        credible_interval = [result.credible_interval[0], result.credible_interval[1]]
+
+        variants.append(
+            ExperimentVariantResultBayesian(
+                key=test_variant.key,
+                chance_to_win=result.chance_to_win,
+                credible_interval=credible_interval,
+                number_of_samples=test_variant.number_of_samples,
+                sum=test_variant.sum,
+                sum_squares=test_variant.sum_squares,
+                significant=result.is_decisive,  # Use is_decisive for significance
             )
         )
 

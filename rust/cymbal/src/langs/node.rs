@@ -1,6 +1,7 @@
 use crate::{
     error::{Error, FrameError, JsResolveErr, UnhandledError},
     frames::{Context, ContextLine, Frame},
+    langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
@@ -22,9 +23,6 @@ pub struct RawNodeFrame {
     pub lineno: Option<u32>, // The line number of the context line
     pub colno: Option<u32>,  // The column number of the context line
     pub module: Option<String>, // The python-import style module name the function is in
-    // Default to false as sometimes not present on library code
-    #[serde(default)]
-    pub in_app: bool, // Whether the frame is in the user's code
     pub context_line: Option<String>, // The line of code the exception came from
     #[serde(default)]
     pub pre_context: Vec<String>, // The lines of code before the context line
@@ -32,6 +30,8 @@ pub struct RawNodeFrame {
     pub post_context: Vec<String>, // The lines of code after the context line
     #[serde(alias = "chunkId", skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
+    #[serde(flatten)]
+    meta: CommonFrameMetadata,
 }
 
 impl RawNodeFrame {
@@ -151,7 +151,7 @@ impl From<&RawNodeFrame> for Frame {
             line: raw.lineno,
             column: None,
             source: Some(raw.filename.clone()),
-            in_app: raw.in_app,
+            in_app: raw.meta.in_app,
             resolved_name: Some(raw.function.clone()),
             lang: "javascript".to_string(),
             resolved: true,
@@ -159,6 +159,7 @@ impl From<&RawNodeFrame> for Frame {
             junk_drawer: None,
             context: raw.get_context(),
             release: None,
+            synthetic: raw.meta.synthetic,
         }
     }
 }
@@ -180,7 +181,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
 
         let in_app = source
             .map(|s| !s.contains("node_modules"))
-            .unwrap_or(raw_frame.in_app);
+            .unwrap_or(raw_frame.meta.in_app);
 
         let mut res = Self {
             raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
@@ -199,6 +200,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             junk_drawer: None,
             context: get_context(&location),
             release: None,
+            synthetic: raw_frame.meta.synthetic,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -229,7 +231,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             line: raw_frame.lineno,
             column: raw_frame.colno,
             source: None,
-            in_app: raw_frame.in_app,
+            in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
             resolved: !was_minified,
@@ -240,6 +242,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             junk_drawer: None,
             context: raw_frame.get_context(),
             release: None,
+            synthetic: raw_frame.meta.synthetic,
         };
 
         add_raw_to_junk(&mut res, raw_frame);

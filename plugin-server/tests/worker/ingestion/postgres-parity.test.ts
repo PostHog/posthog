@@ -364,8 +364,12 @@ describe('postgres parity', () => {
 
         // move distinct ids from person to to anotherPerson
 
-        const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
-        await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
+        const moveDistinctIdsResult = await hub.db.moveDistinctIds(person, anotherPerson)
+        expect(moveDistinctIdsResult.success).toEqual(true)
+
+        if (moveDistinctIdsResult.success) {
+            await hub.db!.kafkaProducer!.queueMessages(moveDistinctIdsResult.messages)
+        }
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
@@ -419,7 +423,7 @@ describe('postgres parity', () => {
         expect(newClickHouseDistinctIdRemoved).toEqual([])
 
         // delete person
-        await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
+        await hub.db.postgres.transaction(PostgresUse.PERSONS_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })

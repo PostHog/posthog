@@ -1,6 +1,9 @@
 import '@xyflow/react/dist/style.css'
 
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -8,22 +11,21 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { campaignLogic, CampaignLogicProps } from './campaignLogic'
+import { HogFlowFilters } from './hogflows/filters/HogFlowFilters'
+import { IconBolt, IconLeave, IconPlusSmall, IconTarget } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonTag, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
-export function CampaignOverview({ id }: CampaignLogicProps): JSX.Element {
+export function CampaignOverview(props: CampaignLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
-            <Form id="campaign-overview" logic={campaignLogic} props={{ id }} formKey="campaign" enableFormOnSubmit>
-                <div className="flex flex-col flex-wrap gap-4 items-start mb-72">
+            <Form id="campaign-overview" logic={campaignLogic} props={props} formKey="campaign" enableFormOnSubmit>
+                <div className="flex flex-col flex-wrap gap-4 items-start">
                     <BasicInfoSection />
-                    <TriggerSection />
-                    <div className="flex gap-4 w-full">
-                        <ConversionGoalSection />
-                        <ExitConditionSection />
-                    </div>
+                    <TriggerSection {...props} />
+                    <ConversionGoalSection />
+                    <ExitConditionSection />
                 </div>
             </Form>
         </div>
@@ -32,72 +34,66 @@ export function CampaignOverview({ id }: CampaignLogicProps): JSX.Element {
 
 function BasicInfoSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 w-full rounded border bg-surface-primary p-3">
+        <div className="flex flex-col gap-2 py-2 w-120">
             <LemonField name="name" label="Name">
                 <LemonInput />
             </LemonField>
             <LemonField name="description" label="Description">
-                <LemonInput />
+                <LemonTextArea placeholder="Help your teammates understand this campaign" />
             </LemonField>
         </div>
     )
 }
 
-function TriggerSection(): JSX.Element {
+function TriggerSection(props: CampaignLogicProps): JSX.Element {
+    const logic = campaignLogic(props)
+    const { campaignValidationErrors } = useValues(logic)
+
     return (
-        <div className="flex flex-col gap-2 w-full rounded border bg-surface-primary p-3">
+        <div className="flex flex-col py-2 w-full">
             <div className="flex flex-col">
-                <p className="text-lg font-semibold mb-1">Campaign trigger event</p>
+                <span className="flex items-center">
+                    <IconBolt className="text-lg" />
+                    <span className="text-lg font-semibold">Trigger event</span>
+                </span>
                 <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
             </div>
-            <LemonField name="triggerEvents">
+            <LemonDivider />
+            <LemonField name={['trigger', 'filters']} className="max-w-200">
                 {({ value, onChange }) => (
-                    <ActionFilter
+                    <HogFlowFilters
                         filters={value ?? {}}
                         setFilters={onChange}
                         typeKey="campaign-trigger"
-                        mathAvailability={MathAvailability.None}
-                        hideRename
-                        hideDuplicate
-                        showNestedArrow={false}
-                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-                        propertiesTaxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.EventProperties,
-                            TaxonomicFilterGroupType.EventFeatureFlags,
-                            TaxonomicFilterGroupType.Elements,
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                        propertyFiltersPopover
-                        addFilterDefaultOptions={{
-                            id: '$pageview',
-                            name: '$pageview',
-                            type: 'events',
-                        }}
-                        buttonProps={{
-                            type: 'secondary',
-                        }}
                         buttonCopy="Add trigger event"
                     />
                 )}
             </LemonField>
+            {campaignValidationErrors.trigger?.filters && (
+                <span className="text-danger text-sm mt-2">{campaignValidationErrors.trigger.filters}</span>
+            )}
         </div>
     )
 }
 
 function ConversionGoalSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 w-1/2 rounded border bg-surface-primary p-3 h-fit">
+        <div className="flex flex-col py-2 w-full">
             <div className="flex flex-col">
-                <p className="text-lg font-semibold mb-1">Conversion goal</p>
-                <p className="mb-0">Define what properties a user must have to be considered converted.</p>
+                <span className="flex items-center gap-1">
+                    <IconTarget className="text-lg" />
+                    <span className="text-lg font-semibold">Conversion goal (optional)</span>
+                </span>
+                <p className="mb-0">Define what a user must do to be considered converted.</p>
             </div>
+            <LemonDivider />
 
-            <div className="flex gap-1">
-                <div className="w-2/3">
-                    <LemonField name={['conversion', 'filters']} label="Conversion properties">
+            <div className="flex gap-1 max-w-240">
+                <div className="flex flex-col flex-2 gap-4">
+                    <LemonField name={['conversion', 'filters']} label="Detect conversion from property changes">
                         {({ value, onChange }) => (
                             <PropertyFilters
+                                buttonText="Add property conversion"
                                 propertyFilters={value ?? []}
                                 taxonomicGroupTypes={[
                                     TaxonomicFilterGroupType.PersonProperties,
@@ -110,9 +106,26 @@ function ConversionGoalSection(): JSX.Element {
                             />
                         )}
                     </LemonField>
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>
+                            Detect conversion from events
+                            <LemonTag>Coming soon</LemonTag>
+                        </LemonLabel>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                            onClick={() => {
+                                posthog.capture('messaging campaign event conversion clicked')
+                                lemonToast.info('Event targeting coming soon!')
+                            }}
+                        >
+                            Add event conversion
+                        </LemonButton>
+                    </div>
                 </div>
                 <LemonDivider vertical />
-                <div className="w-1/3">
+                <div className="flex-1">
                     <LemonField
                         name={['conversion', 'window']}
                         label="Conversion window"
@@ -139,12 +152,15 @@ function ConversionGoalSection(): JSX.Element {
 
 function ExitConditionSection(): JSX.Element {
     return (
-        <div className="flex flex-col gap-2 w-1/2 rounded border bg-surface-primary p-3">
+        <div className="flex flex-col flex-1 w-full py-2">
             <div className="flex flex-col">
-                <p className="text-lg font-semibold mb-1">Exit condition</p>
+                <span className="flex items-center gap-1">
+                    <IconLeave className="text-lg" />
+                    <span className="text-lg font-semibold">Exit condition</span>
+                </span>
                 <p className="mb-0">Choose how your users move through the campaign.</p>
             </div>
-
+            <LemonDivider />
             <LemonField name="exit_condition">
                 {({ value, onChange }) => (
                     <LemonRadio

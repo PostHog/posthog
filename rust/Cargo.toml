@@ -21,12 +21,10 @@ members = [
     "cyclotron-core",
     "cyclotron-node",
     "cyclotron-janitor",
-    "cyclotron-fetch",
     "cymbal",
     "common/geoip",
     "common/hogvm",
     "log-capture",
-    "links",
 ]
 
 [workspace.lints.rust]

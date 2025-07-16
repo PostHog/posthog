@@ -31,7 +31,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import {
     featureFlagReleaseConditionsLogic,
     FeatureFlagReleaseConditionsLogicProps,
-} from './FeatureFlagReleaseConditionsLogic'
+} from './featureFlagReleaseConditionsLogic'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === 'cohort') {
@@ -524,7 +524,7 @@ export function FeatureFlagReleaseConditions({
                                             <>
                                                 {' '}
                                                 Cohort-based targeting{' '}
-                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-behavioral-cohort-as-a-feature-flag-target">
+                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-cohort-as-a-feature-flag-target">
                                                     doesn't support dynamic behavioral cohorts.
                                                 </Link>{' '}
                                             </>
@@ -588,9 +588,13 @@ export function FeatureFlagReleaseConditions({
                 )}
             </div>
             <div className="FeatureConditionCard">
-                {filterGroups.map((group, index) =>
-                    isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
-                )}
+                {filterGroups.map((group, index) => (
+                    <div key={group.sort_key || index}>
+                        {isSuper
+                            ? renderSuperReleaseConditionGroup(group, index)
+                            : renderReleaseConditionGroup(group, index)}
+                    </div>
+                ))}
             </div>
             {!readOnly && (
                 <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>

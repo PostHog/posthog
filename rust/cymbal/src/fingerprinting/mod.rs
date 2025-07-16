@@ -140,6 +140,7 @@ mod test {
                 junk_drawer: None,
                 context: None,
                 release: None,
+                synthetic: false,
             },
             Frame {
                 raw_id: String::new(),
@@ -155,6 +156,7 @@ mod test {
                 junk_drawer: None,
                 context: None,
                 release: None,
+                synthetic: false,
             },
         ];
 
@@ -172,6 +174,7 @@ mod test {
             junk_drawer: None,
             context: None,
             release: None,
+            synthetic: false,
         };
 
         exception.stack = Some(Stacktrace::Resolved {
@@ -219,6 +222,7 @@ mod test {
                 junk_drawer: None,
                 context: None,
                 release: None,
+                synthetic: false,
             },
             Frame {
                 raw_id: String::new(),
@@ -234,6 +238,7 @@ mod test {
                 junk_drawer: None,
                 context: None,
                 release: None,
+                synthetic: false,
             },
             Frame {
                 raw_id: String::new(),
@@ -249,6 +254,7 @@ mod test {
                 junk_drawer: None,
                 context: None,
                 release: None,
+                synthetic: false,
             },
         ];
 
@@ -290,6 +296,7 @@ mod test {
             junk_drawer: None,
             context: None,
             release: None,
+            synthetic: false,
         }];
 
         let non_app_frame = Frame {
@@ -306,6 +313,7 @@ mod test {
             junk_drawer: None,
             context: None,
             release: None,
+            synthetic: false,
         };
 
         exception.stack = Some(Stacktrace::Resolved {

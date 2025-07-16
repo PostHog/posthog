@@ -1,8 +1,44 @@
-import { ExperimentVariantResultFrequentist } from '~/queries/schema/schema-general'
-
 import { useChartColors } from '../shared/colors'
-import { valueToXCoordinate } from '../shared/utils'
+import { type ExperimentVariantResult, getVariantInterval, isBayesianResult, valueToXCoordinate } from '../shared/utils'
+import { generateViolinPath } from '../legacy/violinUtils'
 import { BAR_HEIGHT, BAR_SPACING, SVG_EDGE_MARGIN, VIEW_BOX_WIDTH } from './constants'
+
+function VariantGradient({
+    metricIndex,
+    variantKey,
+    isSecondary,
+    lower,
+    upper,
+    colors,
+}: {
+    metricIndex: number
+    variantKey: string
+    isSecondary: boolean
+    lower: number
+    upper: number
+    colors: any
+}): JSX.Element {
+    return (
+        <linearGradient
+            id={`gradient-${metricIndex}-${variantKey}-${isSecondary ? 'secondary' : 'primary'}`}
+            x1="0"
+            x2="1"
+            y1="0"
+            y2="0"
+        >
+            {lower < 0 && upper > 0 ? (
+                <>
+                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
+                    <stop offset={`${(-lower / (upper - lower)) * 100}%`} stopColor={colors.BAR_NEGATIVE} />
+                    <stop offset={`${(-lower / (upper - lower)) * 100}%`} stopColor={colors.BAR_POSITIVE} />
+                    <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
+                </>
+            ) : (
+                <stop offset="100%" stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE} />
+            )}
+        </linearGradient>
+    )
+}
 
 export function VariantBar({
     variantResult,
@@ -15,7 +51,7 @@ export function VariantBar({
     chartHeight,
     totalBars,
 }: {
-    variantResult: ExperimentVariantResultFrequentist
+    variantResult: ExperimentVariantResult
     index: number
     chartRadius: number
     metricIndex: number
@@ -25,7 +61,7 @@ export function VariantBar({
     chartHeight: number
     totalBars: number
 }): JSX.Element {
-    const interval = variantResult.confidence_interval
+    const interval = getVariantInterval(variantResult)
 
     const [lower, upper] = interval ? [interval[0], interval[1]] : [0, 0]
 
@@ -61,65 +97,38 @@ export function VariantBar({
                         {variantResult.key}
                     </text>
 
-                    {/* Confidence interval bar */}
-                    {variantResult.key === 'control' ? (
+                    {/* Gradient definition for both violin and rectangular bars */}
+                    <defs>
+                        <VariantGradient
+                            metricIndex={metricIndex}
+                            variantKey={variantResult.key}
+                            isSecondary={isSecondary}
+                            lower={lower}
+                            upper={upper}
+                            colors={colors}
+                        />
+                    </defs>
+
+                    {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
+                    {isBayesianResult(variantResult) ? (
+                        <path
+                            d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
+                                isSecondary ? 'secondary' : 'primary'
+                            })`}
+                        />
+                    ) : (
                         <rect
                             x={x1}
                             y={y}
                             width={x2 - x1}
                             height={BAR_HEIGHT}
-                            fill={colors.BAR_CONTROL}
-                            stroke={colors.BOUNDARY_LINES}
-                            strokeWidth={1}
-                            strokeDasharray="2,2"
+                            fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
+                                isSecondary ? 'secondary' : 'primary'
+                            })`}
                             rx={3}
                             ry={3}
                         />
-                    ) : (
-                        <>
-                            <defs>
-                                <linearGradient
-                                    id={`gradient-${metricIndex}-${variantResult.key}-${
-                                        isSecondary ? 'secondary' : 'primary'
-                                    }`}
-                                    x1="0"
-                                    x2="1"
-                                    y1="0"
-                                    y2="0"
-                                >
-                                    {lower < 0 && upper > 0 ? (
-                                        <>
-                                            <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
-                                            <stop
-                                                offset={`${(-lower / (upper - lower)) * 100}%`}
-                                                stopColor={colors.BAR_NEGATIVE}
-                                            />
-                                            <stop
-                                                offset={`${(-lower / (upper - lower)) * 100}%`}
-                                                stopColor={colors.BAR_POSITIVE}
-                                            />
-                                            <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
-                                        </>
-                                    ) : (
-                                        <stop
-                                            offset="100%"
-                                            stopColor={upper <= 0 ? colors.BAR_NEGATIVE : colors.BAR_POSITIVE}
-                                        />
-                                    )}
-                                </linearGradient>
-                            </defs>
-                            <rect
-                                x={x1}
-                                y={y}
-                                width={x2 - x1}
-                                height={BAR_HEIGHT}
-                                fill={`url(#gradient-${metricIndex}-${variantResult.key}-${
-                                    isSecondary ? 'secondary' : 'primary'
-                                })`}
-                                rx={3}
-                                ry={3}
-                            />
-                        </>
                     )}
 
                     {/* Delta marker */}
@@ -128,9 +137,7 @@ export function VariantBar({
                         y1={y}
                         x2={deltaX}
                         y2={y + BAR_HEIGHT}
-                        stroke={
-                            variantResult.key === 'control' ? colors.BAR_MIDDLE_POINT_CONTROL : colors.BAR_MIDDLE_POINT
-                        }
+                        stroke={colors.BAR_MIDDLE_POINT}
                         strokeWidth={2}
                         shapeRendering="crispEdges"
                     />

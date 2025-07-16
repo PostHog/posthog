@@ -6,6 +6,7 @@ import datetime as dt
 import gzip
 import hashlib
 import json
+from django.urls import URLPattern, re_path
 import orjson
 import os
 import re
@@ -14,7 +15,7 @@ import string
 import time
 import uuid
 import zlib
-from collections.abc import Generator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
@@ -1591,3 +1592,9 @@ def to_json(obj: dict) -> bytes:
     json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
 
     return json_string
+
+
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
+    """Catches path with or without trailing slash, taking into account query param and hash."""
+    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore

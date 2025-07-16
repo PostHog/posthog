@@ -9,6 +9,7 @@ import { NotebookSyncStatus } from '~/types'
 
 import { notebookLogic, NotebookLogicProps } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { IconBook } from '@posthog/icons'
 
 const syncStatusMap: Record<NotebookSyncStatus, { content: React.ReactNode; tooltip: React.ReactNode }> = {
     synced: {
@@ -92,6 +93,21 @@ export const NotebookExpandButton = (props: Pick<LemonButtonProps, 'size' | 'typ
             onClick={() => setIsExpanded(!isExpanded)}
             icon={<IconDocumentExpand mode={isExpanded ? 'expand' : 'collapse'} />}
             tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+            tooltipPlacement="left"
+        />
+    )
+}
+
+export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
+    const { showTableOfContents } = useValues(notebookSettingsLogic)
+    const { setShowTableOfContents } = useActions(notebookSettingsLogic)
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setShowTableOfContents(!showTableOfContents)}
+            icon={<IconBook />}
+            tooltip={showTableOfContents ? 'Hide table of contents' : 'Show table of contents'}
             tooltipPlacement="left"
         />
     )

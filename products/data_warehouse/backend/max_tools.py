@@ -58,7 +58,11 @@ class HogQLGeneratorTool(MaxTool):
                     + SCHEMA_MESSAGE.format(schema_description=schema_description)
                     + "\n\n<current_query>\n{{{current_query}}}\n</current_query>",
                 ),
-                ("user", "Write a new HogQL query or tweak the current one to satisfy this request: " + instructions),
+                (
+                    "user",
+                    "Write a new HogQL query or modify the current one to satisfy this request. ONLY make formatting or casing changes if explicitly requested by the user. Request:"
+                    + instructions,
+                ),
             ],
             template_format="mustache",
         )
@@ -80,7 +84,7 @@ class HogQLGeneratorTool(MaxTool):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True).with_structured_output(
             SQL_SCHEMA,
             method="function_calling",
             include_raw=False,

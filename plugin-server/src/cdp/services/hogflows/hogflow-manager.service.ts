@@ -42,7 +42,7 @@ export class HogFlowManagerService {
                     teamId: Team['id']
                     hogFlowIds: HogFlow['id'][]
                 }
-                logger.info('⚡', '[PubSub] Reloading hog flows!', { teamId, hogFlowIds })
+                logger.debug('⚡', '[PubSub] Reloading hog flows!', { teamId, hogFlowIds })
                 this.onHogFlowsReloaded(teamId, hogFlowIds)
             },
         })
@@ -126,13 +126,13 @@ export class HogFlowManagerService {
         return await this.lazyLoader.getMany(ids)
     }
 
-    private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]) {
+    private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
         this.lazyLoader.markForRefresh(hogFlowIds)
     }
 
     private async fetchTeamHogFlows(teamIds: string[]): Promise<Record<string, HogFlowTeamInfo[]>> {
-        logger.info('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
+        logger.debug('[HogFlowManager]', 'Fetching team hog flows', { teamIds })
         const response = await this.hub.postgres.query<HogFlowTeamInfo>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, version FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
@@ -154,7 +154,7 @@ export class HogFlowManagerService {
     }
 
     private async fetchHogFlows(ids: string[]): Promise<Record<string, HogFlow | undefined>> {
-        logger.info('[HogFlowManager]', 'Fetching hog flows', { ids })
+        logger.debug('[HogFlowManager]', 'Fetching hog flows', { ids })
 
         const response = await this.hub.postgres.query<HogFlow>(
             PostgresUse.COMMON_READ,

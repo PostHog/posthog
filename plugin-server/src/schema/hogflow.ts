@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { CyclotronInputSchema } from './cyclotron'
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -16,8 +18,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('trigger'),
         config: z.object({
+            type: z.literal('event'),
             filters: z.any(),
         }),
+        // A trigger's event filters are stored on the top-level Hogflow object
     }),
     // Branching
     z.object({
@@ -26,7 +30,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             conditions: z.array(
                 z.object({
-                    filter: z.any(), // type this stronger
+                    filters: z.any(), // type this stronger
                 })
             ),
             delay_duration: z.string().optional(),
@@ -57,7 +61,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_condition'),
         config: z.object({
             condition: z.object({
-                filter: z.any(), // type this stronger
+                filters: z.any(), // type this stronger
             }),
             max_wait_duration: z.string(),
         }),
@@ -67,9 +71,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('wait_until_time_window'),
         config: z.object({
-            timezone: z.string(),
+            timezone: z.string().nullable(),
             // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-            date: z.union([
+            day: z.union([
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),
@@ -82,20 +86,72 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             ]),
         }),
     }),
-    // Function
+
+    // Native messages
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_email'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+            template_id: z.literal('template-hogflow-send-email-native'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+
+    // CDP functions
     z.object({
         ..._commonActionFields,
         type: z.literal('function'),
         config: z.object({
-            function_id: z.string(),
+            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+            template_id: z.string(),
+            inputs: z.record(CyclotronInputSchema),
         }),
     }),
     z.object({
         ..._commonActionFields,
+        type: z.literal('function_sms'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-hogflow-send-sms-twilio'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_slack'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-hogflow-send-message-slack'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('function_webhook'),
+        config: z.object({
+            template_uuid: z.string().uuid().optional(),
+            template_id: z.literal('template-hogflow-send-webhook'),
+            inputs: z.record(CyclotronInputSchema),
+        }),
+    }),
+
+    // Exit
+    z.object({
+        ..._commonActionFields,
         type: z.literal('exit'),
-        config: z.object({}),
+        config: z.object({
+            reason: z.string().optional(),
+        }),
     }),
 ])
+
+const HogFlowEdgeSchema = z.object({
+    from: z.string(),
+    to: z.string(),
+    type: z.enum(['continue', 'branch']),
+    index: z.number().optional(),
+})
 
 export const HogFlowSchema = z.object({
     id: z.string(),
@@ -126,18 +182,12 @@ export const HogFlowSchema = z.object({
         'exit_on_trigger_not_matched_or_conversion',
         'exit_only_at_end',
     ]),
-    edges: z.array(
-        z.object({
-            from: z.string(),
-            to: z.string(),
-            type: z.enum(['continue', 'branch']),
-            index: z.number().optional(),
-        })
-    ),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
+    edges: z.array(HogFlowEdgeSchema),
 })
 
-export type HogFlow = z.infer<typeof HogFlowSchema>
-export type HogFlowAction = HogFlow['actions'][number]
-export type HogFlowEdge = HogFlow['edges'][number]
+// NOTE: these are purposefully exported as interfaces to support kea typegen
+export interface HogFlow extends z.infer<typeof HogFlowSchema> {}
+export type HogFlowAction = z.infer<typeof HogFlowActionSchema> & Record<string, unknown>
+export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

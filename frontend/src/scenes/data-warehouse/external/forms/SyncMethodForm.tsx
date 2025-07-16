@@ -83,7 +83,7 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
     const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
 
     useEffect(() => {
-        setRadioValue(schema.sync_type ?? (incrementalSyncSupported ? 'incremental' : undefined))
+        setRadioValue(schema.sync_type ?? (!incrementalSyncSupported.disabled ? 'incremental' : undefined))
         setIncrementalFieldValue(schema.incremental_field ?? null)
         setAppendFieldValue(schema.incremental_field ?? null)
     }, [schema.table])

@@ -132,6 +132,10 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
+                    } else if (updatedAttribute === 'feature_flag_confirmation_enabled') {
+                        message = payload.feature_flag_confirmation_enabled
+                            ? 'Feature flag confirmation enabled'
+                            : 'Feature flag confirmation disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'

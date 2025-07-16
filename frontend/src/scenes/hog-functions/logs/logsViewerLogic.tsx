@@ -12,7 +12,7 @@ export const ALL_LOG_LEVELS: LogEntryLevel[] = ['DEBUG', 'LOG', 'INFO', 'WARNING
 export const DEFAULT_LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARNING', 'ERROR']
 
 export type LogsViewerLogicProps = {
-    sourceType: 'hog_function'
+    sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
 }
 
@@ -38,7 +38,7 @@ export type GroupedLogEntry = {
 }
 
 type GroupedLogEntryRequest = {
-    sourceType: 'hog_function'
+    sourceType: 'hog_function' | 'hog_flow'
     sourceId: string
     levels: LogEntryLevel[]
     search: string
@@ -64,7 +64,7 @@ const loadGroupedLogs = async (request: GroupedLogEntryRequest): Promise<Grouped
         AND instance_id in (
             SELECT DISTINCT instance_id
             FROM log_entries
-            WHERE log_source = 'hog_function'
+            WHERE log_source = ${request.sourceType}
             AND log_source_id = ${request.sourceId}
             AND timestamp > {filters.dateRange.from}
             AND timestamp < {filters.dateRange.to}

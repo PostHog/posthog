@@ -557,12 +557,25 @@ function QueryContext({ item }: { item: Query }): JSX.Element | null {
         return null
     }
 
-    const { container_hostname, git_commit, modifiers, service_name } = logComment
+    const { container_hostname, git_commit, modifiers, service_name, query } = logComment
+    const { productKey, scene } = (query as any)?.tags || {}
 
     return (
         <div>
             <table className="w-80">
                 <tbody>
+                    {scene && typeof scene === 'string' ? (
+                        <tr>
+                            <td>Scene</td>
+                            <td>{scene}</td>
+                        </tr>
+                    ) : null}
+                    {productKey && typeof productKey === 'string' ? (
+                        <tr>
+                            <td>Product</td>
+                            <td>{productKey}</td>
+                        </tr>
+                    ) : null}
                     {git_commit && typeof git_commit === 'string' ? (
                         <tr>
                             <td>Git commit SHA</td>
@@ -668,7 +681,7 @@ function Timing({ item }: { item: Query }): JSX.Element | null {
                                     <td>Slowest span</td>
                                     <td>
                                         <div
-                                            className="w-60 overflow-scroll"
+                                            className="w-60 overflow-auto"
                                             ref={(element) => element?.scrollTo({ left: element?.scrollWidth })}
                                         >
                                             {timingsSummary.slowestSpan.name}

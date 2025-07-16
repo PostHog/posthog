@@ -3,18 +3,18 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { openSaveToModal } from 'lib/components/FileSystem/SaveTo/saveToLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import {
-    featureFlagLogic as sceneFeatureFlagLogic,
     indexToVariantKeyFeatureFlagPayloads,
+    featureFlagLogic as sceneFeatureFlagLogic,
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
@@ -46,11 +46,13 @@ import {
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentTrendsQuery,
+    FunnelsQuery,
+    InsightVizNode,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
-    BillingType,
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
@@ -68,30 +70,33 @@ import {
     PropertyMathType,
     TrendExperimentVariant,
 } from '~/types'
-
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
+import {
+    EXPERIMENT_MAX_PRIMARY_METRICS,
+    EXPERIMENT_MAX_SECONDARY_METRICS,
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    MetricInsightId,
+} from './constants'
 import {
     conversionRateForVariant,
     expectedRunningTime,
     getSignificanceDetails,
     minimumSampleSizePerVariant,
     recommendedExposureForCountData,
-} from './experimentCalculations'
+} from './legacyExperimentCalculations'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
+import { addExposureToMetric, compose, getInsight, getQuery } from './metricQueryUtils'
 import { getDefaultMetricTitle } from './MetricsView/shared/utils'
+import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     featureFlagEligibleForExperiment,
     isLegacyExperiment,
     percentageDistribution,
-    shouldUseNewQueryRunnerForNewObjects,
-    toInsightVizNode,
     transformFiltersForWinningVariant,
 } from './utils'
-import { modalsLogic } from './modalsLogic'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -662,6 +667,22 @@ export const experimentLogic = kea<experimentLogicType>([
                         return state
                     }
 
+                    // Check if duplicating would exceed the 10 metric limit
+                    const currentMetricCount = metrics.length
+                    const sharedMetricsCount =
+                        state?.saved_metrics?.filter(
+                            (savedMetric) => savedMetric.metadata.type === (isSecondary ? 'secondary' : 'primary')
+                        ).length || 0
+                    const totalMetricCount = currentMetricCount + sharedMetricsCount
+
+                    if (
+                        totalMetricCount >=
+                        (!isSecondary ? EXPERIMENT_MAX_PRIMARY_METRICS : EXPERIMENT_MAX_SECONDARY_METRICS)
+                    ) {
+                        // Return state unchanged if limit would be exceeded
+                        return state
+                    }
+
                     const name = originalMetric.name
                         ? `${originalMetric.name} (copy)`
                         : originalMetric.kind === NodeKind.ExperimentMetric
@@ -865,6 +886,9 @@ export const experimentLogic = kea<experimentLogicType>([
                         return
                     }
                 } else {
+                    // Check if the new Bayesian stats method feature flag is enabled
+                    const useNewBayesianStatsMethod = values.featureFlags[FEATURE_FLAGS.NEW_BAYESIAN_STATS_METHOD]
+
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
                         ...values.experiment,
                         parameters:
@@ -881,6 +905,14 @@ export const experimentLogic = kea<experimentLogicType>([
                                       minimum_detectable_effect: minimumDetectableEffect,
                                   }
                                 : values.experiment?.parameters,
+                        // Set stats_config based on the feature flag if no existing stats_config
+                        ...(useNewBayesianStatsMethod &&
+                            !values.experiment.stats_config && {
+                                stats_config: {
+                                    method: ExperimentStatsMethod.Bayesian,
+                                    use_new_bayesian_method: true,
+                                },
+                            }),
                         ...(!draft && { start_date: dayjs() }),
                         ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
                     })
@@ -1008,7 +1040,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment, payload }) => {
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
-                const forceRefresh = payload?.start_date !== undefined
+                const forceRefresh = payload?.start_date !== undefined || payload?.end_date !== undefined
                 actions.refreshExperimentResults(forceRefresh)
             }
         },
@@ -1107,13 +1139,37 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)
-            try {
-                // 1. Create the dashboard
-                // 2. Create secondary metric insights in reverse order
-                // 3. Create primary metric insights in reverse order
 
+            /**
+             * create a query builder to transform the experiment metric into a query
+             * that can be used to create an insight
+             */
+            const queryBuilder = compose<
+                ExperimentMetric,
+                ExperimentMetric,
+                FunnelsQuery | TrendsQuery | undefined,
+                InsightVizNode | undefined
+            >(
+                addExposureToMetric({
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    custom_name: 'Placeholder for experiment exposure',
+                    properties: [],
+                }),
+                getQuery(),
+                getInsight()
+            )
+
+            try {
+                /**
+                 * get the experiment url for the dashboard description
+                 */
                 const experimentUrl =
                     window.location.origin + addProjectIdIfMissing(urls.experiment(values.experimentId))
+
+                /**
+                 * create a new dashboard
+                 */
                 const dashboard: DashboardType = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
@@ -1131,8 +1187,11 @@ export const experimentLogic = kea<experimentLogicType>([
                     } as Partial<DashboardType>
                 )
 
-                // Reverse order because adding an insight to the dashboard
-                // places it at the beginning of the list
+                /**
+                 * create a new insight for each metric, either primary or secondary
+                 * reverse the order of the metric because adding an insight to the dashboard
+                 * places it at the beginning of the list
+                 */
                 for (const type of ['secondary', 'primary']) {
                     const singleMetrics =
                         type === 'secondary' ? values.experiment.metrics_secondary : values.experiment.metrics
@@ -1145,7 +1204,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     ].reverse()
 
                     for (const query of metrics) {
-                        const insightQuery = toInsightVizNode(query)
+                        const insightQuery = queryBuilder(query)
 
                         await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
                             name: query.name || undefined,
@@ -1810,8 +1869,8 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         usesNewQueryRunner: [
-            (s) => [s.experiment, s.featureFlags, s.billing],
-            (experiment: Experiment, featureFlags: FeatureFlagsSet, billing: BillingType): boolean => {
+            (s) => [s.experiment],
+            (experiment: Experiment): boolean => {
                 const hasLegacyMetrics = isLegacyExperiment(experiment)
 
                 const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
@@ -1825,8 +1884,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
 
-                // If the experiment has no experiment metrics, we use the new query runner if the feature is enabled
-                return shouldUseNewQueryRunnerForNewObjects(featureFlags, billing)
+                // If the experiment has no experiment metrics, we use the new query runner
+                return true
             },
         ],
         hasMinimumExposureForResults: [
@@ -1888,12 +1947,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ) {
                     actions.createExperiment(true)
                 } else {
-                    openSaveToModal({
-                        defaultFolder: 'Unfiled/Experiments',
-                        callback: (folder) => {
-                            actions.createExperiment(true, folder)
-                        },
-                    })
+                    actions.createExperiment(true, 'Unfiled/Experiments')
                 }
             },
         },

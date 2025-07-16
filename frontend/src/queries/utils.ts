@@ -30,6 +30,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MarketingAnalyticsTableQuery,
     MathType,
     Node,
     NodeKind,
@@ -39,9 +40,11 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsArpuQuery,
+    RevenueAnalyticsCustomerCountQuery,
     RevenueAnalyticsGrowthRateQuery,
-    RevenueAnalyticsInsightsQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsRevenueQuery,
     RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
@@ -150,22 +153,32 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
     return node?.kind === NodeKind.HogQLMetadata
 }
 
-export function isRevenueAnalyticsOverviewQuery(
-    node?: Record<string, any> | null
-): node is RevenueAnalyticsOverviewQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+export function isRevenueAnalyticsArpuQuery(node?: Record<string, any> | null): node is RevenueAnalyticsArpuQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsArpuQuery
 }
 
-export function isRevenueAnalyticsInsightsQuery(
+export function isRevenueAnalyticsCustomerCountQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsInsightsQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsInsightsQuery
+): node is RevenueAnalyticsCustomerCountQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsCustomerCountQuery
 }
 
 export function isRevenueAnalyticsGrowthRateQuery(
     node?: Record<string, any> | null
 ): node is RevenueAnalyticsGrowthRateQuery {
     return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export function isRevenueAnalyticsOverviewQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsOverviewQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsRevenueQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsRevenueQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsRevenueQuery
 }
 
 export function isRevenueAnalyticsTopCustomersQuery(
@@ -188,6 +201,12 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
 
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
+}
+
+export function isMarketingAnalyticsTableQuery(
+    node?: Record<string, any> | null
+): node is MarketingAnalyticsTableQuery {
+    return node?.kind === NodeKind.MarketingAnalyticsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -719,7 +738,11 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
 
     const cloned: Record<string, any> = { ...(node as any) }
 
-    if ('kind' in cloned && Object.values(NodeKind).includes(cloned.kind)) {
+    if (
+        'kind' in cloned &&
+        Object.values(NodeKind).includes(cloned.kind) &&
+        LATEST_VERSIONS[cloned.kind as NodeKind] > 1
+    ) {
         const latest = LATEST_VERSIONS[cloned.kind as NodeKind]
         cloned.version = latest || 1
     }
@@ -733,4 +756,30 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     }
 
     return cloned as T
+}
+
+/** Checks wether a given query node satisfies all latest versions of the query schema. */
+export function checkLatestVersionsOnQuery(node: any): boolean {
+    if (node === null || typeof node !== 'object') {
+        return true
+    }
+
+    if (Array.isArray(node)) {
+        return node.every((value) => checkLatestVersionsOnQuery(value))
+    }
+
+    if ('kind' in node && Object.values(NodeKind).includes(node.kind)) {
+        const latest = LATEST_VERSIONS[node.kind as NodeKind]
+        if (node.version !== latest) {
+            return false
+        }
+    }
+
+    for (const value of Object.values(node)) {
+        if (!checkLatestVersionsOnQuery(value)) {
+            return false
+        }
+    }
+
+    return true
 }

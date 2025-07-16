@@ -1,5 +1,5 @@
 import { IconDatabase, IconDocument } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
@@ -107,6 +107,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         reportAIQueryAccepted: true,
         reportAIQueryRejected: true,
         reportAIQueryPromptOpen: true,
+        setWasPanelActive: (wasPanelActive: boolean) => ({ wasPanelActive }),
     }),
     reducers({
         sidebarOverlayOpen: [
@@ -114,6 +115,12 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             {
                 setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
                 selectSchema: (_, { schema }) => schema !== null,
+            },
+        ],
+        wasPanelActive: [
+            false,
+            {
+                setWasPanelActive: (_, { wasPanelActive }) => wasPanelActive,
             },
         ],
     }),
@@ -276,7 +283,16 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       label: 'Delete',
                                       status: 'danger',
                                       onClick: () => {
-                                          actions.deleteDataWarehouseSavedQuery(view.id)
+                                          LemonDialog.open({
+                                              title: 'Delete view',
+                                              description:
+                                                  'Are you sure you want to delete this view? The query will be lost.',
+                                              primaryButton: {
+                                                  status: 'danger',
+                                                  children: 'Delete',
+                                                  onClick: () => actions.deleteDataWarehouseSavedQuery(view.id),
+                                              },
+                                          })
                                       },
                                   },
                               ]
@@ -504,6 +520,16 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 panelLayoutLogic.actions.showLayoutPanel(true)
                 panelLayoutLogic.actions.setActivePanelIdentifier('Database')
                 panelLayoutLogic.actions.toggleLayoutPanelPinned(true)
+            }
+        },
+        '*': () => {
+            if (
+                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_TREE_VIEW] &&
+                router.values.location.pathname !== urls.sqlEditor()
+            ) {
+                panelLayoutLogic.actions.clearActivePanelIdentifier()
+                panelLayoutLogic.actions.toggleLayoutPanelPinned(false)
+                panelLayoutLogic.actions.showLayoutPanel(false)
             }
         },
     })),

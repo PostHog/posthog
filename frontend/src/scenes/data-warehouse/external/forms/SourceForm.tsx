@@ -1,13 +1,22 @@
-import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import {
+    LemonDivider,
+    LemonFileInput,
+    LemonInput,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTextArea,
+} from '@posthog/lemon-ui'
 import { FieldName, Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import React, { useEffect } from 'react'
 
-import { SourceConfig, SourceFieldConfig } from '~/types'
-
-import { SOURCE_DETAILS, sourceWizardLogic } from '../../new/sourceWizardLogic'
+import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
 import { parseConnectionString } from './parseConnectionString'
+import { useValues } from 'kea'
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -161,6 +170,7 @@ const sourceFieldToElement = (
                         sourceConfig={sourceConfig}
                         value={value}
                         onChange={onChange}
+                        integration={field.kind}
                     />
                 )}
             </LemonField>
@@ -209,6 +219,8 @@ export function SourceFormComponent({
     jobInputs,
     setSourceConfigValue,
 }: SourceFormProps): JSX.Element {
+    const { availableSources, availableSourcesLoading } = useValues(availableSourcesDataLogic)
+
     useEffect(() => {
         if (jobInputs && setSourceConfigValue) {
             for (const input of Object.keys(jobInputs || {})) {
@@ -219,10 +231,14 @@ export function SourceFormComponent({
 
     const isUpdateMode = !!setSourceConfigValue
 
+    if (availableSourcesLoading || !availableSources) {
+        return <LemonSkeleton />
+    }
+
     return (
         <div className="deprecated-space-y-4">
             <Group name="payload">
-                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
+                {availableSources[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
                 )}
             </Group>

@@ -14,7 +14,7 @@ from langchain_core.messages import (
 from langchain_core.output_parsers import PydanticToolsParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from ee.hogai.llm import MaxChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import BaseModel, Field, ValidationError
 
@@ -292,7 +292,14 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            stop_sequences=["[Done]"],
+            user=self._user,
+            team=self._team,
+        )
 
     def router(self, state: AssistantState) -> Literal["continue", "interrupt"]:
         core_memory = self.core_memory
@@ -346,7 +353,14 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4.1", temperature=0.3, disable_streaming=True, stop_sequences=["[Done]"])
+        return MaxChatOpenAI(
+            model="gpt-4.1",
+            temperature=0.3,
+            disable_streaming=True,
+            stop_sequences=["[Done]"],
+            user=self._user,
+            team=self._team,
+        )
 
     def router(self, state: AssistantState) -> Literal["continue", "insights"]:
         core_memory = self.core_memory
@@ -414,7 +428,9 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.3, disable_streaming=True).bind_tools(memory_collector_tools)
+        return MaxChatOpenAI(
+            model="gpt-4o", temperature=0.3, disable_streaming=True, user=self._user, team=self._team
+        ).bind_tools(memory_collector_tools)
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []

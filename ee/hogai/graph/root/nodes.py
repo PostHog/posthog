@@ -12,11 +12,11 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from ee.hogai.llm import MaxChatOpenAI
+from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.shared_prompts import PROJECT_ORG_USER_CONTEXT_PROMPT
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 
@@ -35,7 +35,7 @@ from posthog.schema import (
     FunnelsQuery,
     HogQLQuery,
     HumanMessage,
-    MaxContextShape,
+    MaxUIContext,
     MaxInsightContext,
     RetentionQuery,
     TrendsQuery,
@@ -62,7 +62,7 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 }
 
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding"]
+RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -72,7 +72,7 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
-    def _format_ui_context(self, ui_context: Optional[MaxContextShape]) -> str:
+    def _format_ui_context(self, ui_context: Optional[MaxUIContext]) -> str:
         """
         Format UI context into template variables for the prompt.
 
@@ -161,8 +161,14 @@ class RootNodeUIContextMixin(AssistantNode):
                     .to_string()
                 )
 
-        if dashboard_context or insights_context:
-            return self._render_user_context_template(dashboard_context, insights_context)
+        # Format events and actions context
+        events_context = self._format_entity_context(ui_context.events, "events", "Event")
+        actions_context = self._format_entity_context(ui_context.actions, "actions", "Action")
+
+        if dashboard_context or insights_context or events_context or actions_context:
+            return self._render_user_context_template(
+                dashboard_context, insights_context, events_context, actions_context
+            )
         return ""
 
     def _run_and_format_insight(
@@ -226,11 +232,44 @@ class RootNodeUIContextMixin(AssistantNode):
             capture_exception()
             return None
 
-    def _render_user_context_template(self, dashboard_context: str, insights_context: str) -> str:
+    def _format_entity_context(self, entities, context_tag: str, entity_type: str) -> str:
+        """
+        Format entity context (events or actions) into XML context string.
+
+        Args:
+            entities: List of entities (events or actions) or None
+            context_tag: XML tag name (e.g., "events" or "actions")
+            entity_type: Entity type for display (e.g., "Event" or "Action")
+
+        Returns:
+            Formatted context string or empty string if no entities
+        """
+        if not entities:
+            return ""
+
+        entity_details = []
+        for entity in entities:
+            name = entity.name or f"{entity_type} {entity.id}"
+            entity_detail = f'"{name}'
+            if entity.description:
+                entity_detail += f": {entity.description}"
+            entity_detail += '"'
+            entity_details.append(entity_detail)
+
+        if entity_details:
+            return f"<{context_tag}_context>{entity_type} names the user is referring to:\n{', '.join(entity_details)}\n</{context_tag}_context>"
+        return ""
+
+    def _render_user_context_template(
+        self, dashboard_context: str, insights_context: str, events_context: str, actions_context: str
+    ) -> str:
         """Render the user context template with the provided context strings."""
         template = PromptTemplate.from_template(ROOT_UI_CONTEXT_PROMPT, template_format="mustache")
         return template.format_prompt(
-            ui_context_dashboard=dashboard_context, ui_context_insights=insights_context
+            ui_context_dashboard=dashboard_context,
+            ui_context_insights=insights_context,
+            ui_context_events=events_context,
+            ui_context_actions=actions_context,
         ).to_string()
 
 
@@ -245,7 +284,7 @@ class RootNode(RootNodeUIContextMixin):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        from ee.hogai.tool import _get_contextual_tool_class
+        from ee.hogai.tool import get_contextual_tool_class
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
 
@@ -253,16 +292,15 @@ class RootNode(RootNodeUIContextMixin):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
-                    ("system", PROJECT_ORG_USER_CONTEXT_PROMPT),
                     *[
                         (
                             "system",
                             f"<{tool_name}>\n"
-                            f"{_get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                            f"{get_contextual_tool_class(tool_name)().format_system_prompt_injection(tool_context)}\n"  # type: ignore
                             f"</{tool_name}>",
                         )
                         for tool_name, tool_context in self._get_contextual_tools(config).items()
-                        if _get_contextual_tool_class(tool_name) is not None
+                        if get_contextual_tool_class(tool_name) is not None
                     ],
                 ],
                 template_format="mustache",
@@ -307,16 +345,28 @@ class RootNode(RootNodeUIContextMixin):
         # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
         # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
         # only made evals less useful precisely because of the false determinism.
-        base_model = ChatOpenAI(model="gpt-4o", temperature=0.3, streaming=True, stream_usage=True)
+        base_model = MaxChatOpenAI(
+            model="gpt-4o",
+            temperature=0.3,
+            streaming=True,
+            stream_usage=True,
+            user=self._user,
+            team=self._team,
+        )
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import create_and_query_insight, search_documentation, _get_contextual_tool_class
+        from ee.hogai.tool import (
+            create_and_query_insight,
+            get_contextual_tool_class,
+            search_documentation,
+            search_insights,
+        )
 
-        available_tools: list[type[BaseModel]] = []
+        available_tools: list[type[BaseModel]] = [search_insights]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -325,7 +375,7 @@ class RootNode(RootNodeUIContextMixin):
             # This is the default tool, which can be overriden by the MaxTool based tool with the same name
             available_tools.append(create_and_query_insight)
         for tool_name in tool_names:
-            ToolClass = _get_contextual_tool_class(tool_name)
+            ToolClass = get_contextual_tool_class(tool_name)
             if ToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             available_tools.append(ToolClass())  # type: ignore
@@ -439,7 +489,7 @@ class RootNode(RootNodeUIContextMixin):
 
 
 class RootNodeTools(AssistantNode):
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
             # Reset tools.
@@ -455,7 +505,7 @@ class RootNodeTools(AssistantNode):
         is_editing_insight = AssistantContextualTool.CREATE_AND_QUERY_INSIGHT in tool_names
         tool_call = tools_calls[0]
 
-        from ee.hogai.tool import _get_contextual_tool_class
+        from ee.hogai.tool import get_contextual_tool_class
 
         if tool_call.name == "create_and_query_insight" and not is_editing_insight:
             return PartialAssistantState(
@@ -471,10 +521,33 @@ class RootNodeTools(AssistantNode):
                 root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
-        elif ToolClass := _get_contextual_tool_class(tool_call.name):
+        elif tool_call.name == "search_insights":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                search_insights_query=tool_call.args["search_query"],
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(state)
-            result = tool_class.invoke(tool_call.model_dump(), config)
-            assert isinstance(result, LangchainToolMessage)
+            result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            if not isinstance(result, LangchainToolMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
+
+            # If this is a navigation tool call, pause the graph execution
+            # so that the frontend can re-initialise Max with a new set of contextual tools.
+            if tool_call.name == "navigate":
+                navigate_message = AssistantToolCallMessage(
+                    content=str(result.content) if result.content else "",
+                    ui_payload={tool_call.name: result.artifact},
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                    visible=True,
+                )
+                # Raising a `NodeInterrupt` ensures the assistant graph stops here and
+                # surfaces the navigation confirmation to the client. The next user
+                # interaction will resume the graph with potentially different
+                # contextual tools.
+                raise NodeInterrupt(navigate_message)
 
             new_state = tool_class._state  # latest state, in case the tool has updated it
             last_message = new_state.messages[-1]
@@ -516,6 +589,8 @@ class RootNodeTools(AssistantNode):
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"
+            elif state.search_insights_query:
+                return "insights_search"
             else:
                 return "search_documentation"
         return "end"

@@ -7,7 +7,14 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    ProductKey,
+    PropertyGroupFilter,
+    UniversalFiltersGroup,
+} from '~/types'
 
 import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
 
@@ -47,6 +54,9 @@ export const errorTrackingQuery = ({
             orderDirection,
             withAggregations: true,
             withFirstEvent: false,
+            tags: {
+                productKey: ProductKey.ERROR_TRACKING,
+            },
         },
         showActions: false,
         showTimings: false,
@@ -73,7 +83,7 @@ export const errorTrackingIssueQuery = ({
     withFirstEvent?: boolean
     withAggregations?: boolean
 }): ErrorTrackingQuery => {
-    return setLatestVersionsOnQuery({
+    return setLatestVersionsOnQuery<ErrorTrackingQuery>({
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
         dateRange: resolveDateRange(dateRange).toDateRange(),
@@ -83,6 +93,9 @@ export const errorTrackingIssueQuery = ({
         volumeResolution,
         withFirstEvent,
         withAggregations,
+        tags: {
+            productKey: ProductKey.ERROR_TRACKING,
+        },
     })
 }
 

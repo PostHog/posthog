@@ -7,7 +7,24 @@ inputs:
 runs:
     using: composite
     steps:
+        # 1% sampling - to avoid us hitting GitHub API limits
+        - name: Check if should run analytics
+          id: should-run
+          continue-on-error: true
+          run: |
+              # Generate random number 0-99, run if < 1
+              random_num=$((RANDOM % 100))
+              if [ $random_num -lt 1 ]; then
+                echo "run_analytics=true" >> $GITHUB_OUTPUT
+                echo "Analytics will run (random: $random_num)"
+              else
+                echo "run_analytics=false" >> $GITHUB_OUTPUT
+                echo "Skipping analytics (random: $random_num)"
+              fi
+          shell: bash
         - uses: actions/github-script@v6
+          if: steps.should-run.outputs.run_analytics == 'true'
+          continue-on-error: true
           with:
               script: |
                   const gh = github                    

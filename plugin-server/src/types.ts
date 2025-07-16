@@ -75,7 +75,6 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_cyclotron_worker_segment = 'cdp-cyclotron-worker-segment',
-    cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
@@ -118,7 +117,6 @@ export type CdpConfig = {
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_REDIRECT_TOPIC: string // If set then this consumer will emit to this topic instead of processing
 
-    CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
@@ -134,6 +132,13 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
+
+    // topic that plugin VM capture events are produced to
+    CDP_PLUGIN_CAPTURE_EVENTS_TOPIC: string
+
+    HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
+    HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
+    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 }
 
 export type IngestionConsumerConfig = {
@@ -151,12 +156,12 @@ export type IngestionConsumerConfig = {
  * The mode of db batch writes to use for person batch writing
  * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
  * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
- * WITH_TRANSACTION: Use SELECT FOR UPDATE in transaction to get the latest version of the person (locks the row)
  */
-export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION' | 'WITH_TRANSACTION'
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
+    INSTRUMENT_THREAD_PERFORMANCE: boolean
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -245,7 +250,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
-    SITE_URL: string | null
+    SITE_URL: string
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -262,6 +267,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -360,8 +366,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Messaging
     MAILJET_PUBLIC_KEY: string
     MAILJET_SECRET_KEY: string
-
-    DISABLE_GROUP_SELECT_FOR_UPDATE: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -423,7 +427,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
-    cdpCyclotronWorkerFetch?: boolean
+    cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     mmdb?: boolean
@@ -687,6 +691,7 @@ export interface Team {
     timezone: string
     // This is parsed as a join from the org table
     available_features: OrganizationAvailableFeature[]
+    drop_events_older_than_seconds: number | null
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

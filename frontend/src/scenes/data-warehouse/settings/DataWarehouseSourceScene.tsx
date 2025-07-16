@@ -27,12 +27,15 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     actions({
         setCurrentTab: (tab: DataWarehouseSourceSceneTab) => ({ tab }),
         setBreadcrumbName: (name: string) => ({ name }),
+        _setCurrentTab: (tab: DataWarehouseSourceSceneTab) => ({ tab }),
     }),
     reducers(() => ({
         currentTab: [
             'configuration' as DataWarehouseSourceSceneTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
+                // dont trigger actionToUrl
+                _setCurrentTab: (_, { tab }) => tab,
             },
         ],
         breadcrumbName: [
@@ -82,7 +85,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
 
                 const tab = DATA_WAREHOUSE_SOURCE_SCENE_TABS.includes(possibleTab) ? possibleTab : 'configuration'
                 if (tab !== values.currentTab) {
-                    actions.setCurrentTab(tab)
+                    actions._setCurrentTab(tab)
                 }
             },
         }

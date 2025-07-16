@@ -1,31 +1,12 @@
 import { UUIDT } from '../../utils/utils'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../types'
-import { createHogFunction } from './fixtures'
-
-const SAMPLE_GLOBALS = {
-    event: {
-        uuid: 'uuid',
-        event: 'test',
-        distinct_id: 'distinct_id',
-        properties: {
-            email: 'test@posthog.com',
-        },
-        elements_chain: '',
-        timestamp: '',
-        url: '',
-    },
-    project: {
-        id: 1,
-        name: 'test',
-        url: 'http://localhost:8000/projects/1',
-    },
-}
+import { createHogFunction, SAMPLE_GLOBALS } from './fixtures'
 
 export const createExampleSegmentInvocation = (
-    _hogFunction: Partial<HogFunctionType> = {},
+    hogFunctionOverrides: Partial<HogFunctionType> = {},
     inputs: Record<string, any> = {}
 ): CyclotronJobInvocationHogFunction => {
-    const hogFunction = createHogFunction(_hogFunction)
+    const hogFunction = createHogFunction(hogFunctionOverrides)
 
     return {
         id: new UUIDT().toString(),
@@ -35,6 +16,7 @@ export const createExampleSegmentInvocation = (
                 ...SAMPLE_GLOBALS,
             },
             timings: [],
+            attempts: 0,
         },
         teamId: hogFunction.team_id,
         functionId: hogFunction.id,

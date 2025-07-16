@@ -188,7 +188,7 @@ const SyncMethodModal = (): JSX.Element => {
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
                 onSave={(syncType, incrementalField, incrementalFieldType) => {
-                    if (syncType === 'incremental') {
+                    if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
                             currentSyncMethodModalSchema,
                             syncType,

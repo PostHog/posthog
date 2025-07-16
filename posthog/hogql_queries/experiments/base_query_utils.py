@@ -62,10 +62,8 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
             if isinstance(metric.source, ExperimentDataWarehouseNode):
                 return parse_expr(metric_property)
             else:
-                return parse_expr(
-                    "toFloat(JSONExtractRaw(properties, {property}))",
-                    placeholders={"property": ast.Constant(value=metric_property)},
-                )
+                # Use the same property access pattern as trends to get property groups optimization
+                return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
 
     elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
         return ast.Field(chain=["$session_id"])
@@ -88,11 +86,15 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
             # If an action doesn't exist, we want to return no events
             event_filter = ast.Constant(value=False)
     else:
-        event_filter = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=entity_node.event),
-        )
+        # If event is None, we want to match all events (no event name filter)
+        if entity_node.event is None:
+            event_filter = ast.Constant(value=True)
+        else:
+            event_filter = ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=entity_node.event),
+            )
 
     if entity_node.properties:
         event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])

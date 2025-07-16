@@ -1,23 +1,44 @@
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
+
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDetailedTime, humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
+import { UpstreamGraph } from './graph/UpstreamGraph'
 
 interface QueryInfoProps {
     codeEditorKey: string
+}
+
+function getMaterializationStatusMessage(rowsMaterialized: number, progressPercentage: number): string {
+    switch (true) {
+        case rowsMaterialized === 0:
+            return 'Spinning up spikes — starting materialization job...'
+        case progressPercentage < 10:
+            return 'Digging into SQL... executing your query now.'
+        case progressPercentage < 25:
+            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away...`
+        case progressPercentage < 50:
+            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage...`
+        case progressPercentage < 90:
+            return `Still going — ${humanFriendlyNumber(rowsMaterialized)} rows written...`
+        default:
+            return `Almost there — ${humanFriendlyNumber(rowsMaterialized)} rows processed...`
+    }
 }
 
 const OPTIONS = [
@@ -61,8 +82,8 @@ const OPTIONS = [
 
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
-    const { editingView, upstream } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery, saveAsView } = useActions(multitabEditorLogic)
+    const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
@@ -246,13 +267,37 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     title: 'Status',
                                     dataIndex: 'status',
-                                    render: (_, { status, error }: DataModelingJob) => {
+                                    render: (_, job: DataModelingJob) => {
+                                        const { status, error, rows_materialized, rows_expected } = job
                                         const statusToType: Record<string, LemonTagType> = {
                                             Completed: 'success',
                                             Failed: 'danger',
                                             Running: 'warning',
                                         }
                                         const type = statusToType[status] || 'warning'
+
+                                        const progressPercentage =
+                                            rows_expected && rows_expected > 0
+                                                ? Math.min(100, (rows_materialized / rows_expected) * 100)
+                                                : 0
+
+                                        // Only show progress if there is > 0 progress and we have expected rows
+                                        // many small result sets will never show progress as they are written in only 1 batch
+                                        if (status === 'Running' && progressPercentage > 0 && rows_expected !== null) {
+                                            return (
+                                                <Tooltip
+                                                    placement="right"
+                                                    title={getMaterializationStatusMessage(
+                                                        rows_materialized,
+                                                        progressPercentage
+                                                    )}
+                                                >
+                                                    <div className="w-[68px]">
+                                                        <LemonProgress percent={progressPercentage} />
+                                                    </div>
+                                                </Tooltip>
+                                            )
+                                        }
 
                                         return error ? (
                                             <Tooltip title={error}>
@@ -269,7 +314,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     render: (_, { rows_materialized, status }: DataModelingJob) =>
                                         (status === 'Running' || status === 'Cancelled') && rows_materialized === 0
                                             ? '~'
-                                            : rows_materialized,
+                                            : humanFriendlyNumber(rows_materialized),
                                 },
                                 {
                                     title: 'Updated',
@@ -314,35 +359,6 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                         />
                     </>
                 )}
-                <div>
-                    <h3>Columns</h3>
-                    <p className="text-xs">Columns that are available in the materialized view.</p>
-                </div>
-                <LemonTable
-                    size="small"
-                    columns={[
-                        {
-                            key: 'name',
-                            title: 'Name',
-                            render: (_, column) => column.name,
-                        },
-                        {
-                            key: 'type',
-                            title: 'Type',
-                            render: (_, column) => column.type,
-                        },
-                        {
-                            key: 'schema_valid',
-                            title: 'Schema Valid',
-                            render: (_, column) => (
-                                <LemonTag type={column.schema_valid ? 'success' : 'danger'}>
-                                    {column.schema_valid ? 'Yes' : 'No'}
-                                </LemonTag>
-                            ),
-                        },
-                    ]}
-                    dataSource={savedQuery?.columns || []}
-                />
                 {!isLineageDependencyViewEnabled && (
                     <>
                         <div>
@@ -410,89 +426,117 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     </>
                 )}
 
-                {upstream && isLineageDependencyViewEnabled && (
+                {upstream && editingView && upstream.nodes.length > 0 && isLineageDependencyViewEnabled && (
                     <>
                         <div>
-                            <h3>Upstream Dependencies</h3>
-                            <p className="text-xs">Tables and views that this query depends on.</p>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="mb-1">Tables we use</h3>
+                                    <p className="text-xs mb-0">Tables and views that this query relies on.</p>
+                                </div>
+                                <LemonSegmentedButton
+                                    value={upstreamViewMode}
+                                    onChange={(mode) => setUpstreamViewMode(mode)}
+                                    options={[
+                                        {
+                                            value: 'table',
+                                            label: 'Table',
+                                        },
+                                        {
+                                            value: 'graph',
+                                            label: 'Graph',
+                                        },
+                                    ]}
+                                    size="small"
+                                />
+                            </div>
                         </div>
-                        <LemonTable
-                            size="small"
-                            columns={[
-                                {
-                                    key: 'name',
-                                    title: 'Name',
-                                    render: (_, { name }) => (
-                                        <div className="flex items-center gap-1">
-                                            {name === editingView?.name && (
-                                                <Tooltip placement="right" title="This is the currently viewed query">
-                                                    <IconTarget className="text-warning" />
-                                                </Tooltip>
-                                            )}
-                                            {name}
-                                        </div>
-                                    ),
-                                },
-                                {
-                                    key: 'type',
-                                    title: 'Type',
-                                    render: (_, { type, last_run_at }) => {
-                                        if (type === 'view') {
-                                            return last_run_at ? 'Mat. View' : 'View'
-                                        }
-                                        return 'Table'
-                                    },
-                                },
-                                {
-                                    key: 'upstream',
-                                    title: 'Direct Upstream',
-                                    render: (_, node) => {
-                                        const upstreamNodes = upstream.edges
-                                            .filter((edge) => edge.target === node.id)
-                                            .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
-                                            .filter((n): n is LineageNode => n !== undefined)
-
-                                        if (upstreamNodes.length === 0) {
-                                            return <span className="text-secondary">None</span>
-                                        }
-
-                                        return (
-                                            <div className="flex flex-wrap gap-1">
-                                                {upstreamNodes.map((upstreamNode) => (
-                                                    <LemonTag key={upstreamNode.id} type="primary">
-                                                        {upstreamNode.name}
-                                                    </LemonTag>
-                                                ))}
+                        {upstreamViewMode === 'table' ? (
+                            <LemonTable
+                                size="small"
+                                columns={[
+                                    {
+                                        key: 'name',
+                                        title: 'Name',
+                                        render: (_, { name }) => (
+                                            <div className="flex items-center gap-1">
+                                                {name === editingView?.name && (
+                                                    <Tooltip
+                                                        placement="right"
+                                                        title="This is the currently viewed query"
+                                                    >
+                                                        <IconTarget className="text-warning" />
+                                                    </Tooltip>
+                                                )}
+                                                {name}
                                             </div>
-                                        )
+                                        ),
                                     },
-                                },
-                                {
-                                    key: 'last_run_at',
-                                    title: 'Last Run At',
-                                    render: (_, { last_run_at, sync_frequency }) => {
-                                        if (!last_run_at) {
-                                            return 'On demand'
-                                        }
-                                        const numericSyncFrequency = Number(sync_frequency)
-                                        const frequencyMap: Record<string, string> = {
-                                            300: '5 mins',
-                                            1800: '30 mins',
-                                            3600: '1 hour',
-                                            21600: '6 hours',
-                                            43200: '12 hours',
-                                            86400: '24 hours',
-                                            604800: '1 week',
-                                        }
+                                    {
+                                        key: 'type',
+                                        title: 'Type',
+                                        render: (_, { type, last_run_at }) => {
+                                            if (type === 'view') {
+                                                return last_run_at ? 'Mat. View' : 'View'
+                                            }
+                                            return 'Table'
+                                        },
+                                    },
+                                    {
+                                        key: 'upstream',
+                                        title: 'Direct Upstream',
+                                        render: (_, node) => {
+                                            const upstreamNodes = upstream.edges
+                                                .filter((edge) => edge.target === node.id)
+                                                .map((edge) => upstream.nodes.find((n) => n.id === edge.source))
+                                                .filter((n): n is LineageNode => n !== undefined)
 
-                                        return `${humanFriendlyDetailedTime(last_run_at)} every ${
-                                            frequencyMap[numericSyncFrequency]
-                                        }`
+                                            if (upstreamNodes.length === 0) {
+                                                return <span className="text-secondary">None</span>
+                                            }
+
+                                            return (
+                                                <div className="flex flex-wrap gap-1">
+                                                    {upstreamNodes.map((upstreamNode) => (
+                                                        <LemonTag key={upstreamNode.id} type="primary">
+                                                            {upstreamNode.name}
+                                                        </LemonTag>
+                                                    ))}
+                                                </div>
+                                            )
+                                        },
                                     },
-                                },
-                            ]}
-                            dataSource={upstream.nodes}
-                        />
+                                    {
+                                        key: 'last_run_at',
+                                        title: 'Last Run At',
+                                        render: (_, { last_run_at, sync_frequency }) => {
+                                            if (!last_run_at) {
+                                                return 'On demand'
+                                            }
+                                            const numericSyncFrequency = Number(sync_frequency)
+                                            const frequencyMap: Record<string, string> = {
+                                                300: '5 mins',
+                                                1800: '30 mins',
+                                                3600: '1 hour',
+                                                21600: '6 hours',
+                                                43200: '12 hours',
+                                                86400: '24 hours',
+                                                604800: '1 week',
+                                            }
+
+                                            return `${humanFriendlyDetailedTime(last_run_at)} ${
+                                                frequencyMap[numericSyncFrequency]
+                                                    ? `every ${frequencyMap[numericSyncFrequency]}`
+                                                    : ''
+                                            }`
+                                        },
+                                    },
+                                ]}
+                                dataSource={upstream.nodes}
+                            />
+                        ) : (
+                            <UpstreamGraph codeEditorKey={codeEditorKey} />
+                        )}
                     </>
                 )}
             </div>
