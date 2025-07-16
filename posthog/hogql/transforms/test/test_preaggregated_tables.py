@@ -1,3 +1,4 @@
+from posthog.hogql.ast import SelectQuery
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
@@ -213,3 +214,76 @@ class TestPreaggregatedTables(BaseTest):
     def test_all_supported_session_properties_are_in_stats_table(self):
         for property_name in SESSION_PROPERTY_TO_FIELD.values():
             assert property_name in WebStatsCombinedTable().fields.keys()
+
+    def test_multiple_ctes_transformation(self):
+        """Test that multiple CTEs can get transformed independently."""
+        original_query = """
+            WITH
+                pageview_stats AS (
+                    SELECT count() as pageviews, uniq(person_id) as users
+                    FROM events
+                    WHERE event = '$pageview'
+                ),
+                regular_events AS (
+                    SELECT count() as total_events, uniq(person_id) as total_users
+                    FROM events
+                    WHERE event = 'custom_event'
+                ),
+                another_pageview_cte AS (
+                    SELECT count() as more_pageviews, properties.utm_source as source
+                    FROM events
+                    WHERE event = '$pageview'
+                    GROUP BY properties.utm_source
+                )
+            SELECT
+                pageview_stats.pageviews,
+                pageview_stats.users,
+                regular_events.total_events,
+                regular_events.total_users,
+                another_pageview_cte.more_pageviews,
+                another_pageview_cte.source
+            FROM pageview_stats
+            CROSS JOIN regular_events
+            CROSS JOIN another_pageview_cte
+        """
+
+        # The assertions here are pretty odd, as debug printing of hogql queries with CTEs does not work.
+        node = parse_select(original_query)
+        context = HogQLContext(team_id=self.team.pk)
+        transformed = do_preaggregated_table_transforms(node, context)
+        assert isinstance(transformed, SelectQuery)
+
+        # Verify that CTEs exist and are transformed correctly
+        assert transformed.ctes is not None
+        assert len(transformed.ctes) == 3
+        assert "pageview_stats" in transformed.ctes
+        assert "regular_events" in transformed.ctes
+        assert "another_pageview_cte" in transformed.ctes
+
+        # Check that pageview_stats CTE was transformed (should use web_stats_combined)
+        pageview_stats_cte = transformed.ctes["pageview_stats"]
+        pageview_stats_str = str(pageview_stats_cte.expr)
+        assert "web_stats_combined" in pageview_stats_str
+        assert "sumMerge(pageviews_count_state)" in pageview_stats_str
+        assert "uniqMerge(persons_uniq_state)" in pageview_stats_str
+
+        # Check that regular_events CTE was NOT transformed (should still use events)
+        regular_events_cte = transformed.ctes["regular_events"]
+        regular_events_str = str(regular_events_cte.expr)
+        assert "events" in regular_events_str
+        assert "web_stats_combined" not in regular_events_str
+        assert "count()" in regular_events_str
+        assert "uniq(person_id)" in regular_events_str
+
+        # Check that another_pageview_cte CTE was transformed (should use web_stats_combined)
+        another_pageview_cte = transformed.ctes["another_pageview_cte"]
+        another_pageview_str = str(another_pageview_cte.expr)
+        assert "web_stats_combined" in another_pageview_str
+        assert "sumMerge(pageviews_count_state)" in another_pageview_str
+        assert "utm_source" in another_pageview_str
+
+        # Check that the main query still references the CTEs correctly
+        main_query_str = str(transformed)
+        assert "pageview_stats.pageviews" in main_query_str
+        assert "regular_events.total_events" in main_query_str
+        assert "another_pageview_cte.more_pageviews" in main_query_str
