@@ -571,7 +571,7 @@ def send_hog_functions_daily_digest() -> None:
         return
 
     # Group hog_function_ids by team_id
-    teams_with_functions = {}
+    teams_with_functions: dict[int, set[str]] = {}
     for row in failed_teams_data:
         team_id, hog_function_id = row
         if team_id not in teams_with_functions:
@@ -637,7 +637,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
     # Add filter for specific hog_function_ids if provided
     hog_function_filter = ""
-    query_params = {"team_id": team_id}
+    query_params: dict[str, int | list[str]] = {"team_id": team_id}
 
     if hog_function_ids:
         hog_function_filter = "AND app_source_id IN %(hog_function_ids)s"
@@ -700,7 +700,7 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
         return
 
     # Sort by failed count descending
-    function_metrics.sort(key=lambda x: x["failed"], reverse=True)
+    function_metrics.sort(key=lambda x: int(x["failed"]) if x["failed"] is not None else 0, reverse=True)
 
     # Prepare data for email
     digest_data = {
