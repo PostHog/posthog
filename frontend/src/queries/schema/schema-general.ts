@@ -334,6 +334,8 @@ export interface HogQLQueryModifiers {
     personsJoinMode?: 'inner' | 'left'
     bounceRatePageViewMode?: 'count_pageviews' | 'uniq_urls' | 'uniq_page_screen_autocaptures'
     bounceRateDurationSeconds?: number
+    revenueAnalyticsPersonsJoinMode?: RevenueAnalyticsPersonsJoinModeModifier
+    revenueAnalyticsPersonsJoinModeCustom?: string | null
     sessionTableVersion?: 'auto' | 'v1' | 'v2'
     sessionsV2JoinMode?: 'string' | 'uuid'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
@@ -343,6 +345,12 @@ export interface HogQLQueryModifiers {
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
+}
+
+export enum RevenueAnalyticsPersonsJoinModeModifier {
+    ID = 'id',
+    EMAIL = 'email',
+    CUSTOM = 'custom',
 }
 
 export interface DataWarehouseEventsModifier {
