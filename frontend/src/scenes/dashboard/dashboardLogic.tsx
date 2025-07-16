@@ -89,13 +89,21 @@ export interface RefreshStatus {
     timer?: Date | null
 }
 
+/**
+ * Loading the dashboard serves two mostly separate purposes:
+ * 1. Fetching dashboard metadata (name, description, settings, etc.)
+ * 2. Retrieving an initial cached version of its insights for fast display.
+ */
 export enum DashboardLoadAction {
+    /** Initial dashboard load, when no variables are present. */
     InitialLoad = 'initial_load',
+    /** Initial dashboard load, when variables are present. Deferred until variables are loaded. */
     InitialLoadWithVariables = 'initial_load_with_variables',
+    /** Get a fresh copy of the dashboard after it was updated (e.g. a tile was duplicated or removed). */
     Update = 'update',
+    /** Automatic or manual refresh of the dashboard. */
     Refresh = 'refresh',
-    LoadMissing = 'load_missing',
-    RefreshInsightsOnFiltersUpdated = 'refresh_insights_on_filters_updated',
+    /** Refresh to apply temporary filters and variables. */
     Preview = 'preview',
 }
 
