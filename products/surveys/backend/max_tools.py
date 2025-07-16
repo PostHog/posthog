@@ -19,7 +19,7 @@ class SurveyCreatorArgs(BaseModel):
     instructions: str = Field(description="Natural language description of the survey to create")
 
 
-class SurveyCreatorTool(MaxTool):
+class CreateSurveyTool(MaxTool):
     name: str = "create_survey"
     description: str = "Create and optionally launch a survey based on natural language instructions"
     thinking_message: str = "Creating your survey"

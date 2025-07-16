@@ -3,7 +3,7 @@ from braintrust import EvalCase, Score
 from braintrust_core.score import Scorer
 from autoevals.llm import LLMClassifier
 
-from products.surveys.backend.max_tools import SurveyCreatorTool
+from products.surveys.backend.max_tools import CreateSurveyTool
 
 from .conftest import MaxEval
 
@@ -16,7 +16,7 @@ def call_surveys_max_tool(demo_org_team_user):
     # Extract team and user from the demo fixture
     _, team, user = demo_org_team_user
 
-    max_tool = SurveyCreatorTool()
+    max_tool = CreateSurveyTool()
 
     # Set up the required attributes that the tool expects
     max_tool._team = team  # Team context for survey creation

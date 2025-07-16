@@ -12,7 +12,7 @@ from django.utils import timezone
 from posthog.models import User, OrganizationMembership, Survey, Team
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from .max_tools import SurveyCreatorTool, SurveyCreatorArgs
+from .max_tools import CreateSurveyTool, SurveyCreatorArgs
 from .survey_schema import (
     SurveyCreationOutput,
     SurveyQuestionSchema,
@@ -64,7 +64,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
     def _create_tool(self, context=None, team_id=None):
         """Helper to create a SurveyCreatorTool instance"""
-        tool = SurveyCreatorTool()
+        tool = CreateSurveyTool()
 
         # Set up team
         team = self.team if team_id is None else Team.objects.get(id=team_id)
@@ -499,7 +499,7 @@ class TestSurveyCreatorTool(ClickhouseTestMixin, APIBaseTest):
 
     def test_tool_metadata(self):
         """Test the tool's metadata and configuration"""
-        tool = SurveyCreatorTool()
+        tool = CreateSurveyTool()
 
         self.assertEqual(tool.name, "create_survey")
         self.assertEqual(
@@ -585,7 +585,7 @@ class TestSurveyCreatorToolEvals(ClickhouseTestMixin, APIBaseTest):
 
     def _create_tool(self, context=None, team_id=None):
         """Helper to create a SurveyCreatorTool instance"""
-        tool = SurveyCreatorTool()
+        tool = CreateSurveyTool()
 
         # Set up team
         team = self.team if team_id is None else Team.objects.get(id=team_id)
