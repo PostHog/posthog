@@ -80,6 +80,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     seen_nodes.add(root_query.name)
 
     # Recursively fetch all dependencies with a bfs
+    # Fetch everything by names
     to_process = [(root_query.name, root_query.external_tables)]
 
     while to_process:
