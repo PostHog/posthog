@@ -12,12 +12,7 @@ import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { HogFlowAction } from '../../../../schema/hogflow'
-import {
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationResult,
-    DBHogFunctionTemplate,
-    HogFunctionType,
-} from '../../../types'
+import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { findActionByType } from '../hogflow-utils'
@@ -149,71 +144,17 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain('[Action:function] Function completed')
     })
 
-    // it('should handle unfinished function execution and schedule continuation', async () => {
-    //     const template: DBHogFunctionTemplate = {
-    //         id: 'uuid',
-    //         template_id: 'template_123',
-    //         name: 'Test Template',
-    //         bytecode: [1, 2, 3],
-    //         inputs_schema: [],
-    //         sha: 'sha',
-    //         type: 'destination',
-    //     }
-    //     mockHogFunctionTemplateManager.getHogFunctionTemplate.mockResolvedValue(template)
+    it('should throw an error if template is not found', async () => {
+        const action = findActionByType(invocation.hogFlow, 'function')!
+        action.config.template_id = 'template_123'
 
-    //     const scheduledAt = DateTime.now().plus({ minutes: 5 })
-    //     const functionResult = {
-    //         finished: false,
-    //         logs: [],
-    //         invocation: {
-    //             ...invocation,
-    //             hogFunction: {} as HogFunctionType,
-    //             state: { globals: {}, timings: [], attempts: 1 },
-    //             queueScheduledAt: scheduledAt,
-    //             queueParameters: { some: 'param' },
-    //         },
-    //     }
-    //     mockHogFunctionExecutor.executeWithAsyncFunctions.mockResolvedValue(functionResult as any)
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
 
-    //     const handlerResult = await hogFunctionHandler.execute(invocation, action, result)
-
-    //     expect(result.invocation.state.currentAction?.hogFunctionState).toEqual(functionResult.invocation.state)
-    //     expect(result.invocation.queueParameters).toEqual({ some: 'param' })
-    //     expect(handlerResult.scheduledAt).toEqual(scheduledAt)
-    //     expect(handlerResult.nextAction).toBeUndefined()
-    // })
-
-    // it('should throw an error if template is not found', async () => {
-    //     mockHogFunctionTemplateManager.getHogFunctionTemplate.mockResolvedValue(null)
-
-    //     await expect(hogFunctionHandler.execute(invocation, action, result)).rejects.toThrow(
-    //         "Template 'template_123' not found"
-    //     )
-    // })
-
-    // it('enriches the hog function with integrations', async () => {
-    //     const template: DBHogFunctionTemplate = {
-    //         id: 'uuid',
-    //         template_id: 'template_123',
-    //         name: 'Test Template',
-    //         bytecode: [1, 2, 3],
-    //         inputs_schema: [],
-    //         sha: 'sha',
-    //         type: 'destination',
-    //     }
-    //     mockHogFunctionTemplateManager.getHogFunctionTemplate.mockResolvedValue(template)
-
-    //     const functionResult = {
-    //         finished: true,
-    //         logs: [],
-    //         invocation: {
-    //             ...invocation,
-    //             hogFunction: {} as HogFunctionType,
-    //             state: {},
-    //         },
-    //     }
-    //     mockHogFunctionExecutor.executeWithAsyncFunctions.mockResolvedValue(functionResult as any)
-
-    //     await hogFunctionHandler.execute(invocation, action, result)
-    // })
+        await expect(hogFunctionHandler.execute(invocation, action, invocationResult)).rejects.toThrow(
+            "Template 'template_123' not found"
+        )
+    })
 })
