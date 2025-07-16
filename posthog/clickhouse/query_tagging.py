@@ -79,6 +79,8 @@ class QueryTags(BaseModel):
     access_method: Optional[AccessMethod] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product] = None
+
+    # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
     id: Optional[str] = None
     session_id: Optional[uuid.UUID] = None
@@ -113,6 +115,10 @@ class QueryTags(BaseModel):
     cohort_id: Optional[int] = None
     entity_math: Optional[list[str]] = None
 
+    # replays
+    replay_playlist_id: Optional[int] = None
+
+    # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None

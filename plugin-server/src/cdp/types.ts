@@ -58,6 +58,13 @@ export type GroupType = {
     properties: Record<string, any>
 }
 
+export type CyclotronPerson = {
+    id: string
+    properties: Record<string, any>
+    name: string
+    url: string
+}
+
 export type HogFunctionInvocationGlobals = {
     project: {
         id: number
@@ -80,15 +87,7 @@ export type HogFunctionInvocationGlobals = {
         /* Special fields in Hog */
         url: string
     }
-    person?: {
-        /** Database fields */
-        id: string
-        properties: Record<string, any>
-
-        /** Special fields in Hog */
-        name: string
-        url: string
-    }
+    person?: CyclotronPerson
     groups?: Record<string, GroupType>
 
     // Unique to sources - will be modified later
@@ -217,7 +216,7 @@ export type HogFunctionQueueParametersFetchRequest = {
 
 export type CyclotronInvocationQueueParameters = HogFunctionQueueParametersFetchRequest
 
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'hogflow'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'plugin', 'segment', 'native', 'hogflow'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka'] as const
@@ -269,17 +268,14 @@ export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
 export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     state?: HogFlowInvocationContext
     hogFlow: HogFlow
-
-    // Add lazy getters for person and filter globals
-    // getFilterGlobals: () => Promise<HogFunctionFilterGlobals>
-    // getPerson: () => Promise<Person>
+    person?: CyclotronPerson
+    filterGlobals: HogFunctionFilterGlobals
 }
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     actionStepCount: number
     // variables: Record<string, any> // NOTE: not used yet but
-    personId?: string
     currentAction?: {
         id: string
         startedAtTimestamp: number
@@ -402,4 +398,28 @@ export type HogFunctionCapturedEvent = {
     distinct_id: string
     timestamp: string
     properties: Record<string, any>
+}
+
+export type Response = {
+    status: number
+    data: any
+    content: string
+    headers: Record<string, any>
+}
+
+export type NativeTemplate = Omit<HogFunctionTemplate, 'hog'> & {
+    perform: (
+        request: (
+            url: string,
+            options: {
+                method?: 'POST' | 'GET' | 'PATCH' | 'PUT' | 'DELETE'
+                headers: Record<string, any>
+                json?: any
+                body?: string | URLSearchParams
+                throwHttpErrors?: boolean
+                searchParams?: Record<string, any>
+            }
+        ) => Promise<Response>,
+        inputs: Record<string, any>
+    ) => Promise<any> | any
 }
