@@ -79,7 +79,7 @@ class InsightSearchNode(AssistantNode):
 
             selected_insights = self._search_insights_iteratively(search_query or "")
 
-            formatted_content = self._format_search_results(selected_insights, search_query or "")
+            formatted_content = self._format_search_results(selected_insights, search_query or "", state)
 
             execution_time = time.time() - start_time
             self.logger.info(
@@ -212,11 +212,8 @@ class InsightSearchNode(AssistantNode):
                 self.logger.warning(f"Search iteration failed: {e}")
                 break
 
-        # Fallback to first 3 insights if no results
-        if not selected_insights:
-            selected_insights = [insight["insight_id"] for insight in self._all_insights[:3]]
-
-        # Limit to 3 insights
+        # Return only genuinely relevant insights (no fallback)
+        # Limit to 3 insights if more were found
         return selected_insights[:3]
 
     def _format_insights_page(self, page_number: int) -> str:
@@ -261,10 +258,15 @@ class InsightSearchNode(AssistantNode):
         # Limit to 3 insights
         return valid_ids[:3]
 
-    def _format_search_results(self, selected_insights: list[int], search_query: str) -> str:
+    def _format_search_results(self, selected_insights: list[int], search_query: str, state: AssistantState) -> str:
         """Format final search results for display."""
+        is_from_create_flow = bool(state.root_tool_insight_type and state.root_tool_insight_plan)
+
         if not selected_insights:
-            return f"No insights found matching '{search_query or 'your search'}'.\n\nSuggest that the user try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
+            if is_from_create_flow:
+                return f"No existing insights were found that are genuinely relevant to your request: \"{state.root_tool_insight_plan or search_query}\"\n\nI'll proceed to create a new {state.root_tool_insight_type or 'insight'} for you.\n\nINSTRUCTIONS: Clear the search_insights_query and proceed with insight creation."
+            else:
+                return f"No genuinely relevant insights found matching '{search_query or 'your search'}'.\n\nSuggest that the user try:\n- Using different keywords\n- Searching for broader terms\n- Creating a new insight instead"
 
         insight_details = []
         for insight_id in selected_insights:
@@ -272,7 +274,7 @@ class InsightSearchNode(AssistantNode):
             if insight:
                 insight_details.append(insight)
 
-        header = f"Found {len(insight_details)} insight{'s' if len(insight_details) != 1 else ''}"
+        header = f"Found {len(insight_details)} existing insight{'s' if len(insight_details) != 1 else ''}"
         if search_query:
             header += f" matching '{search_query}'"
         header += ":\n\n"
@@ -295,7 +297,11 @@ Description: {description}
             formatted_results.append(result_block)
 
         content = header + "\n\n".join(formatted_results)
-        content += "\n\nINSTRUCTIONS: Ask the user if they want to modify one of these insights, or use them as a starting point for a new one."
+
+        if is_from_create_flow:
+            content += f"\n\nI found {len(insight_details)} genuinely relevant insight{'s' if len(insight_details) != 1 else ''} for your request: \"{state.root_tool_insight_plan or search_query}\"\n\nINSTRUCTIONS: Ask the user if any of these insights meet their needs, or if they'd like me to create a new {state.root_tool_insight_type or 'insight'} instead. If they want a new insight, clear the search_insights_query and proceed with insight creation."
+        else:
+            content += "\n\nINSTRUCTIONS: Ask the user if they want to modify one of these insights, or use them as a starting point for a new one."
 
         return content
 

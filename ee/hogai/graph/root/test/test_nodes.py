@@ -588,6 +588,22 @@ class TestRootNodeTools(BaseTest):
         )
         self.assertEqual(node.router(state_4), "root")
 
+        # Test case 5: Has both search query and insight type - should prioritize search
+        state_5 = AssistantState(
+            messages=[AssistantMessage(content="Hello")],
+            root_tool_call_id="xyz",
+            root_tool_insight_plan="Show pageviews",
+            root_tool_insight_type="trends",
+            search_insights_query="pageviews",
+        )
+        self.assertEqual(node.router(state_5), "insights_search")
+
+        # Test case 6: Has only search query without insight type - should return insights_search
+        state_6 = AssistantState(
+            messages=[AssistantMessage(content="Hello")], root_tool_call_id="xyz", search_insights_query="pageviews"
+        )
+        self.assertEqual(node.router(state_6), "insights_search")
+
     async def test_run_no_assistant_message(self):
         node = RootNodeTools(self.team, self.user)
         state = AssistantState(messages=[HumanMessage(content="Hello")])
@@ -616,6 +632,51 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(result.root_tool_call_id, "xyz")
         self.assertEqual(result.root_tool_insight_plan, "test query")
         self.assertEqual(result.root_tool_insight_type, "trends")
+        self.assertEqual(result.search_insights_query, "test query")  # Now searches first
+
+    async def test_run_create_and_query_insight_prevents_search_loop(self):
+        """Test that create_and_query_insight doesn't trigger search if search was already performed."""
+        node = RootNodeTools(self.team, self.user)
+
+        # Simulate conversation where search_insights was already called
+        state = AssistantState(
+            messages=[
+                AssistantMessage(
+                    content="Let me search for insights",
+                    id="search-msg",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="search-call",
+                            name="search_insights",
+                            args={"search_query": "test query"},
+                        )
+                    ],
+                ),
+                AssistantToolCallMessage(
+                    content="No insights found",
+                    tool_call_id="search-call",
+                    id="search-result",
+                ),
+                AssistantMessage(
+                    content="Now creating insight",
+                    id="create-msg",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="create-call",
+                            name="create_and_query_insight",
+                            args={"query_kind": "trends", "query_description": "test query"},
+                        )
+                    ],
+                ),
+            ]
+        )
+
+        result = await node.arun(state, {})
+
+        # Should NOT set search_insights_query since search was already performed
+        self.assertIsNone(result.search_insights_query)
+        self.assertEqual(result.root_tool_insight_type, "trends")
+        self.assertEqual(result.root_tool_insight_plan, "test query")
 
     async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)

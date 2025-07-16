@@ -508,12 +508,29 @@ class RootNodeTools(AssistantNode):
         from ee.hogai.tool import get_contextual_tool_class
 
         if tool_call.name == "create_and_query_insight" and not is_editing_insight:
-            return PartialAssistantState(
-                root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_insight_type=tool_call.args["query_kind"],
-                root_tool_calls_count=tool_call_count + 1,
+            # Check if search_insights was already called in this conversation
+            search_already_performed = any(
+                isinstance(msg, AssistantMessage)
+                and msg.tool_calls
+                and any(tc.name == "search_insights" for tc in msg.tool_calls)
+                for msg in state.messages
             )
+
+            if not search_already_performed:
+                return PartialAssistantState(
+                    root_tool_call_id=tool_call.id,
+                    root_tool_insight_plan=tool_call.args["query_description"],
+                    root_tool_insight_type=tool_call.args["query_kind"],
+                    search_insights_query=tool_call.args["query_description"],
+                    root_tool_calls_count=tool_call_count + 1,
+                )
+            else:
+                return PartialAssistantState(
+                    root_tool_call_id=tool_call.id,
+                    root_tool_insight_plan=tool_call.args["query_description"],
+                    root_tool_insight_type=tool_call.args["query_kind"],
+                    root_tool_calls_count=tool_call_count + 1,
+                )
         elif tool_call.name == "search_documentation":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
@@ -585,12 +602,12 @@ class RootNodeTools(AssistantNode):
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
-            if state.root_tool_insight_type:
+            if state.search_insights_query:
+                return "insights_search"
+            elif state.root_tool_insight_type:
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"
-            elif state.search_insights_query:
-                return "insights_search"
             else:
                 return "search_documentation"
         return "end"
