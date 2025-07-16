@@ -125,7 +125,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                             <div key={access.id} className="space-y-2">
                                 {isLowerThanDefault && (
                                     <LemonBanner type="warning" className="text-xs">
-                                        The default access level for {project.name} is Admin. Your selection of Member
+                                        The default access level for {project.name} is {defaultLevel}. Your selection of {access.level}
                                         will be overridden by the default Admin access.
                                     </LemonBanner>
                                 )}
