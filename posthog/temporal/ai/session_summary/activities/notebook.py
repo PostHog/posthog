@@ -15,9 +15,14 @@ def _sanitize_text_content(text: str) -> str:
     return text.strip()
 
 
-def _create_separator() -> dict[str, Any]:
-    """Create a separator node"""
+def _create_empty_paragraph() -> dict[str, Any]:
+    """Create a paragraph node with no content to add spacing"""
     return {"type": "paragraph"}
+
+
+def _create_line_separator() -> dict[str, Any]:
+    """Create a line separator node"""
+    return {"type": "horizontalRule"}
 
 
 def _create_paragraph_with_text(text: str, marks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -110,7 +115,7 @@ def _generate_notebook_content_from_summary(
             "type": "doc",
             "content": [
                 _create_heading_with_text(f"Session Summaries Report - {domain}", 1),
-                _create_separator(),
+                _create_empty_paragraph(),
                 _create_paragraph_with_text("No patterns found."),
             ],
         }
@@ -130,11 +135,12 @@ def _generate_notebook_content_from_summary(
     # Summary table
     table_content = _create_summary_table(patterns_sorted, total_sessions)
     content.extend(table_content)
+    content.append(_create_line_separator())
 
     # Pattern details
     for pattern in patterns_sorted:
         pattern_content = _create_pattern_section(pattern, total_sessions)
-        content.append(_create_separator())
+        content.append(_create_empty_paragraph())
         content.extend(pattern_content)
 
     return {
@@ -192,7 +198,7 @@ def _create_pattern_section(pattern, total_sessions: int) -> list[dict[str, Any]
     success_percentage = f"{stats.segments_success_ratio * 100:.0f}%"
     success_count = int(stats.segments_success_ratio * stats.occurences)
     severity_text = pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity
-    content.append(_create_separator())
+    content.append(_create_empty_paragraph())
     content.append(
         _create_paragraph_with_content(
             [_create_text_content("How severe it is: ", is_bold=True), _create_text_content(severity_text.title())]
@@ -216,7 +222,7 @@ def _create_pattern_section(pattern, total_sessions: int) -> list[dict[str, Any]
     )
 
     # Detection indicators
-    content.append(_create_separator())
+    content.append(_create_empty_paragraph())
     content.append(
         _create_paragraph_with_content(
             [_create_text_content("🔍 "), _create_text_content("How we detect this:", is_bold=True)]
@@ -226,14 +232,15 @@ def _create_pattern_section(pattern, total_sessions: int) -> list[dict[str, Any]
     content.append(_create_bullet_list(pattern.indicators))
 
     # Examples section
-    content.append(_create_separator())
+    content.append(_create_empty_paragraph())
     content.append(_create_heading_with_text("Examples", 3))
     # TODO: Decide if to limit examples (or create some sort of collapsible section in notebooks)
     events_to_show = pattern.events
     for event_data in events_to_show:
         example_content = _create_example_section(event_data)
-        content.append(_create_separator())
+        content.append(_create_line_separator())
         content.extend(example_content)
+    content.append(_create_line_separator())
     return content
 
 
