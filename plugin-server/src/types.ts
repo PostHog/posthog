@@ -397,7 +397,6 @@ export interface Hub extends PluginsServerConfig {
     groupTypeManager: GroupTypeManager
     celery: Celery
     // geoip database, setup in workers
-    mmdb?: ReaderModel
     geoipService: GeoIPService
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
