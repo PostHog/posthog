@@ -1,5 +1,4 @@
 from rest_framework import serializers, viewsets
-from rest_framework.permissions import IsAuthenticated
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import MessageCategory
@@ -45,17 +44,11 @@ class MessageCategoryViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "INTERNAL"
-    permission_classes = [IsAuthenticated]
 
     serializer_class = MessageCategorySerializer
     queryset = MessageCategory.objects.all()
 
     def safely_get_queryset(self, queryset):
-        return (
-            queryset.filter(
-                team_id=self.team_id,
-                deleted=False,
-            )
-            .select_related("created_by")
-            .order_by("-created_at")
+        return queryset.filter(
+            deleted=False,
         )
