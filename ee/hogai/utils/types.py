@@ -103,78 +103,75 @@ class _SharedAssistantState(BaseModel):
     The state of the root node.
     """
 
+    start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
     """
-    start_id: Optional[str] = Field(default=None)
+    graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
     """
     Whether the graph was interrupted or resumed.
     """
-    graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
 
+    intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
     """
     Actions taken by the ReAct agent.
     """
-    intermediate_steps: Optional[list[IntermediateStep]] = Field(default=None)
+
+    
+    plan: Optional[str] = Field(default=None)
     """
     The insight generation plan.
     """
-    plan: Optional[str] = Field(default=None)
 
+    onboarding_question: Optional[str] = Field(default=None)
     """
     A clarifying question asked during the onboarding process.
     """
-    onboarding_question: Optional[str] = Field(default=None)
 
+    memory_updated: Optional[bool] = Field(default=None)
     """
     Whether the memory was updated in the `MemoryCollectorNode`.
     """
-    memory_updated: Optional[bool] = Field(default=None)
+    memory_collection_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
     """
     The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
     """
-    memory_collection_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
 
+    root_conversation_start_id: Optional[str] = Field(default=None)
     """
     The ID of the message to start from to keep the message window short enough.
     """
-    root_conversation_start_id: Optional[str] = Field(default=None)
+    root_tool_call_id: Optional[str] = Field(default=None)
     """
     The ID of the tool call from the root node.
     """
-    root_tool_call_id: Optional[str] = Field(default=None)
+    root_tool_insight_plan: Optional[str] = Field(default=None)
     """
     The insight plan to generate.
     """
-    root_tool_insight_plan: Optional[str] = Field(default=None)
+    root_tool_insight_type: Optional[str] = Field(default=None)
     """
     The type of insight to generate.
     """
-    root_tool_insight_type: Optional[str] = Field(default=None)
+    root_tool_calls_count: Optional[int] = Field(default=None)
     """
     Tracks the number of tool calls made by the root node to terminate the loop.
     """
-    root_tool_calls_count: Optional[int] = Field(default=None)
+    rag_context: Optional[str] = Field(default=None)
     """
     The ID of the previous OpenAI Responses API response made by the query planner.
     """
     query_planner_previous_response_id: Optional[str] = Field(default=None)
-    """
-    The context for taxonomy agent.
-    """
-    rag_context: Optional[str] = Field(default=None)
+    
     """
     Tracks the number of times the query generation has been retried.
     """
     query_generation_retry_count: Annotated[int, merge_retry_counts] = Field(default=0)
+    
     """
     The user's search query for finding existing insights.
     """
     search_insights_query: Optional[str] = Field(default=None)
-    """
-    The ID of the previous OpenAI Responses API response made by the filter options node.
-    """
-    filter_options_previous_response_id: Optional[str] = Field(default=None)
     
 
 class AssistantState(_SharedAssistantState):
@@ -185,11 +182,10 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
     """
-
-    messages: Sequence[AssistantMessageUnion] = Field(default=[])
 
     @classmethod
     def get_reset_state(cls) -> "PartialAssistantState":
