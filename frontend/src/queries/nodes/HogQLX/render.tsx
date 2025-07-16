@@ -8,7 +8,7 @@ import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordin
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
-// NB!!! Sync this list with frontend/src/queries/nodes/HogQLX/render.tsx
+// NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the "key" and child/source attributes
 const HOGQLX_TAGS_NO_ATTRIBUTES = [
     'em',
