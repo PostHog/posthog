@@ -89,6 +89,16 @@ export interface RefreshStatus {
     timer?: Date | null
 }
 
+export enum DashboardLoadAction {
+    InitialLoad = 'initial_load',
+    InitialLoadWithVariables = 'initial_load_with_variables',
+    Update = 'update',
+    Refresh = 'refresh',
+    LoadMissing = 'load_missing',
+    RefreshInsightsOnFiltersUpdated = 'refresh_insights_on_filters_updated',
+    Preview = 'preview',
+}
+
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
@@ -122,14 +132,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard loading and dashboard tile refreshes.
          */
         loadDashboard: (payload: {
-            action:
-                | 'initial_load'
-                | 'initial_load_with_variables'
-                | 'update'
-                | 'refresh'
-                | 'load_missing'
-                | 'refresh_insights_on_filters_updated'
-                | 'preview'
+            action: DashboardLoadAction
             manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
         }) => payload,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
@@ -270,8 +273,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         const apiUrl = values.apiUrl(
                             'force_cache',
-                            action === 'preview' ? values.temporaryFilters : undefined,
-                            action === 'preview' ? values.temporaryVariables : undefined
+                            action === DashboardLoadAction.Preview ? values.temporaryFilters : undefined,
+                            action === DashboardLoadAction.Preview ? values.temporaryVariables : undefined
                         )
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
@@ -280,7 +283,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         // don't update dashboard tile layouts if we're previewing
                         // we want to retain what the user has temporarily set
-                        if (action === 'preview' && dashboard && !values.loadLayoutFromServerOnPreview) {
+                        if (
+                            action === DashboardLoadAction.Preview &&
+                            dashboard &&
+                            !values.loadLayoutFromServerOnPreview
+                        ) {
                             const editModeTileLayouts: Record<number, DashboardTile['layouts']> = {}
                             values.dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
                                 editModeTileLayouts[tile.id] = tile.layouts
@@ -475,7 +482,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardSuccess: (state, { dashboard, payload }) => {
                     // don't update dashboardLayouts if we're previewing
-                    if (payload?.action === 'preview') {
+                    if (payload?.action === DashboardLoadAction.Preview) {
                         return state
                     }
 
@@ -519,7 +526,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ? {
                               ...state,
                               // don't update filters if we're previewing or initial load with variables
-                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                              ...(payload?.action === DashboardLoadAction.Preview ||
+                              payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
                                   : dashboard.variables ?? {}),
                           }
@@ -548,7 +556,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ? {
                               ...state,
                               // don't update filters if we're previewing or initial load with variables
-                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                              ...(payload?.action === DashboardLoadAction.Preview ||
+                              payload?.action === DashboardLoadAction.InitialLoadWithVariables
                                   ? {}
                                   : dashboard.variables ?? {}),
                           }
@@ -627,7 +636,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ? {
                               ...state,
                               // don't update filters if we're previewing
-                              ...(payload?.action === 'preview'
+                              ...(payload?.action === DashboardLoadAction.Preview
                                   ? {}
                                   : {
                                         date_from: dashboard?.filters.date_from || null,
@@ -1216,7 +1225,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } else {
                     if (!(QUERY_VARIABLES_KEY in router.values.searchParams)) {
                         actions.loadDashboard({
-                            action: 'initial_load',
+                            action: DashboardLoadAction.InitialLoad,
                         })
                     }
                 }
@@ -1253,7 +1262,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
         },
         updateFiltersAndLayoutsAndVariablesSuccess: () => {
-            actions.loadDashboard({ action: 'update' })
+            actions.loadDashboard({ action: DashboardLoadAction.Update })
         },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
@@ -1275,12 +1284,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // TODO this is a bit hacky, but we need to reload the dashboard to get the new insight
             // TODO when duplicated from a dashboard we should carry the context so only one logic needs to reload
             // TODO or we should duplicate the tile (and implicitly the insight)
-            actions.loadDashboard({ action: 'update' })
+            actions.loadDashboard({ action: DashboardLoadAction.Update })
         },
         [dashboardsModel.actionTypes.tileAddedToDashboard]: ({ dashboardId }) => {
             // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
             if (dashboardId === props.id) {
-                actions.loadDashboard({ action: 'update' })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds }) => {
@@ -1296,7 +1305,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (tileIndex === -1) {
                 // this is a new tile created from an insight context we need to reload the dashboard
-                actions.loadDashboard({ action: 'update' })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
         moveToDashboardSuccess: ({ payload }) => {
@@ -1333,7 +1342,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: () => {
             // reset auto refresh interval
             actions.resetInterval()
-            actions.loadDashboard({ action: 'refresh', manualDashboardRefresh: true })
+            actions.loadDashboard({ action: DashboardLoadAction.Refresh, manualDashboardRefresh: true })
         },
         /** Called when a single insight is refreshed manually on the dashboard */
         triggerDashboardItemRefresh: async ({ tile }, breakpoint) => {
@@ -1410,12 +1419,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             queryId,
                             manualDashboardRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
-                            action === 'preview' ? values.temporaryFilters : undefined,
-                            action === 'preview' ? values.temporaryVariables : undefined
+                            action === DashboardLoadAction.Preview ? values.temporaryFilters : undefined,
+                            action === DashboardLoadAction.Preview ? values.temporaryVariables : undefined
                         )
 
                         if (syncInsight) {
-                            if (action === 'preview' && syncInsight?.dashboard_tiles) {
+                            if (action === DashboardLoadAction.Preview && syncInsight?.dashboard_tiles) {
                                 syncInsight.dashboards = [dashboardId]
                             }
                             dashboardsModel.actions.updateDashboardInsight(syncInsight)
@@ -1483,7 +1492,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.resetVariables()
 
                     // reset tile data by relaoding dashboard
-                    actions.loadDashboard({ action: 'preview' })
+                    actions.loadDashboard({ action: DashboardLoadAction.Preview })
 
                     // also reset layout to that we stored in dashboardLayouts
                     // this is done in the reducer for dashboard
@@ -1518,10 +1527,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     values.lastDashboardRefresh &&
                     values.lastDashboardRefresh.isBefore(now().subtract(values.autoRefresh.interval, 'seconds'))
                 ) {
-                    actions.loadDashboard({ action: 'refresh' })
+                    actions.loadDashboard({ action: DashboardLoadAction.Refresh })
                 }
                 cache.autoRefreshInterval = window.setInterval(() => {
-                    actions.loadDashboard({ action: 'refresh' })
+                    actions.loadDashboard({ action: DashboardLoadAction.Refresh })
                 }, values.autoRefresh.interval * 1000)
             }
         },
@@ -1589,26 +1598,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         previewTemporaryFilters: () => {
-            actions.loadDashboard({ action: 'preview' })
+            actions.loadDashboard({ action: DashboardLoadAction.Preview })
         },
         setProperties: () => {
             if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
-                actions.loadDashboard({ action: 'preview' })
+                actions.loadDashboard({ action: DashboardLoadAction.Preview })
             }
         },
         setDates: () => {
             if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
-                actions.loadDashboard({ action: 'preview' })
+                actions.loadDashboard({ action: DashboardLoadAction.Preview })
             }
         },
         setBreakdownFilter: () => {
             if ((values.dashboard?.tiles.length || 0) < MAX_TILES_FOR_AUTOPREVIEW) {
-                actions.loadDashboard({ action: 'preview' })
+                actions.loadDashboard({ action: DashboardLoadAction.Preview })
             }
         },
         overrideVariableValue: ({ reload, value, isNull }) => {
             if (reload) {
-                actions.loadDashboard({ action: 'preview' })
+                actions.loadDashboard({ action: DashboardLoadAction.Preview })
                 actions.setDashboardMode(DashboardMode.Edit, null)
             }
 
@@ -1638,7 +1647,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboard({
-                    action: 'initial_load_with_variables',
+                    action: DashboardLoadAction.InitialLoadWithVariables,
                 })
             }
 
