@@ -3,8 +3,6 @@ from typing import Optional, Any
 
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.schema import (
-    PersonPropertyFilter,
-    SessionPropertyFilter,
     WebOverviewQuery,
     DateRange,
     HogQLQueryModifiers,
@@ -25,9 +23,7 @@ class ExternalWebAnalyticsQueryAdapter:
     def __init__(self, team: Team):
         self.team = team
 
-    def _get_base_properties(
-        self, domain: Optional[str] = None
-    ) -> list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]:
+    def _get_base_properties(self, domain: Optional[str] = None) -> list[EventPropertyFilter]:
         properties = []
         if domain:
             properties.append(
@@ -57,7 +53,7 @@ class ExternalWebAnalyticsQueryAdapter:
                 date_from=self._get_datetime_str(data["date_from"]),
                 date_to=self._get_datetime_str(data["date_to"]),
             ),
-            properties=self._get_base_properties(data.get("domain")),
+            properties=self._get_base_properties(data.get("domain")),  # type: ignore
             filterTestAccounts=data.get("filter_test_accounts", True),
             doPathCleaning=data.get("do_path_cleaning", True),
             includeRevenue=False,

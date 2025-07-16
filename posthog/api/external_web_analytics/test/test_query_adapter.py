@@ -1,6 +1,7 @@
 from datetime import date
 from unittest.mock import patch, MagicMock
 import pytest
+from typing import Any
 
 from posthog.api.external_web_analytics.query_adapter import ExternalWebAnalyticsQueryAdapter
 from posthog.api.external_web_analytics.serializers import WebAnalyticsOverviewRequestSerializer
@@ -96,7 +97,7 @@ class TestExternalWebAnalyticsQueryAdapter(APIBaseTest):
             assert result["session_duration"] == 123.4  # float preserved
 
     def test_handles_edge_cases_gracefully(self):
-        test_cases = [
+        test_cases: list[dict[str, Any]] = [
             # Case 1: Null values
             {
                 "items": [
