@@ -5678,3 +5678,21 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_trends_daily_compare_to_7_days_ago(self):
         self._compare_trends_test(CompareFilter(compare=True, compare_to="-7d"))
+
+    def test_trends_all_time(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "all",
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+        )
+
+        self.assertEqual(1, len(response.results))
+
+        # Check the first day is included
+        self.assertIn(
+            "2020-01-09",
+            response.results[0]["days"],
+        )

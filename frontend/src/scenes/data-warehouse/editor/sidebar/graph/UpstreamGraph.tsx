@@ -16,17 +16,19 @@ import {
     useReactFlow,
 } from '@xyflow/react'
 import dagre from '@dagrejs/dagre'
-import { IconArchive, IconTarget } from '@posthog/icons'
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconArchive, IconTarget, IconPencil } from '@posthog/icons'
+import { LemonTag, LemonTagType, LemonButton } from '@posthog/lemon-ui'
+import { useValues, useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { router } from 'kea-router'
 
 import { LineageNode as LineageNodeType } from '~/types'
 
 import { multitabEditorLogic } from '../../multitabEditorLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { dataWarehouseViewsLogic } from '../../../saved_queries/dataWarehouseViewsLogic'
 
 interface UpstreamGraphProps {
     codeEditorKey: string
@@ -40,7 +42,7 @@ interface LineageNodeProps {
 const MAT_VIEW_HEIGHT = 92
 const TABLE_HEIGHT = 68
 
-const NODE_WIDTH = 240
+const NODE_WIDTH = 300
 
 const MARKER_SIZE = 20
 
@@ -48,9 +50,14 @@ const NODE_SEP = 80
 const RANK_SEP = 160
 
 function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
+    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+
+    const { editView } = useActions(multitabEditorLogic({ key: codeEditorKey }))
+    const { dataWarehouseSavedQueries } = useValues(dataWarehouseViewsLogic)
+
     const getNodeType = (type: string, lastRunAt?: string): string => {
         if (type === 'view') {
-            return lastRunAt ? 'Mat. View' : 'View'
+            return lastRunAt ? 'Mat. view' : 'View'
         }
         return 'Table'
     }
@@ -70,9 +77,18 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
     const isMatView = data.type === 'view' && !!data.last_run_at
     const nodeHeight = isMatView ? MAT_VIEW_HEIGHT : TABLE_HEIGHT
 
+    const handleEditView = async (): Promise<void> => {
+        if (data.type === 'view') {
+            const view = dataWarehouseSavedQueries.find((v) => v.id.replace(/-/g, '') === data.id)
+            if (view?.query?.query) {
+                editView(view.query.query, view)
+            }
+        }
+    }
+
     return (
         <div
-            className="bg-bg-light border border-border rounded-lg p-3 min-w-[240px] shadow-sm"
+            className="bg-bg-light border border-border rounded-md p-3 min-w-[300px] shadow-sm"
             style={{ minHeight: nodeHeight }}
         >
             {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
@@ -84,7 +100,17 @@ function LineageNode({ data, edges }: LineageNodeProps): JSX.Element {
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
-                    <span className="font-medium text-sm truncate max-w-[180px] block">{data.name}</span>
+                    <div className="flex items-center w-full justify-between">
+                        <div className="font-medium text-sm truncate max-w-[240px] block">{data.name}</div>
+                        {data.type === 'view' && !data.isCurrentView && (
+                            <LemonButton
+                                size="xxsmall"
+                                type="secondary"
+                                icon={<IconPencil />}
+                                onClick={handleEditView}
+                            />
+                        )}
+                    </div>
                 </Tooltip>
             </div>
 
@@ -157,7 +183,7 @@ const getLayoutedElements = (
         id: `edge-${index}`,
         source: edge.source,
         target: edge.target,
-        type: 'smoothstep',
+        type: 'default',
         animated: false,
         markerEnd: {
             type: MarkerType.ArrowClosed,
@@ -181,6 +207,8 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
         return getLayoutedElements(upstream.nodes, upstream.edges, editingView?.name)
     }, [upstream, editingView?.name])
+
+    const nodeTypes = useMemo(() => getNodeTypes(edges), [edges])
 
     // Fit view when nodes change
     useEffect(() => {
@@ -207,13 +235,10 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
     return (
         <div className="w-full h-full">
             <ReactFlow
-                proOptions={{
-                    hideAttribution: true,
-                }}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 nodes={nodes}
                 edges={edges}
-                nodeTypes={getNodeTypes(edges)}
+                nodeTypes={nodeTypes}
                 fitView
                 fitViewOptions={{ padding: 0.1 }}
                 minZoom={0.1}
@@ -221,7 +246,7 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
             >
                 <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
                 <Controls showInteractive={false} position="bottom-right" />
-                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} />
+                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} className="hidden lg:block" />
             </ReactFlow>
         </div>
     )
@@ -229,10 +254,12 @@ function UpstreamGraphContent({ codeEditorKey }: UpstreamGraphProps): JSX.Elemen
 
 export function UpstreamGraph({ codeEditorKey }: UpstreamGraphProps): JSX.Element {
     return (
-        <div className="w-full h-full">
-            <ReactFlowProvider>
-                <UpstreamGraphContent codeEditorKey={codeEditorKey} />
-            </ReactFlowProvider>
+        <div className="h-[500px] border border-border rounded-md overflow-hidden">
+            <div className="w-full h-full">
+                <ReactFlowProvider>
+                    <UpstreamGraphContent codeEditorKey={codeEditorKey} />
+                </ReactFlowProvider>
+            </div>
         </div>
     )
 }

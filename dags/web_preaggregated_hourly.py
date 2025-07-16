@@ -5,6 +5,7 @@ import dagster
 from dagster import Field
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    INTRA_DAY_HOURLY_CRON_SCHEDULE,
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS_HOURLY,
     merge_clickhouse_settings,
@@ -142,7 +143,7 @@ web_pre_aggregate_current_day_hourly_job = dagster.define_asset_job(
 
 
 @dagster.schedule(
-    cron_schedule="*/10 * * * *",
+    cron_schedule=INTRA_DAY_HOURLY_CRON_SCHEDULE,
     job=web_pre_aggregate_current_day_hourly_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
