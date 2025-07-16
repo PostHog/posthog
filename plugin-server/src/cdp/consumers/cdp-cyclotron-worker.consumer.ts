@@ -33,7 +33,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 if (isNativeHogFunction(item.hogFunction)) {
                     return this.nativeDestinationExecutorService.execute(item)
                 } else if (isLegacyPluginHogFunction(item.hogFunction)) {
-                    return this.pluginExecutor.execute(item)
+                    return this.pluginDestinationExecutorService.execute(item)
                 } else if (isSegmentPluginHogFunction(item.hogFunction)) {
                     return this.segmentDestinationExecutorService.execute(item)
                 } else {
