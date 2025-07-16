@@ -157,6 +157,8 @@ class JSONLBrotliStreamTransformer:
 
         See `JSONLStreamTransformer` for an outline of the pipeline.
         """
+        loop = asyncio.get_running_loop()
+
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
@@ -186,13 +188,12 @@ class JSONLBrotliStreamTransformer:
                         self._futures_pending.remove(future)
 
                         for chunk in chunks:
-                            chunk = self._compress(chunk)
-                            await asyncio.sleep(0)  # In case compressing took too long.
+                            chunk = await loop.run_in_executor(None, self._compress, chunk)
 
                             yield Chunk(chunk, False)
 
                             if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
-                                data = await asyncio.to_thread(self._finish_brotli_compressor)
+                                data = await loop.run_in_executor(None, self._finish_brotli_compressor)
 
                                 yield Chunk(data, True)
                                 current_file_size = 0
