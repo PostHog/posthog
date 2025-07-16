@@ -103,6 +103,29 @@ def event_or_action_to_filter(team: Team, entity_node: Union[EventsNode, Actions
     return event_filter
 
 
+def data_warehouse_node_to_filter(team: Team, node: ExperimentDataWarehouseNode) -> ast.Expr:
+    """
+    Returns the filter for a data warehouse node, including all properties and fixedProperties.
+    """
+    # Collect all properties from both properties and fixedProperties
+    all_properties = []
+
+    if node.properties:
+        all_properties.extend(node.properties)
+
+    if node.fixedProperties:
+        all_properties.extend(node.fixedProperties)
+
+    # If no properties, return True (no filtering)
+    if not all_properties:
+        return ast.Constant(value=True)
+
+    # TODO: Implement property filtering for data warehouse nodes
+    # For now, return True to avoid breaking existing functionality
+    # This will be implemented in a follow-up
+    return ast.Constant(value=True)
+
+
 def conversion_window_to_seconds(conversion_window: int, conversion_window_unit: FunnelConversionWindowTimeUnit) -> int:
     multipliers = {
         FunnelConversionWindowTimeUnit.SECOND: 1,

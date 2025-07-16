@@ -37,6 +37,7 @@ from posthog.schema import (
     MultipleVariantHandling,
     PropertyOperator,
 )
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
 from posthog.test.base import (
     _create_event,
     _create_person,
@@ -2370,3 +2371,341 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both should have 5 exposures each
         self.assertEqual(control_variant.absolute_exposure, 5)
         self.assertEqual(test_variant.absolute_exposure, 5)
+
+    @parameterized.expand(
+        [
+            [
+                "single_property_filter",
+                clean_entity_properties(
+                    [{"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"}]
+                ),
+                {"control_count": 500, "test_count": 750},
+            ],
+            [
+                "multiple_property_filters",
+                clean_entity_properties(
+                    [
+                        {"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
+                        {"key": "usage.region", "operator": "exact", "value": "us-west", "type": "data_warehouse"},
+                    ]
+                ),
+                {"control_count": 250, "test_count": 375},
+            ],
+            [
+                "numeric_property_filter",
+                clean_entity_properties(
+                    [{"key": "usage.usage", "operator": "gt", "value": 100, "type": "data_warehouse"}]
+                ),
+                {"control_count": 500, "test_count": 1000},
+            ],
+            [
+                "mixed_property_filters",
+                clean_entity_properties(
+                    [
+                        {"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
+                        {"key": "usage.usage", "operator": "gt", "value": 50, "type": "data_warehouse"},
+                    ]
+                ),
+                {"control_count": 500, "test_count": 750},
+            ],
+        ]
+    )
+    @snapshot_clickhouse_queries
+    def test_query_runner_data_warehouse_metric_with_property_filters(self, name, properties, expected_results):
+        """Test that data warehouse metrics properly apply property filters"""
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.SUM,
+                math_property="usage",
+                properties=properties,
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        self.assertEqual(control_result.count, expected_results["control_count"])
+        self.assertEqual(test_result.count, expected_results["test_count"])
+        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(test_result.absolute_exposure, 9)
+
+    @snapshot_clickhouse_queries
+    def test_query_runner_data_warehouse_metric_with_fixed_properties(self):
+        """Test that data warehouse metrics properly apply fixedProperties"""
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.SUM,
+                math_property="usage",
+                fixedProperties=clean_entity_properties(
+                    [
+                        {"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
+                    ]
+                ),
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Should filter to only premium plan usage
+        self.assertEqual(control_result.count, 500)
+        self.assertEqual(test_result.count, 750)
+        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(test_result.absolute_exposure, 9)
+
+    @snapshot_clickhouse_queries
+    def test_query_runner_data_warehouse_metric_with_both_properties_and_fixed_properties(self):
+        """Test that data warehouse metrics properly apply both properties and fixedProperties"""
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.SUM,
+                math_property="usage",
+                properties=clean_entity_properties(
+                    [
+                        {"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
+                    ]
+                ),
+                fixedProperties=clean_entity_properties(
+                    [
+                        {"key": "usage.region", "operator": "exact", "value": "us-west", "type": "data_warehouse"},
+                    ]
+                ),
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Should filter to only premium plan AND us-west region
+        self.assertEqual(control_result.count, 250)
+        self.assertEqual(test_result.count, 375)
+        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(test_result.absolute_exposure, 9)
+
+    @snapshot_clickhouse_queries
+    def test_query_runner_data_warehouse_metric_with_no_properties(self):
+        """Test that data warehouse metrics work without any property filters (baseline behavior)"""
+        table_name = self.create_data_warehouse_table_with_usage()
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
+        )
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMeanMetric(
+            source=ExperimentDataWarehouseNode(
+                table_name=table_name,
+                events_join_key="properties.$user_id",
+                data_warehouse_join_key="userid",
+                timestamp_field="ds",
+                math=ExperimentMetricMathType.SUM,
+                math_property="usage",
+                # No properties or fixedProperties
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.exposure_criteria = {"filterTestAccounts": False}
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Populate exposure events
+        for variant, count in [("control", 7), ("test", 9)]:
+            for i in range(count):
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"distinct_{variant}_{i}",
+                    properties={
+                        "$feature_flag_response": variant,
+                        feature_flag_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$user_id": f"user_{variant}_{i}",
+                    },
+                    timestamp=datetime(2023, 1, i + 1),
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with freeze_time("2023-01-07"):
+            result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_result = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Should include all data (no filters)
+        self.assertEqual(control_result.count, 1000)
+        self.assertEqual(test_result.count, 2050)
+        self.assertEqual(control_result.absolute_exposure, 7)
+        self.assertEqual(test_result.absolute_exposure, 9)
