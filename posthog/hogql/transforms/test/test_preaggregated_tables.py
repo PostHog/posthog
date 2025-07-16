@@ -11,7 +11,6 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 
-
 class TestPreaggregatedTables(BaseTest):
     def _parse_and_transform(self, query: str):
         node = parse_select(query)
@@ -36,7 +35,7 @@ class TestPreaggregatedTables(BaseTest):
             where event = '$pageview'
         """
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniq(sessions_uniq_state), uniqMerge(sessions_uniq_state) FROM web_stats_combined)"""
+        expected = """sql(SELECT sumMerge(pageviews_count_state), sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state), uniqMerge(persons_uniq_state), uniqMerge(sessions_uniq_state), uniqMerge(sessions_uniq_state) FROM web_stats_combined)"""
         assert query == expected
 
     def test_wrong_id(self):
@@ -52,7 +51,7 @@ class TestPreaggregatedTables(BaseTest):
     def test_wrong_aggregation_function(self):
         original_query = """
             select
-                count(person_id),
+                count(person_id)
             from events
             where event = '$pageview'
         """
@@ -68,7 +67,9 @@ class TestPreaggregatedTables(BaseTest):
     def test_equals_function(self):
         original_query = "select count(), uniq(person_id) from events where equals(event, '$pageview')"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
+        expected = (
+            """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
+        )
         assert query == expected
 
     def test_unsupported_event(self):
@@ -95,7 +96,9 @@ class TestPreaggregatedTables(BaseTest):
     def test_sample_1(self):
         original_query = "select count(), uniq(person_id) from events sample 1 where event = '$pageview'"
         query = self._parse_and_transform(original_query)
-        expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
+        expected = (
+            """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined)"""
+        )
         assert query == expected
 
     def test_sample_not_1(self):
@@ -106,7 +109,9 @@ class TestPreaggregatedTables(BaseTest):
         assert query == expected
 
     def test_preaggregation_tables_group_by_supported(self):
-        original_query = "select count(), uniq(person_id) from events where event = '$pageview' group by properties.utm_source"
+        original_query = (
+            "select count(), uniq(person_id) from events where event = '$pageview' group by properties.utm_source"
+        )
         query = self._parse_and_transform(original_query)
         expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY utm_source)"""
         assert query == expected
@@ -119,7 +124,9 @@ class TestPreaggregatedTables(BaseTest):
         assert query == expected
 
     def test_preaggregation_tables_group_by_session_property(self):
-        original_query = "select count(), uniq(person_id) from events where event = '$pageview' group by session.$entry_pathname"
+        original_query = (
+            "select count(), uniq(person_id) from events where event = '$pageview' group by session.$entry_pathname"
+        )
         query = self._parse_and_transform(original_query)
         expected = """sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY entry_pathname)"""
         assert query == expected
@@ -151,21 +158,27 @@ class TestPreaggregatedTables(BaseTest):
 
     @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
     def test_all_event_properties_on_events_supported(self, property_name, field_name):
-        original_query = f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
+        original_query = (
+            f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
+        )
         query = self._parse_and_transform(original_query)
         expected = f"sql(SELECT sumMerge(pageviews_count_state), uniqMerge(persons_uniq_state) FROM web_stats_combined GROUP BY {field_name})"
         assert query == expected
 
     @parameterized.expand(SESSION_PROPERTY_TO_FIELD.items())
     def test_all_session_properties_on_events_unsupported(self, property_name, field_name):
-        original_query = f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
+        original_query = (
+            f"select count(), uniq(person_id) from events where event = '$pageview' group by properties.{property_name}"
+        )
         query = self._parse_and_transform(original_query)
         # Query is preserved - no transformation, these are invalid event properties
         assert query == self._normalize(original_query)
 
     @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
     def test_all_event_properties_on_session_unsupported(self, property_name, field_name):
-        original_query = f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
+        original_query = (
+            f"select count(), uniq(person_id) from events where event = '$pageview' group by session.{property_name}"
+        )
         query = self._parse_and_transform(original_query)
         # Query is preserved - no transformation, these are invalid session properties
         assert query == self._normalize(original_query)
