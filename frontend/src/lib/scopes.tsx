@@ -14,7 +14,7 @@ export type APIScope = {
 
 export const API_SCOPES: APIScope[] = [
     { key: 'action', objectPlural: 'actions' },
-    { key: 'access_control', objectPlural: 'access controls', disabledActions: ['write'] },
+    { key: 'access_control', objectPlural: 'access controls' },
     { key: 'activity_log', objectPlural: 'activity logs' },
     { key: 'annotation', objectPlural: 'annotations' },
     { key: 'batch_export', objectPlural: 'batch exports' },
