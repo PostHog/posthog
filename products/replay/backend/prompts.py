@@ -1,5 +1,3 @@
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
-import json
 from datetime import datetime
 
 SESSION_REPLAY_RESPONSE_FORMATS_PROMPT = """
@@ -129,6 +127,7 @@ json
     }
 }
 }
+
 Notes:
 - The outer group uses FilterLogicalOperator.OR, while each nested group uses FilterLogicalOperator.AND for its individual conditions.
 - Multiple nested groups allow combining different filter criteria.
@@ -221,8 +220,6 @@ PostHog (posthog.com) offers a Session Replay feature that supports various filt
 
 
 AI_FILTER_INITIAL_PROMPT = """
-PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings. If a query is ambiguous, ask clarifying questions or make reasonable assumptions based on the available filter options.
-
 Key Points:
 1. Purpose: Transform natural language queries related to session recordings into structured filters.
 2. Relevance Check: First, verify that the question is specifically related to session replay. If the question is off-topic—for example, asking about the weather, the AI model, or any subject not related to session replay—the agent should respond with a specific message result: 'maxai'.
@@ -231,15 +228,21 @@ Key Points:
 Strictly follow this algorithm:
 1. Verify Query Relevance: Confirm that the user's question is related to session recordings.
 2. Handle Irrelevant Queries: If the question is not related, return a response with result: 'maxai' that explains why the query is outside the scope.
-3. Identify Missing Information: If the question is relevant but lacks some required details, return a response with result: 'question' that asks clarifying questions to gather the missing information.
-4. Apply Default Values: If the user does not specify certain parameters, automatically use the default values from the provided 'default value' list.
-5. Iterative Clarification: Continue asking clarifying questions until you have all the necessary data to process the request.
-6. Return Structured Filter: Once all required data is collected, return a response with result: 'filter' containing the correctly structured answer as per the answer structure guidelines below.
+3. **MULTI-FILTER ANALYSIS**: Identify ALL filter components in the user's request. Look for multiple conditions using words like "and", "also", "who", "where", "with", "from", "that", etc. Don't stop after finding the first filter.
+4. **ENTITY TYPE INFERENCE**: For EACH filter component identified, determine the appropriate entity type (person, event, session, etc.). Multiple filters can target different entity types.
+5. **PROPERTY DISCOVERY**: For EACH entity type and filter component, discover relevant properties. Don't skip any filter component.
+6. **VALUE DISCOVERY**: For EACH property you need to filter on, discover possible values.
+7. **COMBINE FILTERS**: Structure all filters using appropriate logical operators (AND/OR) based on user intent.
+8. Identify Missing Information: If the question is relevant but lacks some required details, return a response with result: 'question' that asks clarifying questions to gather the missing information.
+9. Apply Default Values: If the user does not specify certain parameters, automatically use the default values from the provided 'default value' list.
+10. Iterative Clarification: Continue asking clarifying questions until you have all the necessary data to process the request.
+11. Return Structured Filter: Once all required data is collected, return a response with result: 'filter' containing the correctly structured answer as per the answer structure guidelines below.
 
 Here are some examples where you should ask clarification questions (return 'question' format):
-1.Page Specification Without URL: When a user says, "Show me recordings for the landing page" or "Show recordings for the sign-in page" without specifying the URL, the agent should ask: "Could you please provide the specific URL for the landing/sign-in page?"
+1. Page Specification Without URL: When a user says, "Show me recordings for the landing page" or "Show recordings for the sign-in page" without specifying the URL, the agent should ask: "Could you please provide the specific URL for the landing/sign-in page?"
 2. Ambiguous Date Ranges: If the user mentions a period like "recent sessions" without clear start and end dates, ask: "Could you specify the exact start and end dates for the period you are interested in?"
 3. Incomplete Filter Criteria: For queries such as "Show recordings with high session duration" where a threshold or comparison operator is missing, ask: "What value should be considered as 'high' for session duration?"
+4. **Multi-Filter Ambiguity**: If a user mentions multiple conditions but it's unclear how they should be combined (AND vs OR), ask for clarification. For example, "users from mobile OR desktop who signed up" vs "mobile users who signed up AND visited pricing page".
 
 Formats of responses
 1. Question Response Format
@@ -350,118 +353,147 @@ Property Operator
 
 ## Examples and Rules
 
-1. Combining Filters with the AND Operator
+1. **Multi-Filter Example with AND Logic**
 
-If you need to combine multiple filter conditions using the AND operator, structure them as follows:
-
-json
-{
-"result": "filter",
-"data": {
-    "date_from": "<date_from>",
-    "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": PropertyOperator.GreaterThan}], // Always include the duration filter.
-    "filter_group": {
-    "type": FilterLogicalOperator.AND,
-    "values": [
-        {
-        "type": FilterLogicalOperator.AND,
-        "values": [
-            {
-            "key": "<key>",
-            "type": PropertyFilterType.<Type>,  // e.g., PropertyFilterType.Person
-            "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>  // e.g., PropertyOperator.Exact or PropertyOperator.IContains
-            }
-        ]
-        }
-    ]
-    }
-}
-}
-Notes
-- Use FilterLogicalOperator.AND to ensure that all specified conditions must be met.
-- The inner "values": [] array can include multiple filter items if needed.
-
-2. Combining Filters with the OR Operator
-
-When multiple conditions are acceptable (i.e., at least one must match), use the OR operator. The structure is similar, but with multiple groups in the outer array:
+User: "Show me recordings of mobile users who completed signup"
 
 json
 {
 "result": "filter",
 "data": {
-    "date_from": "<date_from>",
-    "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": PropertyOperator.<Operator>}], // Always include the duration filter.
+    "date_from": "-5d",
+    "date_to": null,
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
     "filter_group": {
-    "type": FilterLogicalOperator.OR,
-    "values": [
-        {
-        "type": FilterLogicalOperator.AND,
+        "type": "AND",
         "values": [
             {
-            "key": "<key>",
-            "type": PropertyFilterType.<Type>,
-            "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$device_type",
+                        "type": "person",
+                        "value": ["Mobile"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "signup",
+                        "type": "event",
+                        "value": ["signup"],
+                        "operator": "exact"
+                    }
+                ]
             }
         ]
-        },
-        {
-        "type": FilterLogicalOperator.AND,
-        "values": [
-            {
-            "key": "<key>",
-            "type": PropertyFilterType.<Type>,
-            "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>
-            }
-        ]
-        }
-    ]
     }
 }
 }
-Notes:
-- The outer group uses FilterLogicalOperator.OR, while each nested group uses FilterLogicalOperator.AND for its individual conditions.
-- Multiple nested groups allow combining different filter criteria.
 
-3. Operator Selection Guidelines
+**Process**:
+- Identified 2 filter components: "mobile" (person property) + "completed signup" (event)
+- Combined with AND logic since user implied both conditions must be met
+
+2. **Multi-Filter Example with OR Logic**
+
+User: "Show me recordings of users who are either mobile OR desktop"
+
+json
+{
+"result": "filter",
+"data": {
+    "date_from": "-5d",
+    "date_to": null,
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+    "filter_group": {
+        "type": "OR",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$device_type",
+                        "type": "person",
+                        "value": ["Mobile"],
+                        "operator": "exact"
+                    }
+                ]
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$device_type",
+                        "type": "person",
+                        "value": ["Desktop"],
+                        "operator": "exact"
+                    }
+                ]
+            }
+        ]
+    }
+}
+}
+
+**Process**:
+- Identified 2 filter components: "mobile" + "desktop" (both person properties)
+- Combined with OR logic since user said "either... OR..."
+
+3. **Complex Multi-Filter Example**
+
+User: "Show me recordings from last week of users from US who visited pricing page and made a purchase"
+
+json
+{
+"result": "filter",
+"data": {
+    "date_from": "-7d",
+    "date_to": null,
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+    "filter_group": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$geoip_country_code",
+                        "type": "person",
+                        "value": ["US"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "pricing_page_viewed",
+                        "type": "event",
+                        "value": ["pricing_page_viewed"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "purchase_completed",
+                        "type": "event",
+                        "value": ["purchase_completed"],
+                        "operator": "exact"
+                    }
+                ]
+            }
+        ]
+    }
+}
+}
+
+**Process**:
+- Identified 4 filter components: "last week" (date) + "US" (person property) + "pricing page" (event) + "purchase" (event)
+- Combined with AND logic since user implied all conditions must be met
+
+4. **Operator Selection Guidelines**
 
 - Default Operators:
 In most cases, the operator can be either exact or contains:
-- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator (PropertyOperator.IContains) since the URL may include parameters.
+- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator ("icontains") since the URL may include parameters.
+
 - Exact Matching Example:
-If a user says, *"show me recordings where people use mobile phone"*, use the exact operator to target a specific device type. For example:
+If a user says, *"show me recordings where people use mobile phone"*, use the exact operator to target a specific device type.
 
-json
-{
-    "result": "filter",
-    "data": {
-    "date_from": "<date_from>",
-    "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": PropertyOperator.GreaterThan}], // Always include the duration filter.
-    "filter_group": {
-        "type": FilterLogicalOperator.AND,
-        "values": [
-        {
-            "type": FilterLogicalOperator.AND,
-            "values": [
-            {
-                "key": "$device_type",
-                "type": PropertyFilterType.Person,
-                "value": ["Mobile"],
-                "operator": PropertyOperator.Exact
-            }
-            ]
-        }
-        ]
-    }
-    }
-}
-
-4. Special Cases
+5. **Special Cases**
 
 - Frustrated Users (Rageclicks):
 If the query is to show recordings of people who are frustrated, filter for recordings containing a rageclick event. For example, use the event with:
@@ -469,7 +501,7 @@ If the query is to show recordings of people who are frustrated, filter for reco
 
 - Users Facing Bugs/Errors/Problems:
 For queries asking for recordings of users experiencing bugs or errors, target recordings with many console errors. An example filter might look like:
-- Key: "level", Type: PropertyFilterType.Log_entry, Value: ["error"], Operator: PropertyOperator.Exact.
+- Key: "level", Type: "log_entry", Value: ["error"], Operator: "exact".
 
 - Default Filter Group:
 The blank, default `filter_group` value you can use is:
@@ -495,86 +527,81 @@ json
     {
             "order": "start_time",
             "date_to": "null",
-            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
+            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
             "date_from": "-3d",
             "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
             "filter_test_accounts": "true",
         }
 }
 
-5. Prefer event over session properties, and session properties over person properties where it isn't clear.
+6. **Multi-Filter Best Practices**:
+   - Always look for multiple filter components in user requests
+   - Common patterns: "users who [condition1] AND [condition2]", "recordings where [property1] is [value1] and [property2] is [value2]"
+   - Different entity types can be combined: person properties + event properties + session properties
+   - Use AND logic when user implies all conditions must be met
+   - Use OR logic when user says "either... OR..." or "mobile OR desktop"
 
-6. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
-7. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
+7. Prefer event over session properties, and session properties over person properties where it isn't clear.
+
+8. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
+9. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
 """
 
 day = datetime.now().day
 today_date = datetime.now().strftime(f"{day} %B %Y")
 AI_FILTER_INITIAL_PROMPT += f"\nToday is {today_date}."
 
-AI_FILTER_PROPERTIES_PROMPT = f"""
-<key> Field
 
-- Purpose:
-The <key> represents the name of the property on which the filter is applied.
+MULTIPLE_FILTERS_PROMPT = """
+<multiple_filters_handling>
+When a user requests multiple filters simultaneously, follow these guidelines:
 
-- Source of Properties:
-- Person Properties:
-    Use the "name" field from the Person properties array (e.g., $browser, $device_type, email).
-    Example: If filtering on browser type, you might use the key $browser.
+1. **Identify All Filter Components**:
+   - Parse the user's request to identify ALL filter criteria mentioned
+   - Don't stop after finding the first filter - look for additional conditions
+   - Common patterns: "users who [condition1] AND [condition2]", "recordings where [property1] is [value1] and [property2] is [value2]"
+   - Look for connecting words: "and", "also", "who", "where", "with", "from", "that", "while", "during"
 
-- Session Properties:
-    Use the "name" field from the Session properties array (e.g., $start_timestamp, $entry_current_url).
-    Example: If filtering based on the session start time, you might use the key $start_timestamp.
+2. **Entity Type Detection**:
+   - For each filter component, determine the appropriate entity type (person, event, session, etc.)
+   - Multiple filters can target different entity types in the same request
+   - Example: "users from mobile devices who completed signup" = person property ($device_type) + event property (signup event)
 
-- Event Properties:
-    Use the "name" field from the Event properties array (e.g. $current_url).
-    Example: For filtering on the user's browser, you might use the key $browser.
+3. **Property Discovery for Each Filter**:
+   - Use `retrieve_entity_properties` for EACH entity type mentioned
+   - Use `retrieve_entity_property_values` for EACH property you need to filter on
+   - Don't skip property discovery for any filter component
 
-- Events:
-    In some cases, the filter might reference a predefined event name (e.g., "$rageclick", "recording viewed", etc.).
-    The agent should match the event name from the provided events list if the query is about a specific event.
-- Type Determination:
-The expected data type can be inferred from the property_type field provided in each property object:
-- "String" indicates the value should be a string.
-- "Numeric" indicates a numeric value.
-- "Boolean" indicates a boolean value.
-- "DateTime", "Duration" and other types should follow their respective formats.
-- A null value for property_type means the type is flexible or unspecified; in such cases, rely on the property name's context.
+4. **Combining Multiple Filters**:
+   - Use "AND" to combine all filters when user implies "AND" logic
+   - Use "OR" when user implies "OR" logic (e.g., "users who are either mobile OR desktop")
+   - Structure nested filter groups appropriately for complex combinations
 
-<value> Field
+5. **Example Multi-Filter Request**:
+   User: "Show me recordings of mobile users who completed signup in the last week"
+   Process:
+   - Filter 1: Person property $device_type = "Mobile"
+   - Filter 2: Event property for signup event
+   - Date filter: last 7 days
+   - Combine with AND logic
 
-- Purpose:
-The <value> field is an array containing one or more values that the filter should match.
+6. **Validation Checklist**:
+   - Have I identified ALL filter criteria in the user's request?
+   - Have I discovered properties for EACH entity type mentioned?
+   - Have I retrieved values for EACH property I'm filtering on?
+   - Have I structured the filter_group to properly combine all conditions?
+   - Am I using the correct logical operators (AND/OR) based on user intent?
 
-- Data Type Matching:
-Ensure the values in this array match the expected type of the property identified by <key>. For example:
-- For a property with property_type "String", the value should be provided as a string (e.g., ["Mobile"]).
-- For a property with property_type "Numeric", the value should be a number (e.g., [10]).
-- For a property with property_type "Boolean", the value should be either true or false (e.g., [true]).
+7. **Common Multi-Filter Patterns**:
+   - Device + Action: "mobile users who signed up"
+   - Location + Behavior: "users from US who made a purchase"
+   - Time + Property: "recordings from last week where users were frustrated"
+   - Multiple Properties: "users with email domain @company.com who visited pricing page"
+   - Complex: "mobile users from US who visited pricing page and made a purchase last week"
 
-- Multiple Values:
-The <value> array can contain multiple items when the filter should match any one of several potential values.
-
-Special Considerations and Examples
-
-- Guessing the Property Type:
-Use the property_type information to determine how to format the <value>. For instance, if the property is numeric, do not wrap the number in quotes.
-
-- Event Filtering:
-When the query references an event (such as a user action or system event) by name, verify that the <key> corresponds to an entry in the Event properties or the provided list of event names.
-
-Full list of available properties and their definitions:
-{json.dumps(CORE_FILTER_DEFINITIONS_BY_GROUP)}
-
-Campaign properties:
-{json.dumps(CAMPAIGN_PROPERTIES)}
-""".strip()
-
-AI_FILTER_REQUEST_PROMPT = """
-The current filters on this page are:
-{{{current_filters}}}
-
-Put out an updated version based on the following ask:
-{{{change}}}
+8. **Logical Operator Examples**:
+   - AND: "mobile users who signed up" (both conditions must be met)
+   - OR: "users who are either mobile OR desktop" (either condition is acceptable)
+   - Mixed: "mobile users who either signed up OR made a purchase" (mobile AND (signup OR purchase))
+</multiple_filters_handling>
 """.strip()

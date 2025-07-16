@@ -4,10 +4,12 @@ from typing import cast, Optional
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     merge_message_runs,
+    ToolMessage as LangchainToolMessage,
+    AIMessage as LangchainAIMessage,
 )
+
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import FilterOptionsState, PartialFilterOptionsState
 
@@ -44,8 +46,10 @@ from .prompts import (
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
     FILTER_OPTIONS_ITERATION_LIMIT_PROMPT,
 )
-from posthog.schema import AssistantToolCallMessage, AssistantMessage
+from posthog.schema import AssistantToolCallMessage
 from ee.hogai.llm import MaxChatOpenAI
+from posthog.sync import database_sync_to_async
+from ee.hogai.utils.exceptions import GenerationCanceled
 
 
 class FilterOptionsNode(AssistantNode):
@@ -54,6 +58,22 @@ class FilterOptionsNode(AssistantNode):
     def __init__(self, team, user, injected_prompts: Optional[dict] = None):
         super().__init__(team, user)
         self.injected_prompts = injected_prompts or {}
+
+    async def __call__(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
+        """
+        Override the base class __call__ method to use FilterOptionsState.
+        """
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        if thread_id and await self._is_conversation_cancelled(thread_id):
+            raise GenerationCanceled
+        try:
+            return await self.arun(state, config)
+        except NotImplementedError:
+            return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+
+    async def arun(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
+        """Override the base class arun method to use FilterOptionsState."""
+        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -78,7 +98,7 @@ class FilterOptionsNode(AssistantNode):
 
     def _get_model(self, state: FilterOptionsState):
         return MaxChatOpenAI(
-            model="gpt-4.1", streaming=False, temperature=0.2, user=self._user, team=self._team
+            model="gpt-4o", streaming=False, temperature=0.3, user=self._user, team=self._team
         ).bind_tools(
             [
                 RetrieveEntityPropertiesTool,
@@ -107,22 +127,15 @@ class FilterOptionsNode(AssistantNode):
 
         messages = [*system_messages, ("human", USER_FILTER_OPTIONS_PROMPT)]
 
-        if state.intermediate_steps:
-            # Add tool execution context as system messages
-            for action, result in state.intermediate_steps:
-                if result is not None:
-                    tool_context = (
-                        f"Tool '{action.tool}' was called with arguments {action.tool_input} and returned: {result}"
-                    )
-                    messages.append(
-                        (
-                            "assistant",
-                            f"Tool execution result: {tool_context} \n\nContinue with the next appropriate tool call if needed.",
-                        )
-                    )
-
+        # Add any existing tool messages from state
         conversation = ChatPromptTemplate(messages, template_format="mustache")
-        return conversation
+
+        progress_messages = list(getattr(state, "tool_progress_messages", []))
+        all_messages = [*conversation.messages, *progress_messages]
+
+        full_conversation = ChatPromptTemplate(all_messages, template_format="mustache")
+
+        return full_conversation
 
     def _get_filter_generation_prompt(self, injected_prompts: dict) -> str:
         return cast(
@@ -150,9 +163,10 @@ class FilterOptionsNode(AssistantNode):
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         """Process the state and return filtering options."""
-        conversation = self._construct_messages(state)
+        progress_messages = list(getattr(state, "messages", []))
+        full_conversation = self._construct_messages(state)
 
-        chain = conversation | merge_message_runs() | self._get_model(state)
+        chain = full_conversation | merge_message_runs() | self._get_model(state)
 
         change = state.change or ""
         current_filters = str(state.current_filters or {})
@@ -177,16 +191,37 @@ class FilterOptionsNode(AssistantNode):
 
         tool_call = output_message.tool_calls[0]
         result = AgentAction(tool_call["name"], tool_call["args"].get("arguments", {}), tool_call["id"])
-
         intermediate_steps = state.intermediate_steps or []
+
+        # Add the new AI message to the progress log
+        ai_message = LangchainAIMessage(
+            content=output_message.content, tool_calls=output_message.tool_calls, id=output_message.id
+        )
         return PartialFilterOptionsState(
+            tool_progress_messages=[*progress_messages, ai_message],
             intermediate_steps=[*intermediate_steps, (result, None)],
             generated_filter_options=state.generated_filter_options,
         )
 
 
 class FilterOptionsToolsNode(AssistantNode, ABC):
-    MAX_ITERATIONS = 5  # Maximum number of iterations for the ReAct agent
+    MAX_ITERATIONS = 10  # Maximum number of iterations for the ReAct agent
+
+    async def __call__(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
+        """
+        Override the base class __call__ method to use FilterOptionsState.
+        """
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        if thread_id and await self._is_conversation_cancelled(thread_id):
+            raise GenerationCanceled
+        try:
+            return await self.arun(state, config)
+        except NotImplementedError:
+            return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+
+    async def arun(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState | None:
+        """Override the base class arun method to use FilterOptionsState."""
+        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     def run(self, state: FilterOptionsState, config: RunnableConfig) -> PartialFilterOptionsState:
         toolkit = FilterOptionsToolkit(self._team)
@@ -194,7 +229,7 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
         action, _output = intermediate_steps[-1]
         input = None
         output = ""
-        tool_progress_messages: list[AssistantMessage] = []
+        tool_result_msg: list[LangchainToolMessage] = []
 
         try:
             input = FilterOptionsTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
@@ -210,8 +245,8 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
                 try:
                     # Extract the full response structure
                     full_response = {
-                        "result": input.arguments.result,  # type: ignore
-                        "data": input.arguments.data,  # type: ignore
+                        "result": input.arguments.result,
+                        "data": input.arguments.data,
                     }
 
                     return PartialFilterOptionsState(
@@ -248,8 +283,17 @@ class FilterOptionsToolsNode(AssistantNode, ABC):
             else:
                 output = toolkit.handle_incorrect_response(input)
 
+        if output:
+            tool_context = f"Tool '{action.tool}' was called with arguments {action.tool_input} and returned: {output}"
+            tool_msg = LangchainToolMessage(
+                content=tool_context,
+                tool_call_id=action.log,
+            )
+            tool_result_msg.append(tool_msg)
+
+        old_msg = getattr(state, "tool_progress_messages", [])
         return PartialFilterOptionsState(
-            messages=tool_progress_messages,
+            tool_progress_messages=[*old_msg, *tool_result_msg],
             intermediate_steps=[*intermediate_steps[:-1], (action, output)],
         )
 

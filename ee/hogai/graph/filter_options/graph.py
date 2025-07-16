@@ -1,20 +1,21 @@
 from ee.hogai.utils.types import AssistantNodeName, FilterOptionsState
 
 from .nodes import FilterOptionsNode, FilterOptionsToolsNode
-from ee.hogai.graph.graph import BaseAssistantGraph
 from typing import Optional
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from langgraph.graph.state import StateGraph
 
 
-class FilterOptionsGraph(BaseAssistantGraph):
+class FilterOptionsGraph:
     """Graph for generating filtering options based on user queries."""
 
     def __init__(self, team, user, injected_prompts: Optional[dict] = None):
-        super().__init__(team, user)
+        self._team = team
+        self._user = user
         self.injected_prompts = injected_prompts or {}
-        # Override the graph to use FilterOptionsState
+        # Create graph with FilterOptionsState directly
         self._graph = StateGraph(FilterOptionsState)
+        self._has_start_node = False
 
     def add_filter_options_generator(self, next_node: AssistantNodeName = AssistantNodeName.END):
         """Add the filter options generator nodes to the graph."""
@@ -42,6 +43,12 @@ class FilterOptionsGraph(BaseAssistantGraph):
         )
 
         return self
+
+    def compile(self, checkpointer: DjangoCheckpointer | None = None):
+        """Compile the graph."""
+        if not self._has_start_node:
+            raise ValueError("Start node not added to the graph")
+        return self._graph.compile(checkpointer=checkpointer)
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         """Compile a complete filter options graph."""

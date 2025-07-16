@@ -10,6 +10,7 @@ from .prompts import (
     PRODUCT_DESCRIPTION_PROMPT,
     SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
     SESSION_REPLAY_EXAMPLES_PROMPT,
+    MULTIPLE_FILTERS_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ class SearchSessionRecordingsTool(MaxTool):
             "product_description_prompt": PRODUCT_DESCRIPTION_PROMPT,
             "response_formats_prompt": SESSION_REPLAY_RESPONSE_FORMATS_PROMPT,
             "examples_prompt": SESSION_REPLAY_EXAMPLES_PROMPT,
+            "multiple_filters_prompt": MULTIPLE_FILTERS_PROMPT,
         }
 
         graph = FilterOptionsGraph(
@@ -50,6 +52,7 @@ class SearchSessionRecordingsTool(MaxTool):
             "change": change,
             "generated_filter_options": None,
             "messages": [],
+            "tool_progress_messages": [],
             **self.context,
         }
 

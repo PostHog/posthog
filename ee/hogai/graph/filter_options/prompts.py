@@ -65,16 +65,29 @@ TOOL_USAGE_PROMPT = """
    - Property values don't match user's request
    - Any ambiguity in the user's request
 
-4. **Entity Inference**: If user mentions a property, determine which entity/group it belongs to first.
+4. **Multi-Filter Entity Inference**:
+   - Identify ALL filter components in the user's request
+   - For EACH filter component, determine which entity/group it belongs to
+   - Use `retrieve_entity_properties` for EACH entity type mentioned
+   - Use `retrieve_entity_property_values` for EACH property you need to filter on
+   - Don't skip any filter component - process ALL of them
+   - If you retrieved properties and values for one of the filters but not the others you must return what you found and ask clarification for the other filters.
+   - Do not call the same tool multiple times for the same filter component.
 
-5. **Value Handling**: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
+5. **Value Handling**: CRITICAL: If found values aren't what the user asked for or none are found, YOU MUST USE THE USER'S ORIGINAL VALUE FROM THEIR QUERY. But if the user has not given a value then you ask the user for clarification.
 
+6. **Multi-Filter Example**: If user mentions "mobile users who completed signup":
+   - Filter 1: Infer entity type "person" for "mobile" → find $device_type property → get values → use "Mobile"
+   - Filter 2: Infer entity type "event" for "signup" → find $signup_event → get event properties if needed
+   - Combine both filters with AND logic
+   - Use `final_answer` only when ALL filters are processed
 
-Example: If user mentions "account property 'team size' bigger than 10":
-1. Infer the entity type and the property name from the user's question. In this case the entity type is "account".
-2. Use the `retrieve_entity_properties` with the infered entity type to get possible values for the property similar to "team size. If you cannot find any properties similar to team size then retry with a different entity type.
-3. After you find the property, use the tool `retrieve_entity_property_values` to get possible values of this property. If no values are found then use the user's original value from their query, in this case "10".
-3. If you could generate a filter then use the `final_answer` tool. ONLY USE `final_answer` if you have all the information you need to build the filter, if you don't have all the information you need then use the `ask_user_for_help` tool to clarify.
+7. **Validation**: Before using `final_answer`, ensure you've processed ALL filter components mentioned in the user's request.
+
+8. **CRITICAL**: DO NOT CALL THE SAME TOOL MULTIPLE TIMES FOR THE SAME PROPERTY, ENTITY OR FILTER COMPONENT, AFTER YOU HAVE FOUND THE PROPERTY OR ENTITY TYPE MOVE ON TO THE NEXT FILTER COMPONENT. IF YOU CANNOT FIND GOOD MATCHES FOR ONE FILTER MOVE ONTO THE NEXT ONE.YOU WILL BE REWARDED FOR MATCHING THE MOST FILTERS.
+
+9. Use the output of the tools to build the filter. Merge the results for each filter component into a single filter.
+
 </tool_usage_rules>
 """.strip()
 
@@ -83,12 +96,14 @@ ALGORITHM_PROMPT = """
 Strictly follow this algorithm:
 1. Verify Query Relevance: Confirm that the user's question is related to filter generation.
 2. Handle Irrelevant Queries: If the question is not related, return a response that explains why the query is outside the scope.
-3. Infer the entity type from the user's question. If you can't infer the entity type then ask the user for clarification on what entity they are referring to.
-4. Based on the entity type, use the tool `retrieve_entity_properties` to discover the property name. If any of the properties are relevant to the user's question then use the tool `retrieve_entity_property_values` to discover the property values.
-5. If you found no property values or they are not what the user asked then simply use the value that the user has provided in the query.
-6. Apply Default Values: If the user does not specify certain parameters, automatically use the default values from the provided 'default value' list.
-7. If you cannot reliably determine groups, entity, or the property the user is asking to filter by then ask for further clarification.
-7. Return Structured Filter: Once all required data is collected, return a response with result containing the correctly structured answer as per the answer structure guidelines below.
+3. **MULTI-FILTER ANALYSIS**: Identify ALL filter components in the user's request. Don't stop at the first filter - look for additional conditions using words like "and", "also", "who", "where", "with", etc.
+4. **ENTITY TYPE INFERENCE**: For EACH filter component identified, infer the appropriate entity type (person, event, session, etc.). Multiple filters can target different entity types.
+5. **PROPERTY DISCOVERY**: For EACH entity type and filter component, use `retrieve_entity_properties` to discover relevant properties. Don't skip any filter component.
+6. **VALUE DISCOVERY**: For EACH property you need to filter on, use `retrieve_entity_property_values` to discover possible values.
+7. **SOME FILTERS MAY BE MISSING**: If you can only partially find the filter components, return what you found and ask clarification for the other filters.
+8. **FALLBACK TO USER VALUES**: If you found no property values or they don't match what the user asked, use the value that the user provided in their query.
+9. **COMBINE FILTERS**: Structure all filters using appropriate logical operators (AND/OR) based on user intent. Use nested filter groups for complex combinations.
+10. Return Structured Filter: Once all required data is collected, return a response with result containing the correctly structured answer as per the answer structure guidelines below.
 </algorithm>
 
 """.strip()
@@ -197,119 +212,135 @@ EXAMPLES_PROMPT = """
 <examples_and_rules>
 ## Examples and Rules
 
-1. Combining Filters with the AND Operator
+1. **Multi-Filter Example with AND Logic**
 
-If you need to combine multiple filter conditions using the AND operator, structure them as follows:
-
-json
-{
-"result": "filter",
-"data": {
-    "date_from": "<date_from>",
-    "date_to": "<date_to>",
-    "filter_group": {
-    "type": FilterLogicalOperator.AND,
-    "values": [
-        {
-        "type": FilterLogicalOperator.AND,
-        "values": [
-            {
-            "key": "<key>",
-            "type": PropertyFilterType.<Type>,  // e.g., PropertyFilterType.Person
-            "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>  // e.g., PropertyOperator.Exact or PropertyOperator.IContains
-            }
-        ]
-        }
-    ]
-    }
-}
-}
-Notes
-- Use FilterLogicalOperator.AND to ensure that all specified conditions must be met.
-- The inner "values": [] array can include multiple filter items if needed.
-
-2. Combining Filters with the OR Operator
-
-When multiple conditions are acceptable (i.e., at least one must match), use the OR operator. The structure is similar, but with multiple groups in the outer array:
+User: "Show me recordings of mobile users who completed signup"
 
 json
 {
 "result": "filter",
 "data": {
-    "date_from": "<date_from>",
-    "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}], // Always make sure to include the duration filter.
+    "date_from": "-5d",
+    "date_to": null,
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
     "filter_group": {
-    "type": FilterLogicalOperator.OR,
-    "values": [
-        {
-        "type": FilterLogicalOperator.AND,
+        "type": "AND",
         "values": [
             {
-            "key": "<key>",
-            "type": PropertyFilterType.<Type>,
-            "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$device_type",
+                        "type": "person",
+                        "value": ["Mobile"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "signup",
+                        "type": "event",
+                        "value": ["signup"],
+                        "operator": "exact"
+                    }
+                ]
             }
         ]
-        },
-        {
-        "type": FilterLogicalOperator.AND,
-        "values": [
-            {
-            "key": "<key>",
-            "type": PropertyFilterType.<Type>,
-            "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>
-            }
-        ]
-        }
-    ]
     }
 }
 }
-Notes:
-- The outer group uses FilterLogicalOperator.OR, while each nested group uses FilterLogicalOperator.AND for its individual conditions.
-- Multiple nested groups allow combining different filter criteria.
 
-3. Operator Selection Guidelines
+2. **Multi-Filter Example with OR Logic**
+
+User: "Show me recordings of users who are either mobile OR desktop"
+
+json
+{
+"result": "filter",
+"data": {
+    "date_from": "-5d",
+    "date_to": null,
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+    "filter_group": {
+        "type": "OR",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$device_type",
+                        "type": "person",
+                        "value": ["Mobile"],
+                        "operator": "exact"
+                    }
+                ]
+            },
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$device_type",
+                        "type": "person",
+                        "value": ["Desktop"],
+                        "operator": "exact"
+                    }
+                ]
+            }
+        ]
+    }
+}
+}
+
+3. **Complex Multi-Filter Example**
+
+User: "Show me recordings from last week of users from US who visited pricing page and made a purchase"
+
+json
+{
+"result": "filter",
+"data": {
+    "date_from": "-7d",
+    "date_to": null,
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
+    "filter_group": {
+        "type": "AND",
+        "values": [
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$geoip_country_code",
+                        "type": "person",
+                        "value": ["US"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "pricing_page_viewed",
+                        "type": "event",
+                        "value": ["pricing_page_viewed"],
+                        "operator": "exact"
+                    },
+                    {
+                        "key": "purchase_completed",
+                        "type": "event",
+                        "value": ["purchase_completed"],
+                        "operator": "exact"
+                    }
+                ]
+            }
+        ]
+    }
+}
+}
+
+4. **Operator Selection Guidelines**
 
 - Default Operators:
 In most cases, the operator can be either exact or contains:
-- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator ("PropertyOperator.IContains") since the URL may include parameters.
+- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator ("icontains") since the URL may include parameters.
 
 - Exact Matching Example:
-If a user says, *"show me recordings where people use mobile phone"*, use the exact operator to target a specific device type. For example:
+If a user says, *"show me recordings where people use mobile phone"*, use the exact operator to target a specific device type.
 
-json
-{
-    "result": "filter",
-    "data": {
-    "date_from": "<date_from>",
-    "date_to": "<date_to>",
-    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": "gt"}],
-    "filter_test_accounts": "<boolean>",
-    "filter_group": {
-        "type": FilterLogicalOperator.AND,
-        "values": [
-        {
-            "type": FilterLogicalOperator.AND,
-            "values": [
-            {
-                "key": "$device_type",
-                "type": PropertyFilterType.Person,
-                "value": ["Mobile"],
-                "operator": PropertyOperator.Exact
-            }
-            ]
-        }
-        ]
-    }
-    }
-}
-
-4. Special Cases
+5. **Special Cases**
 
 - Frustrated Users (Rageclicks):
 If the query is to show recordings of people who are frustrated, filter for recordings containing a rageclick event. For example, use the event with:
@@ -317,17 +348,17 @@ If the query is to show recordings of people who are frustrated, filter for reco
 
 - Users Facing Bugs/Errors/Problems:
 For queries asking for recordings of users experiencing bugs or errors, target recordings with many console errors. An example filter might look like:
-- Key: "level", Type: PropertyFilterType.Log_entry, Value: ["error"], Operator: PropertyOperator.Exact.
+- Key: "level", Type: "log_entry", Value: ["error"], Operator: "exact".
 
 - Default Filter Group:
 The blank, default `filter_group` value you can use is:
 
 json
 {
-    "type": FilterLogicalOperator.AND,
+    "type": "AND",
     "values": [
         {
-            "type": FilterLogicalOperator.AND,
+            "type": "AND",
             "values": []
         }
     ]
@@ -350,8 +381,8 @@ json
         }
 }
 
-5. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
-6. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
+6. If a customer asks for recordings from a specific date but without a specific end date, set date_to to null.
+7. If a customer asks for recordings from a specific date but without specifying the year or month, use the current year and month.
 </examples_and_rules>
 """.strip()
 
@@ -366,6 +397,9 @@ FILTER_INITIAL_PROMPT = """
 
 
 {{{group_property_filter_types_prompt}}}
+
+
+{{{multiple_filters_prompt}}}
 
 
 {{{response_formats_prompt}}}
@@ -454,6 +488,10 @@ Special Considerations and Examples
 - Guessing the Property Type:
 Use the property_type information to determine how to format the <value>. For instance, if the property is numeric, do not wrap the number in quotes.
 
+- Multiple filters in the same query:
+Users can ask to filter based on multiple properties at the same time. Make sure to repeat the same process for each property in order to get the correct filter.
+
+
 </taxonomy_info>
 
 """.strip()
@@ -489,5 +527,5 @@ Current filters: {{{current_filters}}}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 
-Always use the enum format. For example PropertyOperator.Exact or directly 'exact'. DO NOT USE 'Exact' THE FILTER WILL FAIL IF YOU DO.
+CRITICAL: Always use the enum format. For example PropertyOperator.Exact or directly 'exact'. DO NOT USE 'Exact' THE FILTER WILL FAIL IF YOU DO.
 """.strip()

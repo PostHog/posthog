@@ -4,7 +4,11 @@ from enum import StrEnum
 from typing import Annotated, Literal, Optional, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import BaseMessage as LangchainBaseMessage
+from langchain_core.messages import (
+    BaseMessage as LangchainBaseMessage,
+    ToolMessage as LangchainToolMessage,
+    AIMessage as LangchainAIMessage,
+)
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
@@ -20,7 +24,13 @@ from posthog.schema import (
 )
 
 AIMessageUnion = Union[
-    AssistantMessage, VisualizationMessage, FailureMessage, ReasoningMessage, AssistantToolCallMessage
+    AssistantMessage,
+    VisualizationMessage,
+    FailureMessage,
+    ReasoningMessage,
+    AssistantToolCallMessage,
+    LangchainToolMessage,
+    LangchainAIMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
@@ -165,24 +175,7 @@ class _SharedAssistantState(BaseModel):
     The ID of the previous OpenAI Responses API response made by the filter options node.
     """
     filter_options_previous_response_id: Optional[str] = Field(default=None)
-    query_planner_previous_response_id: Optional[str] = Field(default=None)
-    """
-    The ID of the previous OpenAI Responses API response made by the query planner.
-    """
-
-    generated_filter_options: Optional[dict] = Field(default=None)
-    """
-    The filter options to apply to the product.
-    """
-    change: Optional[str] = Field(default=None)
-    """
-    The change requested for the filters.
-    """
-    current_filters: Optional[dict] = Field(default=None)
-    """
-    The current filters applied to the product.
-    """
-
+    
 
 class AssistantState(_SharedAssistantState):
     messages: Annotated[Sequence[AssistantMessageUnion], add_and_merge_messages] = Field(default=[])
@@ -234,6 +227,11 @@ class FilterOptionsState(BaseModel):
     The current filters applied to the product.
     """
 
+    tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
+    """
+    The messages with tool calls to collect tool progress.
+    """
+
     root_tool_call_id: Optional[str] = Field(default=None)
     """
     The ID of the tool call from the root node.
@@ -276,6 +274,11 @@ class PartialFilterOptionsState(BaseModel):
     The ID of the tool call from the root node.
     """
 
+    tool_progress_messages: list[LangchainBaseMessage] = Field(default=[])
+    """
+    The messages with tool calls to collect tool progress.
+    """
+
     @classmethod
     def get_reset_state(cls) -> "PartialFilterOptionsState":
         return cls(
@@ -284,6 +287,8 @@ class PartialFilterOptionsState(BaseModel):
             change="",
             current_filters=None,
             root_tool_call_id="",
+            tool_progress_messages=[],
+            messages=[],
         )
 
 

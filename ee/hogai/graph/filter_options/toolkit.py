@@ -175,7 +175,7 @@ class FilterOptionsToolkit(TaxonomyAgentToolkit):
 
     def retrieve_entity_properties(self, entity: str) -> str:
         """
-        Use parent implementation but with custom error messages for better UX.
+        Retrieve properties for an entitiy like person, session, or one of the groups.
         """
         MAX_PROPERTIES = 500
         if entity not in self._entity_names:
