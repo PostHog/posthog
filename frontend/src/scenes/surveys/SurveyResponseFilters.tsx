@@ -220,7 +220,6 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                             TaxonomicFilterGroupType.PersonProperties,
                             TaxonomicFilterGroupType.EventFeatureFlags,
                             TaxonomicFilterGroupType.Cohorts,
-                            TaxonomicFilterGroupType.Elements,
                             TaxonomicFilterGroupType.HogQLExpression,
                             ...groupsTaxonomicTypes,
                         ]}
