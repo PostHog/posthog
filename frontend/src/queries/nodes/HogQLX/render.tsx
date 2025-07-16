@@ -9,7 +9,7 @@ import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordin
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
-// These tags only get the "key" and child/source attributes
+// These tags only get the `key` and `children` attributes.
 const HOGQLX_TAGS_NO_ATTRIBUTES = [
     'em',
     'strong',
@@ -136,9 +136,7 @@ export function renderHogQLX(value: any): JSX.Element {
             const { children, source, key } = rest
             const element = React.createElement(
                 tag,
-                {
-                    key: key ?? undefined,
-                },
+                { key: key ?? undefined },
                 children ?? source ? renderHogQLX(children ?? source ?? '') : undefined
             )
             return <ErrorBoundary>{element}</ErrorBoundary>
