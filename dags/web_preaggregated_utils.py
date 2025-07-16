@@ -7,6 +7,12 @@ from dagster import Backoff, Field, Array, Jitter, RetryPolicy
 TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED = [1, 2, 55348, 47074, 12669, 1589, 117126]
 TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS = os.getenv("TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS", 1 if DEBUG else 2)
 
+INTRA_DAY_HOURLY_CRON_SCHEDULE = os.getenv("WEB_PREAGGREGATED_INTRA_DAY_HOURLY_CRON_SCHEDULE", "*/10 * * * *")
+HISTORICAL_DAILY_CRON_SCHEDULE = os.getenv("WEB_PREAGGREGATED_HISTORICAL_DAILY_CRON_SCHEDULE", "0 1 * * *")
+
+DAILY_MAX_EXECUTION_TIME = os.getenv("WEB_PREAGGREGATED_DAILY_MAX_EXECUTION_TIME", "1600")
+INTRA_DAY_HOURLY_MAX_EXECUTION_TIME = os.getenv("WEB_PREAGGREGATED_INTRA_DAY_HOURLY_MAX_EXECUTION_TIME", "900")
+
 web_analytics_retry_policy_def = RetryPolicy(
     max_retries=3,
     delay=60,
@@ -16,17 +22,17 @@ web_analytics_retry_policy_def = RetryPolicy(
 
 # Shared ClickHouse settings for web analytics pre-aggregation
 CLICKHOUSE_SETTINGS = {
-    "max_execution_time": "1600",
+    "max_execution_time": DAILY_MAX_EXECUTION_TIME,
     "max_bytes_before_external_group_by": "51474836480",
     "max_memory_usage": "107374182400",
     "distributed_aggregation_memory_efficient": "1",
     "s3_truncate_on_insert": "1",
 }
 
-# Lighter settings for hourly processing (more frequent, smaller time windows)
 CLICKHOUSE_SETTINGS_HOURLY = {
-    "max_execution_time": "300",
-    "max_bytes_before_external_group_by": "21474836480",
+    "max_execution_time": INTRA_DAY_HOURLY_MAX_EXECUTION_TIME,
+    "max_bytes_before_external_group_by": "51474836480",
+    "max_memory_usage": "107374182400",
     "distributed_aggregation_memory_efficient": "1",
 }
 

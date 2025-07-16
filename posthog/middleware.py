@@ -301,8 +301,7 @@ class CHQueries:
 
         with suppress(Exception):
             if request_id := structlog.get_context(self.logger).get("request_id"):
-                uuid.UUID(request_id)  # just to verify it is a real UUID
-                tag_queries(http_request_id=request_id)
+                tag_queries(http_request_id=uuid.UUID(request_id))
 
         tag_queries(
             user_id=user.pk,
