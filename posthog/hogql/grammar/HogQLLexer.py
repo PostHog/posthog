@@ -8,8 +8,10 @@ else:
     from typing.io import TextIO
 
 
-    # put any global imports you need here
-    import sys
+
+# put any global imports you need here
+import sys
+
 
 
 def serializedATN():
@@ -933,6 +935,7 @@ class HogQLLexer(Lexer):
         self._predicates = None
 
 
+
     # In the Python runtime LA(k) returns the character **code point**
     # (an int) or 0 at EOF.  Convert to str with chr().
     #
@@ -965,6 +968,7 @@ class HogQLLexer(Lexer):
 
         # After the name we expect one of:  space  |  '>'  |  '/'
         return ch in ('>', '/') or ch.isspace()
+
 
 
     def sempred(self, localctx:RuleContext, ruleIndex:int, predIndex:int):

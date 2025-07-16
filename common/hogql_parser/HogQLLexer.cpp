@@ -1,6 +1,5 @@
-
-    # put any global imports you need here
-    import sys
+                        // make <cctype> visible in the generated .cpp
+  #include <cctype>
 
 
 // Generated from HogQLLexer.g4 by ANTLR 4.13.2
