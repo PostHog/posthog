@@ -49,6 +49,7 @@ describe('TaxonomicPropertyFilter', () => {
         eventNames: [],
         propertyDefinitions: {},
         onComplete: jest.fn(),
+        disablePopover: false,
     }
 
     describe('value handling in onChange', () => {
@@ -67,7 +68,7 @@ describe('TaxonomicPropertyFilter', () => {
                 const setFilterMock = jest.fn()
                 const filter = {
                     key: 'test_property',
-                    type: PropertyFilterType.Event,
+                    type: PropertyFilterType.Event as PropertyFilterType.Event,
                     operator: PropertyOperator.Exact,
                     value: 'initial',
                 }
@@ -98,7 +99,7 @@ describe('TaxonomicPropertyFilter', () => {
             const setFilterMock = jest.fn()
             const filter = {
                 key: 'test_property',
-                type: PropertyFilterType.Event,
+                type: PropertyFilterType.Event as PropertyFilterType.Event,
                 operator: PropertyOperator.Exact,
                 value: 'initial',
             }
@@ -130,7 +131,7 @@ describe('TaxonomicPropertyFilter', () => {
             const setFilterMock = jest.fn()
             const filter = {
                 key: 'test_flag',
-                type: PropertyFilterType.FlagDependency,
+                type: PropertyFilterType.FlagDependency as PropertyFilterType.FlagDependency,
                 operator: PropertyOperator.Exact,
                 value: true,
                 label: 'Test Flag',
@@ -155,7 +156,7 @@ describe('TaxonomicPropertyFilter', () => {
                 0,
                 expect.objectContaining({
                     value: false, // Should be false, not null
-                    type: PropertyFilterType.FlagDependency,
+                    type: PropertyFilterType.FlagDependency as PropertyFilterType.FlagDependency,
                 })
             )
         })
@@ -164,7 +165,7 @@ describe('TaxonomicPropertyFilter', () => {
             const setFilterMock = jest.fn()
             const filter = {
                 key: 'test_flag',
-                type: PropertyFilterType.FlagDependency,
+                type: PropertyFilterType.FlagDependency as PropertyFilterType.FlagDependency,
                 operator: PropertyOperator.Exact,
                 value: [true, false, 'some-variant'],
                 label: 'Test Flag',
@@ -190,7 +191,7 @@ describe('TaxonomicPropertyFilter', () => {
                 0,
                 expect.objectContaining({
                     value: [false, 'some-variant', true],
-                    type: PropertyFilterType.FlagDependency,
+                    type: PropertyFilterType.FlagDependency as PropertyFilterType.FlagDependency,
                 })
             )
         })
