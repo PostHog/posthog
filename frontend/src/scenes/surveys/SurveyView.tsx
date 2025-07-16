@@ -22,6 +22,7 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { Query } from '~/queries/Query/Query'
 import {
     ActivityScope,
+    ProductKey,
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
@@ -33,6 +34,7 @@ import {
 import { organizationLogic } from 'scenes/organizationLogic'
 import { DuplicateToProjectModal, DuplicateToProjectTrigger } from 'scenes/surveys/DuplicateToProjectModal'
 import { SurveysDisabledBanner } from './SurveySettings'
+import { addProductIntent, ProductIntentContext } from 'lib/utils/product-intents'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
@@ -52,6 +54,13 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
         } else {
             setTabKey('overview')
         }
+        addProductIntent({
+            product_type: ProductKey.SURVEYS,
+            intent_context: ProductIntentContext.SURVEY_VIEWED,
+            metadata: {
+                survey_id: survey.id,
+            },
+        })
     }, [survey.start_date])
 
     return (
@@ -81,7 +90,16 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                     <LemonButton
                                                         data-attr="duplicate-survey"
                                                         fullWidth
-                                                        onClick={duplicateSurvey}
+                                                        onClick={() => {
+                                                            duplicateSurvey()
+                                                            addProductIntent({
+                                                                product_type: ProductKey.SURVEYS,
+                                                                intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                                                                metadata: {
+                                                                    survey_id: survey.id,
+                                                                },
+                                                            })
+                                                        }}
                                                     >
                                                         Duplicate
                                                     </LemonButton>
