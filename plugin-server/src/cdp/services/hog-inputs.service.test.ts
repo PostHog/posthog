@@ -1,14 +1,42 @@
 import { DateTime } from 'luxon'
 
-import { createHogExecutionGlobals } from '../_tests/fixtures'
-import { formatHogInput } from './hog-inputs.service'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { Hub, Team } from '~/types'
+import { closeHub, createHub } from '~/utils/db/hub'
+
+import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
+import { compileHog } from '../templates/compiler'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { formatHogInput, HogInputsService } from './hog-inputs.service'
 
 describe('Hog Inputs', () => {
-    jest.setTimeout(1000)
+    let hub: Hub
+    let team: Team
+    let hogInputsService: HogInputsService
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        await resetTestDatabase()
+        hub = await createHub()
+        team = await getFirstTeam(hub)
+
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+        await insertIntegration(hub.postgres, team.id, {
+            id: 1,
+            kind: 'slack',
+            config: { team: 'foobar' },
+            sensitive_config: {
+                access_token: hub.encryptedFields.encrypt('token'),
+                not_encrypted: 'not-encrypted',
+            },
+        })
+
+        hogInputsService = new HogInputsService(hub)
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
     })
 
     describe('formatInput', () => {
@@ -74,6 +102,69 @@ describe('Hog Inputs', () => {
             expect(result.body.value.data.first).toBeNull()
             expect(result.body.value.data.second).toBeUndefined()
             expect(result.body.value.data.third.nested).toBeNull()
+        })
+    })
+
+    describe('buildInputs', () => {
+        let hogFunction: HogFunctionType
+        let globals: HogFunctionInvocationGlobals
+
+        beforeEach(async () => {
+            hogFunction = createHogFunction({
+                id: 'hog-function-1',
+                team_id: team.id,
+                name: 'Hog Function 1',
+                enabled: true,
+                type: 'destination',
+                inputs: {
+                    hog_templated: {
+                        value: 'event: "{event.event}"',
+                        templating: 'hog',
+                        bytecode: await compileHog('return f\'event: "{event.event}"\''),
+                    },
+                    liquid_templated: {
+                        value: 'event: "{{ event.event }}"',
+                        templating: 'liquid',
+                    },
+                    slack: { value: 1 },
+                },
+                inputs_schema: [
+                    { key: 'hog_templated', type: 'string', required: true },
+                    { key: 'slack', type: 'integration', required: true },
+                ],
+            })
+
+            globals = createHogExecutionGlobals()
+        })
+
+        it('should template out hog inputs', async () => {
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.hog_templated).toMatchInlineSnapshot(`"event: "test""`)
+        })
+
+        it('should template out liquid inputs', async () => {
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
+        })
+
+        it('should loads inputs with integration inputs', async () => {
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.slack).toMatchInlineSnapshot(`
+                {
+                  "access_token": "token",
+                  "not_encrypted": "not-encrypted",
+                  "team": "foobar",
+                }
+            `)
+        })
+
+        it('should not load integrations from a different team', async () => {
+            hogFunction.team_id = 100
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.slack).toMatchInlineSnapshot(`1`)
         })
     })
 })

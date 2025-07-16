@@ -68,14 +68,19 @@ export class HogInputsService {
     }
 
     private async loadIntegrationInputs(hogFunction: HogFunctionType): Promise<Record<string, any>> {
-        const inputs: Record<string, number | Record<string, any>> = {}
+        const inputs: Record<
+            string,
+            {
+                value: number | Record<string, any>
+            }
+        > = {}
 
         hogFunction.inputs_schema?.forEach((schema) => {
             if (schema.type === 'integration') {
                 const input = hogFunction.inputs?.[schema.key]
                 const value = input?.value?.integrationId ?? input?.value
                 if (value && typeof value === 'number') {
-                    inputs[schema.key] = value
+                    inputs[schema.key] = { value }
                 }
             }
         })
@@ -84,13 +89,20 @@ export class HogInputsService {
             return {}
         }
 
-        const integrations = await this.hub.integrationManager.getMany(Object.values(inputs).map((id) => id.toString()))
+        const integrations = await this.hub.integrationManager.getMany(
+            Object.values(inputs).map((x) => x.value.toString())
+        )
 
         Object.entries(inputs).forEach(([key, value]) => {
-            const integration = integrations[value.toString()]
+            const integration = integrations[value.value.toString()]
             // IMPORTANT: Check the team ID is correct
             if (integration && integration.team_id === hogFunction.team_id) {
-                inputs[key] = integration.config
+                inputs[key] = {
+                    value: {
+                        ...integration.config,
+                        ...integration.sensitive_config,
+                    },
+                }
             }
         })
 
