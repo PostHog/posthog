@@ -86,7 +86,7 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
                 "id": "String",
                 "ds": "Date",
                 "userid": "String",
-                "usage": "String",
+                "usage": "Float64",
                 "plan": "String",
                 "region": "String",
             },
