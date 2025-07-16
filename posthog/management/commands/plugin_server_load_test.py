@@ -24,9 +24,9 @@ logger = structlog.get_logger(__name__)
 class Command(BaseCommand):
     help = """
         Uses the HedgeboxMatrix to generate a realistic dataset and sends it to
-        Kafka for ingestion by the plugin server, and waits for offset lag to be
-        0. You'll need to run the plugin-server and it's dependencies separately
-        from running this script.
+        Kafka for ingestion by the plugin server, and waits for offset lag to exit.
+        You'll need to run the capture-rs, plugin-server and it's dependencies
+        separately from running this script.
     """
 
     def add_arguments(self, parser):
@@ -102,7 +102,7 @@ class Command(BaseCommand):
             # revisit if this tool is still a thing:
             # we're using non-batch capture internal atm since these events ordered.
             # loop will exec in serial; batch is better for load test
-            new_capture_internal(
+            resp = new_capture_internal(
                 token,
                 event.distinct_id,
                 {
@@ -113,6 +113,7 @@ class Command(BaseCommand):
                 },
                 True,  # allow person profile processing to occur as cfg for this token (team/project)
             )
+            resp.raise_for_status()
 
         while True:
             offsets = admin.list_consumer_group_offsets(group_id="clickhouse-ingestion")
