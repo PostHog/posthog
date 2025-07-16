@@ -154,7 +154,6 @@ export class KafkaConsumer {
             'fetch.error.backoff.ms': 100,
             'fetch.message.max.bytes': 10_485_760,
             'fetch.wait.max.ms': 50,
-            'queued.min.messages': 100000,
             'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
