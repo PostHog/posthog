@@ -130,16 +130,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_no_crash_when_no_source_is_selected
@@ -589,16 +589,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_country_filter
@@ -1048,16 +1048,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_data
@@ -1315,16 +1315,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_data_and_date_range
@@ -1582,16 +1582,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_data_and_double_grouping
@@ -2059,16 +2059,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_data_and_product_grouping
@@ -2344,16 +2344,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_empty_date_range
@@ -2611,16 +2611,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_events_data
@@ -3070,16 +3070,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -3531,16 +3531,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_product_filter
@@ -3816,16 +3816,16 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRevenueAnalyticsArpuQueryRunner.test_with_product_filter.1
@@ -4101,15 +4101,15 @@
   ORDER BY period_start ASC,
            value DESC,
            breakdown_by ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=1,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 5000 SETTINGS readonly=2,
+                      max_execution_time=60,
+                      allow_experimental_object_type=1,
+                      format_csv_allow_double_quotes=1,
+                      max_ast_elements=4000000,
+                      max_expanded_ast_elements=4000000,
+                      max_bytes_before_external_group_by=0,
+                      transform_null_in=1,
+                      optimize_min_equality_disjunction_chain_length=4294967295,
+                      allow_experimental_join_condition=1
   '''
 # ---
