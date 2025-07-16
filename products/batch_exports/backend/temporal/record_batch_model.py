@@ -25,9 +25,9 @@ class RecordBatchModel(abc.ABC):
     def __init__(self, team_id: int):
         self.team_id = team_id
 
-    async def get_hogql_context(self, team_id: int) -> HogQLContext:
+    async def get_hogql_context(self) -> HogQLContext:
         """Return a HogQLContext to generate a ClickHouse query."""
-        team = await Team.objects.aget(id=team_id)
+        team = await Team.objects.aget(id=self.team_id)
         context = HogQLContext(
             team=team,
             team_id=team.id,
@@ -121,7 +121,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
         hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
-        context = await self.get_hogql_context(self.team_id)
+        context = await self.get_hogql_context()
 
         prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
             hogql_query, context=context, dialect="clickhouse", stack=[]
@@ -147,7 +147,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
     ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
         hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
-        context = await self.get_hogql_context(self.team_id)
+        context = await self.get_hogql_context()
 
         prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
             hogql_query, context=context, dialect="clickhouse", stack=[]
