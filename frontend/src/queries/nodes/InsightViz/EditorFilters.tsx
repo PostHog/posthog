@@ -2,10 +2,10 @@ import { IconInfo, IconRefresh, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { objectsEqual } from 'lib/utils'
+
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -56,6 +56,7 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
+import { compareTopLevelSections } from './utils'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -91,39 +92,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const { setQuery } = useActions(insightVizDataLogic(insightProps))
 
     const hasScrolled = useRef(false)
-
-    // Count differences between objects
-    const countDifferences = useCallback(
-        (obj1: any, obj2: any): { count: number; diffs: { key: string; val1: any; val2: any }[] } => {
-            let count = 0
-            let diffs = []
-            const keys = new Set([...Object.keys(obj1 || {}), ...Object.keys(obj2 || {})])
-
-            for (const key of keys) {
-                const val1 = obj1?.[key]
-                const val2 = obj2?.[key]
-                if (Array.isArray(val1) && Array.isArray(val2)) {
-                    const val1Set = new Set(val1)
-                    const val2Set = new Set(val2)
-                    const hasChanged =
-                        val1Set.size !== val2Set.size || !Array.from(val1Set).every((item: any) => val2Set.has(item))
-                    if (hasChanged) {
-                        count += 1
-                        diffs.push({ key, val1, val2 })
-                    }
-                } else if (typeof val1 === 'object' && typeof val2 === 'object' && val1 && val2) {
-                    const { count: subCount, diffs: subDiffs } = countDifferences(val1, val2)
-                    count += subCount
-                    diffs.push(...subDiffs)
-                } else if (val1 !== val2) {
-                    count += 1
-                    diffs.push({ key, val1, val2 })
-                }
-            }
-            return { count, diffs }
-        },
-        [query, previousQuery]
-    )
 
     // Reset scroll flag when banner disappears
     useEffect(() => {
@@ -466,11 +434,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                             } else {
                                 node = { kind: NodeKind.InsightVizNode, source } satisfies InsightVizNode
                             }
-
-                            if (!objectsEqual(node.source, query)) {
-                                handleInsightSuggested(node)
-                                setQuery(node)
-                            }
+                            handleInsightSuggested(node)
+                            setQuery(node)
                         }}
                         initialMaxPrompt="Show me users who "
                         className="EditorFiltersWrapper"
@@ -513,18 +478,17 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                     {(() => {
                                         // Use suggestedQuery if available, otherwise use previousQuery
 
-                                        const comparisonQuery = suggestedQuery || previousQuery
-                                        const { count, diffs } = countDifferences(query, comparisonQuery)
-
-                                        let diffString = ''
-                                        diffs.forEach((diff) => {
-                                            diffString += `${diff.key}: ${diff.val1} -> ${diff.val2}\n`
+                                        const changedLabels = compareTopLevelSections(suggestedQuery, previousQuery)
+                                        let diffString = `🔍 ${changedLabels.length} section(s) changed: \n`
+                                        changedLabels.forEach((label) => {
+                                            diffString += `${label}\n`
                                         })
 
                                         return (
                                             <div className="flex items-center gap-1">
                                                 <span>
-                                                    {count} {count === 1 ? 'change' : 'changes'}
+                                                    {changedLabels.length}{' '}
+                                                    {changedLabels.length === 1 ? 'change' : 'changes'}
                                                 </span>
                                                 {diffString && (
                                                     <Tooltip
