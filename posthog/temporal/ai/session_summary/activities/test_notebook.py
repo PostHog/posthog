@@ -138,7 +138,7 @@ class TestNotebookCreation(APIBaseTest):
 
         # Should still create valid content
         self.assertEqual(content["type"], "doc")
-        self.assertEqual(len(content["content"]), 2)
+        self.assertEqual(len(content["content"]), 3)
 
         content_text = json.dumps(content)
         self.assertIn("No patterns found", content_text)

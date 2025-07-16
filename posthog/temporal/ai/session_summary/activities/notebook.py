@@ -5,29 +5,37 @@ from typing import Any
 from posthog.models.notebook.notebook import Notebook
 from posthog.models.user import User
 from posthog.models.team import Team
-from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
+from ee.session_recordings.session_summary.patterns.output_data import (
+    EnrichedSessionGroupSummaryPatternsList,
+    EnrichedSessionGroupSummaryPattern,
+    PatternAssignedEventSegmentContext,
+)
+
+# Type aliases for TipTap editor nodes
+TipTapNode = dict[str, Any]
+TipTapContent = list[TipTapNode]
 
 
 def _sanitize_text_content(text: str) -> str:
-    """Sanitize text content to ensure it's valid for TipTap editor"""
+    """Sanitize text content to ensure it's valid for TipTap editor."""
     if not text or not text.strip():
         raise ValueError(f"Empty text should not be passed to create heading or paragraph")
     return text.strip()
 
 
-def _create_empty_paragraph() -> dict[str, Any]:
-    """Create a paragraph node with no content to add spacing"""
+def _create_empty_paragraph() -> TipTapNode:
+    """Create a paragraph node with no content to add spacing."""
     return {"type": "paragraph"}
 
 
-def _create_line_separator() -> dict[str, Any]:
-    """Create a line separator node"""
+def _create_line_separator() -> TipTapNode:
+    """Create a line separator node."""
     return {"type": "horizontalRule"}
 
 
-def _create_paragraph_with_text(text: str, marks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Create a paragraph node with sanitized text content and optional marks"""
-    content_node = {"type": "text", "text": _sanitize_text_content(text)}
+def _create_paragraph_with_text(text: str, marks: list[dict[str, Any]] | None = None) -> TipTapNode:
+    """Create a paragraph node with sanitized text content and optional marks."""
+    content_node: dict[str, Any] = {"type": "text", "text": _sanitize_text_content(text)}
     if marks:
         content_node["marks"] = marks
     return {
@@ -36,8 +44,8 @@ def _create_paragraph_with_text(text: str, marks: list[dict[str, Any]] | None = 
     }
 
 
-def _create_heading_with_text(text: str, level: int) -> dict[str, Any]:
-    """Create a heading node with sanitized text content"""
+def _create_heading_with_text(text: str, level: int) -> TipTapNode:
+    """Create a heading node with sanitized text content."""
     import uuid
 
     heading_id = str(uuid.uuid4())
@@ -48,9 +56,9 @@ def _create_heading_with_text(text: str, level: int) -> dict[str, Any]:
     }
 
 
-def _create_text_content(text: str, is_bold: bool = False, is_italic: bool = False) -> dict[str, Any]:
-    """Create a text node with optional marks"""
-    node = {"type": "text", "text": text}
+def _create_text_content(text: str, is_bold: bool = False, is_italic: bool = False) -> TipTapNode:
+    """Create a text node with optional marks."""
+    node: dict[str, Any] = {"type": "text", "text": text}
     marks = []
     if is_bold:
         marks.append({"type": "bold"})
@@ -61,15 +69,15 @@ def _create_text_content(text: str, is_bold: bool = False, is_italic: bool = Fal
     return node
 
 
-def _create_paragraph_with_content(content: list[dict[str, Any]]) -> dict[str, Any]:
-    """Create a paragraph node with a list of content items"""
+def _create_paragraph_with_content(content: TipTapContent) -> TipTapNode:
+    """Create a paragraph node with a list of content items."""
     return {
         "type": "paragraph",
         "content": content,
     }
 
 
-def _create_bullet_list(items: list[str] | list[list[dict[str, Any]]]) -> dict[str, Any]:
+def _create_bullet_list(items: list[str] | list[TipTapContent]) -> TipTapNode:
     """Create a bullet list with list items. Items can be strings or content arrays."""
     list_items = []
     for item in items:
@@ -89,7 +97,7 @@ def create_summary_notebook(
     summary: EnrichedSessionGroupSummaryPatternsList,
     domain: str = "PostHog",
 ) -> Notebook:
-    """Create a notebook with session summary patterns converted from EnrichedSessionGroupSummaryPatternsList"""
+    """Create a notebook with session summary patterns."""
     notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
     # TODO: Remove after testing
     with open("notebook_content.json", "w") as f:
@@ -106,8 +114,8 @@ def create_summary_notebook(
 
 def _generate_notebook_content_from_summary(
     summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], domain: str
-) -> dict[str, Any]:
-    """Convert summary data to notebook structure"""
+) -> TipTapNode:
+    """Convert summary data to notebook structure."""
     patterns = summary.patterns
     total_sessions = len(session_ids)
     if not patterns:
@@ -149,8 +157,8 @@ def _generate_notebook_content_from_summary(
     }
 
 
-def _create_summary_table(patterns: list, total_sessions: int) -> list[dict[str, Any]]:
-    """Create summary table-like content using text formatting"""
+def _create_summary_table(patterns: list[EnrichedSessionGroupSummaryPattern], total_sessions: int) -> TipTapContent:
+    """Create summary table-like content using text formatting."""
     severity_icons = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
 
     content = []
@@ -182,8 +190,8 @@ def _create_summary_table(patterns: list, total_sessions: int) -> list[dict[str,
     return content
 
 
-def _create_pattern_section(pattern, total_sessions: int) -> list[dict[str, Any]]:
-    """Create detailed pattern section content"""
+def _create_pattern_section(pattern: EnrichedSessionGroupSummaryPattern, total_sessions: int) -> TipTapContent:
+    """Create detailed pattern section content."""
     content = []
 
     # Pattern header
@@ -244,8 +252,8 @@ def _create_pattern_section(pattern, total_sessions: int) -> list[dict[str, Any]
     return content
 
 
-def _create_example_section(event_data) -> list[dict[str, Any]]:
-    """Create example section content for an event"""
+def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> TipTapContent:
+    """Create example section content for an event."""
     content = []
     session_id = event_data.target_event.session_id
 
@@ -290,7 +298,7 @@ def _create_example_section(event_data) -> list[dict[str, Any]]:
         outcome_items.append([_create_text_content("What happened before:", is_bold=True)])
         # Add nested items for previous events
         for prev_event in event_data.previous_events_in_segment:
-            outcome_items.append(f"  • {prev_event.description}")
+            outcome_items.append([_create_text_content(f"  • {prev_event.description}")])
     else:
         outcome_items.append(
             [
@@ -304,7 +312,7 @@ def _create_example_section(event_data) -> list[dict[str, Any]]:
         outcome_items.append([_create_text_content("What happened after:", is_bold=True)])
         # Add nested items for next events
         for next_event in event_data.next_events_in_segment:
-            outcome_items.append(f"  • {next_event.description}")
+            outcome_items.append([_create_text_content(f"  • {next_event.description}")])
     else:
         outcome_items.append(
             [
