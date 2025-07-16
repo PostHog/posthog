@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { ObjectTags } from '../ObjectTags/ObjectTags'
 
 type SceneDescriptionProps = {
-    onSave: (value: string[]) => void
+    onSave?: (value: string[]) => void
     tags?: string[]
     tagsAvailable?: string[]
     dataAttr?: string
@@ -19,7 +19,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
         e.preventDefault()
-        onSave(localTags ?? [])
+        onSave?.(localTags ?? [])
         setHasChanged(false)
         setLocalIsEditing(false)
     }
@@ -83,7 +83,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
                 <ButtonPrimitive
                     className="hyphens-auto flex gap-1 items-center"
                     lang="en"
-                    onClick={() => setLocalIsEditing(true)}
+                    onClick={() => onSave && setLocalIsEditing(true)}
                     tooltip="Edit tags"
                     autoHeight
                     menuItem
@@ -91,7 +91,7 @@ export function SceneTags({ onSave, tags, tagsAvailable, dataAttr }: SceneDescri
                     {tags && tags.length > 0 ? (
                         <ObjectTags tags={tags ?? []} data-attr="scene-tags" staticOnly />
                     ) : (
-                        <>Add tags</>
+                        <>{onSave ? 'Add tags' : 'No tags'}</>
                     )}
                 </ButtonPrimitive>
             </div>
