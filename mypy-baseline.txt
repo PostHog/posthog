@@ -136,7 +136,6 @@ posthog/helpers/full_text_search.py:0: error: Incompatible return value type (go
 posthog/hogql/database/database.py:0: error: Argument "week_start_day" to "Database" has incompatible type "int | None"; expected "WeekStartDay | None"  [arg-type]
 posthog/hogql/database/database.py:0: error: Item "None" of "Team | None" has no attribute "pk"  [union-attr]
 posthog/hogql/filters.py:0: error: Incompatible default for argument "team" (default has type "None", argument has type "Team")  [assignment]
-posthog/hogql/parser.py:0: error: Statement is unreachable  [unreachable]
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
 posthog/hogql/printer.py:0: error: "FieldOrTable" has no attribute "name"  [attr-defined]
 posthog/hogql/printer.py:0: error: Argument "stack" to "_Printer" has incompatible type "list[SelectQuery]"; expected "list[AST] | None"  [arg-type]
