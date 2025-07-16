@@ -1701,6 +1701,7 @@
         0% {
             transform: translateX(0);
         }
+
         100% {
             transform: translateX(-100%);
         }
@@ -1719,7 +1720,6 @@
         animation: hogqlx-marquee 10s linear infinite;
     }
 
-    /* ───────────  <redacted> component  ─────────── */
     .hogqlx-redacted {
         /* themeable variables */
         position: relative;
@@ -1730,14 +1730,12 @@
         border-radius: var(--radius);
     }
 
-    /* reveal on hover (mouse) or focus (keyboard) */
     .hogqlx-redacted:hover,
     .hogqlx-redacted:focus-visible {
         color: inherit; /* show the text */
         background: transparent; /* remove the bar */
     }
 
-    /* (optional) add an outline so keyboard users know it’s focusable */
     .hogqlx-redacted:focus-visible {
         outline: 2px dashed currentColor;
         outline-offset: 2px;
