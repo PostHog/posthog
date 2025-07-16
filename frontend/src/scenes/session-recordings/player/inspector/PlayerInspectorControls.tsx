@@ -7,11 +7,12 @@ import {
     IconSearch,
     IconStethoscope,
     IconTerminal,
+    IconComment,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconChevronRight, IconComment, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'

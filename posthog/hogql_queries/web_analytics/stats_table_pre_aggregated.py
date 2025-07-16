@@ -10,26 +10,27 @@ if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
 
-class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
-    SUPPORTED_BREAKDOWNS = [
-        WebStatsBreakdown.DEVICE_TYPE,
-        WebStatsBreakdown.BROWSER,
-        WebStatsBreakdown.OS,
-        WebStatsBreakdown.VIEWPORT,
-        WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-        WebStatsBreakdown.INITIAL_UTM_SOURCE,
-        WebStatsBreakdown.INITIAL_UTM_MEDIUM,
-        WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
-        WebStatsBreakdown.INITIAL_UTM_TERM,
-        WebStatsBreakdown.INITIAL_UTM_CONTENT,
-        WebStatsBreakdown.COUNTRY,
-        WebStatsBreakdown.REGION,
-        WebStatsBreakdown.CITY,
-        WebStatsBreakdown.INITIAL_PAGE,
-        WebStatsBreakdown.PAGE,
-        WebStatsBreakdown.EXIT_PAGE,
-    ]
+WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
+    WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.BROWSER,
+    WebStatsBreakdown.OS,
+    WebStatsBreakdown.VIEWPORT,
+    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE,
+    WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+    WebStatsBreakdown.INITIAL_UTM_TERM,
+    WebStatsBreakdown.INITIAL_UTM_CONTENT,
+    WebStatsBreakdown.COUNTRY,
+    WebStatsBreakdown.REGION,
+    WebStatsBreakdown.CITY,
+    WebStatsBreakdown.INITIAL_PAGE,
+    WebStatsBreakdown.PAGE,
+    WebStatsBreakdown.EXIT_PAGE,
+]
 
+
+class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
@@ -37,7 +38,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         if not super().can_use_preaggregated_tables():
             return False
 
-        return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
+        return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
 
     def _bounce_rate_query(self) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
