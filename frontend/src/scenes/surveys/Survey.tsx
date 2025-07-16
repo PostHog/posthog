@@ -11,6 +11,8 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { ProductIntentContext } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
