@@ -74,6 +74,7 @@ jobs:
                         - 'ee/**/*'
                         - 'common/hogvm/**/*'
                         - 'posthog/**/*'
+                        - 'products/**/backend/**/*'
                         - 'bin/*.py'
                         - pyproject.toml
                         - uv.lock

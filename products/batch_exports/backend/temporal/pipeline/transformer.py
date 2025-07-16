@@ -6,6 +6,7 @@ import contextlib
 import gzip
 import io
 import json
+import multiprocessing as mp
 import typing
 
 import brotli
@@ -95,7 +96,9 @@ class JSONLStreamTransformer:
         """
         current_file_size = 0
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+        ) as executor:
             async with _record_batches_producer(
                 record_batches,
                 executor=executor,
@@ -156,7 +159,9 @@ class JSONLBrotliStreamTransformer:
         """
         current_file_size = 0
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+        ) as executor:
             async with _record_batches_producer(
                 record_batches,
                 executor=executor,
