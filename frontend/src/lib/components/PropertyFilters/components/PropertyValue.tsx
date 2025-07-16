@@ -215,6 +215,8 @@ export function PropertyValue({
         if (name === '') {
             return <i>(empty string)</i>
         }
+        // Render boolean flag values with code tags to distinguish them from string values
+        // e.g. true vs "true" - this is important for flag dependencies where type matters
         if (isFlagDependencyProperty && typeof value === 'boolean') {
             return <code>{name}</code>
         }
