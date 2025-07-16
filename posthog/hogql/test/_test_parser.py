@@ -2026,6 +2026,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         # 1. <strong>hello world <strong>banana</strong></strong>
         def test_visit_hogqlx_nested_tags(self) -> None:
             node = self._select("select <strong>hello world <strong>banana</strong></strong>")
+            assert isinstance(node, ast.SelectQuery)
             tag = cast(ast.HogQLXTag, node.select[0])
 
             self.assertEqual(
@@ -2055,6 +2056,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         # 2. <em />
         def test_visit_hogqlx_self_closing(self) -> None:
             node = self._select("select <em /> from events")
+            assert isinstance(node, ast.SelectQuery)
             tag = cast(ast.HogQLXTag, node.select[0])
 
             # A self-closing element has no “children” attribute at all.
@@ -2063,6 +2065,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         # 3. <strong>{event} <em>asd</em></strong>
         def test_visit_hogqlx_expr_text_and_tag_children(self) -> None:
             node = self._select("select <strong>{event} <em>asd</em></strong> from events")
+            assert isinstance(node, ast.SelectQuery)
             tag = cast(ast.HogQLXTag, node.select[0])
 
             self.assertEqual(
@@ -2098,6 +2101,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 "{'a'}"
                 "</strong> from events"
             )
+            assert isinstance(node, ast.SelectQuery)
             outer = cast(ast.HogQLXTag, node.select[0])
 
             expected = ast.HogQLXTag(
