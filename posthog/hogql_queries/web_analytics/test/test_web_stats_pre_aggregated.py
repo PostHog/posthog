@@ -1,6 +1,9 @@
 from freezegun import freeze_time
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import (
+    WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS,
+)
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 from posthog.models.utils import uuid7
 from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
@@ -207,7 +210,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         sync_execute(bounces_insert)
 
     def test_can_use_preaggregated_tables_with_supported_breakdowns(self):
-        for breakdown in StatsTablePreAggregatedQueryBuilder.SUPPORTED_BREAKDOWNS:
+        for breakdown in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS:
             with self.subTest(breakdown=breakdown):
                 query = WebStatsTableQuery(
                     dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
