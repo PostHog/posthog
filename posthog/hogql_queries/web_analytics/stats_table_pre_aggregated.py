@@ -29,6 +29,7 @@ WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
     WebStatsBreakdown.INITIAL_PAGE,
     WebStatsBreakdown.PAGE,
     WebStatsBreakdown.EXIT_PAGE,
+    WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
 ]
 
 
