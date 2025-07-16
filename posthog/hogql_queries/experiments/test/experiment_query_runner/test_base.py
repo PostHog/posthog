@@ -1749,3 +1749,245 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         # Both should have 5 exposures each
         self.assertEqual(control_variant.absolute_exposure, 5)
         self.assertEqual(test_variant.absolute_exposure, 5)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_aggregation_expressions(self):
+        """Test that HogQL aggregation expressions work end-to-end."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with sum aggregation expression
+        metric_sum = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="sum(toFloat(properties.revenue) - toFloat(properties.cost))",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_sum,
+        )
+
+        experiment.metrics = [metric_sum.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data with revenue and cost properties
+        for variant, user_count in [("control", 10), ("test", 10)]:
+            for i in range(user_count):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase events with different revenue/cost values
+                purchase_count = 6 if variant == "control" else 8
+                if i < purchase_count:
+                    if variant == "control":
+                        revenue = 100 + (i * 10)  # revenue: 100, 110, 120, 130, 140, 150
+                        cost = 20 + (i * 5)  # cost: 20, 25, 30, 35, 40, 45
+                    else:  # test variant
+                        revenue = 120 + (i * 15)  # revenue: 120, 135, 150, 165, 180, 195, 210, 225
+                        cost = 30 + (i * 3)  # cost: 30, 33, 36, 39, 42, 45, 48, 51
+
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={
+                            feature_flag_property: variant,
+                            "revenue": revenue,
+                            "cost": cost,
+                        },
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Control: 6 purchases with (revenue - cost) = (80, 85, 90, 95, 100, 105) = sum = 555
+        expected_control_sum = sum([80, 85, 90, 95, 100, 105])
+        self.assertEqual(control_variant.count, expected_control_sum)
+        self.assertEqual(control_variant.absolute_exposure, 10)
+
+        # Test: 8 purchases with (revenue - cost) = (90, 102, 114, 126, 138, 150, 162, 174) = sum = 1056
+        expected_test_sum = sum([90, 102, 114, 126, 138, 150, 162, 174])
+        self.assertEqual(test_variant.count, expected_test_sum)
+        self.assertEqual(test_variant.absolute_exposure, 10)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_avg_aggregation(self):
+        """Test that HogQL avg aggregation works correctly."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with avg aggregation expression
+        metric_avg = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase", math=ExperimentMetricMathType.HOGQL, math_hogql="avg(properties.amount)"
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_avg,
+        )
+
+        experiment.metrics = [metric_avg.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data
+        for variant, amounts in [("control", [10, 20, 30]), ("test", [15, 25, 35, 45])]:
+            for i, amount in enumerate(amounts):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase event
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "amount": amount,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # For now, just check that the results are different and reasonable
+        self.assertEqual(control_variant.count, 60)
+        self.assertEqual(test_variant.count, 120)
+        self.assertEqual(control_variant.absolute_exposure, 3)
+        self.assertEqual(test_variant.absolute_exposure, 4)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_with_hogql_fallback_to_sum(self):
+        """Test that HogQL expressions without aggregation functions default to sum."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Test with simple property expression (no aggregation function)
+        metric_simple = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.HOGQL,
+                math_hogql="properties.price",  # No aggregation function, should default to sum
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric_simple,
+        )
+
+        experiment.metrics = [metric_simple.model_dump(mode="json")]
+        experiment.save()
+
+        # Create test data
+        for variant, prices in [("control", [50, 75]), ("test", [60, 80, 100])]:
+            for i, price in enumerate(prices):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                # Create exposure event
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                # Create purchase event
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "price": price,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(LegacyExperimentQueryResponse, query_runner.calculate())
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Control: sum(50, 75) = 125
+        self.assertEqual(control_variant.count, 125)
+        self.assertEqual(control_variant.absolute_exposure, 2)
+
+        # Test: sum(60, 80, 100) = 240
+        self.assertEqual(test_variant.count, 240)
+        self.assertEqual(test_variant.absolute_exposure, 3)
