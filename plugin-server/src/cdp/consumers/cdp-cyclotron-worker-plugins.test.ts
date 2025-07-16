@@ -15,14 +15,14 @@ import {
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
-import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-worker-plugins.consumer'
 jest.setTimeout(1000)
 
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
  */
 describe('CdpCyclotronWorkerPlugins', () => {
-    let processor: CdpCyclotronWorker
+    let processor: CdpCyclotronWorkerPlugins
     let hub: Hub
     let team: Team
     let fn: HogFunctionType
@@ -45,7 +45,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         hub = await createHub()
 
         team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorker(hub, ['plugin'])
+        processor = new CdpCyclotronWorkerPlugins(hub)
 
         await processor.start()
 
@@ -110,7 +110,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should call the plugin onEvent method', async () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
-            const invocation = createExampleInvocation(fn, globals, 'plugin')
+            const invocation = createExampleInvocation(fn, globals)
             invocation.state.globals.event.event = 'mycustomevent'
             invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
@@ -182,7 +182,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should handle and collect errors', async () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
-            const invocation = createExampleInvocation(fn, globals, 'plugin')
+            const invocation = createExampleInvocation(fn, globals)
             invocation.state.globals.event.event = 'mycustomevent'
             invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
