@@ -267,10 +267,27 @@ def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] 
     query_tags.with_temporal(temporal_tags)
 
 
-def add_log_comment_param(params: dict[str, typing.Any]):
-    query_tags = query_tagging.get_query_tags().model_copy()
+def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Optional[QueryTags] = None):
+    """
+    Collects temporal tags and adds them to existing tags.
+
+    If the query has log_comment placeholder, present as param_log_comment then this param is parsed and updated instead
+    of adding a new log_comment param
+
+    :param params: HTTP parameters, all query parameters have prefix param_,
+                   others are query settings (e.g. max_execution_time or log_comment)
+    :param query_tags: QueryTags object to be used, if None, then the global object is copied.
+    :return:
+    """
+    query_tags = query_tags or query_tagging.get_query_tags().model_copy()
+    param_name = "log_comment"
+    if "param_log_comment" in params:
+        with contextlib.suppress(Exception):
+            qt = QueryTags.model_validate_json(params["param_log_comment"])
+            query_tags.update(**qt.model_dump())
+            param_name = "param_log_comment"
     update_query_tags_with_temporal_info(query_tags)
-    params["log_comment"] = query_tags.to_json()
+    params[param_name] = query_tags.to_json()
 
 
 class ClickHouseClient:

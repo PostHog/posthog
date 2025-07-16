@@ -436,6 +436,17 @@ async def materialize_model(
         except FileNotFoundError:
             await logger.adebug(f"Table at {table_uri} not found - skipping deletion")
 
+        try:
+            rows_expected = await get_query_row_count(hogql_query, team, logger)
+            await logger.ainfo(f"Expected rows: {rows_expected}")
+            # Set expected rows on the job
+            job.rows_expected = rows_expected
+            await database_sync_to_async(job.save)()
+        except Exception as e:
+            await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
+            job.rows_expected = None
+            await database_sync_to_async(job.save)()
+
         delta_table: deltalake.DeltaTable | None = None
 
         async for index, batch in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
@@ -468,6 +479,8 @@ async def materialize_model(
             )
 
             row_count = row_count + batch.num_rows
+            job.rows_materialized = row_count
+            await database_sync_to_async(job.save)()
 
             shutdown_monitor.raise_if_is_worker_shutdown()
 
@@ -611,10 +624,44 @@ async def update_table_row_count(
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
 
+async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogger) -> int:
+    """Get the total row count for a HogQL query. Differs in extraction with std query since it's a count query."""
+    count_query = f"SELECT count() FROM ({query})"
+
+    query_node = parse_select(count_query)
+
+    context = HogQLContext(
+        team=team,
+        team_id=team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+    )
+    context.output_format = "TabSeparated"
+    context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+
+    prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+        query_node, context=context, dialect="clickhouse", stack=[]
+    )
+    printed = await database_sync_to_async(print_prepared_ast)(
+        prepared_hogql_query,
+        context=context,
+        dialect="clickhouse",
+        stack=[],
+    )
+
+    await logger.adebug(f"Running count query: {printed}")
+
+    async with get_client() as client:
+        result = await client.read_query(printed, query_parameters=context.values)
+        count = int(result.decode("utf-8").strip())
+        return count
+
+
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     """A HogQL table given by a HogQL query."""
 
     query_node = parse_select(query)
+    assert query_node is not None
 
     context = HogQLContext(
         team=team,
@@ -628,6 +675,8 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", stack=[]
     )
+    if prepared_hogql_query is None:
+        raise EmptyHogQLResponseColumnsError()
     printed = await database_sync_to_async(print_prepared_ast)(
         prepared_hogql_query,
         context=context,
@@ -1008,21 +1057,53 @@ class CreateTableActivityInputs:
 
 @temporalio.activity.defn
 async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
-    """Activity that creates tables for a list of saved queries."""
+    """Create/attach tables and persist their row-count."""
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE)
+    logger = await bind_temporal_worker_logger(inputs.team_id)
+
     for model in inputs.models:
+        try:
+            model_id = uuid.UUID(model)
+        except ValueError:
+            await logger.aerror(
+                f"Invalid model identifier '{model}': expected UUID format - this indicates a race condition or data integrity issue"
+            )
+            continue  # Skip this model if it's not a valid UUID
+
         await create_table_from_saved_query(model, inputs.team_id)
+
+        try:
+            saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("table").get)(
+                id=model_id, team_id=inputs.team_id
+            )
+
+            if not saved_query.table:
+                await logger.aerror(
+                    f"Saved query {saved_query.name} (ID: {saved_query.id}) has no table - this indicates a data integrity issue"
+                )
+                continue
+
+            table = saved_query.table
+
+            table.row_count = table.get_count()
+            await database_sync_to_async(table.save)()
+        except Exception as err:
+            await logger.aexception(f"Failed to update table row count for {model}: {err}")
 
 
 async def update_saved_query_status(
     label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
 ):
+    logger = await bind_temporal_worker_logger(team_id)
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
     try:
         model_id = uuid.UUID(label)
         filter_params["id"] = model_id
     except ValueError:
+        await logger.awarning(
+            f"Label '{label}' is not a valid UUID, falling back to name lookup - this indicates a data integrity issue"
+        )
         filter_params["name"] = label
 
     saved_query = await database_sync_to_async(
