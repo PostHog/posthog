@@ -52,6 +52,7 @@ import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { QueryInfo } from './sidebar/QueryInfo'
 import { QueryVariables } from './sidebar/QueryVariables'
 import TabScroller from './TabScroller'
+import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -383,7 +384,19 @@ export function OutputPane(): JSX.Element {
 
                 return {
                     ...baseColumn,
-                    renderCell: (props: any) => props.row[column],
+                    renderCell: (props: any) => {
+                        const value = props.row[column]
+                        if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
+                            try {
+                                const parsedHogQLX = JSON.parse(value)
+                                return renderHogQLX(parsedHogQLX)
+                            } catch (e) {
+                                console.error('Error parsing HogQLX value:', e)
+                                return <span className="text-red">Error parsing value</span>
+                            }
+                        }
+                        return value
+                    },
                 }
             }) ?? []),
         ]

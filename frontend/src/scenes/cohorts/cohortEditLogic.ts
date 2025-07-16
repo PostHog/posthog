@@ -207,7 +207,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 if (cohort.id !== 'new') {
                     actions.saveCohort(cohort)
                 } else {
-                    actions.saveCohort({ ...cohort, _create_in_folder: 'Untitled/Cohorts' })
+                    actions.saveCohort({ ...cohort, _create_in_folder: 'Unfiled/Cohorts' })
                 }
             },
         },
