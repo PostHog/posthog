@@ -105,7 +105,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     }
 
     // MaxTool should not be active when insights are embedded (e.g., in notebooks)
-
+    const maxToolActive = !embedded
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
@@ -447,6 +447,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         }}
                         initialMaxPrompt="Show me users who "
                         className="EditorFiltersWrapper"
+                        active={maxToolActive}
                     >
                         <div>
                             <div
