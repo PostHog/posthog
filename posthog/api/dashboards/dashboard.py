@@ -473,8 +473,33 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
                 if isinstance(tile.layouts, str):
                     tile.layouts = json.loads(tile.layouts)
 
-                tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
-                serialized_tiles.append(tile_data)
+                try:
+                    tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
+                    serialized_tiles.append(tile_data)
+                except Exception as e:
+                    logger.error(
+                        "dashboard_tile_serialization_failed",
+                        tile_id=tile.id,
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    # Create an error tile that the frontend can handle
+                    error_tile_data = {
+                        "id": tile.id,
+                        "layouts": tile.layouts,
+                        "color": getattr(tile, "color", None),
+                        "insight": None,
+                        "text": None,
+                        "order": order,
+                        "last_refresh": None,
+                        "is_cached": False,
+                        "error": {
+                            "type": type(e).__name__,
+                            "message": str(e),
+                            "tile_id": tile.id,
+                        },
+                    }
+                    serialized_tiles.append(error_tile_data)
 
         return serialized_tiles
 

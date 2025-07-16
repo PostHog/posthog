@@ -8,6 +8,7 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { IconExclamation } from 'lib/lemon-ui/icons'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -17,6 +18,54 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+
+// Error tile card component
+function ErrorTileCard({
+    error,
+    tileId,
+    ...commonTileProps
+}: {
+    error: { type: string; message: string; tile_id: number }
+    tileId: number
+} & any): JSX.Element {
+    return (
+        <div className="dashboard-item-wrapper" style={{ position: 'relative' }}>
+            <div
+                className="dashboard-item dashboard-item--error"
+                style={{
+                    background: 'var(--bg-light)',
+                    border: '2px dashed var(--border-bold)',
+                    borderRadius: '6px',
+                    padding: '24px',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    gap: '8px',
+                }}
+            >
+                <IconExclamation style={{ fontSize: '24px', color: 'var(--warning)' }} />
+                <h4 style={{ margin: 0, color: 'var(--default)' }}>Error loading tile</h4>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '14px' }}>
+                    {error.type}: {error.message}
+                </p>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '12px' }}>Tile ID: {tileId}</p>
+                {commonTileProps.removeFromDashboard && (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={commonTileProps.removeFromDashboard}
+                        style={{ marginTop: '8px' }}
+                    >
+                        Remove tile
+                    </LemonButton>
+                )}
+            </div>
+        </div>
+    )
+}
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -133,6 +182,13 @@ export function DashboardItems(): JSX.Element {
                             removeFromDashboard: () => removeTile(tile),
                         }
 
+                        // Handle error tiles first
+                        if (tile.error) {
+                            return (
+                                <ErrorTileCard key={tile.id} error={tile.error} tileId={tile.id} {...commonTileProps} />
+                            )
+                        }
+
                         if (insight) {
                             return (
                                 <InsightCard
@@ -162,6 +218,7 @@ export function DashboardItems(): JSX.Element {
                                 />
                             )
                         }
+
                         if (text) {
                             return (
                                 <TextCard
