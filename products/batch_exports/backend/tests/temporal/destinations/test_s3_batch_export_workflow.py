@@ -69,10 +69,10 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
-    SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.temporal.temporary_file import (
     UnsupportedFileFormatError,
@@ -515,9 +515,6 @@ class TestInsertIntoS3Activity:
             and exclude_events is not None
         ):
             pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
-
-        if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
-            pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
 
         if compression and compression not in SUPPORTED_COMPRESSIONS[file_format]:
             pytest.skip(f"Compression {compression} is not supported for file format {file_format}")
@@ -1243,9 +1240,6 @@ async def test_s3_export_workflow_with_s3_bucket_with_various_intervals_and_mode
     """
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
-
-    if use_internal_s3_stage and isinstance(model, BatchExportModel) and model.name == "sessions":
-        pytest.skip("Sessions batch export is not supported with internal S3 stage at this time")
 
     destination_config = s3_batch_export.destination.config | {
         "endpoint_url": None,
@@ -2453,9 +2447,6 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
 @pytest.mark.parametrize(
     "team_id,batch_export_model,team_ids_in_settings,rollout_percentage,expected",
     [
-        # Sessions model should always return False (for now, until we support it)
-        (1, BatchExportModel(name="sessions", schema=None), [], 0, False),
-        (1, BatchExportModel(name="sessions", schema=None), ["1"], 50, False),
         # Team ID in settings should return True (regardless of rollout percentage)
         (1, BatchExportModel(name="events", schema=None), ["1"], 0, True),
         (5, BatchExportModel(name="events", schema=None), ["5"], 50, True),
@@ -2475,7 +2466,7 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
         (1, None, [], 0, False),
         (1, None, ["1"], 0, True),
         (1, None, [], 50, True),
-        # Different model names (not sessions)
+        # Different model names
         (1, BatchExportModel(name="persons", schema=None), [], 50, True),
         (1, BatchExportModel(name="custom_model", schema=None), [], 50, True),
     ],
@@ -2483,9 +2474,7 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
 def test_use_internal_stage(team_id, batch_export_model, team_ids_in_settings, rollout_percentage, expected):
     """Test the _use_internal_stage function with various inputs.
 
-    The function should return True if:
-    1. The batch export model is NOT "sessions" AND
-    2. Either:
+    The function should return True if either:
        - The team_id is in BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS, OR
        - team_id % 100 < BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
 

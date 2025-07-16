@@ -279,6 +279,7 @@ export type SupportTicketTargetArea =
     | 'batch_exports'
     | 'messaging'
     | 'platform_addons'
+    | 'max-ai'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -548,7 +549,10 @@ export const supportLogic = kea<supportLogicType>([
                         planLevelTag = 'plan_teams_legacy'
                         break
                     case BillingPlan.Paid:
-                        planLevelTag = 'plan_pay-as-you-go'
+                        const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
+                        const shouldMarkAsFree = projectedAmount === 0
+
+                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
                         break
                     case BillingPlan.Free:
                         planLevelTag = 'plan_free'
@@ -556,11 +560,16 @@ export const supportLogic = kea<supportLogicType>([
                 }
             }
 
+            const { accountOwner } = billingLogic.values
+
+            const ownerName = accountOwner?.name?.toLowerCase().replace(/[^a-z0-9]/g, '_') || 'unassigned'
+            const accountOwnerTag = `owner_${ownerName}`
+
             const payload = {
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
-                    tags: [planLevelTag],
+                    tags: [planLevelTag, accountOwnerTag],
                     custom_fields: [
                         {
                             id: 22084126888475,
@@ -585,6 +594,10 @@ export const supportLogic = kea<supportLogicType>([
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
                                 ? 'email_support'
                                 : 'free_support',
+                        },
+                        {
+                            id: 37742340880411,
+                            value: accountOwner?.name || 'unassigned',
                         },
                     ],
                     comment: {

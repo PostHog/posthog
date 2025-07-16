@@ -64,11 +64,11 @@ from products.batch_exports.backend.temporal.pipeline.entrypoint import (
 from products.batch_exports.backend.temporal.pipeline.producer import (
     Producer as ProducerFromInternalStage,
 )
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -946,10 +946,6 @@ def _use_internal_stage(inputs: S3BatchExportInputs) -> bool:
 
     This is just needed while we gradually roll out the pre-export stage.
     """
-    # TODO - support sessions model
-    is_sessions_model = inputs.batch_export_model and inputs.batch_export_model.name == "sessions"
-    if is_sessions_model:
-        return False
     if str(inputs.team_id) in settings.BATCH_EXPORT_USE_INTERNAL_S3_STAGE_TEAM_IDS:
         return True
     return inputs.team_id % 100 < settings.BATCH_EXPORT_S3_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
