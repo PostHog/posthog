@@ -21,6 +21,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     conversion_window_to_seconds,
     event_or_action_to_filter,
     get_data_warehouse_metric_source,
+    get_first_events_subquery,
     get_metric_value,
     is_continuous,
 )
@@ -321,6 +322,19 @@ class ExperimentQueryRunner(QueryRunner):
                         )
 
                     case EventsNode() | ActionsNode() as metric_source:
+                        # Determine the source table based on the math type
+                        if metric_source.math == ExperimentMetricMathType.FIRST_TIME_FOR_USER:
+                            # Use the first events subquery instead of the events table
+                            source_table = get_first_events_subquery(
+                                team=self.team,
+                                metric_source=metric_source,
+                                entity_key=self.entity_key,
+                                exposure_query=exposure_query,
+                            )
+                        else:
+                            # Use the regular events table
+                            source_table = ast.Field(chain=["events"])
+
                         return ast.SelectQuery(
                             select=[
                                 ast.Field(chain=["events", "timestamp"]),
@@ -330,7 +344,8 @@ class ExperimentQueryRunner(QueryRunner):
                                 ast.Alias(alias="value", expr=get_metric_value(self.metric)),
                             ],
                             select_from=ast.JoinExpr(
-                                table=ast.Field(chain=["events"]),
+                                table=source_table,
+                                alias="events",  # Keep the same alias so field references work
                                 next_join=ast.JoinExpr(
                                     table=exposure_query,
                                     join_type="INNER JOIN",
@@ -348,7 +363,13 @@ class ExperimentQueryRunner(QueryRunner):
                             where=ast.And(
                                 exprs=[
                                     *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
-                                    event_or_action_to_filter(self.team, metric_source),
+                                    # Only apply event_or_action_to_filter for non-first-time queries
+                                    # as it's already applied in the subquery for first-time queries
+                                    *(
+                                        []
+                                        if metric_source.math == ExperimentMetricMathType.FIRST_TIME_FOR_USER
+                                        else [event_or_action_to_filter(self.team, metric_source)]
+                                    ),
                                     *get_test_accounts_filter(self.team, self.experiment.exposure_criteria),
                                 ],
                             ),
