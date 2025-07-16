@@ -184,7 +184,8 @@ class PostgreSQLClient:
         except psycopg.OperationalError as err:
             raise PostgreSQLConnectionError(
                 f"Failed to connect after {max_attempts} attempts due to an unrecoverable error. "
-                f"Please review connection configuration. Error message: {str(err)}"
+                "Please review connection configuration. "
+                f"Error message: {str(err)}"
             ) from err
 
         async with connection as connection:
