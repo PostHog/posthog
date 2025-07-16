@@ -4,7 +4,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
-import { HogFlowAction } from '~/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
 import { checkConditions } from './conditional_branch'
@@ -12,12 +12,13 @@ import { checkConditions } from './conditional_branch'
 describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
     let action: Extract<HogFlowAction, { type: 'conditional_branch' }>
+    let hogFlow: HogFlow
 
     beforeEach(() => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
-        const hogFlow = new FixtureHogFlowBuilder()
+        hogFlow = new FixtureHogFlowBuilder()
             .withWorkflow({
                 actions: {
                     conditional_branch: {
@@ -107,11 +108,15 @@ describe('action.conditional_branch', () => {
 
     describe('matching events', () => {
         beforeEach(() => {
-            // These values match the pageview_or_autocapture_filter
-            invocation.state.event!.event = '$pageview'
-            invocation.state.event!.properties = {
-                $current_url: 'https://posthog.com',
-            }
+            invocation = createExampleHogFlowInvocation(hogFlow, {
+                // These values match the pageview_or_autocapture_filter
+                event: {
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                    },
+                } as any,
+            })
         })
 
         it('should match condition and go to action', async () => {

@@ -219,7 +219,7 @@ export class HogFunctionManagerService {
     }
 
     private onIntegrationsReloaded(integrationIds: IntegrationType['id'][]) {
-        const hogFunctionsRequiringRefresh = Object.values(this.lazyLoader.cache).filter((hogFunction) => {
+        const hogFunctionsRequiringRefresh = Object.values(this.lazyLoader.getCache()).filter((hogFunction) => {
             for (const integrationId of integrationIds) {
                 if (hogFunction?.depends_on_integration_ids?.has(integrationId)) {
                     return true

@@ -17,6 +17,7 @@ from langgraph.errors import NodeInterrupt
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.graph.memory.nodes import should_run_onboarding_before_insights
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 
@@ -62,7 +63,7 @@ MAX_SUPPORTED_QUERY_KIND_TO_MODEL: dict[str, type[SupportedQueryTypes]] = {
 }
 
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding"]
+RouteName = Literal["insights", "root", "end", "search_documentation", "memory_onboarding", "insights_search"]
 
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
@@ -292,6 +293,12 @@ class RootNode(RootNodeUIContextMixin):
             ChatPromptTemplate.from_messages(
                 [
                     ("system", ROOT_SYSTEM_PROMPT),
+                    (
+                        "system",
+                        CORE_MEMORY_PROMPT
+                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                        + " If users ask to save, update, or delete the core memory, say you have done it.",
+                    ),
                     *[
                         (
                             "system",
@@ -359,9 +366,14 @@ class RootNode(RootNodeUIContextMixin):
         if self._is_hard_limit_reached(state):
             return base_model
 
-        from ee.hogai.tool import create_and_query_insight, get_contextual_tool_class, search_documentation
+        from ee.hogai.tool import (
+            create_and_query_insight,
+            get_contextual_tool_class,
+            search_documentation,
+            search_insights,
+        )
 
-        available_tools: list[type[BaseModel]] = []
+        available_tools: list[type[BaseModel]] = [search_insights]
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -506,14 +518,17 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 root_tool_insight_plan=tool_call.args["query_description"],
-                root_tool_insight_type=tool_call.args["query_kind"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "search_documentation":
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif tool_call.name == "search_insights":
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                search_insights_query=tool_call.args["search_query"],
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
@@ -542,12 +557,8 @@ class RootNodeTools(AssistantNode):
             last_message = new_state.messages[-1]
             if isinstance(last_message, AssistantToolCallMessage) and last_message.tool_call_id == tool_call.id:
                 return PartialAssistantState(
-                    messages=new_state.messages[
-                        len(state.messages) :
-                    ],  # we send all messages from the tool call onwards
-                    root_tool_call_id=None,  # Tool handled already
-                    root_tool_insight_plan=None,  # No insight plan here
-                    root_tool_insight_type=None,  # No insight type here
+                    # we send all messages from the tool call onwards
+                    messages=new_state.messages[len(state.messages) :],
                     root_tool_calls_count=tool_call_count + 1,
                 )
 
@@ -561,9 +572,6 @@ class RootNodeTools(AssistantNode):
                         visible=True,
                     )
                 ],
-                root_tool_call_id=None,  # Tool handled already
-                root_tool_insight_plan=None,  # No insight plan here
-                root_tool_insight_type=None,  # No insight type here
                 root_tool_calls_count=tool_call_count + 1,
             )
         else:
@@ -574,10 +582,12 @@ class RootNodeTools(AssistantNode):
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
-            if state.root_tool_insight_type:
+            if state.root_tool_insight_plan:
                 if should_run_onboarding_before_insights(self._team, state) == "memory_onboarding":
                     return "memory_onboarding"
                 return "insights"
+            elif state.search_insights_query:
+                return "insights_search"
             else:
                 return "search_documentation"
         return "end"

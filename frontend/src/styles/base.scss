@@ -472,6 +472,8 @@
     --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
     --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
     --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
+    --bg-fill-button-danger-hover: var(--danger-highlight);
+    --bg-fill-button-danger-active: var(--danger-highlight);
 
     // Inputs
     --bg-fill-input: var(--color-white);
@@ -642,6 +644,7 @@
     --z-lemon-activation-sidebar: 650;
     --z-mobile-nav-overlay: 600;
     --z-top-navigation: 550;
+    --z-top-navigation-under: 549;
     --z-content-overlay: 500;
     --z-raised: 5;
 
@@ -1232,6 +1235,10 @@
         &.tabbed {
             margin-bottom: 0.5rem;
         }
+
+        &:empty {
+            display: none;
+        }
     }
 
     .secondary {
@@ -1626,6 +1633,11 @@
         padding: var(--spacing);
     }
 
+    .animate-mark {
+        animation: animate-mark 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
     // Highlight background blink
 
     /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1636,6 +1648,18 @@
 
         100% {
             background-color: initial;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes animate-mark {
+        0%,
+        100% {
+            background-color: var(--original-bg, initial);
+        }
+
+        50% {
+            background-color: color-mix(in sRGB, var(--mark) 50%, transparent);
         }
     }
 

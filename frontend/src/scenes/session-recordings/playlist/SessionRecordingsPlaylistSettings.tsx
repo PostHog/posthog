@@ -1,13 +1,19 @@
-import { IconEllipsis, IconSort } from '@posthog/icons'
+import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { RecordingUniversalFilters } from '~/types'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { MAX_SELECTED_RECORDINGS, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import {
+    MAX_SELECTED_RECORDINGS,
+    DELETE_CONFIRMATION_TEXT,
+    sessionRecordingsPlaylistLogic,
+} from './sessionRecordingsPlaylistLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { ReplayTabs } from '~/types'
-import { LemonBadge, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -94,6 +100,65 @@ function SortedBy({
     )
 }
 
+function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
+    const { selectedRecordingsIds, isDeleteSelectedRecordingsDialogOpen, deleteConfirmationText } =
+        useValues(sessionRecordingsPlaylistLogic)
+    const { setIsDeleteSelectedRecordingsDialogOpen, setDeleteConfirmationText, handleDeleteSelectedRecordings } =
+        useActions(sessionRecordingsPlaylistLogic)
+
+    const handleClose = (): void => {
+        setIsDeleteSelectedRecordingsDialogOpen(false)
+        setDeleteConfirmationText('')
+    }
+
+    return (
+        <LemonModal
+            isOpen={isDeleteSelectedRecordingsDialogOpen}
+            onClose={handleClose}
+            title="Confirm deletion"
+            maxWidth="500px"
+        >
+            <div className="space-y-4">
+                <h4>
+                    Are you sure you want to delete {selectedRecordingsIds.length} recording
+                    {selectedRecordingsIds.length > 1 ? 's' : ''}?
+                </h4>
+                <div className="space-y-2">
+                    <label className="text-sm">
+                        To confirm, please type <strong>{DELETE_CONFIRMATION_TEXT}</strong> below:
+                    </label>
+                    <LemonInput
+                        value={deleteConfirmationText}
+                        onChange={setDeleteConfirmationText}
+                        placeholder={DELETE_CONFIRMATION_TEXT}
+                        className="w-full"
+                        autoFocus
+                    />
+                </div>
+                <div className="bg-warning-highlight border border-warning rounded p-2 text-sm">
+                    This action cannot be undone. Deleting recordings doesn't affect your billing.
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+                <LemonButton type="secondary" onClick={handleClose}>
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    disabledReason={
+                        deleteConfirmationText !== DELETE_CONFIRMATION_TEXT
+                            ? 'Please type the correct confirmation text'
+                            : undefined
+                    }
+                    onClick={() => handleDeleteSelectedRecordings(shortId)}
+                >
+                    Delete
+                </LemonButton>
+            </div>
+        </LemonModal>
+    )
+}
+
 export function SessionRecordingsPlaylistTopSettings({
     filters,
     setFilters,
@@ -105,43 +170,63 @@ export function SessionRecordingsPlaylistTopSettings({
     type?: 'filters' | 'collection'
     shortId?: string
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { autoplayDirection } = useValues(playerSettingsLogic)
     const { setAutoplayDirection } = useActions(playerSettingsLogic)
     const { playlists, playlistsLoading } = useValues(
         savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists })
     )
     const { selectedRecordingsIds, sessionRecordings, pinnedRecordings } = useValues(sessionRecordingsPlaylistLogic)
-    const { handleBulkAddToPlaylist, handleBulkDeleteFromPlaylist, handleSelectUnselectAll } =
-        useActions(sessionRecordingsPlaylistLogic)
+    const {
+        handleBulkAddToPlaylist,
+        handleBulkDeleteFromPlaylist,
+        handleSelectUnselectAll,
+        setIsDeleteSelectedRecordingsDialogOpen,
+    } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
-        if (type === 'collection' && shortId) {
-            return [
-                {
-                    label: 'Remove from collection',
-                    onClick: () => handleBulkDeleteFromPlaylist(shortId),
-                    'data-attr': 'remove-from-collection',
-                },
-            ]
-        }
+        const menuItems = []
 
-        if (!playlistsLoading && playlists.results.length > 0) {
-            return [
-                {
+        if (!playlistsLoading) {
+            const collections =
+                type === 'collection' && shortId
+                    ? playlists.results.filter((playlist) => playlist.short_id !== shortId)
+                    : playlists.results
+
+            if (collections.length > 0) {
+                menuItems.push({
                     label: 'Add to collection',
-                    items: playlists.results.map((playlist) => ({
+                    items: collections.map((playlist) => ({
                         label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
                         onClick: () => handleBulkAddToPlaylist(playlist.short_id),
                     })),
                     'data-attr': 'add-to-collection',
-                },
-            ]
+                })
+            }
         }
 
-        return []
+        if (type === 'collection' && shortId) {
+            menuItems.push({
+                label: 'Remove from this collection',
+                onClick: () => handleBulkDeleteFromPlaylist(shortId),
+                'data-attr': 'remove-from-collection',
+            })
+        }
+
+        if (featureFlags[FEATURE_FLAGS.REPLAY_BULK_DELETE_SELECTED_RECORDINGS]) {
+            menuItems.push({
+                label: 'Delete',
+                onClick: () => setIsDeleteSelectedRecordingsDialogOpen(true),
+                icon: <IconTrash />,
+                'data-attr': 'delete-recordings',
+                status: 'danger' as const,
+            })
+        }
+
+        return menuItems
     }
 
     return (
@@ -199,6 +284,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     icon={<IconEllipsis className="rotate-90" />}
                 />
             </div>
+            <ConfirmDeleteRecordings shortId={shortId} />
         </SettingsBar>
     )
 }

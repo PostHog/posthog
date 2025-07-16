@@ -31,7 +31,7 @@ def generate_assets(
 ) -> tuple[list[Insight], list[ExportedAsset]]:
     with SUBSCRIPTION_ASSET_GENERATION_TIMER.time():
         if resource.dashboard:
-            tiles = get_tiles_ordered_by_position(resource.dashboard)
+            tiles = get_tiles_ordered_by_position(resource.dashboard, "sm")
             insights = [tile.insight for tile in tiles if tile.insight]
         elif resource.insight:
             insights = [resource.insight]
