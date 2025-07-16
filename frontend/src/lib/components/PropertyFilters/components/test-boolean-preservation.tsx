@@ -34,7 +34,4 @@ export function TestBooleanPreservation(): JSX.Element {
     )
 }
 
-// Mock the propertyDefinitionsModel
-
-// This would be used in a story or test environment
 export default TestBooleanPreservation
