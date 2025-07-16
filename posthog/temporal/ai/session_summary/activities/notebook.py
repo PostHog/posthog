@@ -141,37 +141,14 @@ def _generate_notebook_content_from_summary(
 
 
 def _create_summary_table(patterns: list, total_sessions: int) -> list[dict[str, Any]]:
-    """Create summary table content"""
+    """Create summary table-like content using text formatting"""
     severity_icons = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
 
-    # Create table rows
-    rows = []
+    content = []
 
-    # Header row
-    header_row = {
-        "type": "tableRow",
-        "content": [
-            {
-                "type": "tableHeader",
-                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Pattern"}]}],
-            },
-            {
-                "type": "tableHeader",
-                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Severity"}]}],
-            },
-            {
-                "type": "tableHeader",
-                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Sessions"}]}],
-            },
-            {
-                "type": "tableHeader",
-                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Failure Rate"}]}],
-            },
-        ],
-    }
-    rows.append(header_row)
+    # Create a table-like structure using bullet points
+    table_items = []
 
-    # Data rows
     for pattern in patterns:
         stats = pattern.stats
         sessions_affected = stats.sessions_affected
@@ -180,40 +157,20 @@ def _create_summary_table(patterns: list, total_sessions: int) -> list[dict[str,
         severity_icon = severity_icons.get(
             pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity, ""
         )
-
         severity_text = pattern.severity.value if hasattr(pattern.severity, "value") else pattern.severity
 
-        row = {
-            "type": "tableRow",
-            "content": [
-                {
-                    "type": "tableCell",
-                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": pattern.pattern_name}]}],
-                },
-                {
-                    "type": "tableCell",
-                    "content": [
-                        {"type": "paragraph", "content": [{"type": "text", "text": f"{severity_icon} {severity_text}"}]}
-                    ],
-                },
-                {
-                    "type": "tableCell",
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": f"{sessions_percentage} ({sessions_affected})"}],
-                        }
-                    ],
-                },
-                {
-                    "type": "tableCell",
-                    "content": [{"type": "paragraph", "content": [{"type": "text", "text": failure_percentage}]}],
-                },
-            ],
-        }
-        rows.append(row)
+        # Create a formatted item for each pattern
+        pattern_info = [
+            _create_text_content(f"{pattern.pattern_name} - ", is_bold=True),
+            _create_text_content(f"{severity_icon} {severity_text} - "),
+            _create_text_content(f"{sessions_percentage} ({sessions_affected}) sessions - "),
+            _create_text_content(f"{failure_percentage} failure rate"),
+        ]
+        table_items.append(pattern_info)
 
-    return [{"type": "table", "content": rows}]
+    content.append(_create_bullet_list(table_items))
+
+    return content
 
 
 def _create_pattern_section(pattern, total_sessions: int) -> list[dict[str, Any]]:
