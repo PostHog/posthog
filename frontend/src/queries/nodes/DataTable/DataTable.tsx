@@ -294,9 +294,24 @@ export function DataTable({
                                 >
                                     Sort descending
                                 </LemonButton>
-                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    data-attr="datatable-reset-sort"
+                                    onClick={() => {
+                                        setQuery?.({
+                                            ...query,
+                                            source: {
+                                                ...query.source,
+                                                orderBy: [],
+                                            } as EventsQuery,
+                                        })
+                                    }}
+                                >
+                                    Reset sorting
+                                </LemonButton>
                             </>
                         ) : null}
+                        <LemonDivider />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value=""

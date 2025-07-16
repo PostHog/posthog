@@ -80,7 +80,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                tabs.push(SidePanelTab.FeaturePreviews)
                 if (featureFlags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
