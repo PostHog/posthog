@@ -1,5 +1,5 @@
 import asyncio
-import typing
+import collections.abc
 
 import pyarrow as pa
 import structlog
@@ -16,7 +16,7 @@ class InvalidMessageFormat(Exception):
 class AsyncMessageReader:
     """Asynchronously read PyArrow messages from bytes iterator."""
 
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]):
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]):
         self._bytes = bytes_iter
         self._buffer = bytearray()
 
@@ -108,7 +108,7 @@ class AsyncMessageReader:
 class AsyncRecordBatchReader:
     """Asynchronously read PyArrow RecordBatches from an iterator of bytes."""
 
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]) -> None:
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]) -> None:
         self._reader = AsyncMessageReader(bytes_iter)
         self._schema: None | pa.Schema = None
 
@@ -140,10 +140,10 @@ class AsyncRecordBatchReader:
 
 
 class AsyncRecordBatchProducer(AsyncRecordBatchReader):
-    def __init__(self, bytes_iter: typing.AsyncIterator[bytes]) -> None:
+    def __init__(self, bytes_iter: collections.abc.AsyncIterator[bytes]) -> None:
         super().__init__(bytes_iter)
 
-    async def produce(self, queue: asyncio.Queue):
+    async def produce(self, queue: asyncio.Queue[pa.RecordBatch]):
         """Read all record batches and produce them to a queue for async processing."""
         await logger.adebug("Starting record batch produce loop")
 
