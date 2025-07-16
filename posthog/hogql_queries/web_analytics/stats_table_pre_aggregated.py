@@ -30,12 +30,14 @@ WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
     WebStatsBreakdown.EXIT_PAGE,
 ]
 
+
 def _nullif_empty_decorator(func):
     def wrapper(self):
         result = func(self)
         return wrap_with_null_if_empty(result)
 
     return wrapper
+
 
 class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
