@@ -66,8 +66,6 @@ export class TemplateTester {
             bytecode: await compileHog(this._template.hog),
         }
 
-        this.mockHub = { mmdb: undefined } as any
-
         this.executor = new HogExecutorService(this.mockHub)
     }
 
