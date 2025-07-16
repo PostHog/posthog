@@ -56,13 +56,13 @@ export enum ProductIntentContext {
 
     // Surveys
     SURVEY_CREATED = 'survey_created',
-    SURVEY_LAUNCHED = 'survey_launched',
+    SURVEY_LAUNCHED = 'survey_launched', // done
     SURVEY_VIEWED = 'survey_viewed',
-    SURVEY_COMPLETED = 'survey_completed', // stop survey
-    SURVEY_RESUMED = 'survey_resumed',
-    SURVEY_ARCHIVED = 'survey_archived',
-    SURVEY_UNARCHIVED = 'survey_unarchived',
-    SURVEY_DELETED = 'survey_deleted',
+    SURVEY_COMPLETED = 'survey_completed', // stop survey // done
+    SURVEY_RESUMED = 'survey_resumed', // done
+    SURVEY_ARCHIVED = 'survey_archived', // done
+    SURVEY_UNARCHIVED = 'survey_unarchived', // done
+    SURVEY_DELETED = 'survey_deleted', // done
     SURVEY_DUPLICATED = 'survey_duplicated',
     SURVEY_EDITED = 'survey_edited',
 }

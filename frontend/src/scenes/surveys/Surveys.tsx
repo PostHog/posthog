@@ -29,10 +29,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { useActions as useTeamActions } from 'kea'
+
+import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
+
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
-import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
@@ -46,17 +47,22 @@ export const scene: SceneExport = {
 
 export function Surveys(): JSX.Element {
     const {
-        surveys,
-        surveysLoading: dataLoading,
+        data: { surveys },
+        searchedSurveys,
+        dataLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
         searchTerm,
-        filters
+        filters,
+        tab,
+        hasNextPage,
+        hasNextSearchPage,
     } = useValues(surveysLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters } = useActions(surveysLogic)
+    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
+        useActions(surveysLogic)
 
-    const { addProductIntent } = useActions(teamLogic)
+    const { addProductIntent } = useActions(teamLogic)    
     const { user } = useValues(userLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
 
@@ -110,8 +116,8 @@ export function Surveys(): JSX.Element {
             />
             <SurveysDisabledBanner />
             <LemonTabs
-                activeKey={SurveysTabs.Active}
-                onChange={(newTab) => {}}
+                activeKey={tab}
+                onChange={(newTab) => setTab(newTab as SurveysTabs)}
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },
@@ -120,17 +126,17 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
             />
-            {/* {tab === SurveysTabs.Settings && <SurveySettings />} */}
-            {/* {tab === SurveysTabs.Notifications && (
+            {tab === SurveysTabs.Settings && <SurveySettings />}
+            {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions type="destination" subTemplateIds={['survey-response']} />
                 </>
-            )} */}
+            )}
 
-            {/* {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />} */}
+            {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
 
-            {(SurveysTabs.Active || SurveysTabs.Archived) && (
+            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
                 <>
                     <div className="deprecated-space-y-2">
                         <VersionCheckerBanner />
@@ -186,7 +192,7 @@ export function Surveys(): JSX.Element {
                                 </div>
                             </div>
                             <LemonTable
-                                dataSource={surveys}
+                                dataSource={searchedSurveys}
                                 defaultSorting={{
                                     columnKey: 'created_at',
                                     order: -1,
@@ -195,11 +201,11 @@ export function Surveys(): JSX.Element {
                                 nouns={['survey', 'surveys']}
                                 data-attr="surveys-table"
                                 emptyState={
-                                    SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'
+                                    tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'
                                 }
                                 loading={dataLoading}
                                 footer={
-                                    (searchTerm ? loadNextSearchPage : loadNextPage) && (
+                                    (searchTerm ? hasNextSearchPage : hasNextPage) && (
                                         <div className="flex justify-center p-1">
                                             <LemonButton
                                                 onClick={searchTerm ? loadNextSearchPage : loadNextPage}
@@ -288,20 +294,44 @@ export function Surveys(): JSX.Element {
                                                             {!survey.start_date && (
                                                                 <LemonButton
                                                                     fullWidth
-                                                                    onClick={() => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                start_date:
-                                                                                    dayjs().toISOString(),
+                                                                    onClick={() =>
+                                                                        LemonDialog.open({
+                                                                            title: 'Launch this survey?',
+                                                                            content: (
+                                                                                <div className="text-sm text-secondary">
+                                                                                    The survey will immediately start
+                                                                                    displaying to users matching the
+                                                                                    display conditions.
+                                                                                </div>
+                                                                            ),
+                                                                            primaryButton: {
+                                                                                children: 'Launch',
+                                                                                type: 'primary',
+                                                                                onClick: () => {
+                                                                                    updateSurvey({
+                                                                                        id: survey.id,
+                                                                                        updatePayload: {
+                                                                                            start_date:
+                                                                                                dayjs().toISOString(),
+                                                                                        },
+                                                                                    })
+                                                                                    addProductIntent({
+                                                                                        product_type: ProductKey.SURVEYS,
+                                                                                        intent_context: ProductIntentContext.SURVEY_LAUNCHED,
+                                                                                        metadata: {
+                                                                                            survey_id: survey.id,
+                                                                                        },
+                                                                                    })
+                                                                                },
+                                                                                size: 'small',
+                                                                            },
+                                                                            secondaryButton: {
+                                                                                children: 'Cancel',
+                                                                                type: 'tertiary',
+                                                                                size: 'small',
                                                                             },
                                                                         })
-                                                                        addProductIntent({
-                                                                            product_type: ProductKey.SURVEYS,
-                                                                            intent_context: ProductIntentContext.SURVEY_LAUNCHED,
-                                                                            metadata: { surveyId: survey.id },
-                                                                        })
-                                                                    }}
+                                                                    }
                                                                 >
                                                                     Launch survey
                                                                 </LemonButton>
@@ -310,17 +340,40 @@ export function Surveys(): JSX.Element {
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                end_date:
-                                                                                    dayjs().toISOString(),
+                                                                        LemonDialog.open({
+                                                                            title: 'Stop this survey?',
+                                                                            content: (
+                                                                                <div className="text-sm text-secondary">
+                                                                                    The survey will no longer be visible
+                                                                                    to your users.
+                                                                                </div>
+                                                                            ),
+                                                                            primaryButton: {
+                                                                                children: 'Stop',
+                                                                                type: 'primary',
+                                                                                onClick: () => {
+                                                                                    updateSurvey({
+                                                                                        id: survey.id,
+                                                                                        updatePayload: {
+                                                                                            end_date:
+                                                                                                dayjs().toISOString(),
+                                                                                        },
+                                                                                    })
+                                                                                    addProductIntent({
+                                                                                        product_type: ProductKey.SURVEYS,
+                                                                                        intent_context: ProductIntentContext.SURVEY_COMPLETED,
+                                                                                        metadata: {
+                                                                                            survey_id: survey.id,
+                                                                                        },
+                                                                                    })
+                                                                                },
+                                                                                size: 'small',
                                                                             },
-                                                                        })
-                                                                        addProductIntent({
-                                                                            product_type: ProductKey.SURVEYS,
-                                                                            intent_context: ProductIntentContext.SURVEY_COMPLETED,
-                                                                            metadata: { surveyId: survey.id },
+                                                                            secondaryButton: {
+                                                                                children: 'Cancel',
+                                                                                type: 'tertiary',
+                                                                                size: 'small',
+                                                                            },
                                                                         })
                                                                     }}
                                                                 >
@@ -331,16 +384,39 @@ export function Surveys(): JSX.Element {
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                end_date: null,
+                                                                        LemonDialog.open({
+                                                                            title: 'Resume this survey?',
+                                                                            content: (
+                                                                                <div className="text-sm text-secondary">
+                                                                                    Once resumed, the survey will be
+                                                                                    visible to your users again.
+                                                                                </div>
+                                                                            ),
+                                                                            primaryButton: {
+                                                                                children: 'Resume',
+                                                                                type: 'primary',
+                                                                                onClick: () => {
+                                                                                    updateSurvey({
+                                                                                        id: survey.id,
+                                                                                        updatePayload: {
+                                                                                            end_date: null,
+                                                                                        },
+                                                                                    })
+                                                                                    addProductIntent({
+                                                                                        product_type: ProductKey.SURVEYS,
+                                                                                        intent_context: ProductIntentContext.SURVEY_RESUMED,
+                                                                                        metadata: {
+                                                                                            survey_id: survey.id,
+                                                                                        },
+                                                                                    })
+                                                                                },
+                                                                                size: 'small',
                                                                             },
-                                                                        })
-                                                                        addProductIntent({
-                                                                            product_type: ProductKey.SURVEYS,
-                                                                            intent_context: ProductIntentContext.SURVEY_RESUMED,
-                                                                            metadata: { surveyId: survey.id },
+                                                                            secondaryButton: {
+                                                                                children: 'Cancel',
+                                                                                type: 'tertiary',
+                                                                                size: 'small',
+                                                                            },
                                                                         })
                                                                     }}
                                                                 >
@@ -351,19 +427,21 @@ export function Surveys(): JSX.Element {
                                                             {survey.end_date && survey.archived && (
                                                                 <LemonButton
                                                                     fullWidth
-                                                                    onClick={() => {
+                                                                    onClick={() =>
+                                                                    {
                                                                         updateSurvey({
                                                                             id: survey.id,
-                                                                            updatePayload: {
-                                                                                archived: false,
-                                                                            },
+                                                                            updatePayload: { archived: false },
                                                                         })
                                                                         addProductIntent({
                                                                             product_type: ProductKey.SURVEYS,
                                                                             intent_context: ProductIntentContext.SURVEY_UNARCHIVED,
-                                                                            metadata: { surveyId: survey.id },
+                                                                            metadata: {
+                                                                                survey_id: survey.id,
+                                                                            },
                                                                         })
-                                                                    }}
+                                                                    }
+                                                                    }
                                                                 >
                                                                     Unarchive
                                                                 </LemonButton>
@@ -372,16 +450,40 @@ export function Surveys(): JSX.Element {
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                archived: true,
+                                                                        LemonDialog.open({
+                                                                            title: 'Archive this survey?',
+                                                                            content: (
+                                                                                <div className="text-sm text-secondary">
+                                                                                    This action will remove the survey
+                                                                                    from your active surveys list. It
+                                                                                    can be restored at any time.
+                                                                                </div>
+                                                                            ),
+                                                                            primaryButton: {
+                                                                                children: 'Archive',
+                                                                                type: 'primary',
+                                                                                onClick: () => {
+                                                                                    updateSurvey({
+                                                                                        id: survey.id,
+                                                                                        updatePayload: {
+                                                                                            archived: true,
+                                                                                        },
+                                                                                    })
+                                                                                    addProductIntent({
+                                                                                        product_type: ProductKey.SURVEYS,
+                                                                                        intent_context: ProductIntentContext.SURVEY_ARCHIVED,
+                                                                                        metadata: {
+                                                                                            survey_id: survey.id,
+                                                                                        },
+                                                                                    })
+                                                                                },
+                                                                                size: 'small',
                                                                             },
-                                                                        })
-                                                                        addProductIntent({
-                                                                            product_type: ProductKey.SURVEYS,
-                                                                            intent_context: ProductIntentContext.SURVEY_ARCHIVED,
-                                                                            metadata: { surveyId: survey.id },
+                                                                            secondaryButton: {
+                                                                                children: 'Cancel',
+                                                                                type: 'tertiary',
+                                                                                size: 'small',
+                                                                            },
                                                                         })
                                                                     }}
                                                                 >
@@ -391,11 +493,34 @@ export function Surveys(): JSX.Element {
                                                             <LemonButton
                                                                 status="danger"
                                                                 onClick={() => {
-                                                                    deleteSurvey(survey.id)
-                                                                    addProductIntent({
-                                                                        product_type: ProductKey.SURVEYS,
-                                                                        intent_context: ProductIntentContext.SURVEY_DELETED,
-                                                                        metadata: { surveyId: survey.id },
+                                                                    LemonDialog.open({
+                                                                        title: 'Delete this survey?',
+                                                                        content: (
+                                                                            <div className="text-sm text-secondary">
+                                                                                This action cannot be undone. All survey
+                                                                                data will be permanently removed.
+                                                                            </div>
+                                                                        ),
+                                                                        primaryButton: {
+                                                                            children: 'Delete',
+                                                                            type: 'primary',
+                                                                            onClick: () => {
+                                                                                deleteSurvey(survey.id)
+                                                                                addProductIntent({
+                                                                                    product_type: ProductKey.SURVEYS,
+                                                                                    intent_context: ProductIntentContext.SURVEY_DELETED,
+                                                                                    metadata: {
+                                                                                        survey_id: survey.id,
+                                                                                    },
+                                                                                })
+                                                                            },
+                                                                            size: 'small',
+                                                                        },
+                                                                        secondaryButton: {
+                                                                            children: 'Cancel',
+                                                                            type: 'tertiary',
+                                                                            size: 'small',
+                                                                        },
                                                                     })
                                                                 }}
                                                                 fullWidth
