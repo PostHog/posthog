@@ -30,11 +30,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import {
-    AccessLevelIndicator,
-    NewOrganizationButton,
-    OtherOrganizationButton,
-} from '~/layout/navigation/OrganizationSwitcher'
+import { NewOrganizationButton, OtherOrganizationButton } from '~/layout/navigation/OrganizationSwitcher'
 import { getTreeItemsGames } from '~/products'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
@@ -43,6 +39,7 @@ import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
 import { OrganizationBasicType, SidePanelTab } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
+import { AccessLevelIndicator } from '../AccessLevelIndicator'
 
 function AccountPopoverSection({
     title,

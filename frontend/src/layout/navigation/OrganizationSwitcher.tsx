@@ -3,25 +3,14 @@ import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
-
 import { AvailableFeature, OrganizationBasicType } from '~/types'
-
 import { globalModalsLogic } from '../GlobalModals'
 import { navigationLogic } from './navigationLogic'
-
-export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
-    return (
-        <LemonTag className="AccessLevelIndicator" title={`Your ${organization.name} organization access level`}>
-            {(organization.membership_level ? membershipLevelToName.get(organization.membership_level) : null) || '?'}
-        </LemonTag>
-    )
-}
+import { AccessLevelIndicator } from './AccessLevelIndicator'
 
 export function OtherOrganizationButton({
     organization,
