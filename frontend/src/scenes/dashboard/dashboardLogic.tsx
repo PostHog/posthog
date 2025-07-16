@@ -90,7 +90,7 @@ export interface RefreshStatus {
 }
 
 /**
- * Loading the dashboard serves two mostly separate purposes:
+ * Loading the dashboard serves two separate purposes:
  * 1. Fetching dashboard metadata (name, description, settings, etc.)
  * 2. Retrieving an initial cached version of its insights for fast display.
  */
