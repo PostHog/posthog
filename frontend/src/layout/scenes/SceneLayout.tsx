@@ -75,7 +75,8 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
         if (sceneLayoutContainer.current) {
             const resizeObserver = new ResizeObserver((entries) => {
                 for (const entry of entries) {
-                    if (entry.contentRect.width >= 1300) {
+                    const overlayBreakpoint = layoutConfig?.infoPanelOverlayBreakpoint ?? 1300
+                    if (entry.contentRect.width >= overlayBreakpoint) {
                         setScenePanelIsOverlay(false)
                         setScenePanelOpen(true)
                     } else {

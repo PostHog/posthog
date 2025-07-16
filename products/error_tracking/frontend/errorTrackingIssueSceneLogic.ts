@@ -34,25 +34,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     props({} as ErrorTrackingIssueSceneLogicProps),
     key((props) => props.id),
 
-    connect(() => {
-        const filtersLogic = errorFiltersLogic()
-        const issueActions = issueActionsLogic()
-        return {
-            values: [filtersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
-            actions: [
-                filtersLogic,
-                ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
-                issueActions,
-                ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName'],
-            ],
-        }
-    }),
+    connect(() => ({
+        values: [errorFiltersLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        actions: [
+            errorFiltersLogic,
+            ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
+            issueActionsLogic,
+            ['updateIssueAssignee', 'updateIssueStatus', 'updateIssueName', 'updateIssueDescription'],
+        ],
+    })),
 
     actions({
         loadIssue: true,
         loadSummary: true,
         loadFirstSeenEvent: (timestamp: string) => ({ timestamp }),
-        setIssue: (issue: ErrorTrackingRelationalIssue) => ({ issue }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
         selectEvent: (event: ErrorEventType | null) => ({
             event,
@@ -61,6 +56,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             integrationId,
             config,
         }),
+        updateAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
+        updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
+        updateName: (name: string) => ({ name }),
+        updateDescription: (description: string) => ({ description }),
     }),
 
     defaults({
@@ -73,24 +72,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     reducers(({ values }) => ({
-        issue: {
-            setIssue: (_, { issue }: { issue: ErrorTrackingRelationalIssue }) => issue,
-            updateIssueAssignee: (state, { id, assignee }) => {
-                if (state && id == state.id) {
-                    return { ...state, assignee }
-                }
-                return state
-            },
-            updateIssueStatus: (state, { id, status }) => {
-                if (state && id == state.id) {
-                    return { ...state, status }
-                }
-                return state
-            },
-            updateIssueName: (state, { name }) => {
-                return state ? { ...state, name } : null
-            },
-        },
         summary: {},
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
@@ -120,6 +101,30 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     return { ...values.issue, external_issues: [response] }
                 }
                 return null
+            },
+            updateAssignee: ({ assignee }) => {
+                if (values.issue) {
+                    return { ...values.issue, assignee }
+                }
+                return values.issue
+            },
+            updateStatus: ({ status }) => {
+                if (values.issue) {
+                    return { ...values.issue, status }
+                }
+                return values.issue
+            },
+            updateName: ({ name }) => {
+                if (values.issue) {
+                    return { ...values.issue, name }
+                }
+                return values.issue
+            },
+            updateDescription: ({ description }) => {
+                if (values.issue) {
+                    return { ...values.issue, description }
+                }
+                return values.issue
             },
         },
         firstSeenEvent: {
@@ -181,7 +186,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
     })),
 
-    selectors(({ actions, props }) => ({
+    selectors(({ actions }) => ({
         breadcrumbs: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
@@ -195,9 +200,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     {
                         key: [Scene.ErrorTrackingIssue, exceptionType],
                         name: exceptionType,
-                        onRename: async (name: string) => {
-                            return actions.updateIssueName(props.id, name)
-                        },
+                        onRename: async (name: string) => actions.updateName(name),
                     },
                 ]
             },
@@ -221,7 +224,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         aggregations: [(s) => [s.summary], (summary: ErrorTrackingIssueSummary | null) => summary?.aggregations],
     })),
 
-    listeners(({ actions }) => {
+    listeners(({ props, actions }) => {
         return {
             setDateRange: actions.loadSummary,
             setFilterGroup: actions.loadSummary,
@@ -234,6 +237,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     router.actions.replace(urls.errorTrackingIssue(data.issue_id))
                 }
             },
+            updateName: ({ name }) => actions.updateIssueName(props.id, name),
+            updateDescription: ({ description }) => actions.updateIssueDescription(props.id, description),
+            updateAssignee: ({ assignee }) => actions.updateIssueAssignee(props.id, assignee),
+            updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
         }
     }),
 ])

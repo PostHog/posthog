@@ -16,6 +16,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
+            infoPanelOverlayBreakpoint: 675,
         },
         ErrorTrackingConfiguration: {
             import: () => import('./frontend/configuration/ErrorTrackingConfigurationScene'),
