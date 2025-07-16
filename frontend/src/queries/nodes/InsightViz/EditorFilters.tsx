@@ -512,6 +512,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                     <span className="size-2 bg-accent-active rounded-full" />
                                     {(() => {
                                         // Use suggestedQuery if available, otherwise use previousQuery
+
                                         const comparisonQuery = suggestedQuery || previousQuery
                                         const { count, diffs } = countDifferences(query, comparisonQuery)
 
