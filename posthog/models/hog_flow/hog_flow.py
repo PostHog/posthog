@@ -9,7 +9,6 @@ from posthog.models.utils import UUIDModel
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
-from posthog.cdp.filters import compile_filters_bytecode
 
 if TYPE_CHECKING:
     pass
@@ -64,26 +63,6 @@ class HogFlow(UUIDModel):
 
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
-
-    def save(self, *args, **kwargs):
-        for action_item in self.actions:
-            # Compile filters bytecode for each action
-            action_filters = action_item.get("filters")
-            if action_filters:
-                try:
-                    action_item["filters"]["bytecode"] = compile_filters_bytecode(action_filters, team=self.team)
-                except Exception as e:
-                    logger.exception(
-                        "Failed to compile filters bytecode for hog flow action",
-                        extra={
-                            "name": action_item.get("name"),
-                            "id": self.id,
-                            "error": str(e),
-                        },
-                    )
-                    raise
-
-        return super().save(*args, **kwargs)
 
 
 @receiver(post_save, sender=HogFlow)
