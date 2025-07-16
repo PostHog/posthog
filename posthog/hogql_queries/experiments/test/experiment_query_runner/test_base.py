@@ -1842,15 +1842,15 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_with_hogql_avg_aggregation(self):
-        """Test that HogQL avg aggregation works correctly."""
+    def test_query_runner_with_hogql_aggregation_end_to_end(self):
+        """Test that HogQL aggregation expressions work end-to-end with the experiment query runner."""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        # Test with avg aggregation expression
+        # Test with avg aggregation expression - this should use avg() not sum()
         metric_avg = ExperimentMeanMetric(
             source=EventsNode(
                 event="purchase", math=ExperimentMetricMathType.HOGQL, math_hogql="avg(properties.amount)"
@@ -1866,7 +1866,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric_avg.model_dump(mode="json")]
         experiment.save()
 
-        # Create test data
+        # Create test data - simple case with one event per user
         for variant, amounts in [("control", [10, 20, 30]), ("test", [15, 25, 35, 45])]:
             for i, amount in enumerate(amounts):
                 _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
@@ -1908,7 +1908,9 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
         )
 
-        # For now, just check that the results are different and reasonable
+        # With one event per user, avg(amount) per user = amount, so we get:
+        # Control: 10 + 20 + 30 = 60
+        # Test: 15 + 25 + 35 + 45 = 120
         self.assertEqual(control_variant.count, 60)
         self.assertEqual(test_variant.count, 120)
         self.assertEqual(control_variant.absolute_exposure, 3)
