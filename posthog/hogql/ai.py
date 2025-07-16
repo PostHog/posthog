@@ -42,7 +42,8 @@ GROUP BY week_of
 ORDER BY week_of DESC
 
 Important HogQL differences versus other SQL dialects:
-- JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties can also be accessed using `properties.foo['bar']` (note the single quotes)
 - toFloat64OrNull() and toFloat64() are NOT SUPPORTED. Use toFloat() instead. If you use them, the query will NOT WORK.
 - CRITICAL: Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause a CHQueryErrorInvalidJoinOnExpression error!
   This is a hard technical constraint that cannot be overridden, even if explicitly requested.
@@ -52,7 +53,7 @@ Important HogQL differences versus other SQL dialects:
 """
 
 SCHEMA_MESSAGE = """
-This project's schema is:
+This project's SQL schema is:
 
 {schema_description}
 
