@@ -24,20 +24,33 @@ interface QueryInfoProps {
     codeEditorKey: string
 }
 
-function getMaterializationStatusMessage(rowsMaterialized: number, progressPercentage: number): string {
+function getMaterializationStatusMessage(
+    rowsMaterialized: number,
+    progressPercentage: number,
+    rowsExpected: number
+): string {
+    const percentComplete = Math.round(Math.min(100, (rowsMaterialized / rowsExpected) * 100))
     switch (true) {
         case rowsMaterialized === 0:
-            return 'Spinning up spikes — starting materialization job...'
+            return `Spinning up spikes — starting materialization job... ${percentComplete}% complete.`
         case progressPercentage < 10:
-            return 'Digging into SQL... executing your query now.'
+            return `Digging into SQL... executing your query now... ${percentComplete}% complete.`
         case progressPercentage < 25:
-            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away...`
+            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away... ${percentComplete}% complete.`
         case progressPercentage < 50:
-            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage...`
+            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage... ${percentComplete}% complete.`
         case progressPercentage < 90:
-            return `Still going — ${humanFriendlyNumber(rowsMaterialized)} rows written...`
+            return `Still going — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows written... ${percentComplete}% complete.`
+        case progressPercentage === 100:
+            return `Wrapping up — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows processed... ${percentComplete}% complete.`
         default:
-            return `Almost there — ${humanFriendlyNumber(rowsMaterialized)} rows processed...`
+            return `Almost there — ${humanFriendlyNumber(
+                rowsMaterialized
+            )} rows processed... ${percentComplete}% complete.`
     }
 }
 
@@ -289,7 +302,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                                     placement="right"
                                                     title={getMaterializationStatusMessage(
                                                         rows_materialized,
-                                                        progressPercentage
+                                                        progressPercentage,
+                                                        rows_expected
                                                     )}
                                                 >
                                                     <div className="w-[68px]">
@@ -439,12 +453,12 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     onChange={(mode) => setUpstreamViewMode(mode)}
                                     options={[
                                         {
-                                            value: 'table',
-                                            label: 'Table',
-                                        },
-                                        {
                                             value: 'graph',
                                             label: 'Graph',
+                                        },
+                                        {
+                                            value: 'table',
+                                            label: 'Table',
                                         },
                                     ]}
                                     size="small"

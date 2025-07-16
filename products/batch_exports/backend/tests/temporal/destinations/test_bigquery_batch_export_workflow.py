@@ -50,11 +50,11 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
     RecordBatchTaskError,
-    SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,
