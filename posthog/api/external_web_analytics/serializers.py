@@ -1,5 +1,9 @@
 from rest_framework import serializers
 
+from posthog.hogql_queries.web_analytics.stats_table_pre_aggregated import (
+    WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS,
+)
+
 
 EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT = 100
 EXTERNAL_WEB_ANALYTICS_PAGINATION_MAX_LIMIT = 1000
@@ -35,34 +39,7 @@ class WebAnalyticsTrendRequestSerializer(WebAnalyticsRequestSerializer):
 
 class WebAnalyticsBreakdownRequestSerializer(WebAnalyticsRequestSerializer):
     breakdown_by = serializers.ChoiceField(
-        choices=[
-            # Page-related
-            "page",
-            "initial_page",
-            "exit_page",
-            "exit_click",
-            "screen_name",
-            # Traffic sources
-            "initial_channel_type",
-            "initial_referring_domain",
-            "initial_utm_source",
-            "initial_utm_campaign",
-            "initial_utm_medium",
-            "initial_utm_term",
-            "initial_utm_content",
-            "initial_utm_source_medium_campaign",
-            # Device & technical
-            "browser",
-            "os",
-            "viewport",
-            "device_type",
-            # Geographic
-            "country",
-            "region",
-            "city",
-            "timezone",
-            "language",
-        ],
+        choices=[(e.value, e.name) for e in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS],
         help_text="Property to break down by",
     )
 
