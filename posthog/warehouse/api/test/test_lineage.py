@@ -6,8 +6,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 
 class TestLineage(APIBaseTest):
     def test_get_upstream_simple_chain(self):
-        # Create a chain of saved queries
-        base_query = DataWarehouseSavedQuery.objects.create(
+        DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="base_query",
             query={
@@ -17,7 +16,7 @@ class TestLineage(APIBaseTest):
             external_tables=["postgres.supabase.users"],
         )
 
-        intermediate_query = DataWarehouseSavedQuery.objects.create(
+        DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="intermediate_query",
             query={
@@ -37,7 +36,6 @@ class TestLineage(APIBaseTest):
             external_tables=["intermediate_query"],
         )
 
-        # Test that we get the full upstream chain
         with capture_db_queries() as context:
             response = self.client.get(
                 f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}"
@@ -45,17 +43,14 @@ class TestLineage(APIBaseTest):
             self.assertEqual(response.status_code, 200)
             data = response.json()
 
-        # Should have 4 nodes: final_query, intermediate_query, base_query, and postgres.supabase.users
         self.assertEqual(len(data["nodes"]), 4)
 
-        # Check nodes
         nodes = {node["id"]: node for node in data["nodes"]}
         self.assertEqual(nodes["final_query"]["type"], "view")
         self.assertEqual(nodes["intermediate_query"]["type"], "view")
         self.assertEqual(nodes["base_query"]["type"], "view")
         self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
 
-        # Check edges
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
             ("intermediate_query", "final_query"),
@@ -64,16 +59,21 @@ class TestLineage(APIBaseTest):
         }
         self.assertEqual(edges, expected_edges)
 
+        view_queries = [
+            q
+            for q in context.captured_queries
+            if "datawarehousesavedquery" in q["sql"].lower() or "datawarehousetable" in q["sql"].lower()
+        ]
+        self.assertLessEqual(len(view_queries), 7, f"Expected 7 queries, got {len(view_queries)}")
+
     def test_get_upstream_with_datawarehouse_table(self):
-        # Create a data warehouse table
-        table = DataWarehouseTable.objects.create(
+        DataWarehouseTable.objects.create(
             team=self.team,
             name="my_table",
             url_pattern="https://example.com/data",
             format="JSONEachRow",
         )
 
-        # Create a saved query that references the table
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="test_query",
@@ -88,23 +88,19 @@ class TestLineage(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
-        # Should have 2 nodes: the view and the table
         self.assertEqual(len(data["nodes"]), 2)
 
-        # Check nodes
         nodes = {node["id"]: node for node in data["nodes"]}
         self.assertEqual(nodes["test_query"]["type"], "view")
         self.assertEqual(nodes["my_table"]["type"], "table")
         self.assertEqual(nodes["my_table"]["name"], "my_table")
 
-        # Check edges
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {("my_table", "test_query")}
         self.assertEqual(edges, expected_edges)
 
     def test_get_upstream_mixed_dependencies(self):
-        # Create a saved query that depends on both another saved query and external tables
-        base_query = DataWarehouseSavedQuery.objects.create(
+        DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="base_query",
             query={
@@ -128,17 +124,14 @@ class TestLineage(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
-        # Should have 4 nodes: mixed_query, base_query, postgres.supabase.users, postgres.supabase.events
         self.assertEqual(len(data["nodes"]), 4)
 
-        # Check nodes
         nodes = {node["id"]: node for node in data["nodes"]}
         self.assertEqual(nodes["mixed_query"]["type"], "view")
         self.assertEqual(nodes["base_query"]["type"], "view")
         self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
         self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
 
-        # Check edges
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
             ("base_query", "mixed_query"),
@@ -146,7 +139,7 @@ class TestLineage(APIBaseTest):
             ("postgres.supabase.users", "base_query"),
         }
         self.assertEqual(edges, expected_edges)
-        # Create a saved query with only external tables
+
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="test_query",
@@ -161,16 +154,13 @@ class TestLineage(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
-        # Should have 3 nodes: the view and 2 external tables
         self.assertEqual(len(data["nodes"]), 3)
 
-        # Check nodes
         nodes = {node["id"]: node for node in data["nodes"]}
         self.assertEqual(nodes["test_query"]["type"], "view")
         self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
         self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
 
-        # Check edges
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
             ("postgres.supabase.users", "test_query"),
@@ -179,7 +169,6 @@ class TestLineage(APIBaseTest):
         self.assertEqual(edges, expected_edges)
 
     def test_get_upstream_no_external_tables(self):
-        # Create a saved query with no external tables
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="test_query",
@@ -194,11 +183,9 @@ class TestLineage(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
 
-        # Should have only 1 node: the view itself
         self.assertEqual(len(data["nodes"]), 1)
         self.assertEqual(len(data["edges"]), 0)
 
-        # Check node
         nodes = {node["id"]: node for node in data["nodes"]}
         self.assertEqual(nodes["test_query"]["type"], "view")
 
