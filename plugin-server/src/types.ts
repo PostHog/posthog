@@ -268,6 +268,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
+    KAFKA_CONSUMER_GRACEFUL_SHUTDOWN: boolean
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number

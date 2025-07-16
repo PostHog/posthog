@@ -68,7 +68,7 @@ const KNOWN_SET_EVENTS = new Set([
     'survey sent',
 ])
 
-const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent) => {
+const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent): void => {
     if (
         !PERSON_EVENTS.has(event.event) &&
         !KNOWN_SET_EVENTS.has(event.event) &&
@@ -99,6 +99,10 @@ export class IngestionConsumer {
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
+
+    // Batch completion tracking for graceful shutdown
+    private currentBatchPromise: Promise<void> | null = null
+    private batchCompletionResolve: (() => void) | null = null
 
     constructor(
         private hub: Hub,
@@ -195,6 +199,17 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
+        // Wait for current batch and scheduled promises to complete before proceeding with shutdown (if feature flag is enabled)
+        if (this.hub.KAFKA_CONSUMER_GRACEFUL_SHUTDOWN) {
+            if (this.currentBatchPromise) {
+                logger.info('🔁', `${this.name} - waiting for current batch to complete`)
+                await this.currentBatchPromise
+            }
+
+            logger.info('🔁', `${this.name} - waiting for scheduled promises to complete`)
+            await this.promiseScheduler.waitForAll()
+        }
+
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         logger.info('🔁', `${this.name} - stopping batch consumer`)
         await this.kafkaConsumer?.disconnect()
@@ -207,7 +222,7 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy() {
+    public isHealthy(): boolean {
         return this.kafkaConsumer?.isHealthy()
     }
 
@@ -292,67 +307,95 @@ export class IngestionConsumer {
     }
 
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
-        if (this.hub.KAFKA_BATCH_START_LOGGING_ENABLED) {
-            this.logBatchStart(messages)
-        }
-
-        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
-
-        const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
-            return this.resolveTeams(parsedMessages)
+        // Set up batch completion tracking for graceful shutdown
+        this.currentBatchPromise = new Promise<void>((resolve) => {
+            this.batchCompletionResolve = resolve
         })
 
-        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithTeams)
-
-        const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
-
-        // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
-        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-
-        // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
-        if (shouldRunHogWatcher) {
-            await this.fetchAndCacheHogFunctionStates(groupedMessages)
-        }
-
-        const personsStoreForBatch = this.personStoreManager.forBatch()
-        const groupStoreForBatch = this.groupStore.forBatch()
-        await this.runInstrumented('processBatch', async () => {
-            await Promise.all(
-                Object.values(groupedMessages).map(async (events) => {
-                    const eventsToProcess = this.redirectEvents(events)
-
-                    return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, personsStoreForBatch, groupStoreForBatch)
-                    )
-                })
-            )
-        })
-
-        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
-
-        if (personsStoreMessages.length > 0 && this.kafkaProducer) {
-            logger.info('🔁', `${this.name} - queueing persons store messages`, {
-                count: personsStoreMessages.length,
-            })
-            await this.kafkaProducer.queueMessages(personsStoreMessages)
-            await this.kafkaProducer.flush()
-        }
-
-        personsStoreForBatch.reportBatch()
-        groupStoreForBatch.reportBatch()
-
-        for (const message of messages) {
-            if (message.timestamp) {
-                latestOffsetTimestampGauge
-                    .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
-                    .set(message.timestamp)
+        try {
+            if (this.hub.KAFKA_BATCH_START_LOGGING_ENABLED) {
+                this.logBatchStart(messages)
             }
-        }
 
-        return {
-            backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
-                await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
-            }),
+            const parsedMessages = await this.runInstrumented('parseKafkaMessages', () =>
+                this.parseKafkaBatch(messages)
+            )
+
+            const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
+                return this.resolveTeams(parsedMessages)
+            })
+
+            const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithTeams)
+
+            const groupedMessages = this.groupEventsByDistinctId(postCookielessMessages)
+
+            // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
+            const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+
+            // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
+            if (shouldRunHogWatcher) {
+                await this.fetchAndCacheHogFunctionStates(groupedMessages)
+            }
+
+            const personsStoreForBatch = this.personStoreManager.forBatch()
+            const groupStoreForBatch = this.groupStore.forBatch()
+            await this.runInstrumented('processBatch', async () => {
+                await Promise.all(
+                    Object.values(groupedMessages).map(async (events) => {
+                        const eventsToProcess = this.redirectEvents(events)
+
+                        return await this.runInstrumented('processEventsForDistinctId', () =>
+                            this.processEventsForDistinctId(eventsToProcess, personsStoreForBatch, groupStoreForBatch)
+                        )
+                    })
+                )
+            })
+
+            const [_, personsStoreMessages] = await Promise.all([
+                groupStoreForBatch.flush(),
+                personsStoreForBatch.flush(),
+            ])
+
+            if (personsStoreMessages.length > 0 && this.kafkaProducer) {
+                logger.info('🔁', `${this.name} - queueing persons store messages`, {
+                    count: personsStoreMessages.length,
+                })
+                await this.kafkaProducer.queueMessages(personsStoreMessages)
+                await this.kafkaProducer.flush()
+            }
+
+            personsStoreForBatch.reportBatch()
+            groupStoreForBatch.reportBatch()
+
+            for (const message of messages) {
+                if (message.timestamp) {
+                    latestOffsetTimestampGauge
+                        .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
+                        .set(message.timestamp)
+                }
+            }
+
+            const result = {
+                backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
+                    await Promise.all([
+                        this.promiseScheduler.waitForAll(),
+                        this.hogTransformer.processInvocationResults(),
+                    ])
+                }),
+            }
+
+            // Mark batch as completed
+            this.batchCompletionResolve?.()
+            this.currentBatchPromise = null
+            this.batchCompletionResolve = null
+
+            return result
+        } catch (error) {
+            // Ensure we always resolve the batch completion promise on error
+            this.batchCompletionResolve?.()
+            this.currentBatchPromise = null
+            this.batchCompletionResolve = null
+            throw error
         }
     }
 
@@ -510,7 +553,7 @@ export class IngestionConsumer {
         }
     }
 
-    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent) {
+    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent): Promise<void> {
         logger.error('🔥', `Error processing message`, {
             stack: error.stack,
             error: error,
@@ -610,7 +653,7 @@ export class IngestionConsumer {
 
             if (this.shouldSkipPerson(event.token, event.distinct_id)) {
                 event.properties = {
-                    ...(event.properties ?? {}),
+                    ...event.properties,
                     $process_person_profile: false,
                 }
             }
@@ -621,7 +664,7 @@ export class IngestionConsumer {
         return Promise.resolve(batch)
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]) {
+    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
         const batches: IncomingEventsByDistinctId = {}
         for (const { event, message, team } of messages) {
             const token = event.token ?? ''
@@ -659,7 +702,7 @@ export class IngestionConsumer {
         return resolvedMessages
     }
 
-    private logDroppedEvent(token?: string, distinctId?: string) {
+    private logDroppedEvent(token?: string, distinctId?: string): void {
         logger.debug('🔁', `Dropped event`, {
             token,
             distinctId,
@@ -672,28 +715,28 @@ export class IngestionConsumer {
             .inc()
     }
 
-    private shouldDropEvent(token?: string, distinctId?: string) {
+    private shouldDropEvent(token?: string, distinctId?: string): boolean {
         if (!token) {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
     }
 
-    private shouldSkipPerson(token?: string, distinctId?: string) {
+    private shouldSkipPerson(token?: string, distinctId?: string): boolean {
         if (!token) {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
-    private shouldForceOverflow(token?: string, distinctId?: string) {
+    private shouldForceOverflow(token?: string, distinctId?: string): boolean {
         if (!token) {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
-    private overflowEnabled() {
+    private overflowEnabled(): boolean {
         return (
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
             this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
@@ -701,7 +744,7 @@ export class IngestionConsumer {
         )
     }
 
-    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean) {
+    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean): Promise<void> {
         const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         if (!overflowTopic) {
             throw new Error('No overflow topic configured')
@@ -736,7 +779,7 @@ export class IngestionConsumer {
         )
     }
 
-    private async emitToTestingTopic(kafkaMessages: Message[]) {
+    private async emitToTestingTopic(kafkaMessages: Message[]): Promise<void> {
         const testingTopic = this.testingTopic
         if (!testingTopic) {
             throw new Error('No testing topic configured')

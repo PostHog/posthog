@@ -143,7 +143,11 @@ describe('IngestionConsumer', () => {
 
     afterEach(async () => {
         if (ingester) {
-            await ingester.stop()
+            try {
+                await ingester.stop()
+            } catch {
+                // Ignore errors during test cleanup
+            }
         }
         await closeHub(hub)
     })
@@ -1130,6 +1134,192 @@ describe('IngestionConsumer', () => {
                   },
                 ]
             `)
+        })
+    })
+
+    describe('batch completion tracking', () => {
+        beforeEach(async () => {
+            ingester = await createIngestionConsumer(hub)
+        })
+
+        it('should track batch completion state during processing', async () => {
+            const messages = createKafkaMessages([createEvent()])
+
+            // Before processing, no batch should be active
+            expect(ingester['currentBatchPromise']).toBeNull()
+            expect(ingester['batchCompletionResolve']).toBeNull()
+
+            // Start processing batch
+            const batchPromise = ingester.handleKafkaBatch(messages)
+
+            // During processing, batch should be tracked
+            expect(ingester['currentBatchPromise']).not.toBeNull()
+            expect(ingester['batchCompletionResolve']).not.toBeNull()
+
+            // Wait for batch to complete
+            await batchPromise
+
+            // After completion, batch tracking should be cleared
+            expect(ingester['currentBatchPromise']).toBeNull()
+            expect(ingester['batchCompletionResolve']).toBeNull()
+        })
+
+        it('should clear batch completion tracking on error', async () => {
+            const messages = createKafkaMessages([createEvent()])
+
+            // Mock an error during batch processing
+            const originalRunInstrumented = ingester['runInstrumented']
+            jest.spyOn(ingester as any, 'runInstrumented').mockImplementation((...args: unknown[]) => {
+                const [name, func] = args as [string, any]
+                if (name === 'parseKafkaMessages') {
+                    throw new Error('Test error')
+                }
+                return originalRunInstrumented.call(ingester, name, func)
+            })
+
+            // Processing should fail
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('Test error')
+
+            // After error, batch tracking should be cleared
+            expect(ingester['currentBatchPromise']).toBeNull()
+            expect(ingester['batchCompletionResolve']).toBeNull()
+        })
+
+        it('should handle multiple concurrent batches correctly', async () => {
+            const messages1 = createKafkaMessages([createEvent({ distinct_id: 'user-1' })])
+            const messages2 = createKafkaMessages([createEvent({ distinct_id: 'user-2' })])
+
+            // Start first batch
+            const promise1 = ingester.handleKafkaBatch(messages1)
+            const firstBatchPromise = ingester['currentBatchPromise']
+
+            // Start second batch - should replace the first batch tracking
+            const promise2 = ingester.handleKafkaBatch(messages2)
+            const secondBatchPromise = ingester['currentBatchPromise']
+
+            // Second batch should have replaced the first
+            expect(secondBatchPromise).not.toBe(firstBatchPromise)
+
+            // Wait for both to complete
+            await Promise.all([promise1, promise2])
+
+            // Final state should be cleared
+            expect(ingester['currentBatchPromise']).toBeNull()
+            expect(ingester['batchCompletionResolve']).toBeNull()
+        })
+    })
+
+    describe('graceful shutdown', () => {
+        beforeEach(async () => {
+            ingester = await createIngestionConsumer(hub)
+
+            jest.spyOn(ingester.hogTransformer, 'stop').mockResolvedValue()
+        })
+
+        describe('when feature flag is enabled', () => {
+            beforeEach(() => {
+                hub.KAFKA_CONSUMER_GRACEFUL_SHUTDOWN = true
+            })
+
+            it('should wait for current batch to complete before stopping', async () => {
+                const messages = createKafkaMessages([createEvent()])
+
+                // Start processing batch
+                const batchPromise = ingester.handleKafkaBatch(messages)
+
+                // Start shutdown concurrently
+                const stopPromise = ingester.stop()
+
+                // Both should complete successfully
+                await Promise.all([batchPromise, stopPromise])
+
+                // Verify the batch was processed (ingestion produces 3 messages: person, person_distinct_id, event)
+                expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(3)
+            })
+
+            it('should handle stop when no batch is active', async () => {
+                // Should not throw when no batch is active
+                await expect(ingester.stop()).resolves.not.toThrow()
+            })
+
+            it('should handle stop with multiple concurrent batches', async () => {
+                const messages1 = createKafkaMessages([createEvent({ distinct_id: 'user-1' })])
+                const messages2 = createKafkaMessages([createEvent({ distinct_id: 'user-2' })])
+
+                // Start multiple batches
+                const promise1 = ingester.handleKafkaBatch(messages1)
+                const promise2 = ingester.handleKafkaBatch(messages2)
+
+                // Stop should wait for the current batch (the last one started)
+                const stopPromise = ingester.stop()
+
+                // All should complete
+                await Promise.all([promise1, promise2, stopPromise])
+
+                // Verify both batches were processed (2 events × 3 messages each = 6 messages)
+                expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(6)
+            })
+
+            it('should handle stop with background tasks', async () => {
+                const messages = createKafkaMessages([createEvent()])
+
+                // Process batch that returns background task
+                const result = await ingester.handleKafkaBatch(messages)
+
+                // Start shutdown
+                const stopPromise = ingester.stop()
+
+                expect(result.backgroundTask).toBeTruthy()
+
+                // Background task should complete
+                await result.backgroundTask
+
+                // Stop should complete
+                await stopPromise
+
+                expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(3)
+            })
+
+            it('should wait for promise scheduler during graceful shutdown', async () => {
+                const messages = createKafkaMessages([createEvent()])
+
+                // Mock promiseScheduler.waitForAll to verify it's called
+                const waitForAllSpy = jest.spyOn(ingester.promiseScheduler, 'waitForAll').mockResolvedValue(undefined)
+
+                // Process batch and shutdown
+                const batchPromise = ingester.handleKafkaBatch(messages)
+                const stopPromise = ingester.stop()
+
+                await Promise.all([batchPromise, stopPromise])
+
+                // Verify waitForAll was called during shutdown
+                expect(waitForAllSpy).toHaveBeenCalled()
+            })
+        })
+
+        describe('when feature flag is disabled', () => {
+            beforeEach(() => {
+                hub.KAFKA_CONSUMER_GRACEFUL_SHUTDOWN = false
+            })
+
+            it('should not wait for batch completion during shutdown', async () => {
+                const messages = createKafkaMessages([createEvent()])
+
+                // Start processing batch
+                const batchPromise = ingester.handleKafkaBatch(messages)
+
+                // Start shutdown concurrently
+                const stopPromise = ingester.stop()
+
+                // Stop should complete immediately without waiting for batch
+                await stopPromise
+
+                // Batch should still complete
+                await batchPromise
+
+                // Verify the batch was processed
+                expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(3)
+            })
         })
     })
 })
