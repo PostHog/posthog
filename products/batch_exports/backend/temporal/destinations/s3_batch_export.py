@@ -430,6 +430,11 @@ class ConcurrentS3Consumer(ConsumerFromStage):
     concurrent uploads and the memory buffer.
     """
 
+    UPLOAD_PART_MAX_ATTEMPTS: int = 5
+    MAX_RETRY_DELAY: float = 32.0
+    INITIAL_RETRY_DELAY: float = 1.0
+    EXPONENTIAL_BACKOFF_COEFFICIENT: float = 2.0
+
     def __init__(
         self,
         data_interval_start: dt.datetime | str | None,
@@ -556,10 +561,6 @@ class ConcurrentS3Consumer(ConsumerFromStage):
         self,
         data: bytes,
         part_number: int,
-        max_attempts: int = 5,
-        initial_retry_delay: float | int = 2,
-        max_retry_delay: float | int = 32,
-        exponential_backoff_coefficient: int = 2,
     ):
         """Upload part and handle cleanup with retry logic.
 
@@ -621,15 +622,16 @@ class ConcurrentS3Consumer(ConsumerFromStage):
                             part_number,
                             error_code,
                             attempt,
-                            max_attempts,
+                            self.UPLOAD_PART_MAX_ATTEMPTS,
                         )
 
                         if error_code is not None and error_code == "RequestTimeout":
-                            if attempt >= max_attempts:
+                            if attempt >= self.UPLOAD_PART_MAX_ATTEMPTS:
                                 raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
 
                             retry_delay = min(
-                                max_retry_delay, initial_retry_delay * (attempt**exponential_backoff_coefficient)
+                                self.MAX_RETRY_DELAY,
+                                self.INITIAL_RETRY_DELAY * (attempt**self.EXPONENTIAL_BACKOFF_COEFFICIENT),
                             )
                             self.logger.warning("Retrying part %s upload in %s seconds", part_number, retry_delay)
                             await asyncio.sleep(retry_delay)

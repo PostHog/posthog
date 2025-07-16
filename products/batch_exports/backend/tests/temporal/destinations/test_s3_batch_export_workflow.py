@@ -47,6 +47,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
     SUPPORTED_COMPRESSIONS,
+    ConcurrentS3Consumer,
     S3BatchExportWorkflow,
     S3InsertInputs,
     get_s3_key,
@@ -1544,11 +1545,6 @@ class TestErrorHandling:
 
                     yield client
 
-        class DoNotRetryPolicy(RetryPolicy):
-            def __init__(self, *args, **kwargs):
-                kwargs["maximum_attempts"] = 1
-                super().__init__(*args, **kwargs)
-
         workflow_id = str(uuid.uuid4())
         inputs = S3BatchExportInputs(
             team_id=ateam.pk,
@@ -1577,9 +1573,10 @@ class TestErrorHandling:
         ):
             with (
                 mock.patch(
-                    "products.batch_exports.backend.temporal.destinations.s3_batch_export.aioboto3.Session", FakeSession
+                    "products.batch_exports.backend.temporal.destinations.s3_batch_export.aioboto3.Session",
+                    FakeSession,
                 ),
-                mock.patch("products.batch_exports.backend.temporal.pipeline.entrypoint.RetryPolicy", DoNotRetryPolicy),
+                mock.patch.object(ConcurrentS3Consumer, "MAX_RETRY_DELAY", 0.01),
             ):
                 await activity_environment.client.execute_workflow(
                     S3BatchExportWorkflow.run,
