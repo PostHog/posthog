@@ -118,6 +118,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     actions(({ values }) => ({
+        /**
+         * Dashboard loading and dashboard tile refreshes.
+         */
         loadDashboard: (payload: {
             action:
                 | 'initial_load'
@@ -129,40 +132,50 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 | 'preview'
             manualDashboardRefresh?: boolean // whether the dashboard is being refreshed manually
         }) => payload,
-        /** sets params from loadDashboard which can then be accessed in listeners (loadDashboardSuccess) */
+        /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: string, manualDashboardRefresh: boolean) => ({
             action,
             manualDashboardRefresh,
         }),
+        /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        /** Called from insight tile, when a single insight is refreshed manually on the dashboard */
+        /** Manually refresh a single insight from the insight card on the dashboard. */
         triggerDashboardItemRefresh: (payload: { tile: DashboardTile<QueryBasedInsightModel> }) => payload,
-        /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
+        /** Manually refresh the entire dashboard. */
         triggerDashboardRefresh: true,
-        /** helper used within this file to refresh provided tiles on the dashboard */
+        /** Automatically trigger a refresh of all insight tiles after a successful dashboard fetch. */
         updateDashboardItems: (payload: {
             tiles?: DashboardTile<QueryBasedInsightModel>[]
             action: string
             manualDashboardRefresh?: boolean
         }) => payload,
+        /** Update a single refresh status. */
+        setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
+        /** Update multiple refresh statuses. */
+        setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
+            shortIds,
+            loading,
+            queued,
+        }),
+        setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
+        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
+        abortAnyRunningQuery: true,
 
-        triggerDashboardUpdate: (payload) => ({ payload }),
-        /** The current state in which the dashboard is being viewed, see DashboardMode. */
-        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
-        updateLayouts: (layouts: Layouts) => ({ layouts }),
-        updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
-        updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
-        removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
-
+        /**
+         * Auto-refresh while on page.
+         **/
+        setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
         resetInterval: true,
+
+        /*
+         * Dashboard filters & variables.
+         */
         setDates: (date_from: string | null, date_to: string | null) => ({
             date_from,
             date_to,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
-        setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
-        setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
         setFiltersAndLayoutsAndVariables: (
             filters: DashboardFilter,
             variables: Record<string, HogQLVariable>,
@@ -174,19 +187,41 @@ export const dashboardLogic = kea<dashboardLogicType>([
             breakdownColors,
             dataColorThemeId,
         }),
+        resetDashboardFilters: () => true,
         previewTemporaryFilters: true,
-        setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
-        setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
-        setRefreshStatuses: (shortIds: InsightShortId[], loading = false, queued = false) => ({
-            shortIds,
-            loading,
-            queued,
+        resetVariables: () => ({ variables: values.insightVariables }),
+        setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
+        setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
+        updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
+        updateFiltersAndLayoutsAndVariables: true,
+        overrideVariableValue: (variableId: string, value: any, isNull: boolean, reload?: boolean) => ({
+            variableId,
+            value,
+            allVariables: values.variables,
+            isNull,
+            reload,
         }),
+
+        /**
+         * Dashboard state.
+         */
+        setAccessDeniedToDashboard: true,
+        /** Update the dashboard in dashboardsModel with given payload. */
+        triggerDashboardUpdate: (payload) => ({ payload }),
+        /** Update page visibility for virtualized rendering. */
         setPageVisibility: (visible: boolean) => ({ visible }),
-        setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
-        reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
-        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
+        /** Set the dashboard mode, see DashboardMode for details. */
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+
+        /**
+         * Dashboard layout & tiles.
+         */
+        updateLayouts: (layouts: Layouts) => ({ layouts }),
+        updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
+        updateTileColor: (tileId: number, color: string | null) => ({ tileId, color }),
+        duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
+        removeTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
         moveToDashboard: (
             tile: DashboardTile<QueryBasedInsightModel>,
             fromDashboard: number,
@@ -201,29 +236,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allowUndo: allowUndo === undefined ? true : allowUndo,
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
-        duplicateTile: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
 
-        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
-        abortAnyRunningQuery: true,
+        /**
+         * Usage tracking.
+         */
+        setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
+        reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
 
-        updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any, isNull: boolean, reload?: boolean) => ({
-            variableId,
-            value,
-            allVariables: values.variables,
-            isNull,
-            reload,
-        }),
+        /**
+         * Dashboard result colors.
+         */
+        setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
+        setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
+
         setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
             loadLayoutFromServerOnPreview,
         }),
-
-        resetVariables: () => ({ variables: values.insightVariables }),
-        resetDashboardFilters: () => true,
-        setAccessDeniedToDashboard: true,
-        setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
-        setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
-        updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
     })),
 
     loaders(({ actions, props, values }) => ({
