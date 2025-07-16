@@ -159,5 +159,40 @@ describe('TaxonomicPropertyFilter', () => {
                 })
             )
         })
+
+        it('handles mixed boolean and variant values', () => {
+            const setFilterMock = jest.fn()
+            const filter = {
+                key: 'test_flag',
+                type: PropertyFilterType.FlagDependency,
+                operator: PropertyOperator.Exact,
+                value: [true, false, 'some-variant'],
+                label: 'Test Flag',
+            }
+
+            render(
+                <Provider>
+                    <TaxonomicPropertyFilter {...defaultProps} filters={[filter]} setFilter={setFilterMock} />
+                </Provider>
+            )
+
+            // Verify each value is rendered correctly
+            expect(screen.getByText('true')).toHaveAttribute('data-attr', 'prop-val-0')
+            expect(screen.getByText('false')).toHaveAttribute('data-attr', 'prop-val-1')
+            expect(screen.getByText('some-variant')).toHaveAttribute('data-attr', 'prop-val-2')
+
+            // Test value changes preserve types
+            if (window.mockOperatorValueSelectOnChange) {
+                window.mockOperatorValueSelectOnChange(PropertyOperator.Exact, [false, 'some-variant', true])
+            }
+
+            expect(setFilterMock).toHaveBeenCalledWith(
+                0,
+                expect.objectContaining({
+                    value: [false, 'some-variant', true],
+                    type: PropertyFilterType.FlagDependency,
+                })
+            )
+        })
     })
 })
