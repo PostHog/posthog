@@ -62,7 +62,7 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.24.0"
+            "@posthog/icons": "0.26.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
