@@ -63,3 +63,6 @@ export function NewOrganizationButton(): JSX.Element {
         </LemonButton>
     )
 }
+
+// OrganizationSwitcherOverlay has been replaced with the OrganizationDropdownMenu,
+// the above code is still in use for the AccountPopover, for now.
