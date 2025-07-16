@@ -37,7 +37,6 @@ TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, se
 @pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 async def test_insert_into_stage_activity_executes_the_expected_query_for_events_model(
-    # clickhouse_client,
     interval,
     activity_environment,
     data_interval_start,
@@ -140,7 +139,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
                     ("person_properties", pa.string()),  # JSON string
                     ("set", pa.string()),  # JSON string
                     ("set_once", pa.string()),  # JSON string
-                ]  # type: ignore
+                ]
             )
 
             now = dt.datetime.now(dt.UTC)
