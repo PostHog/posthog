@@ -562,7 +562,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
-            New insight
+            New
         </AccessControlledLemonButton>
     )
 }
