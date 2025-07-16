@@ -389,7 +389,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 inputs.data_interval_end or "END",
             )
 
-            return 0
+            return BatchExportResult(records_completed=0, bytes_exported=0)
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
