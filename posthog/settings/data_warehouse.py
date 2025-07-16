@@ -11,7 +11,7 @@ AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", "objectstorage:19000"
 
 DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
 BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
-BUCKET = "data-warehouse"
+BUCKET = os.getenv("BUCKET", "data-warehouse")
 
 USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0)
 
