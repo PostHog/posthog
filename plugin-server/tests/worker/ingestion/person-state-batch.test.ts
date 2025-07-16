@@ -1,6 +1,8 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
+
 import { TopicMessage } from '../../../src/kafka/producer'
 import {
     Database,
@@ -27,7 +29,14 @@ import { PersonMergeService } from '../../../src/worker/ingestion/persons/person
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
 import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
-import { createOrganization, createTeam, fetchPostgresPersons, getTeam, insertRow } from '../../helpers/sql'
+import {
+    createOrganization,
+    createTeam,
+    fetchPostgresDistinctIdsForPerson,
+    fetchPostgresPersons,
+    getTeam,
+    insertRow,
+} from '../../helpers/sql'
 
 jest.setTimeout(30000)
 
@@ -2516,8 +2525,6 @@ describe('PersonState.processEvent()', () => {
             const state: PersonMergeService = personMergeService({}, hub)
             let attemptCount = 0
 
-            jest.spyOn(hub.db, 'fetchPersonIdsByDistinctId')
-
             // Mock moveDistinctIds to throw SourcePersonNotFoundError on first attempt, succeed on retry
             const originalMoveDistinctIds = hub.db.moveDistinctIds
             jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(async (...args) => {
@@ -2535,9 +2542,6 @@ describe('PersonState.processEvent()', () => {
             const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
-
-            // Verify that fetchPersonIdsByDistinctId was called during retry
-            expect(hub.db.fetchPersonIdsByDistinctId).toHaveBeenCalledWith(firstUserDistinctId, teamId)
 
             // Verify that moveDistinctIds was called twice (initial + retry)
             expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(2)
@@ -2572,8 +2576,6 @@ describe('PersonState.processEvent()', () => {
             const state: PersonMergeService = personMergeService({}, hub)
             let attemptCount = 0
 
-            jest.spyOn(hub.db, 'fetchPersonIdsByDistinctId')
-
             // Mock moveDistinctIds to throw TargetPersonNotFoundError on first attempt, succeed on retry
             const originalMoveDistinctIds = hub.db.moveDistinctIds
             jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(async (...args) => {
@@ -2591,9 +2593,6 @@ describe('PersonState.processEvent()', () => {
             const [person, kafkaAcks] = await state.merge(firstUserDistinctId, secondUserDistinctId, teamId, timestamp)
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
-
-            // Verify that fetchPersonIdsByDistinctId was called during retry
-            expect(hub.db.fetchPersonIdsByDistinctId).toHaveBeenCalledWith(secondUserDistinctId, teamId)
 
             // Verify that moveDistinctIds was called twice (initial + retry)
             expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(2)
@@ -2618,18 +2617,33 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`skips merge when source person no longer exists after retry`, async () => {
-            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+            const firstPerson = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
                 { distinctId: firstUserDistinctId },
             ])
-            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+            const secondPerson = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
                 { distinctId: secondUserDistinctId },
             ])
 
             const state: PersonMergeService = personMergeService({}, hub)
             let attemptCount = 0
+            let fetchPersonCalls = 0
 
-            // Mock fetchPersonIdsByDistinctId to return null on retry (person no longer exists)
-            jest.spyOn(hub.db, 'fetchPersonIdsByDistinctId').mockResolvedValue(null)
+            // Mock fetchPerson to return null on retry (person no longer exists)
+            jest.spyOn(hub.db, 'fetchPerson').mockImplementation(() => {
+                fetchPersonCalls++
+                // Fetch source person
+                if (fetchPersonCalls === 1) {
+                    return Promise.resolve(firstPerson)
+                }
+
+                // Fetch target person
+                if (fetchPersonCalls === 2) {
+                    return Promise.resolve(secondPerson)
+                }
+
+                // Fetch for retry
+                return Promise.resolve(undefined)
+            })
 
             // Mock moveDistinctIds to throw SourcePersonNotFoundError on first attempt
             jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(() => {
@@ -2648,9 +2662,6 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
-            // Verify that fetchPersonIdsByDistinctId was called during retry
-            expect(hub.db.fetchPersonIdsByDistinctId).toHaveBeenCalledWith(firstUserDistinctId, teamId)
-
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
             expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(1)
 
@@ -2664,19 +2675,31 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`skips merge when target person no longer exists after retry`, async () => {
-            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+            const firstPerson = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
                 { distinctId: firstUserDistinctId },
             ])
-            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+            const secondPerson = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
                 { distinctId: secondUserDistinctId },
             ])
 
             const state: PersonMergeService = personMergeService({}, hub)
             let attemptCount = 0
+            let fetchPersonCalls = 0
 
-            // Mock fetchPersonIdsByDistinctId to return null on retry (person no longer exists)
-            jest.spyOn(hub.db, 'fetchPersonIdsByDistinctId').mockImplementation(() => {
-                return Promise.resolve(null) // Person no longer exists
+            jest.spyOn(hub.db, 'fetchPerson').mockImplementation(() => {
+                fetchPersonCalls++
+                // Fetch source person
+                if (fetchPersonCalls === 1) {
+                    return Promise.resolve(firstPerson)
+                }
+
+                // Fetch target person
+                if (fetchPersonCalls === 2) {
+                    return Promise.resolve(secondPerson)
+                }
+
+                // Fetch for retry
+                return Promise.resolve(undefined)
             })
 
             // Mock moveDistinctIds to throw TargetPersonNotFoundError on first attempt
@@ -2696,9 +2719,6 @@ describe('PersonState.processEvent()', () => {
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
 
-            // Verify that fetchPersonIdsByDistinctId was called during retry
-            expect(hub.db.fetchPersonIdsByDistinctId).toHaveBeenCalledWith(secondUserDistinctId, teamId)
-
             // Verify that moveDistinctIds was only called once (no retry since person doesn't exist)
             expect(hub.db.moveDistinctIds).toHaveBeenCalledTimes(1)
 
@@ -2709,6 +2729,180 @@ describe('PersonState.processEvent()', () => {
             // Verify both persons still exist since merge was skipped
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(2)
+        })
+
+        it('clears cache and refreshes to new person when merge retry finds distinctId points to different person', async () => {
+            // Create initial persons
+            const person1 = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            const person2 = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            // Create person 3 who will be the "new" person that the distinctId points to after refresh
+            const person3Uuid = new UUIDT().toString()
+            const person3 = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, person3Uuid, [
+                { distinctId: 'person3-distinct-id' },
+            ])
+
+            // Create a merge service with batch writing store for a $merge_dangerously event
+            const mergeService: PersonMergeService = personMergeService({}, hub)
+            const context = mergeService.getContext()
+
+            const batchStore = context.personStore as BatchWritingPersonsStoreForBatch
+
+            batchStore.setCachedPersonForUpdate(
+                teamId,
+                firstUserDistinctId,
+                fromInternalPerson(person1, firstUserDistinctId)
+            )
+
+            // Verify the cache is populated
+            expect(batchStore.getCachedPersonForUpdateByDistinctId(teamId, firstUserDistinctId)).toBeTruthy()
+
+            // Mock removeDistinctIdFromCache to verify it's called
+            const removeDistinctIdFromCacheSpy = jest.spyOn(batchStore, 'removeDistinctIdFromCache')
+
+            // Mock moveDistinctIds to first move the distinct ID to person3 (simulating race condition), then succeed
+            let moveDistinctIdsCalls = 0
+            const originalMoveDistinctIds = hub.db.moveDistinctIds
+            const moveDistinctIdsSpy = jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(async (...args) => {
+                moveDistinctIdsCalls++
+                if (moveDistinctIdsCalls === 1) {
+                    // Simulate the race condition: move firstUserDistinctId to person3
+                    // This simulates another process moving the distinct ID during the merge
+                    await originalMoveDistinctIds.call(hub.db, person1, person3)
+                    await hub.db.deletePerson(person1)
+
+                    // First call fails with SourcePersonNotFoundError (person1 no longer exists)
+                    return Promise.resolve({
+                        success: false,
+                        error: 'SourceNotFound',
+                        message: 'Source person no longer exists',
+                    })
+                }
+                // Second call succeeds - call the original method
+                return originalMoveDistinctIds.call(hub.db, ...args)
+            })
+
+            // Attempt to merge persons - this should trigger the retry logic
+            const [person] = await mergeService.mergePeople({
+                mergeInto: person2,
+                mergeIntoDistinctId: secondUserDistinctId,
+                otherPerson: person1, // This person "no longer exists"
+                otherPersonDistinctId: firstUserDistinctId,
+            })
+
+            // Verify the cache was cleared during retry
+            expect(removeDistinctIdFromCacheSpy).toHaveBeenCalledWith(teamId, firstUserDistinctId)
+
+            // Verify moveDistinctIds was called twice (first failed with person1, second succeeded with person3)
+            expect(moveDistinctIdsSpy).toHaveBeenCalledTimes(2)
+
+            // Verify we got the target person back
+            expect(person).toMatchObject({
+                id: person2.id,
+                uuid: secondUserUuid,
+            })
+
+            // Verify the cache is now cleared
+            expect(batchStore.getCachedPersonForUpdateByDistinctId(teamId, firstUserDistinctId)).toBeUndefined()
+
+            // Verify only 1 person exists
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(1)
+            expect(persons[0].uuid).toBe(secondUserUuid)
+
+            // Verify the distinct ID is now pointing to the target person
+            const distinctIds = await fetchPostgresDistinctIdsForPerson(hub.db, person2.id)
+            expect(distinctIds.length).toEqual(3)
+            expect(distinctIds).toMatchObject(
+                expect.arrayContaining([firstUserDistinctId, secondUserDistinctId, 'person3-distinct-id'])
+            )
+        })
+
+        it('refreshes to new person when merging dangerously two people', async () => {
+            // Create initial persons
+            const person1 = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, true, firstUserUuid, [
+                { distinctId: firstUserDistinctId },
+            ])
+            const person2 = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, true, secondUserUuid, [
+                { distinctId: secondUserDistinctId },
+            ])
+
+            const person3Uuid = new UUIDT().toString()
+            const person3 = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, person3Uuid, [
+                { distinctId: 'person3-distinct-id' },
+            ])
+
+            // Add one distinct id entry to each person, simulating a previous merge
+            await hub.db.addDistinctId(person1, 'person1-merged-distinct-id', 1)
+            await hub.db.addDistinctId(person2, 'person2-merged-distinct-id', 1)
+
+            const mergeService: PersonMergeService = personMergeService(
+                {
+                    event: '$merge_dangerously',
+                },
+                hub
+            )
+
+            // Mock moveDistinctIds to first move the distinct ID to person3 (simulating race condition), then succeed
+            let moveDistinctIdsCalls = 0
+            const originalMoveDistinctIds = hub.db.moveDistinctIds
+            const moveDistinctIdsSpy = jest.spyOn(hub.db, 'moveDistinctIds').mockImplementation(async (...args) => {
+                moveDistinctIdsCalls++
+                if (moveDistinctIdsCalls === 1) {
+                    // Simulate the race condition: move firstUserDistinctId to person3
+                    // This simulates another process moving the distinct ID during the merge
+                    await originalMoveDistinctIds.call(hub.db, person1, person3)
+                    await hub.db.deletePerson(person1)
+
+                    // First call fails with SourcePersonNotFoundError (person1 no longer exists)
+                    return Promise.resolve({
+                        success: false,
+                        error: 'SourceNotFound',
+                        message: 'Source person no longer exists',
+                    })
+                }
+                // Second call succeeds - call the original method
+                return originalMoveDistinctIds.call(hub.db, ...args)
+            })
+
+            // Attempt to merge persons - this should trigger the retry logic
+            const [person] = await mergeService.mergePeople({
+                mergeInto: person2,
+                mergeIntoDistinctId: secondUserDistinctId,
+                otherPerson: person1, // This person "no longer exists"
+                otherPersonDistinctId: firstUserDistinctId,
+            })
+
+            // Verify moveDistinctIds was called twice (first failed with person1, second succeeded with person3)
+            expect(moveDistinctIdsSpy).toHaveBeenCalledTimes(2)
+
+            // Verify we got the target person back
+            expect(person).toMatchObject({
+                id: person2.id,
+                uuid: secondUserUuid,
+            })
+
+            // Verify only 1 person exists
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(1)
+            expect(persons[0].uuid).toBe(secondUserUuid)
+
+            // Verify the distinct ID is now pointing to the target person
+            const distinctIds = await fetchPostgresDistinctIdsForPerson(hub.db, person2.id)
+            expect(distinctIds.length).toEqual(5)
+            expect(distinctIds).toMatchObject(
+                expect.arrayContaining([
+                    firstUserDistinctId,
+                    secondUserDistinctId,
+                    'person3-distinct-id',
+                    'person1-merged-distinct-id',
+                    'person2-merged-distinct-id',
+                ])
+            )
         })
     })
 })

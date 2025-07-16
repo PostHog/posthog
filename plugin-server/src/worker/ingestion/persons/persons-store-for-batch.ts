@@ -2,13 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
-import {
-    DistinctPersonIdentifiers,
-    InternalPerson,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    Team,
-} from '../../../types'
+import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { BatchWritingStore } from '../stores/batch-writing-store'
@@ -32,11 +26,6 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
      * Always uses primary database
      */
     fetchForUpdate(teamId: number, distinctId: string): Promise<InternalPerson | null>
-
-    /**
-     * Fetches person IDs by distinct ID for retry logic
-     */
-    fetchPersonIdsByDistinctId(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null>
 
     /**
      * Creates a new person
