@@ -101,10 +101,10 @@ export function Tooltip({
 
     const { getFloatingProps, getReferenceProps } = useInteractions([hover, focus, dismiss, role])
 
-    const { styles: transitionStyles } = useTransitionStyles(context, {
+    const { isMounted, styles: transitionStyles } = useTransitionStyles(context, {
         duration: {
-            open: 150,
-            close: 0,
+            open: 100,
+            close: 50,
         },
         initial: ({ side }) => ({
             opacity: 0,
@@ -147,7 +147,7 @@ export function Tooltip({
     return (
         <>
             {clonedChild}
-            {open && (
+            {isMounted && (
                 <FloatingPortal root={floatingContainer}>
                     <div
                         ref={refs.setFloating}
