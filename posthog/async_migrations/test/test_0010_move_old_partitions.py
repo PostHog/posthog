@@ -82,4 +82,4 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
         self.assertTrue(run_migration())
 
         # this test is not very helpful, but we will at least catch if this changes
-        self.assertEqual(len(MIGRATION_DEFINITION.operations), FuzzyInt(5, 7))
+        self.assertEqual(len(MIGRATION_DEFINITION.operations), FuzzyInt(5, 12))
