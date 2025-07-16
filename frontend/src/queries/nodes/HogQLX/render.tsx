@@ -90,7 +90,13 @@ export function renderHogQLX(value: any): JSX.Element {
                     </Link>
                 </ErrorBoundary>
             )
-        } else if (tag.toLowerCase() === tag && tag !== 'script' && tag !== 'style' && tag !== 'meta') {
+        } else if (
+            tag.toLowerCase() === tag &&
+            tag !== 'script' &&
+            tag !== 'style' &&
+            tag !== 'meta' &&
+            tag !== 'link'
+        ) {
             const { children, source, key, dangerouslySetInnerHTML: _nope, ...realRest } = rest
             const element = React.createElement(
                 tag,
