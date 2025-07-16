@@ -6,6 +6,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags
+
+
 ConstantDataType: TypeAlias = Literal[
     "int",
     "float",
@@ -33,6 +36,9 @@ RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries
 MAX_SELECT_RETURNED_ROWS = 5000
+# Max limit for api based SELECT queries
+API_MAX_SELECT_RETURNED_ROWS = 50000
+
 # Max limit for heatmaps which don't really need 1 billion so have their own max
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
@@ -60,7 +66,13 @@ class LimitContext(StrEnum):
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
-    if limit_context in (
+    # If the query is made via a personal API key, we allow a higher limit (API query)
+    tags = get_query_tags()
+    is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
+
+    if is_personal_api_key:
+        return API_MAX_SELECT_RETURNED_ROWS
+    elif limit_context in (
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
     ):
