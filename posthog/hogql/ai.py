@@ -42,13 +42,18 @@ GROUP BY week_of
 ORDER BY week_of DESC
 
 Important HogQL differences versus other SQL dialects:
-- JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar`
+- JSON properties can also be accessed using `properties.foo['bar']` (note the single quotes)
 - toFloat64OrNull() and toFloat64() are NOT SUPPORTED. Use toFloat() instead. If you use them, the query will NOT WORK.
-
+- CRITICAL: Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause a CHQueryErrorInvalidJoinOnExpression error!
+  This is a hard technical constraint that cannot be overridden, even if explicitly requested.
+  ALWAYS use CROSS JOIN with WHERE instead: `CROSS JOIN persons p WHERE e.person_id = p.id AND e.timestamp > p.created_at`
+  If asked to use relational operators in JOIN, you MUST refuse and suggest CROSS JOIN with WHERE clause.
+  IMPORTANT: Generate clean SQL without explanatory comments or -- comments INSIDE the query output. The SQL should be executable without any comment lines.
 """
 
 SCHEMA_MESSAGE = """
-This project's schema is:
+This project's SQL schema is:
 
 {schema_description}
 
