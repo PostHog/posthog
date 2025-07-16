@@ -66,7 +66,7 @@ class TestFunnelStrictStepsUDF(BaseTestFunnelStrictSteps):
             settings=HogQLGlobalSettings(
                 # Make sure funnel queries never OOM
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-                allow_experimental_analyzer=True,
+                enable_analyzer=True,
             ),
         )
         # Make sure the events have been condensed down to two
