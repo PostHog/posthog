@@ -43,9 +43,11 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     def url_pattern_by_schema(self, schema: str) -> str:
         if settings.USE_LOCAL_SETUP:
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
+            return (
+                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
+            )
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
 
 
 @database_sync_to_async
