@@ -98,11 +98,13 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                                     const textAfter = (value || '').slice(cursorEnd)
                                                     const spaceBefore = textBefore.endsWith(' ') ? '' : ' '
                                                     const spaceAfter = textAfter.startsWith(' ') ? '' : ' '
-                                                    const newValue = textBefore + spaceBefore + emoji + spaceAfter + textAfter
+                                                    const newValue =
+                                                        textBefore + spaceBefore + emoji + spaceAfter + textAfter
                                                     onChange?.(newValue)
                                                     // Restore cursor position after the inserted emoji
                                                     setTimeout(() => {
-                                                        textArea.selectionStart = textArea.selectionEnd = cursorStart + spaceBefore.length + emoji.length
+                                                        textArea.selectionStart = textArea.selectionEnd =
+                                                            cursorStart + spaceBefore.length + emoji.length
                                                     }, 0)
                                                 }
                                                 emojiUsed(emoji)
