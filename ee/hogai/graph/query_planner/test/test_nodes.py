@@ -1,17 +1,10 @@
-from unittest.mock import patch
-
 from django.test import override_settings
 from langchain_core.agents import AgentAction
-from langchain_core.messages import AIMessage as LangchainAIMessage
-from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_core.prompts import HumanMessagePromptTemplate, AIMessagePromptTemplate
 
-from ee.hogai.graph.taxonomy_agent.nodes import (
-    ChatPromptTemplate,
-    TaxonomyAgentPlannerNode,
-    TaxonomyAgentPlannerToolsNode,
-)
-from ee.hogai.graph.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToolsNode
+from ee.hogai.graph.query_planner.toolkit import TaxonomyAgentToolkit
+from ee.hogai.utils.types import AssistantState
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
@@ -23,37 +16,31 @@ from posthog.schema import (
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
-    def _get_tools(self) -> list[ToolkitTool]:
-        return self._default_tools
+    pass
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
+class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.schema = AssistantTrendsQuery(series=[])
 
     def _get_node(self):
-        class Node(TaxonomyAgentPlannerNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-                prompt: ChatPromptTemplate = ChatPromptTemplate.from_messages([("user", "test")])
-                toolkit = DummyToolkit(self._team)
-                return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
-
-        return Node(self.team, self.user)
+        return QueryPlannerNode(self.team, self.user)
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
         history = node._construct_messages(
             AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Text", history[0].content)
-        self.assertNotIn(f"{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Text", history[1].prompt.template)
+        self.assertNotIn(f"{{question}}", history[1].prompt.template)
 
     def test_agent_reconstructs_conversation_and_omits_unknown_messages(self):
         node = self._get_node()
@@ -67,10 +54,10 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question",
             )
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Question", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Question", history[1].prompt.template)
+        self.assertNotIn("{{question}}", history[1].prompt.template)
 
     def test_agent_reconstructs_conversation_with_failures(self):
         node = self._get_node()
@@ -84,10 +71,10 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question",
             )
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Question", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Question", history[1].prompt.template)
+        self.assertNotIn("{{question}}", history[1].prompt.template)
 
     def test_agent_reconstructs_typical_conversation(self):
         node = self._get_node()
@@ -112,26 +99,17 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_plan="Question 3",
             )
         )
-        self.assertEqual(len(history), 5)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Question 1", history[0].content)
-        self.assertEqual(history[1].type, "ai")
-        self.assertEqual(history[1].content, "Plan 1")
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Question 2", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "Plan 2")
-        self.assertEqual(history[4].type, "human")
-        self.assertIn("Question 3", history[4].content)
-
-    def test_adds_format_reminder(self):
-        node = self._get_node()
-        history = node._construct_messages(
-            AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
-        )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Reminder", history[0].content)
+        self.assertEqual(len(history), 6, history)
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Question 1", history[1].prompt.template)
+        self.assertIsInstance(history[2], AIMessagePromptTemplate)
+        self.assertEqual(history[2].prompt.template, "Plan 1")
+        self.assertIsInstance(history[3], HumanMessagePromptTemplate)
+        self.assertIn("Question 2", history[3].prompt.template)
+        self.assertIsInstance(history[4], AIMessagePromptTemplate)
+        self.assertEqual(history[4].prompt.template, "Plan 2")
+        self.assertIsInstance(history[5], HumanMessagePromptTemplate)
+        self.assertIn("Question 3", history[5].prompt.template)
 
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
@@ -151,44 +129,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("distinctevent", node._format_events_prompt([]))
         self.assertIn("all events", node._format_events_prompt([]))
 
-    def test_agent_scratchpad(self):
-        node = self._get_node()
-        scratchpad = [
-            (AgentAction(tool="test1", tool_input="input1", log="log1"), "test"),
-            (AgentAction(tool="test2", tool_input="input2", log="log2"), None),
-            (AgentAction(tool="test3", tool_input="input3", log="log3"), ""),
-        ]
-        prompt = node._get_agent_scratchpad(scratchpad)
-        self.assertIn("log1", prompt)
-        self.assertIn("log3", prompt)
-
-    def test_agent_handles_output_without_action_block(self):
-        with patch(
-            "ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model",
-            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="I don't want to output an action.")),
-        ):
-            node = self._get_node()
-            state_update = node.run(AssistantState(messages=[HumanMessage(content="Question")]), {})
-            self.assertEqual(len(state_update.intermediate_steps or []), 1)
-            action, obs = (state_update.intermediate_steps or [])[0]
-            self.assertIsNone(obs)
-            self.assertIn("I don't want to output an action.", action.log)
-            self.assertIn("Action:", action.log)
-            self.assertIn("Action:", action.tool_input)
-
-    def test_agent_handles_output_with_malformed_json(self):
-        with patch(
-            "ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model",
-            return_value=RunnableLambda(lambda _: LangchainAIMessage(content="Thought.\nAction: abc")),
-        ):
-            node = self._get_node()
-            state_update = node.run(AssistantState(messages=[HumanMessage(content="Question")]), {})
-            self.assertEqual(len(state_update.intermediate_steps or []), 1)
-            action, obs = (state_update.intermediate_steps or [])[0]
-            self.assertIsNone(obs)
-            self.assertIn("Thought.\nAction: abc", action.log)
-            self.assertIn("action", action.tool_input)
-            self.assertIn("action_input", action.tool_input)
+    # Removed test_agent_handles_output_without_tool_call as this functionality
+    # is now handled differently and the test was testing legacy behavior
 
     def test_node_outputs_all_events_prompt(self):
         node = self._get_node()
@@ -198,10 +140,8 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             node._format_events_prompt([]),
         )
 
-    def test_format_prompt(self):
-        node = self._get_node()
-        self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
-        self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
+    # Removed test_format_prompt as _get_react_format_prompt method no longer exists
+    # The current implementation uses a different approach for prompt formatting
 
     def test_property_filters_prompt(self):
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
@@ -223,10 +163,10 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                 root_tool_insight_type="trends",
             )
         )
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Foobar", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
+        self.assertEqual(len(history), 2)  # system prompts + human message
+        self.assertIsInstance(history[1], HumanMessagePromptTemplate)
+        self.assertIn("Foobar", history[1].prompt.template)
+        self.assertNotIn("{{question}}", history[1].prompt.template)
 
     def test_visualization_message_limit(self):
         # Create 15 visualization messages
@@ -246,26 +186,27 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(AssistantState(messages=messages, root_tool_insight_plan="Final Question"))
 
         # We expect 21 messages in total:
+        # - system prompt
         # - 10 pairs of human/ai messages from the last 10 visualization messages (20 total)
         # - 1 final human message with root_tool_insight_plan
-        self.assertEqual(len(history), 21)
+        self.assertEqual(len(history), 22, history)
 
         # Check that we only got the last 10 visualization messages
-        for i in range(10):
+        for i in range(1, 11):
             # The human messages should contain the questions from the last 10 visualization messages
-            human_msg = history[i * 2]
-            self.assertEqual(human_msg.type, "human")
-            self.assertIn(f"Question {i + 5}", human_msg.content)
+            human_msg = history[i * 2 - 1]
+            self.assertIsInstance(human_msg, HumanMessagePromptTemplate)
+            self.assertIn(f"Question {i + 4}", human_msg.prompt.template)
 
             # The AI messages should contain the plans from the last 10 visualization messages
-            ai_msg = history[i * 2 + 1]
-            self.assertEqual(ai_msg.type, "ai")
-            self.assertEqual(ai_msg.content, f"Plan {i + 5}")
+            ai_msg = history[i * 2]
+            self.assertIsInstance(ai_msg, AIMessagePromptTemplate)
+            self.assertEqual(ai_msg.prompt.template, f"Plan {i + 4}")
 
         # Check the final message contains the root_tool_insight_plan
         final_msg = history[-1]
-        self.assertEqual(final_msg.type, "human")
-        self.assertIn("Final Question", final_msg.content)
+        self.assertIsInstance(final_msg, HumanMessagePromptTemplate)
+        self.assertIn("Final Question", final_msg.prompt.template)
 
     def test_events_in_context_adds_events_to_prompt(self):
         """Test that events from context are added to the events list"""
@@ -290,7 +231,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
         # Test with a system event that would normally be filtered
         # (we'll mock the core filter definitions to include a system event)
-        with patch("ee.hogai.graph.taxonomy_agent.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
+        with patch("ee.hogai.graph.query_planner.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
             mock_definitions.__getitem__.return_value = {
                 "test_system_event": {
                     "system": True,
@@ -328,7 +269,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         """Test events from context mixed with core event definitions"""
         node = self._get_node()
 
-        with patch("ee.hogai.graph.taxonomy_agent.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
+        with patch("ee.hogai.graph.query_planner.nodes.CORE_FILTER_DEFINITIONS_BY_GROUP") as mock_definitions:
             mock_definitions.__getitem__.return_value = {
                 "core_event": {
                     "description": "Core event description",
@@ -359,12 +300,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 @override_settings(IN_UNIT_TESTING=True)
 class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def _get_node(self):
-        class Node(TaxonomyAgentPlannerToolsNode):
-            def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-                toolkit = DummyToolkit(self._team)
-                return super()._run_with_toolkit(state, toolkit, config=config)
-
-        return Node(self.team, self.user)
+        return QueryPlannerToolsNode(self.team, self.user)
 
     def test_node_handles_action_name_validation_error(self):
         state = AssistantState(
@@ -378,7 +314,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(observation)
         self.assertIn("<pydantic_exception>", observation)
 
-    def test_node_handles_action_input_validation_error(self):
+    def test_node_handles_action_input_validation_error_string(self):
         state = AssistantState(
             intermediate_steps=[
                 (AgentAction(tool="retrieve_entity_property_values", tool_input="input", log="log"), "test")
@@ -389,6 +325,29 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         state_update = node.run(state, {})
         self.assertEqual(len(state_update.intermediate_steps or []), 1)
         action, observation = (state_update.intermediate_steps or [])[0]
+        self.assertIsNotNone(observation)
+        self.assertIn("<pydantic_exception>", observation)
+
+    def test_node_handles_action_input_validation_error_dict(self):
+        state = AssistantState(
+            intermediate_steps=[
+                (
+                    AgentAction(
+                        tool="retrieve_entity_property_values",
+                        tool_input={
+                            "foo_name": "bar",
+                        },
+                        log="log",
+                    ),
+                    "test",
+                )
+            ],
+            messages=[],
+        )
+        node = self._get_node()
+        state_update = node.run(state, {})
+        self.assertEqual(len(state_update.intermediate_steps), 1)
+        action, observation = state_update.intermediate_steps[0]
         self.assertIsNotNone(observation)
         self.assertIn("<pydantic_exception>", observation)
 
@@ -408,9 +367,14 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             node.router(
-                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan="plan"),
+                AssistantState(
+                    messages=[HumanMessage(content="Question")],
+                    root_tool_call_id="1",
+                    root_tool_insight_type="sql",
+                    plan="plan",
+                ),
             ),
-            "plan_found",
+            "sql",
         )
         self.assertEqual(
             node.router(
@@ -423,8 +387,17 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_node_terminates_after_max_iterations(self):
         # Create state with 16 intermediate steps
-        intermediate_steps: list[tuple[AgentAction, str | None]] = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+        intermediate_steps = [
+            (
+                AgentAction(
+                    tool="retrieve_event_properties",
+                    tool_input={
+                        "event_name": "event",
+                    },
+                    log=f"log_{i}",
+                ),
+                "observation",
+            )
             for i in range(16)
         ]
         state = AssistantState(
@@ -445,12 +418,28 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_node_allows_final_answer_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being final_answer
-        intermediate_steps: list[tuple[AgentAction, str | None]] = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+        intermediate_steps = [
+            (
+                AgentAction(
+                    tool="retrieve_event_properties",
+                    tool_input={
+                        "event_name": "event",
+                    },
+                    log=f"log_{i}",
+                ),
+                "observation",
+            )
             for i in range(15)
         ]
         intermediate_steps.append(
-            (AgentAction(tool="final_answer", tool_input="This is the final plan", log="final"), None)
+            (
+                AgentAction(
+                    tool="final_answer",
+                    tool_input={"query_kind": "trends", "plan": "This is the final plan"},
+                    log="final",
+                ),
+                None,
+            )
         )
 
         state = AssistantState(
@@ -468,12 +457,30 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_node_allows_help_request_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being ask_user_for_help
-        intermediate_steps: list[tuple[AgentAction, str | None]] = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+        intermediate_steps = [
+            (
+                AgentAction(
+                    tool="retrieve_event_properties",
+                    tool_input={
+                        "event_name": "event",
+                    },
+                    log=f"log_{i}",
+                ),
+                "observation",
+            )
             for i in range(15)
         ]
         intermediate_steps.append(
-            (AgentAction(tool="ask_user_for_help", tool_input="Need help with this", log="help"), None)
+            (
+                AgentAction(
+                    tool="ask_user_for_help",
+                    tool_input={
+                        "request": "Need help with this",
+                    },
+                    log="help",
+                ),
+                None,
+            )
         )
 
         state = AssistantState(
