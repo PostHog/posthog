@@ -120,10 +120,9 @@ def data_warehouse_node_to_filter(team: Team, node: ExperimentDataWarehouseNode)
     if not all_properties:
         return ast.Constant(value=True)
 
-    # TODO: Implement property filtering for data warehouse nodes
-    # For now, return True to avoid breaking existing functionality
-    # This will be implemented in a follow-up
-    return ast.Constant(value=True)
+    # Use property_to_expr to convert properties to HogQL expressions
+    # This follows the same pattern as TrendsQueryBuilder._events_filter()
+    return property_to_expr(all_properties, team)
 
 
 def conversion_window_to_seconds(conversion_window: int, conversion_window_unit: FunnelConversionWindowTimeUnit) -> int:

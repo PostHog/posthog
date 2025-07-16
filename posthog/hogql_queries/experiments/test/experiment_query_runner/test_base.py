@@ -2377,7 +2377,7 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
             [
                 "single_property_filter",
                 clean_entity_properties(
-                    [{"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"}]
+                    [{"key": "plan", "operator": "exact", "value": "premium", "type": "data_warehouse"}]
                 ),
                 {"control_count": 500, "test_count": 750},
             ],
@@ -2385,25 +2385,23 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
                 "multiple_property_filters",
                 clean_entity_properties(
                     [
-                        {"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
-                        {"key": "usage.region", "operator": "exact", "value": "us-west", "type": "data_warehouse"},
+                        {"key": "plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
+                        {"key": "region", "operator": "exact", "value": "us-west", "type": "data_warehouse"},
                     ]
                 ),
                 {"control_count": 250, "test_count": 375},
             ],
             [
                 "numeric_property_filter",
-                clean_entity_properties(
-                    [{"key": "usage.usage", "operator": "gt", "value": 100, "type": "data_warehouse"}]
-                ),
+                clean_entity_properties([{"key": "usage", "operator": "gt", "value": 100, "type": "data_warehouse"}]),
                 {"control_count": 500, "test_count": 1000},
             ],
             [
                 "mixed_property_filters",
                 clean_entity_properties(
                     [
-                        {"key": "usage.plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
-                        {"key": "usage.usage", "operator": "gt", "value": 50, "type": "data_warehouse"},
+                        {"key": "plan", "operator": "exact", "value": "premium", "type": "data_warehouse"},
+                        {"key": "usage", "operator": "gt", "value": 50, "type": "data_warehouse"},
                     ]
                 ),
                 {"control_count": 500, "test_count": 750},

@@ -87,6 +87,8 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
                 "ds": "Date",
                 "userid": "String",
                 "usage": "String",
+                "plan": "String",
+                "region": "String",
             },
             test_bucket=TEST_BUCKET,
             team=self.team,
