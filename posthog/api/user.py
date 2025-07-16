@@ -67,6 +67,7 @@ from posthog.tasks.email import (
     send_email_change_emails,
     send_two_factor_auth_disabled_email,
     send_two_factor_auth_enabled_email,
+    send_password_changed_email,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -313,14 +314,14 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             EmailVerifier.create_token_and_send_email_verification(instance)
 
+        if validated_data.get("notification_settings"):
+            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
+
         # Update password
         current_password = validated_data.pop("current_password", None)
         password = self.validate_password_change(
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
-
-        if validated_data.get("notification_settings"):
-            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
 
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))
@@ -330,6 +331,7 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
+            send_password_changed_email.delay(instance.id)
 
         report_user_updated(instance, updated_attrs)
 
@@ -543,7 +545,14 @@ class UserViewSet(
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
         self.request.session["django_two_factor-qr_secret_key"] = b32key
-        return Response({"success": True})
+
+        # Return the secret key so the frontend can generate QR code and show it for manual entry
+        return Response(
+            {
+                "success": True,
+                "secret": b32key,
+            }
+        )
 
     # Deprecated - use two_factor_validate instead
     @action(methods=["POST"], detail=True)

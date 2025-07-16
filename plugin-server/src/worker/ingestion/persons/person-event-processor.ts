@@ -129,4 +129,8 @@ export class PersonEventProcessor {
         }
         return [fakePerson, Promise.resolve()]
     }
+
+    getContext(): PersonContext {
+        return this.context
+    }
 }

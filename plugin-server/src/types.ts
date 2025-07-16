@@ -156,9 +156,8 @@ export type IngestionConsumerConfig = {
  * The mode of db batch writes to use for person batch writing
  * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
  * ASSERT_VERSION: Assert that the current db version is the same as the version in memory (no locks)
- * WITH_TRANSACTION: Use SELECT FOR UPDATE in transaction to get the latest version of the person (locks the row)
  */
-export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION' | 'WITH_TRANSACTION'
+export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
@@ -251,7 +250,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
-    SITE_URL: string | null
+    SITE_URL: string
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -268,6 +267,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -427,6 +427,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerPlugins?: boolean
     cdpCyclotronWorkerSegment?: boolean
+    cdpCyclotronWorkerNative?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     mmdb?: boolean
