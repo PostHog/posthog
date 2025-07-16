@@ -63,7 +63,7 @@ export enum ProductIntentContext {
     SURVEY_ARCHIVED = 'survey_archived', // done
     SURVEY_UNARCHIVED = 'survey_unarchived', // done
     SURVEY_DELETED = 'survey_deleted', // done
-    SURVEY_DUPLICATED = 'survey_duplicated',
+    SURVEY_DUPLICATED = 'survey_duplicated', // done
     SURVEY_EDITED = 'survey_edited',
 }
 

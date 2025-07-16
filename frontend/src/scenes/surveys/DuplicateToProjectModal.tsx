@@ -4,9 +4,10 @@ import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TeamBasicType } from '~/types'
+import { ProductKey, TeamBasicType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
+import { addProductIntent, ProductIntentContext } from 'lib/utils/product-intents'
 
 export function DuplicateToProjectTrigger(): JSX.Element {
     const { setIsDuplicateToProjectModalOpen } = useActions(surveyLogic)
@@ -47,7 +48,16 @@ export function DuplicateToProjectModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={() => duplicateToProject({ sourceSurvey: survey, targetTeamId: selectedProject?.id })}
+                        onClick={() => {
+                            duplicateToProject({ sourceSurvey: survey, targetTeamId: selectedProject?.id })
+                            addProductIntent({
+                                product_type: ProductKey.SURVEYS,
+                                intent_context: ProductIntentContext.SURVEY_DUPLICATED,
+                                metadata: {
+                                    survey_id: survey.id,
+                                },
+                            })
+                        }}
                         loading={duplicatedToProjectSurveyLoading}
                         disabledReason={!selectedProject ? 'Select a project' : undefined}
                     >
