@@ -35,7 +35,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
+import { CSV_EXPORT_LIMIT } from '~/queries/nodes/DataTable/DataTableExport'
 import { ActorType, ExporterFormat, PropertiesTimelineFilterType, PropertyDefinitionType } from '~/types'
 
 import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
@@ -273,7 +273,7 @@ export function PersonsModal({
                                                 : { path: originalUrl },
                                         })
                                     }}
-                                    tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}
+                                    tooltip={`Up to ${CSV_EXPORT_LIMIT} persons will be exported`}
                                     data-attr="person-modal-download-csv"
                                 >
                                     Download CSV
