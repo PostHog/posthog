@@ -1,9 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-
 import { Hub, LogLevel } from '../../src/types'
 import { processError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { delay, IllegalOperationError } from '../../src/utils/utils'
 import { loadPlugin } from '../../src/worker/plugins/loadPlugin'
 import { setupPlugins } from '../../src/worker/plugins/setup'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
