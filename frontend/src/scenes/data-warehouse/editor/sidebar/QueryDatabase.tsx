@@ -255,6 +255,7 @@ export const QueryDatabase = (): JSX.Element => {
                                 e.stopPropagation()
                                 router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
                             }}
+                            data-attr="sql-editor-add-source"
                         >
                             <IconPlusSmall className="text-tertiary" />
                         </ButtonPrimitive>
