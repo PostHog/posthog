@@ -14,6 +14,68 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
 _T_AST = TypeVar("_T_AST", bound=AST)
 
 
+def _is_person_id_field(field: ast.Field) -> bool:
+    """Check if a field represents person_id in any of its forms."""
+    return field.chain == ["person_id"] or field.chain == ["events", "person", "id"]
+
+
+def _is_session_id_field(field: ast.Field) -> bool:
+    """Check if a field represents session_id in any of its forms."""
+    return (
+        field.chain == ["session", "id"] or field.chain == ["events", "$session_id"] or field.chain == ["$session_id"]
+    )
+
+
+def _is_count_pageviews_call(call: ast.Call) -> bool:
+    """Check if a call is count() or count(*) for pageview counting."""
+    if call.name != "count":
+        return False
+
+    if len(call.args) == 0:
+        # count() - valid
+        return True
+    elif len(call.args) == 1:
+        arg = call.args[0]
+        # count(*) - can be either Constant or Field depending on parser
+        return (isinstance(arg, ast.Constant) and arg.value == "*") or (
+            isinstance(arg, ast.Field) and arg.chain == ["*"]
+        )
+
+    return False
+
+
+def _is_uniq_persons_call(call: ast.Call) -> bool:
+    """Check if a call is uniq(person_id) or similar for person counting."""
+    if call.name != "uniq":
+        return False
+
+    if len(call.args) == 0:
+        # uniq() - treat as persons (though not really valid HogQL)
+        return True
+    elif len(call.args) == 1:
+        arg = call.args[0]
+        if isinstance(arg, ast.Field):
+            return _is_person_id_field(arg)
+        elif isinstance(arg, ast.Constant) and arg.value == "*":
+            # uniq(*) - treat as persons
+            return True
+
+    return False
+
+
+def _is_uniq_sessions_call(call: ast.Call) -> bool:
+    """Check if a call is uniq(session.id) or similar for session counting."""
+    if call.name != "uniq":
+        return False
+
+    if len(call.args) == 1:
+        arg = call.args[0]
+        if isinstance(arg, ast.Field):
+            return _is_session_id_field(arg)
+
+    return False
+
+
 class PreaggregatedTableValidator(Visitor[bool]):
     """Validates if a query can be transformed to use preaggregated tables."""
 
@@ -25,18 +87,6 @@ class PreaggregatedTableValidator(Visitor[bool]):
         self.supported_group_by_fields: set[str] = set()
         self.has_sample: bool = False
         self.sample_value: Optional[Any] = None
-
-    def _is_person_id(self, field: ast.Field) -> bool:
-        """Check if a field represents person_id in any of its forms."""
-        return field.chain == ["person_id"] or field.chain == ["events", "person", "id"]
-
-    def _is_session_id(self, field: ast.Field) -> bool:
-        """Check if a field represents session_id in any of its forms."""
-        return (
-            field.chain == ["session", "id"]
-            or field.chain == ["events", "$session_id"]
-            or field.chain == ["$session_id"]
-        )
 
     def visit_or(self, node: ast.Or) -> bool:
         # If any side is unsupported, the whole query is unsupported for preaggregation
@@ -173,28 +223,13 @@ class PreaggregatedTableValidator(Visitor[bool]):
 
         # Check for supported aggregations
         elif node.name in ["count", "uniq"]:
-            if node.name == "count":
-                # Only count() and count(*) are supported for pageview counting
-                if len(node.args) == 0:  # count()
-                    self.supported_aggregations.add("pageviews_count_state")
-                elif len(node.args) == 1 and isinstance(node.args[0], ast.Constant) and node.args[0].value == "*":
-                    self.supported_aggregations.add("pageviews_count_state")
-                # count(field) is not supported for preaggregation - fields should use uniq()
-            elif node.name == "uniq":
-                # Check what field is being counted
-                if len(node.args) == 0:  # uniq() - not really valid but handle it
-                    self.supported_aggregations.add("persons_uniq_state")
-                elif len(node.args) == 1:
-                    arg = node.args[0]
-                    if isinstance(arg, ast.Field):
-                        # Use helper functions to identify field types
-                        if self._is_person_id(arg):
-                            self.supported_aggregations.add("persons_uniq_state")
-                        elif self._is_session_id(arg):
-                            self.supported_aggregations.add("sessions_uniq_state")
-                    elif isinstance(arg, ast.Constant) and arg.value == "*":
-                        # uniq(*) - treat as person_id
-                        self.supported_aggregations.add("persons_uniq_state")
+            if _is_count_pageviews_call(node):
+                self.supported_aggregations.add("pageviews_count_state")
+            elif _is_uniq_persons_call(node):
+                self.supported_aggregations.add("persons_uniq_state")
+            elif _is_uniq_sessions_call(node):
+                self.supported_aggregations.add("sessions_uniq_state")
+            # Other count/uniq patterns are not supported for preaggregation
 
         # Check for toStartOfDay function
         elif node.name == "toStartOfDay":
@@ -238,18 +273,6 @@ class PreaggregatedTableTransformer(CloningVisitor):
         self.context = context
         self.table_name = table_name
 
-    def _is_person_id(self, field: ast.Field) -> bool:
-        """Check if a field represents person_id in any of its forms."""
-        return field.chain == ["person_id"] or field.chain == ["events", "person", "id"]
-
-    def _is_session_id(self, field: ast.Field) -> bool:
-        """Check if a field represents session_id in any of its forms."""
-        return (
-            field.chain == ["session", "id"]
-            or field.chain == ["events", "$session_id"]
-            or field.chain == ["$session_id"]
-        )
-
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # Recursively transform subqueries in select_from (e.g. nested queries)
         new_select_from = None
@@ -266,12 +289,22 @@ class PreaggregatedTableTransformer(CloningVisitor):
                 )
             else:
                 new_select_from = join
+        else:
+            # Should have been validated that there's a FROM clause
+            raise ValueError("Unexpected missing FROM clause in preaggregated transform")
 
         # Transform SELECT clause
         new_select = [self.visit(expr) for expr in node.select]
 
         # Transform GROUP BY clause
         new_group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
+
+        # Ensure we don't have unsupported clauses that should have been validated
+        if node.prewhere is not None:
+            raise ValueError("Unexpected PREWHERE clause in preaggregated transform")
+        if node.select_from and node.select_from.sample is not None:
+            # Note: We handle SAMPLE 1 in the validator, but sample should be None in the transformed query
+            pass  # This is handled above by setting sample=None
 
         return ast.SelectQuery(
             select=new_select,
@@ -285,28 +318,28 @@ class PreaggregatedTableTransformer(CloningVisitor):
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
         # Transform aggregations to use preaggregated state fields
-        if node.name == "count":
+        if _is_count_pageviews_call(node):
             # count() and count(*) both become sumMerge(pageviews_count_state)
             return ast.Call(name="sumMerge", args=[ast.Field(chain=["pageviews_count_state"])])
-        elif node.name == "uniq":
-            if len(node.args) == 0:  # uniq() - treat as persons
-                return ast.Call(name="uniqMerge", args=[ast.Field(chain=["persons_uniq_state"])])
-            elif len(node.args) == 1:
-                arg = node.args[0]
-                if isinstance(arg, ast.Field):
-                    # Use helper functions to identify field types
-                    if self._is_person_id(arg):
-                        return ast.Call(name="uniqMerge", args=[ast.Field(chain=["persons_uniq_state"])])
-                    elif self._is_session_id(arg):
-                        return ast.Call(name="uniqMerge", args=[ast.Field(chain=["sessions_uniq_state"])])
-                elif isinstance(arg, ast.Constant) and arg.value == "*":
-                    # uniq(*) - treat as persons
-                    return ast.Call(name="uniqMerge", args=[ast.Field(chain=["persons_uniq_state"])])
+
+        elif _is_uniq_persons_call(node):
+            # uniq(person_id) variants become uniqMerge(persons_uniq_state)
+            return ast.Call(name="uniqMerge", args=[ast.Field(chain=["persons_uniq_state"])])
+
+        elif _is_uniq_sessions_call(node):
+            # uniq(session.id) variants become uniqMerge(sessions_uniq_state)
+            return ast.Call(name="uniqMerge", args=[ast.Field(chain=["sessions_uniq_state"])])
+
+        elif node.name in ["count", "uniq"]:
+            # Other count/uniq patterns should have been rejected by validator
+            raise ValueError(f"Unexpected {node.name}() call in preaggregated transform: {node.args}")
 
         # Transform toStartOfDay to use period_bucket
+        # Note: For now, we leave toStartOfDay calls unchanged in SELECT clauses
+        # In the future, we might want to transform them to period_bucket in GROUP BY contexts
         elif node.name == "toStartOfDay":
-            if len(node.args) == 1 and isinstance(node.args[0], ast.Field) and node.args[0].chain == ["timestamp"]:
-                return ast.Field(chain=["period_bucket"])
+            # Just pass through - let the validator handle whether it's valid
+            pass
 
         return super().visit_call(node)
 
@@ -316,10 +349,18 @@ class PreaggregatedTableTransformer(CloningVisitor):
             property_name = node.chain[1]
             if property_name in EVENT_PROPERTY_TO_FIELD:
                 return ast.Field(chain=[EVENT_PROPERTY_TO_FIELD[property_name]])
+            else:
+                # Properties that aren't supported should be left as-is
+                # They might be in SELECT but not GROUP BY, which is allowed
+                return super().visit_field(node)
         elif len(node.chain) >= 2 and node.chain[0] == "session":
-            # Transform session properties
-            if len(node.chain) >= 2 and node.chain[1] in SESSION_PROPERTY_TO_FIELD:
-                return ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[node.chain[1]]])
+            property_name = node.chain[1]
+            if property_name in SESSION_PROPERTY_TO_FIELD:
+                return ast.Field(chain=[SESSION_PROPERTY_TO_FIELD[property_name]])
+            else:
+                # Session properties that aren't supported should be left as-is
+                # They might be in SELECT but not GROUP BY, which is allowed
+                return super().visit_field(node)
 
         return super().visit_field(node)
 

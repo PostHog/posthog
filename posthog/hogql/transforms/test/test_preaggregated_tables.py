@@ -156,6 +156,12 @@ class TestPreaggregatedTables(BaseTest):
         expected = self._normalize(original_query)
         assert query == expected
 
+    def test_alias_intact(self):
+        original_query = "select count() as c, uniq(person_id) as p, uniq($session_id) as s, properties.utm_medium as m from events where event = '$pageview' group by m"
+        query = self._parse_and_transform(original_query)
+        expected = """sql(SELECT sumMerge(pageviews_count_state) AS c, uniqMerge(persons_uniq_state) AS p, uniqMerge(sessions_uniq_state) AS s, utm_medium AS m FROM web_stats_combined GROUP BY m)"""
+        assert query == expected
+
     @parameterized.expand(EVENT_PROPERTY_TO_FIELD.items())
     def test_all_event_properties_on_events_supported(self, property_name, field_name):
         original_query = (
