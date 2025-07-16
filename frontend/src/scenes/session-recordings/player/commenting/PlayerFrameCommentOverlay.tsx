@@ -15,7 +15,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const { setIsCommenting } = useActions(sessionRecordingPlayerLogic)
 
     const theBuiltOverlayLogic = playerCommentOverlayLogic({ recordingId: sessionRecordingId, ...logicProps })
-    const { recordingAnnotation, isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
+    const { isRecordingAnnotationSubmitting } = useValues(theBuiltOverlayLogic)
     const { submitRecordingAnnotation } = useActions(theBuiltOverlayLogic)
 
     return isCommenting ? (
@@ -63,7 +63,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                             size="small"
                             loading={isRecordingAnnotationSubmitting}
                         >
-                            {recordingAnnotation.annotationId ? 'Update' : 'Save'}
+                            Save
                         </LemonButton>
                     </div>
                 </Form>
