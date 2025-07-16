@@ -51,11 +51,11 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     postgres_default_fields,
     remove_invalid_json,
 )
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
     RecordBatchTaskError,
-    SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.tests.temporal.utils import (
     FlakyClickHouseClient,

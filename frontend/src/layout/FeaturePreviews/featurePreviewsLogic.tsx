@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl } from 'kea-router'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -78,7 +78,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             posthog.updateEarlyAccessFeatureEnrollment(flagKey, enabled)
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
-            void copyToClipboard(urls.absolute(combineUrl('/', undefined, `panel=feature-previews%3A${flagKey}`).url))
+            void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))
         },
     })),
     selectors({
