@@ -22,6 +22,7 @@ import {
     TileProps,
     TileWrapper,
 } from './shared'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 
 let uniqueNode = 0
 export function RevenueAnalyticsCustomerCountNode(props: {
@@ -92,7 +93,8 @@ export function RevenueAnalyticsCustomerCountNode(props: {
 const makeTile = (
     title: string,
     tooltip: JSX.Element | string,
-    labelMatcher: string
+    labelMatcher: string,
+    { isCurrency = false }: { isCurrency?: boolean } = {}
 ): React.FC<TileProps<RevenueAnalyticsCustomerCountQueryResponse>> => {
     const Component = ({
         response,
@@ -100,8 +102,10 @@ const makeTile = (
         queryId,
         context,
     }: TileProps<RevenueAnalyticsCustomerCountQueryResponse>): JSX.Element => {
-        const { insightsDisplayMode } = useValues(revenueAnalyticsLogic)
+        const { baseCurrency, insightsDisplayMode } = useValues(revenueAnalyticsLogic)
         const { setInsightsDisplayMode } = useActions(revenueAnalyticsLogic)
+
+        const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
         const results = ((response?.results as GraphDataset[]) ?? []).filter((result) =>
             result.label?.includes(labelMatcher)
@@ -131,6 +135,15 @@ const makeTile = (
                         data-attr={`revenue-analytics-${title.toLowerCase().replace(' ', '-')}-tile-graph`}
                         datasets={datasets}
                         labels={labels}
+                        trendsFilter={
+                            isCurrency
+                                ? {
+                                      aggregationAxisFormat: 'numeric',
+                                      aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
+                                      aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+                                  }
+                                : undefined
+                        }
                     />
                 )}
             </TileWrapper>
@@ -170,7 +183,9 @@ const CustomerCountTile = makeTile(CUSTOMER_COUNT_TITLE, CUSTOMER_COUNT_TOOLTIP,
 const ARPU_TITLE = 'ARPU'
 const ARPU_LABEL_MATCHER = 'ARPU'
 const ARPU_TOOLTIP = <span>The average revenue per user in each period.</span>
-const ARPUTile = makeTile(ARPU_TITLE, ARPU_TOOLTIP, ARPU_LABEL_MATCHER)
+const ARPUTile = makeTile(ARPU_TITLE, ARPU_TOOLTIP, ARPU_LABEL_MATCHER, {
+    isCurrency: true,
+})
 
 const LTV_TITLE = 'LTV'
 const LTV_LABEL_MATCHER = 'LTV'
@@ -180,4 +195,6 @@ const LTV_TOOLTIP = (
         In the rare case where there are no churned customers, the LTV is set to NaN - not displayed.
     </span>
 )
-const LTVTile = makeTile(LTV_TITLE, LTV_TOOLTIP, LTV_LABEL_MATCHER)
+const LTVTile = makeTile(LTV_TITLE, LTV_TOOLTIP, LTV_LABEL_MATCHER, {
+    isCurrency: true,
+})
