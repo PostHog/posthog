@@ -37,13 +37,33 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { IconGridMasonry, IconNotebook, IconPalette, IconScreen, IconTrash } from '@posthog/icons'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
+import { SceneNotificationDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneNotificationDropdownMenu'
+import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
+import { SceneName } from 'lib/components/Scenes/SceneName'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { useEffect, useState } from 'react'
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import {
+    ScenePanel,
+    ScenePanelActions,
+    ScenePanelCommonActions,
+    ScenePanelDivider,
+    ScenePanelMetaInfo,
+} from '~/layout/scenes/SceneLayout'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
-import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
@@ -77,6 +97,12 @@ export function DashboardHeader(): JSX.Element | null {
     const { tags } = useValues(tagsModel)
 
     const { push } = useActions(router)
+
+    const [isPinned, setIsPinned] = useState(dashboard?.pinned)
+
+    useEffect(() => {
+        setIsPinned(dashboard?.pinned)
+    }, [dashboard?.pinned, dashboardLoading])
 
     const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
@@ -181,6 +207,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 overlay={
                                     dashboard ? (
                                         <>
+                                            {/* ✅ transfered to scene */}
                                             {dashboard.created_by && (
                                                 <>
                                                     <div className="flex p-2 text-secondary">
@@ -193,6 +220,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     <LemonDivider />
                                                 </>
                                             )}
+                                            {/* ✅ transfered to scene */}
                                             {canEditDashboard && hasDashboardColors && (
                                                 <LemonButton
                                                     onClick={() => showInsightColorsModal(dashboard.id)}
@@ -201,6 +229,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                     Customize colors
                                                 </LemonButton>
                                             )}
+
+                                            {/* ✅ transfered to scene */}
                                             {canEditDashboard && (
                                                 <LemonButton
                                                     onClick={() =>
@@ -214,6 +244,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                     Edit layout (E)
                                                 </LemonButton>
                                             )}
+
+                                            {/* ✅ transfered to scene */}
                                             <LemonButton
                                                 onClick={() =>
                                                     setDashboardMode(
@@ -225,6 +257,8 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Go full screen (F)
                                             </LemonButton>
+
+                                            {/* ✅ transfered to scene */}
                                             {canEditDashboard &&
                                                 (dashboard.pinned ? (
                                                     <LemonButton
@@ -251,8 +285,11 @@ export function DashboardHeader(): JSX.Element | null {
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
+                                            {/* ✅ transfered to scene */}
                                             <SubscribeButton dashboardId={dashboard.id} />
+                                            {/* ✅ transfered to scene */}
                                             <ExportButton fullWidth items={exportOptions} />
+                                            {/* ✅ transfered to scene */}
                                             {user?.is_staff && (
                                                 <LemonButton
                                                     onClick={() => {
@@ -267,6 +304,8 @@ export function DashboardHeader(): JSX.Element | null {
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
+
+                                            {/* ✅ transfered to scene */}
                                             <LemonButton
                                                 onClick={() => {
                                                     showDuplicateDashboardModal(dashboard.id, dashboard.name)
@@ -275,6 +314,8 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
+
+                                            {/* ✅ transfered to scene */}
                                             <LemonButton
                                                 onClick={() => createNotebookFromDashboard(dashboard)}
                                                 fullWidth
@@ -282,6 +323,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 Create notebook from dashboard
                                             </LemonButton>
 
+                                            {/* ✅ transfered to scene */}
                                             {canEditDashboard && (
                                                 <AccessControlledLemonButton
                                                     userAccessLevel={dashboard.user_access_level}
@@ -396,7 +438,196 @@ export function DashboardHeader(): JSX.Element | null {
                     </>
                 }
             />
-            <DashboardTemplateEditor />
+
+            <ScenePanel>
+                <ScenePanelMetaInfo>
+                    {dashboard && !!(canEditDashboard || dashboard.name) && (
+                        <>
+                            <SceneName
+                                defaultValue={dashboard.name || ''}
+                                onSave={(value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })}
+                                dataAttr="dashboard-name"
+                            />
+                        </>
+                    )}
+                    {dashboard && !!(canEditDashboard || dashboard.description) && (
+                        <>
+                            <SceneDescription
+                                defaultValue={dashboard.description || ''}
+                                onSave={(value) =>
+                                    updateDashboard({ id: dashboard.id, description: value, allowUndo: true })
+                                }
+                                dataAttr="dashboard-description"
+                            />
+                        </>
+                    )}
+
+                    {dashboard?.tags && (
+                        <>
+                            {canEditDashboard ? (
+                                <SceneTags
+                                    onSave={(tags) => {
+                                        triggerDashboardUpdate({ tags })
+                                    }}
+                                    tags={dashboard.tags}
+                                    tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
+                                    dataAttr="dashboard-tags"
+                                />
+                            ) : dashboard.tags.length ? (
+                                <SceneTags
+                                    tags={dashboard.tags}
+                                    tagsAvailable={tags.filter((tag) => !dashboard.tags?.includes(tag))}
+                                    dataAttr="dashboard-tags"
+                                />
+                            ) : null}
+                        </>
+                    )}
+                    <SceneFile />
+
+                    <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
+                </ScenePanelMetaInfo>
+                <ScenePanelDivider />
+                <ScenePanelCommonActions>
+                    <SceneCommonButtons
+                        duplicate={
+                            dashboard
+                                ? { onClick: () => showDuplicateDashboardModal(dashboard.id, dashboard.name) }
+                                : undefined
+                        }
+                        {...(canEditDashboard &&
+                            dashboard && {
+                                pinned: {
+                                    onClick: () => {
+                                        if (isPinned) {
+                                            unpinDashboard(dashboard.id, DashboardEventSource.SceneCommonButtons)
+                                            setIsPinned(false)
+                                        } else {
+                                            pinDashboard(dashboard.id, DashboardEventSource.SceneCommonButtons)
+                                            setIsPinned(true)
+                                        }
+                                    },
+                                    active: isPinned,
+                                },
+                            })}
+                        fullscreen={
+                            dashboard
+                                ? {
+                                      onClick: () => {
+                                          if (dashboardMode === DashboardMode.Fullscreen) {
+                                              setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                          } else {
+                                              setDashboardMode(
+                                                  DashboardMode.Fullscreen,
+                                                  DashboardEventSource.SceneCommonButtons
+                                              )
+                                          }
+                                      },
+                                      active: dashboardMode === DashboardMode.Fullscreen,
+                                  }
+                                : undefined
+                        }
+                    />
+                </ScenePanelCommonActions>
+
+                <ScenePanelActions>
+                    {dashboard && <SceneMetalyticsSummaryButton />}
+
+                    {dashboard && canEditDashboard && hasDashboardColors && (
+                        <ButtonPrimitive onClick={() => showInsightColorsModal(dashboard.id)} menuItem>
+                            <IconPalette />
+                            Customize colors
+                        </ButtonPrimitive>
+                    )}
+                    {dashboard && canEditDashboard && (
+                        <ButtonPrimitive
+                            onClick={() =>
+                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                            }
+                            menuItem
+                            active={dashboardMode === DashboardMode.Edit}
+                        >
+                            <IconGridMasonry />
+                            Edit layout <KeyboardShortcut e />
+                        </ButtonPrimitive>
+                    )}
+
+                    {dashboard && canEditDashboard && (
+                        <ButtonPrimitive onClick={() => createNotebookFromDashboard(dashboard)} menuItem>
+                            <IconNotebook />
+                            Create notebook from dashboard
+                        </ButtonPrimitive>
+                    )}
+
+                    {dashboard && canEditDashboard && <SceneNotificationDropdownMenu dashboardId={dashboard.id} />}
+
+                    {dashboard && canEditDashboard && (
+                        <SceneExportDropdownMenu
+                            dropdownMenuItems={[
+                                {
+                                    format: ExporterFormat.PNG,
+                                    dashboard: dashboard.id,
+                                    context: {
+                                        path: apiUrl(),
+                                    },
+                                },
+                                ...(user?.is_staff
+                                    ? [
+                                          {
+                                              format: ExporterFormat.JSON,
+                                              context: {
+                                                  localData: JSON.stringify(asDashboardTemplate),
+                                                  filename: `dashboard-${slugify(
+                                                      dashboard?.name || 'nameless dashboard'
+                                                  )}.json`,
+                                                  mediaType: ExporterFormat.JSON,
+                                              },
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
+                    )}
+
+                    {user?.is_staff && (
+                        <ButtonPrimitive
+                            onClick={() => {
+                                if (asDashboardTemplate) {
+                                    setDashboardTemplate(asDashboardTemplate)
+                                    openDashboardTemplateEditor()
+                                }
+                            }}
+                            menuItem
+                        >
+                            <IconScreen />
+                            Save as template
+                        </ButtonPrimitive>
+                    )}
+
+                    {dashboard && canEditDashboard && (
+                        <>
+                            <ScenePanelDivider />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.Dashboard}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={dashboard.user_access_level}
+                            >
+                                {({ disabledReason }) => (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        variant="danger"
+                                        disabled={!!disabledReason}
+                                        {...(disabledReason && { tooltip: disabledReason })}
+                                        onClick={() => showDeleteDashboardModal(dashboard.id)}
+                                    >
+                                        <IconTrash />
+                                        Delete dashboard
+                                    </ButtonPrimitive>
+                                )}
+                            </AccessControlAction>
+                        </>
+                    )}
+                </ScenePanelActions>
+            </ScenePanel>
         </>
     ) : null
 }

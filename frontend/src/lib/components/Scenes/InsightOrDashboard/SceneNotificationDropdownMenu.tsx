@@ -16,10 +16,32 @@ import { insightAlertsLogic } from '../../Alerts/insightAlertsLogic'
 import { SubscriptionBaseProps, urlForSubscriptions } from '../../Subscriptions/utils'
 
 interface SceneNotificationDropdownMenuProps extends SubscriptionBaseProps {
-    insight: Partial<QueryBasedInsightModel>
-    insightLogicProps: InsightLogicProps
+    insight?: Partial<QueryBasedInsightModel>
+    insightLogicProps?: InsightLogicProps
     dashboardId?: number
     buttonProps?: Omit<ButtonPrimitiveProps, 'children'>
+}
+
+interface AlertsDropdownMenuItemProps extends SubscriptionBaseProps {
+    insight?: Partial<QueryBasedInsightModel>
+    insightLogicProps?: InsightLogicProps
+}
+
+function AlertsDropdownMenuItem({ insight, insightLogicProps }: AlertsDropdownMenuItemProps): JSX.Element {
+    const { push } = useActions(router)
+    const logic = insightAlertsLogic({ insightId: insight?.id, insightLogicProps: insightLogicProps! })
+    const { alerts } = useValues(logic)
+
+    return (
+        <DropdownMenuItem className="w-full">
+            <ButtonPrimitive menuItem onClick={() => push(urls.insightAlerts(insight?.short_id))}>
+                <IconWithCount count={alerts?.length} showZero={false}>
+                    <IconWarning />
+                </IconWithCount>
+                Alerts
+            </ButtonPrimitive>
+        </DropdownMenuItem>
+    )
 }
 
 export function SceneNotificationDropdownMenu({
@@ -29,8 +51,6 @@ export function SceneNotificationDropdownMenu({
     dashboardId,
 }: SceneNotificationDropdownMenuProps): JSX.Element | null {
     const { push } = useActions(router)
-    const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
-    const { alerts } = useValues(logic)
 
     return (
         <DropdownMenu>
@@ -42,18 +62,11 @@ export function SceneNotificationDropdownMenu({
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" matchTriggerWidth>
-                <DropdownMenuItem className="w-full">
-                    <ButtonPrimitive menuItem onClick={() => push(urls.insightAlerts(insight.short_id!))}>
-                        <IconWithCount count={alerts?.length} showZero={false}>
-                            <IconWarning />
-                        </IconWithCount>
-                        Alerts
-                    </ButtonPrimitive>
-                </DropdownMenuItem>
+                {insight && <AlertsDropdownMenuItem insight={insight} insightLogicProps={insightLogicProps} />}
                 <DropdownMenuItem className="w-full">
                     <ButtonPrimitive
                         menuItem
-                        onClick={() => push(urlForSubscriptions({ insightShortId: insight.short_id, dashboardId }))}
+                        onClick={() => push(urlForSubscriptions({ insightShortId: insight?.short_id, dashboardId }))}
                     >
                         <IconBell />
                         Subscribe
