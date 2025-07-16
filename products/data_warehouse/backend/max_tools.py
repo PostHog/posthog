@@ -60,7 +60,7 @@ class HogQLGeneratorTool(MaxTool):
                 ),
                 (
                     "user",
-                    "Write a new HogQL query or modify the current one to satisfy this request. ONLY make formatting or casing changes if explicitly requested by the user: "
+                    "Write a new HogQL query or modify the current one to satisfy this request. ONLY make formatting or casing changes if explicitly requested by the user. Request:"
                     + instructions,
                 ),
             ],
