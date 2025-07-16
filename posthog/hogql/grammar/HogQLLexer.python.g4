@@ -10,8 +10,11 @@ import sys
 @members {
 
 def _peek_char(self, k: int) -> str:
-    c = self._input.LA(k)
-    return '\0' if c == 0 else chr(c)
+    """Return the k-th look-ahead as a *single-char string* or '\0' at EOF."""
+    c = self._input.LA(k)          # int code point or IntStream.EOF (-1)
+    if c < 0 or c > 0x10FFFF:      # EOF or out-of-range → sentinel
+        return '\0'
+    return chr(c)
 
 def _skip_ws_and_comments(self, idx: int) -> int:
     """Return the first index ≥ idx that is *not* whitespace / single-line comment."""

@@ -2142,6 +2142,86 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
             self.assertEqual(outer, expected)
 
+        # Regression tests: “<” operator vs HOGQLX-tag opener
+        def test_lt_vs_tags_and_comments(self):
+            # 1. Plain operator – no whitespace
+            self.assertEqual(
+                self._expr("a<b"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["b"]),
+                ),
+            )
+
+            # 2. Operator with unusual spacing: the ‘b+c’ part must be parsed first,
+            #    so we use a small arithmetic expression on the RHS.
+            self.assertEqual(
+                self._expr("a <b +c"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Field(chain=["b"]),
+                        right=ast.Field(chain=["c"]),
+                    ),
+                ),
+            )
+
+            # 3. Trailing whitespace after RHS – still an operator
+            self.assertEqual(
+                self._expr("a < timestamp "),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["timestamp"]),
+                ),
+            )
+
+            # 4. Same, but with an end-of-line comment that must be ignored
+            self.assertEqual(
+                self._expr("a < timestamp // comment\n"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["timestamp"]),
+                ),
+            )
+
+            # 5. Sequence that *is* a tag: `<b …`  → should now fail to parse
+            with self.assertRaises(SyntaxError):
+                self._expr("a <b c")
+
+        def test_program_while_lt_with_space_and_comment(self):
+            code = """
+                while (a < timestamp // comment
+                ) {
+                    let c := 3;
+                }
+            """
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    WhileStatement(
+                        expr=CompareOperation(
+                            op=CompareOperationOp.Lt,
+                            left=Field(chain=["a"]),
+                            right=Field(chain=["timestamp"]),
+                        ),
+                        body=Block(
+                            declarations=[
+                                VariableDeclaration(
+                                    name="c",
+                                    expr=Constant(value=3),
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
+
         def test_select_extract_as_function(self):
             node = self._select("select extract('string', 'other string') from events")
 
