@@ -16,6 +16,7 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.cdp.validation import HogFunctionFiltersSerializer
 
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
@@ -84,9 +85,28 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
         ]
 
-    def _compile_action_bytecode(self, validated_data: dict):
+    def _compile_hogflow_bytecode(self, validated_data: dict):
         actions = validated_data.get("actions", {})
         for action_item in actions:
+            # Compile filters bytecode for each action
+            action_filters = action_item.get("filters")
+            if action_filters:
+                try:
+                    action_item["filters"]["bytecode"] = compile_filters_bytecode(
+                        action_filters, self.context["team"], actions
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "Failed to compile filters bytecode for hog flow action",
+                        extra={
+                            "name": action_item.get("name"),
+                            "id": validated_data.get("id"),
+                            "error": str(e),
+                        },
+                    )
+                    raise
+
+            # Compile hog_function inputs bytecode for each action if applicable
             if action_item.get("hasCompiledConfigInputs"):
                 from posthog.cdp.validation import generate_template_bytecode
 
@@ -98,6 +118,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 except Exception as e:
                     logger.exception("Failed to generate bytecode for hog flow action", error=str(e), inputs=inputs)
                     raise
+
         return validated_data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
@@ -106,12 +127,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated_data["created_by"] = request.user
         validated_data["team_id"] = team_id
 
-        validated_data = self._compile_action_bytecode(validated_data)
+        validated_data = self._compile_hogflow_bytecode(validated_data)
 
         return super().create(validated_data=validated_data)
 
     def update(self, instance, validated_data):
-        validated_data = self._compile_action_bytecode(validated_data)
+        validated_data = self._compile_hogflow_bytecode(validated_data)
         return super().update(instance, validated_data)
 
 
