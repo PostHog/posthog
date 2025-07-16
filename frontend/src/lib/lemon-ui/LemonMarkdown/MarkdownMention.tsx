@@ -12,17 +12,13 @@ export interface MarkdownMentionProps {
 export function MarkdownMention({ userId, displayName }: MarkdownMentionProps): JSX.Element {
     const { meFirstMembers } = useValues(membersLogic)
 
-    // Try to find member by ID first, then by name
+    // Try to find member by ID first, then by first name
     const member = userId
         ? meFirstMembers.find((member) => member.user.id === userId)
         : displayName
         ? meFirstMembers.find((member) => {
-              const fullName = `${member.user.first_name} ${member.user.last_name}`.trim()
               const firstName = member.user.first_name
-              return (
-                  fullName.toLowerCase() === displayName.toLowerCase() ||
-                  firstName.toLowerCase() === displayName.toLowerCase()
-              )
+              return firstName.toLowerCase() === displayName.toLowerCase()
           })
         : null
 

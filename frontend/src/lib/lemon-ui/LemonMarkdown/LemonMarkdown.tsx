@@ -67,16 +67,10 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                         let bestMatchMember = null
 
                         for (const member of meFirstMembers) {
-                            const fullName = `${member.user.first_name} ${member.user.last_name}`.trim()
                             const firstName = member.user.first_name
 
-                            // Check if afterAt starts with this member's name
-                            if (afterAt.toLowerCase().startsWith(fullName.toLowerCase())) {
-                                if (fullName.length > bestMatch.length) {
-                                    bestMatch = fullName
-                                    bestMatchMember = member
-                                }
-                            } else if (afterAt.toLowerCase().startsWith(firstName.toLowerCase())) {
+                            // Check if afterAt starts with this member's first name
+                            if (afterAt.toLowerCase().startsWith(firstName.toLowerCase())) {
                                 if (firstName.length > bestMatch.length) {
                                     bestMatch = firstName
                                     bestMatchMember = member
