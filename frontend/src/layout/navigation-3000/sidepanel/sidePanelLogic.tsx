@@ -161,12 +161,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         return {
             '/': (_, _searchParams, hashParams): void => {
                 // Redirect old feature preview side panel links to new settings page
-                if (hashParams.panel?.includes('feature-previews')) {
+                if (hashParams.panel?.startsWith('feature-previews')) {
+                    // it will be encoded as %3A, so we need to split on :
                     const parts = hashParams.panel.split(':')
                     // from: ${url}/#panel=feature-previews
                     // to:   ${url}/settings/user-feature-previews
                     if (parts.length > 1) {
-                        // from: ${url}/#panel=feature-previews%3A${flagKey}
+                        // from: ${url}/#panel=feature-previews%3A${flagKey} or ${url}/#panel=feature-previews:${flagKey}
                         // to:   ${url}/settings/user-feature-previews#${flagKey}
                         router.actions.replace(combineUrl(urls.settings('user-feature-previews'), {}, parts[1]).url)
                     } else {
