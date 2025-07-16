@@ -1,6 +1,7 @@
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
 
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,6 +22,23 @@ import { UpstreamGraph } from './graph/UpstreamGraph'
 
 interface QueryInfoProps {
     codeEditorKey: string
+}
+
+function getMaterializationStatusMessage(rowsMaterialized: number, progressPercentage: number): string {
+    switch (true) {
+        case rowsMaterialized === 0:
+            return 'Spinning up spikes — starting materialization job...'
+        case progressPercentage < 10:
+            return 'Digging into SQL... executing your query now.'
+        case progressPercentage < 25:
+            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away...`
+        case progressPercentage < 50:
+            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage...`
+        case progressPercentage < 90:
+            return `Still going — ${humanFriendlyNumber(rowsMaterialized)} rows written...`
+        default:
+            return `Almost there — ${humanFriendlyNumber(rowsMaterialized)} rows processed...`
+    }
 }
 
 const OPTIONS = [
@@ -249,13 +267,37 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 {
                                     title: 'Status',
                                     dataIndex: 'status',
-                                    render: (_, { status, error }: DataModelingJob) => {
+                                    render: (_, job: DataModelingJob) => {
+                                        const { status, error, rows_materialized, rows_expected } = job
                                         const statusToType: Record<string, LemonTagType> = {
                                             Completed: 'success',
                                             Failed: 'danger',
                                             Running: 'warning',
                                         }
                                         const type = statusToType[status] || 'warning'
+
+                                        const progressPercentage =
+                                            rows_expected && rows_expected > 0
+                                                ? Math.min(100, (rows_materialized / rows_expected) * 100)
+                                                : 0
+
+                                        // Only show progress if there is > 0 progress and we have expected rows
+                                        // many small result sets will never show progress as they are written in only 1 batch
+                                        if (status === 'Running' && progressPercentage > 0 && rows_expected !== null) {
+                                            return (
+                                                <Tooltip
+                                                    placement="right"
+                                                    title={getMaterializationStatusMessage(
+                                                        rows_materialized,
+                                                        progressPercentage
+                                                    )}
+                                                >
+                                                    <div className="w-[68px]">
+                                                        <LemonProgress percent={progressPercentage} />
+                                                    </div>
+                                                </Tooltip>
+                                            )
+                                        }
 
                                         return error ? (
                                             <Tooltip title={error}>
@@ -493,9 +535,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                 dataSource={upstream.nodes}
                             />
                         ) : (
-                            <div className="h-96 border border-border rounded-lg overflow-hidden">
-                                <UpstreamGraph codeEditorKey={codeEditorKey} />
-                            </div>
+                            <UpstreamGraph codeEditorKey={codeEditorKey} />
                         )}
                     </>
                 )}

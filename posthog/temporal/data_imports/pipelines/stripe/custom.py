@@ -29,7 +29,6 @@ class InvoiceListWithAllLines:
                     continue
 
                 # number of api pages made. Each page is 100
-                # TODO: figure out how to set the limit of a nested paged item higher (100)
                 total_line_calls += len(all_lines) // 100 + 1
 
                 invoice.lines.data = all_lines

@@ -267,6 +267,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
+    KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
@@ -902,13 +903,6 @@ export interface Person {
     // sent with `$process_person_profile=false`. This is an unexpected branch that we want to flag
     // for debugging and billing purposes, and typically means a misconfigured SDK.
     force_upgrade?: boolean
-}
-
-export interface DistinctPersonIdentifiers {
-    person_id: string
-    uuid: string
-    distinct_id: string
-    team_id: number
 }
 
 /** Clickhouse Person model. */
