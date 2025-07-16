@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -12,8 +12,6 @@ import type { playerCommentOverlayLogicType } from './playerFrameCommentOverlayL
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
-
-export const quickEmojis = ['💖', '👍', '🤔', '👎', '🌶️']
 
 export interface RecordingAnnotationForm {
     // formatted time in recording, e.g. 00:00:00, 00:00:01, 00:00:02, etc.
@@ -48,6 +46,15 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     actions({
         editAnnotation: (annotation: RecordingAnnotationForm) => ({ annotation }),
         addEmojiComment: (emoji: string) => ({ emoji }),
+        setLoading: (isLoading: boolean) => ({ isLoading }),
+    }),
+    reducers({
+        isLoading: [
+            false,
+            {
+                setLoading: (_, { isLoading }: { isLoading: boolean }) => isLoading,
+            },
+        ],
     }),
     selectors({
         timestampUnits: [
@@ -87,15 +94,26 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 lemonToast.error(`Emoji comments must be emojis 🙈, this string was too long: "${emoji}"`)
                 return
             }
-            const apiPayload = {
-                date_marker: dayjs(values.currentTimestamp).toISOString(),
-                content: emoji,
-                scope: AnnotationScope.Recording,
-                recording_id: props.recordingId,
-                is_emoji: true,
+            const loadingTimeout = setTimeout(() => {
+                actions.setLoading(true)
+            }, 250)
+
+            try {
+                const apiPayload = {
+                    date_marker: dayjs(values.currentTimestamp).toISOString(),
+                    content: emoji,
+                    scope: AnnotationScope.Recording,
+                    recording_id: props.recordingId,
+                    is_emoji: true,
+                }
+                const createdAnnotation = await api.annotations.create(apiPayload)
+                actions.appendAnnotations([createdAnnotation])
+            } finally {
+                if (loadingTimeout) {
+                    clearTimeout(loadingTimeout)
+                }
+                actions.setLoading(false)
             }
-            const createdAnnotation = await api.annotations.create(apiPayload)
-            actions.appendAnnotations([createdAnnotation])
         },
     })),
     forms(({ props, values, actions }) => ({
