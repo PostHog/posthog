@@ -45,6 +45,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                             </>
                         ),
                         hog: '',
+                        code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
                         masking: null,
@@ -66,6 +67,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                             </>
                         ),
                         hog: '',
+                        code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
                         masking: null,
@@ -95,6 +97,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         icon_url: BATCH_EXPORT_ICON_MAP[service],
                         status: 'stable',
                         hog: '',
+                        code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
                         masking: null,

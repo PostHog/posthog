@@ -183,7 +183,7 @@ class HogFunctionTemplate(UUIDModel):
             icon_url=self.icon_url,
             mappings=mappings_list if mappings_list else None,
             mapping_templates=mapping_templates_list if mapping_templates_list else None,
-            code_language=self.code_language,
+            code_language=cast(Literal["hog", "javascript"], self.code_language),
         )
 
     def compile_bytecode(self):

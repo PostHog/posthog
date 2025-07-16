@@ -204,6 +204,7 @@ class TestSyncHogFunctionTemplates:
             status="beta",
             free=True,
             category=["Test"],
+            code_language="hog",
         )
 
         # Save the template to the database
@@ -232,6 +233,7 @@ class TestSyncHogFunctionTemplates:
             status="beta",
             free=True,
             category=["Test"],
+            code_language="hog",
         )
 
         # Save the modified template
