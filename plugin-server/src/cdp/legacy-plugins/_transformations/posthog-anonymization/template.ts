@@ -13,6 +13,7 @@ export const posthogAnonymization: LegacyTransformationPlugin = {
         description: 'Anonymize your data.',
         icon_url: '/static/hedgehog/builder-hog-01.png',
         category: ['Custom'],
+        code_language: 'javascript',
         hog: `return event`,
         inputs_schema: [
             {

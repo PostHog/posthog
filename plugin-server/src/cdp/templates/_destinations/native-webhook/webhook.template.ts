@@ -9,6 +9,7 @@ export const template: NativeTemplate = {
     description: 'Sends a native webhook templated by the incoming event data',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
+    code_language: 'javascript',
     perform: (request, { payload }) => {
         try {
             return request(payload.url, {

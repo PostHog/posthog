@@ -13,6 +13,7 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Identify or track events against customers in Customer.io",
     icon_url="/static/services/customerio.png",
     category=["Email Marketing"],
+    code_language="hog",
     hog="""
 let action := inputs.action
 let name := event.event
