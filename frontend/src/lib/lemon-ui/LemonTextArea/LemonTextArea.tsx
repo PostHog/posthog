@@ -1,6 +1,5 @@
 import './LemonTextArea.scss'
 
-import clsx from 'clsx'
 import React, { ReactElement, useRef, useState, useEffect } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 import { cn } from 'lib/utils/css-classes'
@@ -25,8 +24,16 @@ interface LemonTextAreaPropsBase
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
     'data-attr'?: string
-    /** content displayed below the text area, note if `maxLength` is set that will be to the right of the footer content */
-    footer?: ReactElement
+    /**
+     * An array of actions that are added to the left of the text area's footer
+     * for example image upload or emoji picker
+     */
+    actions?: ReactElement[]
+    /**
+     * Add items to the right-hand side of the footer
+     * Used for informational notes like whether markdown content is supported
+     */
+    rightFooter?: ReactElement
 }
 
 interface LemonTextAreaWithCmdEnterProps extends LemonTextAreaPropsBase {
@@ -52,7 +59,8 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         minRows = 3,
         onKeyDown,
         stopPropagation,
-        footer,
+        actions,
+        rightFooter,
         ...textProps
     },
     ref
@@ -60,17 +68,19 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     const _ref = useRef<HTMLTextAreaElement | null>(null)
     const textRef = ref || _ref
 
+    const hasFooter = (actions || []).length || textProps.maxLength || rightFooter
+
     const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
     useEffect(() => {
         setTextLength(textProps.value?.length || 0)
     }, [textProps.value])
 
     return (
-        <div className="flex flex-col gap-y-1">
+        <div className="flex flex-col">
             <TextareaAutosize
                 minRows={minRows}
                 ref={textRef}
-                className={clsx('LemonTextArea', className)}
+                className={cn('LemonTextArea border', hasFooter ? 'rounded-t' : 'rounded', className)}
                 onKeyDown={(e) => {
                     if (stopPropagation) {
                         e.stopPropagation()
@@ -99,19 +109,19 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                 }}
                 {...textProps}
             />
-            {footer || textProps.maxLength ? (
-                <div className="flex flex-row gap-x-2 justify-between">
-                    {footer}
-                    {textProps.maxLength !== undefined ? (
-                        <div
-                            className={cn(
-                                'flex flex-row justify-end flex-grow text-sm',
-                                textLength >= textProps.maxLength && 'text-error'
-                            )}
-                        >
-                            {textLength} / {textProps.maxLength}
+            {hasFooter ? (
+                <div className="flex flex-row gap-x-2 justify-between border-l border-r border-b rounded-b px-1">
+                    <div className="flex flex-row items-center">{actions}</div>
+                    <div className="flex flex-row gap-x-1 items-center">
+                        <div className="flex flex-row gap-x-1 justify-end flex-grow">
+                            {rightFooter}
+                            {textProps.maxLength ? (
+                                <div className={cn('text-sm', textLength >= textProps?.maxLength && 'text-error')}>
+                                    {textLength} / {textProps.maxLength}
+                                </div>
+                            ) : null}
                         </div>
-                    ) : null}
+                    </div>
                 </div>
             ) : null}
         </div>

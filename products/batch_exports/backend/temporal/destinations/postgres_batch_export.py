@@ -43,11 +43,11 @@ from products.batch_exports.backend.temporal.heartbeat import (
     DateRange,
     should_resume_from_activity_heartbeat,
 )
+from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    resolve_batch_exports_model,
     run_consumer,
     wait_for_schema_or_producer,
 )
@@ -183,7 +183,9 @@ class PostgreSQLClient:
             ) from err
         except psycopg.OperationalError as err:
             raise PostgreSQLConnectionError(
-                f"Failed to connect after {max_attempts} attempts. Please review connection configuration."
+                f"Failed to connect after {max_attempts} attempts due to an unrecoverable error. "
+                "Please review connection configuration. "
+                f"Error message: {str(err)}"
             ) from err
 
         async with connection as connection:

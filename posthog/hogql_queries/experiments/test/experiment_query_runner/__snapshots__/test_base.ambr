@@ -320,7 +320,7 @@
                events.`$group_0` AS entity_id,
                exposure_data.variant AS variant,
                events.event AS event,
-               accurateCastOrNull(JSONExtractRaw(events.properties, 'amount'), 'Float64') AS value
+               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64') AS value
         FROM events
         INNER JOIN
           (SELECT events.`$group_0` AS entity_id,

@@ -292,7 +292,7 @@ mod tests {
             filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         };
 
@@ -304,7 +304,7 @@ mod tests {
             filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
             deleted: false,
             active: true,
-            ensure_experience_continuity: false,
+            ensure_experience_continuity: Some(false),
             version: Some(1),
         };
 

@@ -27,6 +27,24 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
 
     feature_flag_key = serializers.CharField(source="feature_flag.key", read_only=True)
 
+    variants = serializers.JSONField(
+        help_text="""Variants for the web experiment. Example:
+
+        {
+            "control": {
+                "transforms": [
+                    {
+                        "text": "Here comes Superman!",
+                        "html": "",
+                        "selector": "#page > #body > .header h1"
+                    }
+                ],
+                "conditions": "None",
+                "rollout_percentage": 50
+            },
+        }""",
+    )
+
     class Meta:
         model = WebExperiment
         fields = ["id", "name", "created_at", "feature_flag_key", "variants"]
