@@ -1,7 +1,6 @@
 import { SceneName } from 'lib/components/Scenes/SceneName'
 import { useActions, useValues } from 'kea'
 import {
-    ScenePanel,
     ScenePanelActions,
     ScenePanelCommonActions,
     ScenePanelDivider,
@@ -10,49 +9,93 @@ import {
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { SceneDescription } from 'lib/components/Scenes/SceneDescription'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { IconAI, IconCheckCircle, IconChevronDown } from '@posthog/icons'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
 
 export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateDescription } = useActions(errorTrackingIssueSceneLogic)
 
     return issue ? (
-        <ScenePanel>
+        <div>
+            {/* <ScenePanel> */}
             <ScenePanelMetaInfo>
                 <SceneName defaultValue={issue.name ?? ''} onSave={updateName} dataAttr="issue-name" />
-
                 <SceneDescription
                     defaultValue={issue.description ?? ''}
                     onSave={updateDescription}
                     dataAttr="insight-description"
                 />
-                {/* <SceneFile />
-                <SceneActivityIndicator
-                    at={insight.last_modified_at}
-                    by={insight.last_modified_by}
-                    prefix="Last modified"
-                /> */}
+                <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
             </ScenePanelMetaInfo>
 
             <ScenePanelDivider />
 
             <ScenePanelCommonActions>
-                <SceneCommonButtons comment share={{ onClick: () => {} }} />
+                <SceneCommonButtons
+                    comment
+                    share={{
+                        onClick: () => {
+                            void copyToClipboard(urls.errorTrackingIssue(issue.id))
+                        },
+                    }}
+                />
             </ScenePanelCommonActions>
 
             <ScenePanelActions>
-                <div>Hello</div>
-                {/* {hasDashboardItemId && (
-                    <SceneShareButton
-                        buttonProps={{
-                            menuItem: true,
-                            onClick: () => (insight.short_id ? push(urls.insightSharing(insight.short_id)) : null),
-                        }}
-                    >
-                        <IconShare />
-                        Share or embed
-                    </SceneShareButton>
-                )} */}
+                <IssueStatus />
+                <IssueAssignee />
+                <IssueExternalReference />
+
+                <ButtonPrimitive fullWidth>
+                    <IconAI />
+                    Fix with AI
+                </ButtonPrimitive>
             </ScenePanelActions>
-        </ScenePanel>
+            {/* </ScenePanel> */}
+        </div>
     ) : null
+}
+
+const IssueStatus = (): JSX.Element => {
+    return (
+        <DropdownMenu>
+            <ButtonGroupPrimitive className="text-success">
+                <ButtonPrimitive menuItem fullWidth hasSideActionRight>
+                    <IconCheckCircle />
+                    Resolve issue
+                </ButtonPrimitive>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive iconOnly isSideActionRight>
+                        <IconChevronDown />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
+            </ButtonGroupPrimitive>
+
+            <DropdownMenuContent loop align="start">
+                <DropdownMenuItem asChild>
+                    <ButtonPrimitive variant="danger" size="base" menuItem>
+                        Suppress issue
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
+}
+
+const IssueAssignee = (): JSX.Element => {
+    return <div>Assignee</div>
+}
+
+const IssueExternalReference = (): JSX.Element => {
+    return <div>Add external reference</div>
 }
