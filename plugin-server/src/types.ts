@@ -23,6 +23,7 @@ import { IntegrationManagerService } from './cdp/services/managers/integration-m
 import { CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
+import { ActionManagerCDP } from './utils/action-manager-cdp'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
@@ -392,6 +393,7 @@ export interface Hub extends PluginsServerConfig {
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
     actionManager: ActionManager
+    actionManagerCDP: ActionManagerCDP
     actionMatcher: ActionMatcher
     appMetrics: AppMetrics
     rustyHook: RustyHook
