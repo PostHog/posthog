@@ -124,7 +124,7 @@ impl FlagService {
     ) -> Result<(FeatureFlagList, bool), FlagError> {
         let (flags_result, cache_hit) =
             match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id).await {
-                Ok(flags) => (Ok((flags, false)), true), // Redis doesn't have deserialization errors
+                Ok(flags) => (Ok((flags, false)), true),
                 Err(_) => {
                     match FeatureFlagList::from_pg(self.pg_client.clone(), project_id).await {
                         Ok((flags, had_errors)) => {

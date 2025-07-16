@@ -1178,7 +1178,10 @@ async fn test_fetch_and_filter_flags() {
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 2);
-    assert!(result.flags.iter().all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+    assert!(result
+        .flags
+        .iter()
+        .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
     assert!(!had_errors);
 
     // Test 2: only_evaluate_survey_feature_flags = false

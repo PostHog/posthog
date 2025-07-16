@@ -478,7 +478,7 @@ mod tests {
         // Fetch and verify from Postgres
         let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag");
@@ -576,7 +576,7 @@ mod tests {
         // Fetch and verify from Postgres
         let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "multivariate_flag_with_payloads");
@@ -711,7 +711,7 @@ mod tests {
         // Fetch and verify from Postgres
         let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "flag_with_super_groups");
@@ -810,7 +810,7 @@ mod tests {
         // Fetch and verify from Postgres
         let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
         assert_eq!(pg_flags.flags.len(), 1);
         let pg_flag = &pg_flags.flags[0];
         assert_eq!(pg_flag.key, "flag_with_different_properties");
@@ -912,7 +912,7 @@ mod tests {
         // Fetch and verify from Postgres
         let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
         assert_eq!(pg_flags.flags.len(), 0);
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
         assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
@@ -1170,7 +1170,7 @@ mod tests {
             .expect("Failed to fetch flags from Redis");
         let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
         assert_eq!(redis_flags.flags.len(), 3);
         assert_eq!(pg_flags.flags.len(), 3);
 
@@ -1255,7 +1255,7 @@ mod tests {
             .expect("Failed to fetch flags from Redis");
         let (mut pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
 
         // Sort flags by key to ensure consistent order
         redis_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
@@ -1369,7 +1369,7 @@ mod tests {
             .expect("Failed to fetch flags from Redis");
         let (pg_flags, _) = FeatureFlagList::from_pg(reader.clone(), team.project_id)
             .await
-            .expect("Failed to fetch flags from pg");
+            .expect("Failed to fetch flags from Postgres");
 
         // Verify rollout percentages
         for flags in &[redis_flags, pg_flags] {

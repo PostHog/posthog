@@ -128,7 +128,10 @@ impl FeatureFlagList {
             project_id
         );
 
-        Ok((FeatureFlagList { flags: flags_list }, had_deserialization_errors))
+        Ok((
+            FeatureFlagList { flags: flags_list },
+            had_deserialization_errors,
+        ))
     }
 
     pub async fn update_flags_in_redis(
