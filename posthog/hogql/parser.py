@@ -1166,7 +1166,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprCall(expr=expr, args=[self.visit(ctx.selectSetStmt())])
 
     def visitHogqlxChildElement(self, ctx: HogQLParser.HogqlxChildElementContext):
-        return self.visit(ctx.hogqlxTagElement() or ctx.columnExpr())
+        if ctx.hogqlxTagElement():
+            return self.visit(ctx.hogqlxTagElement())
+        if ctx.hogqlxText():
+            return self.visit(ctx.hogqlxText())
+        return self.visit(ctx.columnExpr())
+
+    def visitHogqlxText(self, ctx: HogQLParser.HogqlxTextContext):
+        return ast.Constant(value=ctx.HOGQLX_TEXT_TEXT().getText())
 
     def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):
         kind = self.visit(ctx.identifier())

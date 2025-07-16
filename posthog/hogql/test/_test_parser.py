@@ -1982,6 +1982,162 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ],
             )
 
+        def test_visit_hogqlx_text_only_child(self):
+            """A tag with a single plain-text child should be turned into
+            a Constant wrapped in the auto-injected `children` attribute."""
+            node = self._select("select <span>Hello World</span> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="span",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[ast.Constant(value="Hello World")],
+                        )
+                    ],
+                ),
+            )
+
+        def test_visit_hogqlx_text_and_expr_children(self):
+            """Mixed text + expression children must keep ordering:
+            Constant('Hello')  →  Field(event)."""
+            node = self._select("select <span>Hello {event}</span> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="span",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Constant(value="Hello "),
+                                ast.Field(chain=["event"]),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 1. <strong>hello world <strong>banana</strong></strong>
+        def test_visit_hogqlx_nested_tags(self) -> None:
+            node = self._select("select <strong>hello world <strong>banana</strong></strong>")
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="strong",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Constant(value="hello world "),
+                                ast.HogQLXTag(
+                                    kind="strong",
+                                    attributes=[
+                                        ast.HogQLXAttribute(
+                                            name="children",
+                                            value=[ast.Constant(value="banana")],
+                                        )
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 2. <em />
+        def test_visit_hogqlx_self_closing(self) -> None:
+            node = self._select("select <em /> from events")
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            # A self-closing element has no “children” attribute at all.
+            self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
+
+        # 3. <strong>{event} <em>asd</em></strong>
+        def test_visit_hogqlx_expr_text_and_tag_children(self) -> None:
+            node = self._select("select <strong>{event} <em>asd</em></strong> from events")
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="strong",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Field(chain=["event"]),
+                                ast.Constant(value=" "),
+                                ast.HogQLXTag(
+                                    kind="em",
+                                    attributes=[
+                                        ast.HogQLXAttribute(
+                                            name="children",
+                                            value=[ast.Constant(value="asd")],
+                                        )
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
+        def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
+            node = self._select(
+                "select <strong>"
+                "<a href='https://google.com'>Hello <em>{event}</em></a>"
+                "{'a'}"
+                "</strong> from events"
+            )
+            outer = cast(ast.HogQLXTag, node.select[0])
+
+            expected = ast.HogQLXTag(
+                kind="strong",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="children",
+                        value=[
+                            ast.HogQLXTag(
+                                kind="a",
+                                attributes=[
+                                    ast.HogQLXAttribute(
+                                        name="href",
+                                        value=ast.Constant(value="https://google.com"),
+                                    ),
+                                    ast.HogQLXAttribute(
+                                        name="children",
+                                        value=[
+                                            ast.Constant(value="Hello "),
+                                            ast.HogQLXTag(
+                                                kind="em",
+                                                attributes=[
+                                                    ast.HogQLXAttribute(
+                                                        name="children",
+                                                        value=[ast.Field(chain=["event"])],
+                                                    )
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            ast.Constant(value="a"),
+                        ],
+                    )
+                ],
+            )
+
+            self.assertEqual(outer, expected)
+
         def test_select_extract_as_function(self):
             node = self._select("select extract('string', 'other string') from events")
 

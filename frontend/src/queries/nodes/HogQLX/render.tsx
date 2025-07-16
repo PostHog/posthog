@@ -1,3 +1,4 @@
+import React from 'react'
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -89,18 +90,17 @@ export function renderHogQLX(value: any): JSX.Element {
                     </Link>
                 </ErrorBoundary>
             )
-        } else if (tag === 'strong') {
-            return (
-                <ErrorBoundary>
-                    <strong>{renderHogQLX(rest.children ?? rest.source)}</strong>
-                </ErrorBoundary>
+        } else if (tag.toLowerCase() === tag) {
+            const { children, source, key, ...realRest } = rest
+            const element = React.createElement(
+                tag,
+                {
+                    ...realRest,
+                    key: key ?? undefined,
+                },
+                children ?? source ? renderHogQLX(children ?? source ?? '') : undefined
             )
-        } else if (tag === 'em') {
-            return (
-                <ErrorBoundary>
-                    <em>{renderHogQLX(rest.children ?? rest.source)}</em>
-                </ErrorBoundary>
-            )
+            return <ErrorBoundary>{element}</ErrorBoundary>
         }
         return <div>Unknown tag: {String(tag)}</div>
     }
