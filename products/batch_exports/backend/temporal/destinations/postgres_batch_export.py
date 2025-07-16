@@ -183,13 +183,9 @@ class PostgreSQLClient:
                 "TCP/IP connections?"
             ) from err
         except psycopg.OperationalError as err:
-            # Include the error message in the external logs for the user, as
-            # they won't see tracebacks in the UI.
-            self.external_logger.exception(
-                "An unrecoverable connection error has been detected: %s", str(err), exc_info=err
-            )
             raise PostgreSQLConnectionError(
-                f"Failed to connect after {max_attempts} attempts. Please review connection configuration."
+                f"Failed to connect after {max_attempts} attempts due to an unrecoverable error. "
+                f"Please review connection configuration. Error message: {str(err)}"
             ) from err
 
         async with connection as connection:
