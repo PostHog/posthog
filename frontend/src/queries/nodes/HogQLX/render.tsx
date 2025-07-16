@@ -8,6 +8,38 @@ import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordin
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+// NB!!! Sync this list with frontend/src/queries/nodes/HogQLX/render.tsx
+// These tags only get the "key" and child/source attributes
+const HOGQLX_TAGS_NO_ATTRIBUTES = [
+    'em',
+    'strong',
+    'span',
+    'div',
+    'p',
+    'pre',
+    'code',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'ul',
+    'ol',
+    'li',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'blockquote',
+    'hr',
+    'b',
+    'i',
+    'u',
+]
+
 export function parseHogQLX(value: any): any {
     if (!Array.isArray(value)) {
         return value
@@ -90,18 +122,21 @@ export function renderHogQLX(value: any): JSX.Element {
                     </Link>
                 </ErrorBoundary>
             )
-        } else if (
-            tag.toLowerCase() === tag &&
-            tag !== 'script' &&
-            tag !== 'style' &&
-            tag !== 'meta' &&
-            tag !== 'link'
-        ) {
-            const { children, source, key, dangerouslySetInnerHTML: _nope, ...realRest } = rest
+        } else if (tag === 'blink' || tag === 'marquee' || tag === 'redacted') {
+            const { children, source } = rest
+            const renderedChildren = children ?? source ? renderHogQLX(children ?? source) : ''
+            return (
+                <ErrorBoundary>
+                    <span className={`hogqlx-${tag}`}>
+                        {tag === 'marquee' ? <span>{renderedChildren}</span> : renderedChildren}
+                    </span>
+                </ErrorBoundary>
+            )
+        } else if (HOGQLX_TAGS_NO_ATTRIBUTES.includes(tag)) {
+            const { children, source, key } = rest
             const element = React.createElement(
                 tag,
                 {
-                    ...realRest,
                     key: key ?? undefined,
                 },
                 children ?? source ? renderHogQLX(children ?? source ?? '') : undefined
