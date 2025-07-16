@@ -277,16 +277,17 @@ export class IngestionConsumer {
             partitionBatchSizes.set(message.partition, (partitionBatchSizes.get(message.partition) || 0) + 1)
         })
 
-        partitionEarliestMessages.forEach((message) => {
-            logger.info('📖', `KAFKA_BATCH_START: ${this.name}`, {
-                pod: podName,
-                topic: message.topic,
-                partition: message.partition,
-                offset: message.offset,
-                timestamp: message.timestamp,
-                groupId: this.groupId,
-                batchSize: partitionBatchSizes.get(message.partition) || 0,
-            })
+        // Create partition data array for single log entry
+        const partitionData = Array.from(partitionEarliestMessages.entries()).map(([partition, message]) => ({
+            partition,
+            offset: message.offset,
+            batchSize: partitionBatchSizes.get(partition) || 0,
+        }))
+
+        logger.info('📖', `KAFKA_BATCH_START: ${this.name}`, {
+            pod: podName,
+            totalMessages: messages.length,
+            partitions: partitionData,
         })
     }
 
