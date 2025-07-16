@@ -236,15 +236,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     listeners(({ actions, values }) => ({
         setFilters: async () => {
-            // Extract all flag IDs using flatMap
-            const flagIds =
-                values.filterGroups?.flatMap(
-                    (group: FeatureFlagGroupType) =>
-                        group.properties?.flatMap((property: AnyPropertyFilter) =>
-                            property.type === PropertyFilterType.FlagDependency && property.key ? [property.key] : []
-                        ) || []
-                ) || []
-
+            const { flagIds } = values
             if (flagIds.length > 0) {
                 await actions.loadAllFlagKeys(flagIds)
             }
@@ -260,22 +252,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 // properties have changed, so we'll have to re-fetch affected users
                 actions.setAffectedUsers(index, undefined)
 
-                // Extract all flag IDs using flatMap
-                const flagIds =
-                    values.filterGroups?.flatMap(
-                        (group: FeatureFlagGroupType) =>
-                            group.properties?.flatMap((property: AnyPropertyFilter) =>
-                                property.type === PropertyFilterType.FlagDependency && property.key
-                                    ? [property.key]
-                                    : []
-                            ) || []
-                    ) || []
-
-                // Add any new flag IDs from the updated properties
+                const { flagIds } = values
+                // Still need to handle new properties separately since they're not in state yet
                 const newFlagIds = newProperties.flatMap((property: AnyPropertyFilter) =>
                     property.type === PropertyFilterType.FlagDependency && property.key ? [property.key] : []
                 )
-
                 const allFlagIds = [...flagIds, ...newFlagIds]
                 if (allFlagIds.length > 0) {
                     await actions.loadAllFlagKeys(allFlagIds)
@@ -423,6 +404,17 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (s) => [s.filters, (_, props) => props.isSuper],
             (filters: FeatureFlagFilters, isSuper: boolean) => (isSuper ? filters.super_groups : filters.groups) || [],
         ],
+        // Extract flag IDs from filter groups
+        flagIds: [
+            (s) => [s.filterGroups],
+            (filterGroups: FeatureFlagGroupType[]) =>
+                filterGroups?.flatMap(
+                    (group: FeatureFlagGroupType) =>
+                        group.properties?.flatMap((property: AnyPropertyFilter) =>
+                            property.type === PropertyFilterType.FlagDependency && property.key ? [property.key] : []
+                        ) || []
+                ) || [],
+        ],
         taxonomicGroupTypes: [
             (s) => [s.filters, s.groupTypes],
             (filters, groupTypes): TaxonomicFilterGroupType[] => {
@@ -540,15 +532,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     afterMount(({ props, actions, values }) => {
         // Load flag keys on mount if there are flag dependencies
         if (props.filters) {
-            // Extract all flag IDs using flatMap
-            const flagIds =
-                values.filterGroups?.flatMap(
-                    (group: FeatureFlagGroupType) =>
-                        group.properties?.flatMap((property: AnyPropertyFilter) =>
-                            property.type === PropertyFilterType.FlagDependency && property.key ? [property.key] : []
-                        ) || []
-                ) || []
-
+            const { flagIds } = values
             if (flagIds.length > 0) {
                 actions.loadAllFlagKeys(flagIds)
             }
