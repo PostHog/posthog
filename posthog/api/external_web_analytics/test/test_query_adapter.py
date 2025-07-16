@@ -84,23 +84,24 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
         response.usedPreAggregatedTables = True
         return response
 
-    def test_transforms_all_metrics_correctly(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_overview_response(self.sample_overview_items)
-            mock_runner_class.return_value = mock_runner
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_transforms_all_metrics_correctly(self, mock_runner_class):
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_overview_response(self.sample_overview_items)
+        mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_overview_request_serializer()
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_overview_data(serializer)
+        serializer = self._create_mock_overview_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_overview_data(serializer)
 
-            assert result["visitors"] == 1500  # int conversion
-            assert result["views"] == 5678
-            assert result["sessions"] == 987
-            assert result["bounce_rate"] == 0.45  # percentage to decimal
-            assert result["session_duration"] == 123.4  # float preserved
+        assert result["visitors"] == 1500  # int conversion
+        assert result["views"] == 5678
+        assert result["sessions"] == 987
+        assert result["bounce_rate"] == 0.45  # percentage to decimal
+        assert result["session_duration"] == 123.4  # float preserved
 
-    def test_handles_edge_cases_gracefully(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_handles_edge_cases_gracefully(self, mock_runner_class):
         test_cases: list[dict[str, Any]] = [
             # Case 1: Null values
             {
@@ -143,95 +144,95 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             },
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            for case in test_cases:
-                mock_runner = MagicMock()
-                mock_runner.calculate.return_value = self._create_mock_overview_response(case["items"])
-                mock_runner_class.return_value = mock_runner
-
-                serializer = self._create_mock_overview_request_serializer()
-                adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-                result = adapter.get_overview_data(serializer)
-
-                assert result == case["expected"], f"Failed for case: {case}"
-
-    def test_query_configuration_with_domain(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
+        for case in test_cases:
             mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_overview_response([])
-            mock_runner_class.return_value = mock_runner
-
-            serializer = self._create_mock_overview_request_serializer(domain="app.example.com")
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            adapter.get_overview_data(serializer)
-
-            _, kwargs = mock_runner_class.call_args
-            query = kwargs["query"]
-
-            # Check domain filter
-            assert len(query.properties) == 1
-            assert query.properties[0].key == "$host"
-            assert query.properties[0].value == ["app.example.com"]
-
-            # Check other configurations
-            assert query.filterTestAccounts is True
-            assert query.doPathCleaning is True
-            assert query.includeRevenue is False
-            assert query.compareFilter is None
-            assert query.conversionGoal is None
-
-    def test_query_configuration_without_domain(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_overview_response([])
-            mock_runner_class.return_value = mock_runner
-
-            serializer = self._create_mock_overview_request_serializer(domain=None)
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            adapter.get_overview_data(serializer)
-
-            _, kwargs = mock_runner_class.call_args
-            query = kwargs["query"]
-
-            # Should have no properties when the domain is not provided
-            assert len(query.properties) == 0
-
-    def test_date_range_formatting(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_overview_response([])
-            mock_runner_class.return_value = mock_runner
-
-            serializer = self._create_mock_overview_request_serializer(
-                date_from=date(2024, 12, 1), date_to=date(2024, 12, 31)
-            )
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            adapter.get_overview_data(serializer)
-
-            _, kwargs = mock_runner_class.call_args
-            query = kwargs["query"]
-
-            assert query.dateRange.date_from == "2024-12-01"
-            assert query.dateRange.date_to == "2024-12-31"
-
-    def test_modifiers_configuration(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_overview_response([])
+            mock_runner.calculate.return_value = self._create_mock_overview_response(case["items"])
             mock_runner_class.return_value = mock_runner
 
             serializer = self._create_mock_overview_request_serializer()
             adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            adapter.get_overview_data(serializer)
+            result = adapter.get_overview_data(serializer)
 
-            _, kwargs = mock_runner_class.call_args
-            modifiers = kwargs["modifiers"]
+            assert result == case["expected"], f"Failed for case: {case}"
 
-            # Should use preaggregated tables and convert timezone
-            assert modifiers.useWebAnalyticsPreAggregatedTables is True
-            assert modifiers.convertToProjectTimezone is True
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_query_configuration_with_domain(self, mock_runner_class):
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_overview_response([])
+        mock_runner_class.return_value = mock_runner
 
-    def test_filter_configuration_variations(self):
+        serializer = self._create_mock_overview_request_serializer(domain="app.example.com")
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_overview_data(serializer)
+
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+
+        # Check domain filter
+        assert len(query.properties) == 1
+        assert query.properties[0].key == "$host"
+        assert query.properties[0].value == ["app.example.com"]
+
+        # Check other configurations
+        assert query.filterTestAccounts is True
+        assert query.doPathCleaning is True
+        assert query.includeRevenue is False
+        assert query.compareFilter is None
+        assert query.conversionGoal is None
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_query_configuration_without_domain(self, mock_runner_class):
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_overview_response([])
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_overview_request_serializer(domain=None)
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_overview_data(serializer)
+
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+
+        # Should have no properties when the domain is not provided
+        assert len(query.properties) == 0
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_date_range_formatting(self, mock_runner_class):
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_overview_response([])
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_overview_request_serializer(
+            date_from=date(2024, 12, 1), date_to=date(2024, 12, 31)
+        )
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_overview_data(serializer)
+
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+
+        assert query.dateRange.date_from == "2024-12-01"
+        assert query.dateRange.date_to == "2024-12-31"
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_modifiers_configuration(self, mock_runner_class):
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_overview_response([])
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_overview_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_overview_data(serializer)
+
+        _, kwargs = mock_runner_class.call_args
+        modifiers = kwargs["modifiers"]
+
+        # Should use preaggregated tables and convert timezone
+        assert modifiers.useWebAnalyticsPreAggregatedTables is True
+        assert modifiers.convertToProjectTimezone is True
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_filter_configuration_variations(self, mock_runner_class):
         test_cases = [
             {"filter_test_accounts": False, "do_path_cleaning": False},
             {"filter_test_accounts": True, "do_path_cleaning": False},
@@ -239,44 +240,44 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             {"filter_test_accounts": True, "do_path_cleaning": True},
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            for filters in test_cases:
-                mock_runner = MagicMock()
-                mock_runner.calculate.return_value = self._create_mock_overview_response([])
-                mock_runner_class.return_value = mock_runner
+        for filters in test_cases:
+            mock_runner = MagicMock()
+            mock_runner.calculate.return_value = self._create_mock_overview_response([])
+            mock_runner_class.return_value = mock_runner
 
-                serializer = self._create_mock_overview_request_serializer(**filters)
-                adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-                adapter.get_overview_data(serializer)
+            serializer = self._create_mock_overview_request_serializer(**filters)
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            adapter.get_overview_data(serializer)
 
-                _, kwargs = mock_runner_class.call_args
-                query = kwargs["query"]
+            _, kwargs = mock_runner_class.call_args
+            query = kwargs["query"]
 
-                assert query.filterTestAccounts == filters["filter_test_accounts"]
-                assert query.doPathCleaning == filters["do_path_cleaning"]
+            assert query.filterTestAccounts == filters["filter_test_accounts"]
+            assert query.doPathCleaning == filters["do_path_cleaning"]
 
-    def test_ignores_unknown_metrics(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_ignores_unknown_metrics(self, mock_runner_class):
         items = [
             WebOverviewItem(key="visitors", kind=WebOverviewItemKind.UNIT, value=100.0),
             WebOverviewItem(key="unknown_metric", kind=WebOverviewItemKind.UNIT, value=999.0),
             WebOverviewItem(key="another_unknown", kind=WebOverviewItemKind.PERCENTAGE, value=50.0),
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_overview_response(items)
-            mock_runner_class.return_value = mock_runner
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_overview_response(items)
+        mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_overview_request_serializer()
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_overview_data(serializer)
+        serializer = self._create_mock_overview_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_overview_data(serializer)
 
-            # Should only have the known metrics
-            assert result["visitors"] == 100
-            assert "unknown_metric" not in result
-            assert "another_unknown" not in result
+        # Should only have the known metrics
+        assert result["visitors"] == 100
+        assert "unknown_metric" not in result
+        assert "another_unknown" not in result
 
-    def test_percentage_conversion_boundary_cases(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
+    def test_percentage_conversion_boundary_cases(self, mock_runner_class):
         test_cases = [
             (0.0, 0.0),  # 0%
             (100.0, 1.0),  # 100%
@@ -284,22 +285,21 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             (0.1, 0.001),  # 0.1%
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner") as mock_runner_class:
-            for internal_value, expected_external in test_cases:
-                mock_runner = MagicMock()
-                mock_runner.calculate.return_value = self._create_mock_overview_response(
-                    [WebOverviewItem(key="bounce rate", kind=WebOverviewItemKind.PERCENTAGE, value=internal_value)]
-                )
-                mock_runner_class.return_value = mock_runner
+        for internal_value, expected_external in test_cases:
+            mock_runner = MagicMock()
+            mock_runner.calculate.return_value = self._create_mock_overview_response(
+                [WebOverviewItem(key="bounce rate", kind=WebOverviewItemKind.PERCENTAGE, value=internal_value)]
+            )
+            mock_runner_class.return_value = mock_runner
 
-                serializer = self._create_mock_overview_request_serializer()
-                adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-                result = adapter.get_overview_data(serializer)
+            serializer = self._create_mock_overview_request_serializer()
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            result = adapter.get_overview_data(serializer)
 
-                assert result["bounce_rate"] == expected_external
+            assert result["bounce_rate"] == expected_external
 
 
-class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
+class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
     @pytest.fixture(autouse=True)
     def setup_breakdown_fixtures(self):
         self.breakdown_serializer_data = {
@@ -325,7 +325,8 @@ class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
         response.results = results
         return response
 
-    def test_breakdown_transforms_data_correctly(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_transforms_data_correctly(self, mock_runner_class):
         columns = ["context.columns.breakdown_value", "context.columns.visitors", "context.columns.views"]
         results = [
             ["Chrome", (150, 120), (500, 400)],
@@ -333,31 +334,31 @@ class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
             ["Safari", (80, 70), (200, 180)],
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
-            mock_runner_class.return_value = mock_runner
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+        mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_breakdown_request_serializer()
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_breakdown_data(serializer)
+        serializer = self._create_mock_breakdown_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_breakdown_data(serializer)
 
-            assert result["count"] == 3
-            assert len(result["results"]) == 3
+        assert result["count"] == 3
+        assert len(result["results"]) == 3
 
-            # Check first result
-            first_result = result["results"][0]
-            assert first_result["breakdown_value"] == "Chrome"
-            assert first_result["visitors"] == 150
-            assert first_result["views"] == 500
+        # Check first result
+        first_result = result["results"][0]
+        assert first_result["breakdown_value"] == "Chrome"
+        assert first_result["visitors"] == 150
+        assert first_result["views"] == 500
 
-            # Check second result
-            second_result = result["results"][1]
-            assert second_result["breakdown_value"] == "Firefox"
-            assert second_result["visitors"] == 100
-            assert second_result["views"] == 300
+        # Check second result
+        second_result = result["results"][1]
+        assert second_result["breakdown_value"] == "Firefox"
+        assert second_result["visitors"] == 100
+        assert second_result["views"] == 300
 
-    def test_breakdown_with_bounce_rate(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_with_bounce_rate(self, mock_runner_class):
         columns = [
             "context.columns.breakdown_value",
             "context.columns.visitors",
@@ -369,25 +370,25 @@ class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
             ["/about", (150, 130), (200, 180), (0.35, 0.40)],
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
-            mock_runner_class.return_value = mock_runner
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+        mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_breakdown_request_serializer(
-                breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
-            )
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_breakdown_data(serializer)
+        serializer = self._create_mock_breakdown_request_serializer(
+            breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
+        )
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_breakdown_data(serializer)
 
-            assert result["count"] == 2
-            first_result = result["results"][0]
-            assert first_result["breakdown_value"] == "/home"
-            assert first_result["visitors"] == 200
-            assert first_result["views"] == 400
-            assert first_result["bounce_rate"] == 0.25
+        assert result["count"] == 2
+        first_result = result["results"][0]
+        assert first_result["breakdown_value"] == "/home"
+        assert first_result["visitors"] == 200
+        assert first_result["views"] == 400
+        assert first_result["bounce_rate"] == 0.25
 
-    def test_breakdown_filters_metrics_correctly(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_filters_metrics_correctly(self, mock_runner_class):
         columns = [
             "context.columns.breakdown_value",
             "context.columns.visitors",
@@ -398,115 +399,113 @@ class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
             ["Chrome", (150, 120), (500, 400), (0.25, 0.30)],
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
-            mock_runner_class.return_value = mock_runner
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+        mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_breakdown_request_serializer(metrics=["visitors"])
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_breakdown_data(serializer)
+        serializer = self._create_mock_breakdown_request_serializer(metrics=["visitors"])
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_breakdown_data(serializer)
 
-            first_result = result["results"][0]
-            assert "breakdown_value" in first_result
-            assert "visitors" in first_result
-            assert "views" not in first_result
-            assert "bounce_rate" not in first_result
+        first_result = result["results"][0]
+        assert "breakdown_value" in first_result
+        assert "visitors" in first_result
+        assert "views" not in first_result
+        assert "bounce_rate" not in first_result
 
-    def test_breakdown_handles_null_values(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_handles_null_values(self, mock_runner_class):
         columns = ["context.columns.breakdown_value", "context.columns.visitors", "context.columns.views"]
         results = [
             ["Chrome", (150, 120), (500, 400)],
             [None, (50, 40), (100, 80)],
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_breakdown_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_breakdown_data(serializer)
+
+        assert result["count"] == 2
+        assert result["results"][0]["breakdown_value"] == "Chrome"
+        assert result["results"][1]["breakdown_value"] == EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_empty_results(self, mock_runner_class):
+        mock_runner = MagicMock()
+        # Empty results but with valid columns structure
+        columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_breakdown_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_breakdown_data(serializer)
+
+        assert result["count"] == 0
+        assert result["results"] == []
+        assert result["next"] is None
+        assert result["previous"] is None
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_missing_columns_raises_error(self, mock_runner_class):
+        mock_runner = MagicMock()
+        # No columns indicates query execution error
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response([], [])
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_breakdown_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+
+        with pytest.raises(ValueError, match="Query response missing columns"):
+            adapter.get_breakdown_data(serializer)
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_query_configuration(self, mock_runner_class):
+        mock_runner = MagicMock()
+        columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_breakdown_request_serializer(
+            breakdown_by="DeviceType", filter_test_accounts=False, do_path_cleaning=False, limit=50
+        )
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_breakdown_data(serializer)
+
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+
+        assert query.breakdownBy == WebStatsBreakdown.DEVICE_TYPE
+        assert query.filterTestAccounts is False
+        assert query.doPathCleaning is False
+        assert query.limit == 50
+        assert query.includeBounceRate is False
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_with_bounce_rate_breakdowns(self, mock_runner_class):
+        bounce_rate_breakdowns = ["InitialPage", "Page"]
+
+        for breakdown_by in bounce_rate_breakdowns:
             mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
-            mock_runner_class.return_value = mock_runner
-
-            serializer = self._create_mock_breakdown_request_serializer()
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_breakdown_data(serializer)
-
-            assert result["count"] == 2
-            assert result["results"][0]["breakdown_value"] == "Chrome"
-            assert result["results"][1]["breakdown_value"] == EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE
-
-    def test_breakdown_empty_results(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            # Empty results but with valid columns structure
             columns = ["context.columns.breakdown_value", "context.columns.visitors"]
             mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
             mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_breakdown_request_serializer()
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_breakdown_data(serializer)
-
-            assert result["count"] == 0
-            assert result["results"] == []
-            assert result["next"] is None
-            assert result["previous"] is None
-
-    def test_breakdown_missing_columns_raises_error(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            # No columns indicates query execution error
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response([], [])
-            mock_runner_class.return_value = mock_runner
-
-            serializer = self._create_mock_breakdown_request_serializer()
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-
-            with pytest.raises(ValueError, match="Query response missing columns"):
-                adapter.get_breakdown_data(serializer)
-
-    def test_breakdown_query_configuration(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            columns = ["context.columns.breakdown_value", "context.columns.visitors"]
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
-            mock_runner_class.return_value = mock_runner
-
-            serializer = self._create_mock_breakdown_request_serializer(
-                breakdown_by="DeviceType", filter_test_accounts=False, do_path_cleaning=False, limit=50
-            )
+            serializer = self._create_mock_breakdown_request_serializer(breakdown_by=breakdown_by)
             adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
             adapter.get_breakdown_data(serializer)
 
             _, kwargs = mock_runner_class.call_args
             query = kwargs["query"]
 
-            assert query.breakdownBy == WebStatsBreakdown.DEVICE_TYPE
-            assert query.filterTestAccounts is False
-            assert query.doPathCleaning is False
-            assert query.limit == 50
-            assert query.includeBounceRate is False
+            assert query.includeBounceRate is True, f"Failed for breakdown_by: {breakdown_by}"
 
-    def test_breakdown_with_bounce_rate_breakdowns(self):
-        bounce_rate_breakdowns = ["InitialPage", "Page"]
-
-        for breakdown_by in bounce_rate_breakdowns:
-            with patch(
-                "posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner"
-            ) as mock_runner_class:
-                mock_runner = MagicMock()
-                columns = ["context.columns.breakdown_value", "context.columns.visitors"]
-                mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
-                mock_runner_class.return_value = mock_runner
-
-                serializer = self._create_mock_breakdown_request_serializer(breakdown_by=breakdown_by)
-                adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-                adapter.get_breakdown_data(serializer)
-
-                _, kwargs = mock_runner_class.call_args
-                query = kwargs["query"]
-
-                assert query.includeBounceRate is True, f"Failed for breakdown_by: {breakdown_by}"
-
-    def test_breakdown_enum_conversion(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_enum_conversion(self, mock_runner_class):
         breakdown_mappings = {
             "Browser": WebStatsBreakdown.BROWSER,
             "DeviceType": WebStatsBreakdown.DEVICE_TYPE,
@@ -517,42 +516,40 @@ class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
         }
 
         for breakdown_str, expected_enum in breakdown_mappings.items():
-            with patch(
-                "posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner"
-            ) as mock_runner_class:
-                mock_runner = MagicMock()
-                columns = ["context.columns.breakdown_value", "context.columns.visitors"]
-                mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
-                mock_runner_class.return_value = mock_runner
-
-                serializer = self._create_mock_breakdown_request_serializer(breakdown_by=breakdown_str)
-                adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-                adapter.get_breakdown_data(serializer)
-
-                _, kwargs = mock_runner_class.call_args
-                query = kwargs["query"]
-
-                assert query.breakdownBy == expected_enum, f"Failed for breakdown: {breakdown_str}"
-
-    def test_breakdown_with_domain_filter(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
             mock_runner = MagicMock()
             columns = ["context.columns.breakdown_value", "context.columns.visitors"]
             mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
             mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_breakdown_request_serializer(domain="app.example.com")
+            serializer = self._create_mock_breakdown_request_serializer(breakdown_by=breakdown_str)
             adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
             adapter.get_breakdown_data(serializer)
 
             _, kwargs = mock_runner_class.call_args
             query = kwargs["query"]
 
-            assert len(query.properties) == 1
-            assert query.properties[0].key == "$host"
-            assert query.properties[0].value == ["app.example.com"]
+            assert query.breakdownBy == expected_enum, f"Failed for breakdown: {breakdown_str}"
 
-    def test_breakdown_type_conversions(self):
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_with_domain_filter(self, mock_runner_class):
+        mock_runner = MagicMock()
+        columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+        mock_runner_class.return_value = mock_runner
+
+        serializer = self._create_mock_breakdown_request_serializer(domain="app.example.com")
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_breakdown_data(serializer)
+
+        _, kwargs = mock_runner_class.call_args
+        query = kwargs["query"]
+
+        assert len(query.properties) == 1
+        assert query.properties[0].key == "$host"
+        assert query.properties[0].value == ["app.example.com"]
+
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_type_conversions(self, mock_runner_class):
         columns = [
             "context.columns.breakdown_value",
             "context.columns.visitors",
@@ -563,35 +560,34 @@ class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
             ["/home", (150.0, 120.0), (500.0, 400.0), (0.25, 0.30)],
         ]
 
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
-            mock_runner_class.return_value = mock_runner
+        mock_runner = MagicMock()
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+        mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_breakdown_request_serializer(
-                breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
-            )
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            result = adapter.get_breakdown_data(serializer)
+        serializer = self._create_mock_breakdown_request_serializer(
+            breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
+        )
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        result = adapter.get_breakdown_data(serializer)
 
-            first_result = result["results"][0]
-            assert isinstance(first_result["visitors"], int)
-            assert isinstance(first_result["views"], int)
-            assert isinstance(first_result["bounce_rate"], float)
+        first_result = result["results"][0]
+        assert isinstance(first_result["visitors"], int)
+        assert isinstance(first_result["views"], int)
+        assert isinstance(first_result["bounce_rate"], float)
 
-    def test_breakdown_modifiers_configuration(self):
-        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
-            mock_runner = MagicMock()
-            columns = ["context.columns.breakdown_value", "context.columns.visitors"]
-            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
-            mock_runner_class.return_value = mock_runner
+    @patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner")
+    def test_breakdown_modifiers_configuration(self, mock_runner_class):
+        mock_runner = MagicMock()
+        columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+        mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+        mock_runner_class.return_value = mock_runner
 
-            serializer = self._create_mock_breakdown_request_serializer()
-            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
-            adapter.get_breakdown_data(serializer)
+        serializer = self._create_mock_breakdown_request_serializer()
+        adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+        adapter.get_breakdown_data(serializer)
 
-            _, kwargs = mock_runner_class.call_args
-            modifiers = kwargs["modifiers"]
+        _, kwargs = mock_runner_class.call_args
+        modifiers = kwargs["modifiers"]
 
-            assert modifiers.useWebAnalyticsPreAggregatedTables is True
-            assert modifiers.convertToProjectTimezone is True
+        assert modifiers.useWebAnalyticsPreAggregatedTables is True
+        assert modifiers.convertToProjectTimezone is True
