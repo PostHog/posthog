@@ -154,7 +154,7 @@ class ExternalWebAnalyticsQueryAdapter:
 
         query = WebStatsTableQuery(
             kind="WebStatsTableQuery",
-            breakdownBy=WebStatsBreakdown(data["breakdown_by"]),
+            breakdownBy=breakdown_by,
             dateRange=DateRange(
                 date_from=self._get_datetime_str(data["date_from"]),
                 date_to=self._get_datetime_str(data["date_to"]),
@@ -174,9 +174,7 @@ class ExternalWebAnalyticsQueryAdapter:
 
         response = runner.calculate()
 
-        return self._transform_breakdown_response(
-            response, WebStatsBreakdown(data["breakdown_by"]), data.get("metrics", [])
-        )
+        return self._transform_breakdown_response(response, breakdown_by, data.get("metrics", []))
 
     def _transform_breakdown_response(
         self, response: WebStatsTableQueryResponse, breakdown: WebStatsBreakdown, requested_metrics: list[str]
