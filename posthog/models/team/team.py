@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional, cast
@@ -328,6 +329,8 @@ class Team(UUIDClassicModel):
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
+    feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
+    feature_flag_confirmation_message = models.TextField(null=True, blank=True)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -410,6 +413,14 @@ class Team(UUIDClassicModel):
 
     # DEPRECATED: use `revenue_analytics_config` property instead
     revenue_tracking_config = models.JSONField(null=True, blank=True)
+
+    # Duration for dropping events older than this threshold
+    drop_events_older_than = models.DurationField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(timedelta(hours=1))],  # For safety minimum 1h
+        help_text="Events older than this threshold will be dropped in ingestion. Empty means no timestamp restrictions.",
+    )
 
     # Consolidated base currency for all analytics (revenue, marketing, etc.)
     base_currency = models.CharField(

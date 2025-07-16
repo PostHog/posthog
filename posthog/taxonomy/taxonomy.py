@@ -595,22 +595,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["ph_abcdefg"],
             "ignored_in_assistant": True,
         },
-        "$sentry_exception": {
-            "label": "Sentry exception",
-            "description": "Raw Sentry exception data.",
-            "system": True,
-        },
-        "$sentry_exception_message": {
-            "label": "Sentry exception message",
-        },
-        "$sentry_exception_type": {
-            "label": "Sentry exception type",
-            "description": "Class name of the exception object.",
-        },
-        "$sentry_tags": {
-            "label": "Sentry tags",
-            "description": "Tags sent to Sentry along with the exception.",
-        },
         "$exception_types": {
             "label": "Exception type",
             "description": "The type of the exception.",
@@ -2105,46 +2089,55 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Amount",
             "description": "The amount of the revenue event.",
             "type": "Numeric",
+            "virtual": True,
         },
         "product": {
             "label": "Product",
             "description": "The product of the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "country": {
             "label": "Country",
             "description": "The country of the customer connected to the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "cohort": {
             "label": "Cohort",
             "description": "The cohort of the customer connected to the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "source": {
             "label": "Source",
             "description": "The source of the revenue event - either an event or a Data Warehouse integration.",
             "type": "String",
+            "virtual": True,
         },
         "coupon": {
             "label": "Coupon",
             "description": "The name of the coupon on the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "coupon_id": {
             "label": "Coupon ID",
             "description": "The ID of the coupon on the revenue event.",
             "type": "String",
+            "virtual": True,
         },
         "initial_coupon": {
             "label": "Initial coupon",
             "description": "The name of the coupon on the initial revenue event for the customer.",
             "type": "String",
+            "virtual": True,
         },
         "initial_coupon_id": {
             "label": "Initial coupon ID",
             "description": "The ID of the coupon on the initial revenue event for the customer.",
             "type": "String",
+            "virtual": True,
         },
     },
 }

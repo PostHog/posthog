@@ -239,11 +239,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         hasSentAs: [
             (s) => [s.type, s.isProperty, s.isEvent, s.isVirtual],
             (type, isProperty, isEvent, isVirtual) =>
-                isEvent ||
-                (isProperty &&
-                    !isVirtual &&
-                    type !== TaxonomicFilterGroupType.SessionProperties &&
-                    type !== TaxonomicFilterGroupType.RevenueAnalyticsProperties),
+                isEvent || (isProperty && !isVirtual && type !== TaxonomicFilterGroupType.SessionProperties),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isDataWarehouse: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.DataWarehouse],

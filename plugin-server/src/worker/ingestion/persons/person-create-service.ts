@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { InternalPerson } from '../../../types'
+import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
@@ -29,12 +29,12 @@ export class PersonCreateService {
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
         Object.keys(propertiesOnce).forEach((key) => {
-            propertiesLastOperation[key] = 'SetOnce'
-            propertiesLastUpdatedAt[key] = createdAt
+            propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
+            propertiesLastUpdatedAt[key] = createdAt.toISO()
         })
         Object.keys(properties).forEach((key) => {
-            propertiesLastOperation[key] = 'Set'
-            propertiesLastUpdatedAt[key] = createdAt
+            propertiesLastOperation[key] = PropertyUpdateOperation.Set
+            propertiesLastUpdatedAt[key] = createdAt.toISO()
         })
 
         const [person, kafkaMessages] = await this.context.personStore.createPerson(

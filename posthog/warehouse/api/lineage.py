@@ -6,6 +6,7 @@ from posthog.warehouse.models.modeling import DataWarehouseModelPath
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.permissions import IsAuthenticated
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.table import DataWarehouseTable
 import uuid
 from typing import Optional, Any
 from collections import defaultdict, deque
@@ -141,6 +142,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 continue
 
     saved_queries = {str(q.id): q for q in DataWarehouseSavedQuery.objects.filter(id__in=uuid_nodes)}
+    tables = {str(t.id): t for t in DataWarehouseTable.objects.filter(id__in=uuid_nodes)}
 
     for path in paths:
         components = path.path if isinstance(path.path, list) else path.path.split(".")
@@ -151,19 +153,25 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                 seen_nodes.add(node_id)
                 node_uuid: Optional[uuid.UUID] = None
                 saved_query = None
+                table = None
                 try:
                     node_uuid = uuid.UUID(component)
                     saved_query = saved_queries.get(str(node_uuid))
+                    table = tables.get(str(node_uuid))
 
-                    if not saved_query:
+                    if not saved_query and not table:
                         name = component
-                    else:
+                    elif saved_query:
                         name = saved_query.name
+                    elif table:
+                        name = table.name
+                    else:
+                        name = component
                 except ValueError:
                     name = component
                 node_data[node_id] = {
                     "id": node_id,
-                    "type": "view" if node_uuid else "table",
+                    "type": "view" if saved_query else "table",
                     "name": name,
                     "sync_frequency": saved_query.sync_frequency_interval if saved_query else None,
                     "last_run_at": saved_query.last_run_at if saved_query else None,

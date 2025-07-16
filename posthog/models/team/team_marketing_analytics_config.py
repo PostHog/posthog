@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from django.core.exceptions import ValidationError
 import logging
 
-from posthog.schema import NodeKind
+from posthog.schema import NodeKind, SourceMap
 
 # Based on team_revenue_analytics_config.py
 
@@ -64,8 +64,39 @@ def validate_conversion_goals(conversion_goals: list) -> None:
                     f"Conversion goal id must be convertible to an integer, got {type(goal.get('id'))}"
                 )
         elif goal.get("kind") == NodeKind.DATA_WAREHOUSE_NODE:
+            # Validate all required fields for ConversionGoalFilter3 schema
             if not isinstance(goal.get("id"), str):
                 raise ValidationError(f"Conversion goal id must be a string, got {type(goal.get('id'))}")
+
+            # Ensure id_field is present and is a string
+            if goal.get("id_field") is None:
+                raise ValidationError("DataWarehouseNode conversion goal must have an 'id_field' field")
+            if not isinstance(goal.get("id_field"), str):
+                raise ValidationError(f"Conversion goal id_field must be a string, got {type(goal.get('id_field'))}")
+
+            # Ensure distinct_id_field is present and is a string
+            if goal.get("distinct_id_field") is None:
+                raise ValidationError("DataWarehouseNode conversion goal must have a 'distinct_id_field' field")
+            if not isinstance(goal.get("distinct_id_field"), str):
+                raise ValidationError(
+                    f"Conversion goal distinct_id_field must be a string, got {type(goal.get('distinct_id_field'))}"
+                )
+
+            # Ensure table_name is present and is a string
+            if goal.get("table_name") is None:
+                raise ValidationError("DataWarehouseNode conversion goal must have a 'table_name' field")
+            if not isinstance(goal.get("table_name"), str):
+                raise ValidationError(
+                    f"Conversion goal table_name must be a string, got {type(goal.get('table_name'))}"
+                )
+
+            # Ensure timestamp_field is present and is a string
+            if goal.get("timestamp_field") is None:
+                raise ValidationError("DataWarehouseNode conversion goal must have a 'timestamp_field' field")
+            if not isinstance(goal.get("timestamp_field"), str):
+                raise ValidationError(
+                    f"Conversion goal timestamp_field must be a string, got {type(goal.get('timestamp_field'))}"
+                )
         else:
             raise ValidationError(
                 f"Conversion goal kind must be one of {NodeKind.EVENTS_NODE}, {NodeKind.ACTIONS_NODE} or {NodeKind.DATA_WAREHOUSE_NODE}, got {goal.get('kind')}"
@@ -84,7 +115,7 @@ class TeamMarketingAnalyticsConfig(models.Model):
     _conversion_goals = models.JSONField(default=list, db_column="conversion_goals", null=True, blank=True)
 
     @property
-    def sources_map(self) -> dict:
+    def sources_map(self) -> dict[str, dict]:
         return self._sources_map or {}
 
     @sources_map.setter
@@ -95,6 +126,17 @@ class TeamMarketingAnalyticsConfig(models.Model):
             self._sources_map = value
         except ValidationError as e:
             raise ValidationError(f"Invalid sources map schema: {str(e)}")
+
+    @property
+    def sources_map_typed(self) -> dict[str, SourceMap]:
+        """Return sources_map as typed SourceMap objects for Python usage"""
+        response = {}
+        for source_id, field_mapping in self._sources_map.items():
+            if field_mapping is None:
+                response[source_id] = SourceMap()
+            else:
+                response[source_id] = SourceMap(**field_mapping)
+        return response
 
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""

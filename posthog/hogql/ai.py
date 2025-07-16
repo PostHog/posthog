@@ -43,6 +43,8 @@ ORDER BY week_of DESC
 
 Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+- toFloat64OrNull() and toFloat64() are NOT SUPPORTED. Use toFloat() instead. If you use them, the query will NOT WORK.
+
 """
 
 SCHEMA_MESSAGE = """
@@ -2777,3 +2779,167 @@ Common operators:
 - "gt", "lt", "gte", "lte" for numeric comparisons
 
 Return ONLY the JSON object inside <filters> tags. Do not add any other text or explanation."""
+
+HOG_FUNCTION_INPUTS_SYSTEM_PROMPT = """You are an expert at creating input variable schemas for PostHog hog functions.
+
+Your task is to analyze the hog code and create appropriate input variable schemas based on the instructions.
+CRITICAL: You must extract the EXACT variable names used in the hog code. Look for patterns like:
+- inputs.variableName
+- inputs['variableName']
+- inputs["variableName"]
+The "key" field in the schema MUST match exactly what is used in the hog code after "inputs.". For example:
+- If code uses inputs.propertiesToRedact, the key must be "propertiesToRedact" (NOT "properties_to_redact")
+- If code uses inputs.webhookUrl, the key must be "webhookUrl" (NOT "webhook_url")
+- If code uses inputs.api_key, the key must be "api_key" (NOT "apiKey")
+
+Return ONLY a valid JSON array of input schema objects inside <inputs_schema> tags."""
+
+INPUT_SCHEMA_TYPES_MESSAGE = """Input schema format should be a list of objects with these fields:
+- key: string (EXACT variable name as used in hog code, preserve camelCase/snake_case)
+- type: string (one of: string, number, boolean, dictionary, choice, json, integration, integration_field, email)
+- label: string (human readable label)
+- description: string (description of what this input is for)
+- required: boolean (whether this input is required)
+- default: any (default value, optional)
+- choices: list (for choice type, list of {label, value} objects)
+- templating: boolean (whether templating is enabled, defaults to true)
+- secret: boolean (whether this is a secret value, defaults to false)
+- hidden: boolean (whether this input is hidden from users, defaults to false)
+- integration: string (for integration type, the integration name)
+- integration_key: string (for integration_field type, the integration key)
+- integration_field: string (for integration_field type, the field name)
+- requires_field: string (for conditional fields)
+- requiredScopes: string (for integrations, required OAuth scopes)
+
+export type CyclotronJobInputSchemaType = {
+    type:
+        | 'string'
+        | 'number'
+        | 'boolean'
+        | 'dictionary'
+        | 'choice'
+        | 'json'
+        | 'integration'
+        | 'integration_field'
+        | 'email'
+    key: string
+    label: string
+    choices?: { value: string; label: string }[]
+    required?: boolean
+    default?: any
+    secret?: boolean
+    hidden?: boolean
+    templating?: boolean
+    description?: string
+    integration?: string
+    integration_key?: string
+    integration_field?: string
+    requires_field?: string
+    requiredScopes?: string
+}
+
+Here are some example input schemas to help you understand the format:
+
+Example 1 - Bot Detection Function:
+[
+    {
+        "key": "userAgent",
+        "type": "string",
+        "label": "User Agent Property",
+        "description": "The property that contains the user agent string (e.g. $raw_user_agent, $useragent)",
+        "default": "$raw_user_agent",
+        "secret": false,
+        "required": true
+    },
+    {
+        "key": "customBotPatterns",
+        "type": "string",
+        "label": "Custom Bot Patterns",
+        "description": "Additional bot patterns to detect, separated by commas (e.g. mybot,customcrawler)",
+        "default": "",
+        "secret": false,
+        "required": false
+    },
+    {
+        "key": "customIpPrefixes",
+        "type": "string",
+        "label": "Custom IP Prefixes",
+        "description": "Additional IPv4 or IPv6 prefixes in CIDR notation to block, separated by commas (e.g. 198.51.100.14/24,2001:db8::/48)",
+        "default": "",
+        "secret": false,
+        "required": false
+    }
+]
+
+Example 2 - Property Filter Function:
+[
+    {
+        "key": "propertiesToFilter",
+        "type": "string",
+        "label": "Properties to filter",
+        "description": "Comma-separated list of properties to filter (e.g. \"$set.email, $set.name, custom_prop\")",
+        "required": true
+    }
+]
+
+Example 3 - PII Hashing Function:
+[
+    {
+        "key": "salt",
+        "type": "string",
+        "label": "Salt",
+        "description": "A secret salt used for hashing. This should be kept secure and consistent.",
+        "default": "",
+        "secret": true,
+        "required": true
+    },
+    {
+        "key": "privateFields",
+        "type": "string",
+        "label": "Fields to hash",
+        "description": "Comma-separated list of field names to hash. Can include both event properties and top-level event fields like distinct_id.",
+        "default": "distinct_id,name,userid,email",
+        "secret": false,
+        "required": true
+    },
+    {
+        "key": "includeSetProperties",
+        "type": "boolean",
+        "label": "Also hash $set and $set_once properties",
+        "description": "Whether to also hash $set and $set_once properties that are used to update Person properties.",
+        "default": true,
+        "secret": false,
+        "required": false
+    }
+]
+
+Example 4 - Property Hashing Function:
+[
+    {
+        "key": "propertiesToHash",
+        "type": "string",
+        "label": "Properties to Hash",
+        "description": "Comma-separated list of property paths to hash (e.g. \"$ip,$email,$set.$phone\")",
+        "default": "$ip",
+        "secret": false,
+        "required": true
+    },
+    {
+        "key": "hashDistinctId",
+        "type": "boolean",
+        "label": "Hash Distinct ID",
+        "description": "Whether to hash the distinct_id field",
+        "default": false,
+        "secret": false,
+        "required": false
+    },
+    {
+        "key": "salt",
+        "type": "string",
+        "label": "Salt",
+        "description": "Optional salt to add to the hashed values for additional security",
+        "default": "",
+        "secret": true,
+        "required": false
+    }
+]"""

@@ -93,7 +93,7 @@ pub struct FeatureFlag {
     #[serde(default)]
     pub active: bool,
     #[serde(default)]
-    pub ensure_experience_continuity: bool,
+    pub ensure_experience_continuity: Option<bool>,
     #[serde(default)]
     pub version: Option<i32>,
 }
@@ -107,17 +107,11 @@ pub struct FeatureFlagRow {
     pub filters: serde_json::Value,
     pub deleted: bool,
     pub active: bool,
-    pub ensure_experience_continuity: bool,
+    pub ensure_experience_continuity: Option<bool>,
     pub version: Option<i32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FeatureFlagList {
     pub flags: Vec<FeatureFlag>,
-}
-
-impl FeatureFlagList {
-    pub fn new(flags: Vec<FeatureFlag>) -> Self {
-        Self { flags }
-    }
 }

@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
+import { MoveDistinctIdsResult } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 
@@ -43,9 +44,9 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     ): Promise<[InternalPerson, TopicMessage[]]>
 
     /**
-     * Updates an existing person for regular updates
+     * Updates an existing person for merge operations
      */
-    updatePersonForUpdate(
+    updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
         distinctId: string,
@@ -53,11 +54,13 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 
     /**
-     * Updates an existing person for merge operations
+     * Updates person for regular updates with specific properties to set and unset
      */
-    updatePersonForMerge(
+    updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        propertiesToSet: Properties,
+        propertiesToUnset: string[],
+        otherUpdates: Partial<InternalPerson>,
         distinctId: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
@@ -85,7 +88,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         target: InternalPerson,
         distinctId: string,
         tx?: TransactionClient
-    ): Promise<TopicMessage[]>
+    ): Promise<MoveDistinctIdsResult>
 
     /**
      * Updates cohorts and feature flags for merged persons
@@ -121,5 +124,5 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
     /**
      * Flushes the batch
      */
-    flush(): Promise<void>
+    flush(): Promise<TopicMessage[]>
 }

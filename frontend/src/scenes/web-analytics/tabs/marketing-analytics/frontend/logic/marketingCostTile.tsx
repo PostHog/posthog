@@ -27,7 +27,7 @@ export const googleAdsCostTile = (source: NativeSource): DataWarehouseNode | nul
 }
 
 export const externalAdsCostTile = (table: ExternalTable, baseCurrency: string): DataWarehouseNode | null => {
-    if (!table.source_map || !table.source_map.date || !table.source_map.total_cost) {
+    if (!table.source_map || !table.source_map.date || !table.source_map.cost) {
         return null
     }
 
@@ -42,7 +42,7 @@ export const externalAdsCostTile = (table: ExternalTable, baseCurrency: string):
         table_name: table.name,
         dw_source_type: table.dw_source_type,
         math: PropertyMathType.Sum,
-        math_property: table.source_map.total_cost,
+        math_property: table.source_map.cost,
         math_property_revenue_currency: {
             static: (table.source_map.currency || baseCurrency) as CurrencyCode,
         },

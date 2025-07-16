@@ -33,17 +33,7 @@ const Template: StoryFn<{ trace: LLMTrace; eventId?: string }> = ({ trace, event
     }, [])
 
     return (
-        <div
-            className="relative flex flex-col p-4"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={
-                {
-                    '--breadcrumbs-height-full': '0px',
-                    '--scene-padding': '1rem',
-                    '--scene-padding-bottom': '1rem',
-                } as React.CSSProperties
-            }
-        >
+        <div className="relative flex flex-col p-4">
             <LLMObservabilityTraceScene />
         </div>
     )
