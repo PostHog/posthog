@@ -1,5 +1,57 @@
 lexer grammar HogQLLexer;
 
+@header {                        // make <cctype> visible in the generated .cpp
+  #include <cctype>
+}
+
+@members {
+    /**  Is `<…` the start of an opening tag?  */
+    bool isOpeningTag() {
+        // Char right after '<'
+        int la1 = _input->LA(1);
+        if (!std::isalpha(la1) && la1 != '_' )               // need a letter or '_' to start a tag name
+            return false;
+
+        // Skip over the tag name ([a-zA-Z0-9_-]*)
+        size_t i = 2;
+        int ch;
+        while (true) {
+            ch = _input->LA(i);
+            if (std::isalnum(ch) || ch == '_' || ch == '-')
+                ++i;
+            else
+                break;
+        }
+
+        // Valid delimiter after the name?
+        return ch == '>'            // `<div>`
+            || ch == '/'            // `<div/>`
+            || std::isspace(ch);    // `<div x=1>`
+    }
+
+    /**  Is `</…` the start of a closing tag?  */
+    bool isClosingTag() {
+        if (_input->LA(1) != '/')
+            return false;
+
+        int la2 = _input->LA(2);
+        if (!std::isalpha(la2) && la2 != '_')                // `</1` is not a tag
+            return false;
+
+        // Skip over the name
+        size_t i = 3;
+        int ch;
+        while (true) {
+            ch = _input->LA(i);
+            if (std::isalnum(ch) || ch == '_' || ch == '-')
+                ++i;
+            else
+                break;
+        }
+
+        return ch == '>' || std::isspace(ch);                // `</div>`  or  `</div >`
+    }
+}
 // NOTE: don't forget to add new keywords to the parser rule "keyword"!
 
 // Keywords
@@ -200,8 +252,14 @@ LBRACE: '{' -> pushMode(DEFAULT_MODE);
 LBRACKET: '[';
 LPAREN: '(';
 LT_EQ: '<=';
-TAG_LT_OPEN: '<'   -> type(LT), pushMode(HOGQLX_TAG_OPEN);
-TAG_LT_SLASH: '</' -> type(LT_SLASH), pushMode(HOGQLX_TAG_CLOSE);
+TAG_LT_SLASH
+    : '</'      {isClosingTag()}?       // predicate
+        -> type(LT_SLASH),  pushMode(HOGQLX_TAG_CLOSE);
+
+// 2. opening/self-closing tag   <div …>   <br/>
+TAG_LT_OPEN
+    : '<'       {isOpeningTag()}?       // predicate
+        -> type(LT),        pushMode(HOGQLX_TAG_OPEN);
 LT: '<';
 LT_SLASH: '</';
 NOT_EQ: '!=' | '<>';
@@ -284,3 +342,4 @@ HOGQLX_TEXT_LT
 
 HOGQLX_TEXT_WS
     : [ \t\r\n]+ -> channel(HIDDEN);
+

@@ -1,3 +1,6 @@
+                        // make <cctype> visible in the generated .cpp
+  #include <cctype>
+
 
 // Generated from HogQLLexer.g4 by ANTLR 4.13.2
 
@@ -57,6 +60,54 @@ public:
   ~HogQLLexer() override;
 
 
+      /**  Is `<…` the start of an opening tag?  */
+      bool isOpeningTag() {
+          // Char right after '<'
+          int la1 = _input->LA(1);
+          if (!std::isalpha(la1) && la1 != '_' )               // need a letter or '_' to start a tag name
+              return false;
+
+          // Skip over the tag name ([a-zA-Z0-9_-]*)
+          size_t i = 2;
+          int ch;
+          while (true) {
+              ch = _input->LA(i);
+              if (std::isalnum(ch) || ch == '_' || ch == '-')
+                  ++i;
+              else
+                  break;
+          }
+
+          // Valid delimiter after the name?
+          return ch == '>'            // `<div>`
+              || ch == '/'            // `<div/>`
+              || std::isspace(ch);    // `<div x=1>`
+      }
+
+      /**  Is `</…` the start of a closing tag?  */
+      bool isClosingTag() {
+          if (_input->LA(1) != '/')
+              return false;
+
+          int la2 = _input->LA(2);
+          if (!std::isalpha(la2) && la2 != '_')                // `</1` is not a tag
+              return false;
+
+          // Skip over the name
+          size_t i = 3;
+          int ch;
+          while (true) {
+              ch = _input->LA(i);
+              if (std::isalnum(ch) || ch == '_' || ch == '-')
+                  ++i;
+              else
+                  break;
+          }
+
+          return ch == '>' || std::isspace(ch);                // `</div>`  or  `</div >`
+      }
+
+
   std::string getGrammarFileName() const override;
 
   const std::vector<std::string>& getRuleNames() const override;
@@ -71,6 +122,8 @@ public:
 
   const antlr4::atn::ATN& getATN() const override;
 
+  bool sempred(antlr4::RuleContext *_localctx, size_t ruleIndex, size_t predicateIndex) override;
+
   // By default the static state used to implement the lexer is lazily initialized during the first
   // call to the constructor. You can call this function if you wish to initialize the static state
   // ahead of time.
@@ -81,6 +134,8 @@ private:
   // Individual action functions triggered by action() above.
 
   // Individual semantic predicate functions triggered by sempred() above.
+  bool TAG_LT_SLASHSempred(antlr4::RuleContext *_localctx, size_t predicateIndex);
+  bool TAG_LT_OPENSempred(antlr4::RuleContext *_localctx, size_t predicateIndex);
 
 };
 
