@@ -109,6 +109,7 @@ export const TECHNOLOGY = {
         'IconChat',
         'IconThoughtBubble',
         'IconChatHelp',
+        'IconComment',
     ],
     Hardware: [
         'IconCompass',
@@ -167,6 +168,7 @@ export const TECHNOLOGY = {
         'IconMouseScrollDown',
         'IconDrag',
         'IconPointer',
+        'IconImage',
     ],
 }
 
