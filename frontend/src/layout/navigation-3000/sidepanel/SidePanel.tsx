@@ -18,6 +18,7 @@ import {
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/activation/SidePanelActivation'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
@@ -29,8 +30,6 @@ import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
@@ -115,6 +114,8 @@ export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen, modalMode } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
+    const { openAccountPopover } = useActions(navigationLogic)
+    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -162,13 +163,28 @@ export function SidePanel(): JSX.Element | null {
                               onClick: () => openSidePanel(tab),
                           }
                       }),
-                      // FIXME: This is a off ramp for the feature previews moving from the side panel to the settings page, this shouldn't be here for long.
-                      {
-                          label: 'Feature previews',
-                          icon: <IconFeatures />,
-                          onClick: () => router.actions.push(urls.settings('user-feature-previews')),
-                          tooltip: 'Feature previews has moved to the settings page',
-                      },
+                      // This is a off ramp for the feature previews moving from the side panel to the settings page,
+                      // TODO: Remove this in a while so all users have acknowledged the change.
+                      !featurePreviewChangeAcknowledged
+                          ? {
+                                label: 'Feature previews',
+                                icon: <IconFeatures />,
+                                onClick: () => {
+                                    openAccountPopover()
+                                },
+                                tooltip: (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <IconInfo className="size-4 shrink-0" />
+                                            <span>
+                                                <span className="font-bold">Feature previews</span> has moved, click
+                                                here to learn where to access it.
+                                            </span>
+                                        </div>
+                                    </>
+                                ),
+                            }
+                          : null,
                   ],
               },
           ]
