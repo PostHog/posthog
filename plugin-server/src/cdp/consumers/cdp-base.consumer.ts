@@ -35,7 +35,7 @@ export abstract class CdpConsumerBase {
     hogFunctionMonitoringService: HogFunctionMonitoringService
     redis: CdpRedis
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
-    pluginExecutor: LegacyPluginExecutorService
+    pluginDestinationExecutorService: LegacyPluginExecutorService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
 
@@ -56,7 +56,7 @@ export abstract class CdpConsumerBase {
         this.hogFlowExecutor = new HogFlowExecutorService(this.hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
-        this.pluginExecutor = new LegacyPluginExecutorService(this.hub)
+        this.pluginDestinationExecutorService = new LegacyPluginExecutorService(this.hub)
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(this.hub)
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(this.hub)
     }
