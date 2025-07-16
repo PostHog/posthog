@@ -53,7 +53,7 @@ class ExternalWebAnalyticsQueryAdapter:
                 date_from=self._get_datetime_str(data["date_from"]),
                 date_to=self._get_datetime_str(data["date_to"]),
             ),
-            properties=self._get_base_properties(data.get("domain")),  # type: ignore
+            properties=self._get_base_properties(data.get("domain")),
             filterTestAccounts=data.get("filter_test_accounts", True),
             doPathCleaning=data.get("do_path_cleaning", True),
             includeRevenue=False,
