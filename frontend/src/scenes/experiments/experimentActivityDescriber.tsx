@@ -129,7 +129,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
              * if an end date is created, the experiment has been completed.
              */
             if (
-                change.action == 'created' &&
+                change.action === 'created' &&
                 change.field === 'end_date' &&
                 change.before === null &&
                 change.after !== null
