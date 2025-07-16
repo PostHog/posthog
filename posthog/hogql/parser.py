@@ -1,14 +1,11 @@
 from typing import Literal, Optional, cast
 from collections.abc import Callable
 
-from antlr4 import CommonTokenStream, InputStream
 from antlr4.error.ErrorListener import ErrorListener
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
 from posthog.hogql.errors import SyntaxError
-from posthog.hogql.grammar.HogQLLexer import HogQLLexer
-from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 from hogql_parser import (
@@ -142,16 +139,6 @@ def parse_program(
         with RULE_TO_HISTOGRAM["expr"].labels(backend=backend).time():
             node = RULE_TO_PARSE_FUNCTION[backend]["program"](source)
     return node
-
-
-def get_parser(query: str) -> HogQLParser:
-    input_stream = InputStream(data=query)
-    lexer = HogQLLexer(input_stream)
-    stream = CommonTokenStream(lexer)
-    parser = HogQLParser(stream)
-    parser.removeErrorListeners()
-    parser.addErrorListener(HogQLErrorListener(query))
-    return parser
 
 
 class HogQLErrorListener(ErrorListener):
