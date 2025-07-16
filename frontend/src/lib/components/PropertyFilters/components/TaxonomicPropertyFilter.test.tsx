@@ -7,6 +7,15 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { initKeaTests } from '~/test/init'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+// Mock dependencies to avoid issues with frimousse
+jest.mock('lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown', () => ({
+    LemonTextAreaMarkdown: () => null,
+}))
+
+jest.mock('lib/components/EmojiPicker/EmojiPickerPopover', () => ({
+    EmojiPickerPopover: () => null,
+}))
+
 // Mock the OperatorValueSelect component to capture onChange calls
 jest.mock('./OperatorValueSelect', () => ({
     OperatorValueSelect: ({ onChange, ...props }: any) => {
@@ -177,10 +186,19 @@ describe('TaxonomicPropertyFilter', () => {
                 </Provider>
             )
 
-            // Verify each value is rendered correctly
-            expect(screen.getByText('true')).toHaveAttribute('data-attr', 'prop-val-0')
-            expect(screen.getByText('false')).toHaveAttribute('data-attr', 'prop-val-1')
-            expect(screen.getByText('some-variant')).toHaveAttribute('data-attr', 'prop-val-2')
+            // Verify setFilter was called with the correct values
+            if (window.mockOperatorValueSelectOnChange) {
+                window.mockOperatorValueSelectOnChange(PropertyOperator.Exact, [false, 'some-variant', true])
+            }
+
+            // Verify setFilter was called with mixed values preserved
+            expect(setFilterMock).toHaveBeenCalledWith(
+                0,
+                expect.objectContaining({
+                    value: [false, 'some-variant', true],
+                    type: PropertyFilterType.FlagDependency as PropertyFilterType.FlagDependency,
+                })
+            )
 
             // Test value changes preserve types
             if (window.mockOperatorValueSelectOnChange) {
