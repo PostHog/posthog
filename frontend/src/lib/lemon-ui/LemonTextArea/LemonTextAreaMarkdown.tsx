@@ -9,7 +9,7 @@ import { LemonTextArea, LemonTextAreaProps } from 'lib/lemon-ui/LemonTextArea/Le
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useCallback } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -22,6 +22,22 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
 
         const [isPreviewShown, setIsPreviewShown] = useState(false)
         const dropRef = useRef<HTMLDivElement>(null)
+
+        // we need a local ref so we can insert emojis at the cursor's location
+        const textAreaRef = useRef<HTMLTextAreaElement>(null)
+        const combinedRef = useCallback(
+            (element: HTMLTextAreaElement | null) => {
+                // Store reference in our local ref
+                ;(textAreaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = element
+                // Forward to the original ref
+                if (typeof ref === 'function') {
+                    ref(element)
+                } else if (ref) {
+                    ;(ref as React.MutableRefObject<HTMLTextAreaElement | null>).current = element
+                }
+            },
+            [ref]
+        )
 
         const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
             onUpload: (url, fileName) => {
@@ -46,7 +62,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                         content: (
                             <div ref={dropRef} className="LemonTextMarkdown flex flex-col gap-y-1 rounded">
                                 <LemonTextArea
-                                    ref={ref}
+                                    ref={combinedRef}
                                     {...editAreaProps}
                                     autoFocus
                                     value={value}
@@ -90,22 +106,26 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                             key="emoj-picker"
                                             data-attr="lemon-text-area-markdown-emoji-popover"
                                             onSelect={(emoji: string) => {
-                                                if (ref && 'current' in ref && ref.current) {
-                                                    const textArea = ref.current
-                                                    const cursorStart = textArea.selectionStart || 0
-                                                    const cursorEnd = textArea.selectionEnd || 0
-                                                    const textBefore = (value || '').slice(0, cursorStart)
-                                                    const textAfter = (value || '').slice(cursorEnd)
-                                                    const spaceBefore = textBefore.endsWith(' ') ? '' : ' '
-                                                    const spaceAfter = textAfter.startsWith(' ') ? '' : ' '
+                                                const textArea = textAreaRef.current
+                                                if (textArea) {
+                                                    const start = textArea.selectionStart || 0
+                                                    const end = textArea.selectionEnd || 0
+                                                    const currentValue = value || ''
                                                     const newValue =
-                                                        textBefore + spaceBefore + emoji + spaceAfter + textAfter
+                                                        currentValue.slice(0, start) + emoji + currentValue.slice(end)
                                                     onChange?.(newValue)
-                                                    // Restore cursor position after the inserted emoji
+
+                                                    // Set cursor position after the emoji
                                                     setTimeout(() => {
-                                                        textArea.selectionStart = textArea.selectionEnd =
-                                                            cursorStart + spaceBefore.length + emoji.length
+                                                        textArea.focus()
+                                                        textArea.setSelectionRange(
+                                                            start + emoji.length,
+                                                            start + emoji.length
+                                                        )
                                                     }, 0)
+                                                } else {
+                                                    // Fallback to appending at the end
+                                                    onChange?.((value || '') + emoji)
                                                 }
                                                 emojiUsed(emoji)
                                             }}
