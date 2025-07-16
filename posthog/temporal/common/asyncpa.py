@@ -58,7 +58,8 @@ class AsyncMessageReader:
         await self.read_until(total_message_size)
 
         with memoryview(self._buffer) as buffer_view:
-            msg = pa.ipc.read_message(buffer_view[:total_message_size])
+            loop = asyncio.get_running_loop()
+            msg = await loop.run_in_executor(None, pa.ipc.read_message, buffer_view[:total_message_size])
 
         self._buffer = self._buffer[total_message_size:]
 
