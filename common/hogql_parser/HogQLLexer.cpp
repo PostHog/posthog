@@ -1,5 +1,7 @@
-                        // make <cctype> visible in the generated .cpp
-  #include <cctype>
+
+
+#include <cctype>
+
 
 
 // Generated from HogQLLexer.g4 by ANTLR 4.13.2
