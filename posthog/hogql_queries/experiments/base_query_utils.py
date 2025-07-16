@@ -62,10 +62,8 @@ def get_metric_value(metric: ExperimentMeanMetric) -> ast.Expr:
             if isinstance(metric.source, ExperimentDataWarehouseNode):
                 return parse_expr(metric_property)
             else:
-                return parse_expr(
-                    "toFloat(JSONExtractRaw(properties, {property}))",
-                    placeholders={"property": ast.Constant(value=metric_property)},
-                )
+                # Use the same property access pattern as trends to get property groups optimization
+                return ast.Call(name="toFloat", args=[ast.Field(chain=["properties", metric_property])])
 
     elif metric.source.math == ExperimentMetricMathType.UNIQUE_SESSION:
         return ast.Field(chain=["$session_id"])
