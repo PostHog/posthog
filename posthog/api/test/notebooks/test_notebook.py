@@ -95,7 +95,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "deleted": False,
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
-            "user_access_level": "editor",
+            "user_access_level": "manager",
         }
 
         self.assert_notebook_activity(

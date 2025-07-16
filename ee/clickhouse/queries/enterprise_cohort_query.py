@@ -149,7 +149,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(full_condition)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{date_param}": date_value,
                 f"{seq_date_param}": seq_date_value,
@@ -188,7 +188,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(full_condition)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {
                 f"{date_param}": date_value,
                 f"{seq_date_param}": seq_date_value,
@@ -213,7 +213,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(field)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {f"{date_param}": date_value, **entity_params},
         )
 
@@ -266,7 +266,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         self._fields.append(field)
 
         return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
+            f"{'NOT' if prop.negation else ''} coalesce({column_name}, false)",
             {**entity_params, **params},
         )
 

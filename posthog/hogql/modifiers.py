@@ -14,7 +14,6 @@ from posthog.schema import (
     SessionTableVersion,
     CustomChannelRule,
     SessionsV2JoinMode,
-    RevenueAnalyticsPersonsJoinModeModifier,
 )
 
 if TYPE_CHECKING:
@@ -109,9 +108,6 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.convertToProjectTimezone is None:
         modifiers.convertToProjectTimezone = True
-
-    if modifiers.revenueAnalyticsPersonsJoinMode is None:
-        modifiers.revenueAnalyticsPersonsJoinMode = RevenueAnalyticsPersonsJoinModeModifier.ID
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
