@@ -16,6 +16,73 @@ TipTapNode = dict[str, Any]
 TipTapContent = list[TipTapNode]
 
 
+def create_summary_notebook(
+    session_ids: list[str],
+    user: User,
+    team: Team,
+    summary: EnrichedSessionGroupSummaryPatternsList,
+    domain: str = "PostHog",
+) -> Notebook:
+    """Create a notebook with session summary patterns."""
+    notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
+    # TODO: Remove after testing
+    with open("notebook_content.json", "w") as f:
+        f.write(json.dumps(notebook_content, indent=4))
+    notebook = Notebook.objects.create(
+        team=team,
+        title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
+        content=notebook_content,
+        created_by=user,
+        last_modified_by=user,
+    )
+    return notebook
+
+
+def _generate_notebook_content_from_summary(
+    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], domain: str
+) -> TipTapNode:
+    """Convert summary data to notebook structure."""
+    patterns = summary.patterns
+    total_sessions = len(session_ids)
+    if not patterns:
+        return {
+            "type": "doc",
+            "content": [
+                _create_heading_with_text(f"Session Summaries Report - {domain}", 1),
+                _create_empty_paragraph(),
+                _create_paragraph_with_text("No patterns found."),
+            ],
+        }
+
+    # Sort patterns by severity: critical, high, medium, low
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    patterns_sorted = sorted(
+        patterns, key=lambda p: severity_order.get(p.severity.value if hasattr(p.severity, "value") else p.severity, 3)
+    )
+    content = []
+
+    # Title
+    content.append(_create_heading_with_text(f"Session Summaries Report - {domain}", 1))
+    # Issues to review summary
+    session_text = "session" if total_sessions == 1 else "sessions"
+    content.append(_create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
+    # Summary table
+    table_content = _create_summary_table(patterns_sorted, total_sessions)
+    content.extend(table_content)
+    content.append(_create_line_separator())
+
+    # Pattern details
+    for pattern in patterns_sorted:
+        pattern_content = _create_pattern_section(pattern, total_sessions)
+        content.append(_create_empty_paragraph())
+        content.extend(pattern_content)
+
+    return {
+        "type": "doc",
+        "content": content,
+    }
+
+
 def _sanitize_text_content(text: str) -> str:
     """Sanitize text content to ensure it's valid for TipTap editor."""
     if not text or not text.strip():
@@ -88,73 +155,6 @@ def _create_bullet_list(items: list[str] | list[TipTapContent]) -> TipTapNode:
             list_items.append({"type": "listItem", "content": [_create_paragraph_with_content(item)]})
 
     return {"type": "bulletList", "content": list_items}
-
-
-def create_summary_notebook(
-    session_ids: list[str],
-    user: User,
-    team: Team,
-    summary: EnrichedSessionGroupSummaryPatternsList,
-    domain: str = "PostHog",
-) -> Notebook:
-    """Create a notebook with session summary patterns."""
-    notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
-    # TODO: Remove after testing
-    with open("notebook_content.json", "w") as f:
-        f.write(json.dumps(notebook_content, indent=4))
-    notebook = Notebook.objects.create(
-        team=team,
-        title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
-        content=notebook_content,
-        created_by=user,
-        last_modified_by=user,
-    )
-    return notebook
-
-
-def _generate_notebook_content_from_summary(
-    summary: EnrichedSessionGroupSummaryPatternsList, session_ids: list[str], domain: str
-) -> TipTapNode:
-    """Convert summary data to notebook structure."""
-    patterns = summary.patterns
-    total_sessions = len(session_ids)
-    if not patterns:
-        return {
-            "type": "doc",
-            "content": [
-                _create_heading_with_text(f"Session Summaries Report - {domain}", 1),
-                _create_empty_paragraph(),
-                _create_paragraph_with_text("No patterns found."),
-            ],
-        }
-
-    # Sort patterns by severity: critical, high, medium, low
-    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    patterns_sorted = sorted(
-        patterns, key=lambda p: severity_order.get(p.severity.value if hasattr(p.severity, "value") else p.severity, 3)
-    )
-    content = []
-
-    # Title
-    content.append(_create_heading_with_text(f"Session Summaries Report - {domain}", 1))
-    # Issues to review summary
-    session_text = "session" if total_sessions == 1 else "sessions"
-    content.append(_create_heading_with_text(f"📊 Issues to review ({total_sessions} {session_text} scope)", 2))
-    # Summary table
-    table_content = _create_summary_table(patterns_sorted, total_sessions)
-    content.extend(table_content)
-    content.append(_create_line_separator())
-
-    # Pattern details
-    for pattern in patterns_sorted:
-        pattern_content = _create_pattern_section(pattern, total_sessions)
-        content.append(_create_empty_paragraph())
-        content.extend(pattern_content)
-
-    return {
-        "type": "doc",
-        "content": content,
-    }
 
 
 def _create_summary_table(patterns: list[EnrichedSessionGroupSummaryPattern], total_sessions: int) -> TipTapContent:
