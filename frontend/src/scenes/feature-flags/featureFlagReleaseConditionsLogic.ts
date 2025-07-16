@@ -396,6 +396,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 // For any IDs that weren't returned (not found), use the ID as fallback
                 uncachedIds.forEach((id: string) => {
                     if (!keys[id]) {
+                        console.warn(`Flag with ID ${id} not found. Using ID as fallback key.`)
                         flagKeyMapping[id] = id
                     }
                 })
