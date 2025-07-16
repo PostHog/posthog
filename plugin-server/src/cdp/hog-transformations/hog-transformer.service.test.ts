@@ -191,6 +191,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := 'test_value'
@@ -282,6 +283,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := 'test_value'
@@ -298,6 +300,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := null
@@ -366,6 +369,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     return event
                 `,
@@ -380,6 +384,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     return event
                 `,
@@ -394,6 +399,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template that adds a test property',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     return event
                 `,
@@ -471,6 +477,7 @@ describe('HogTransformer', () => {
                 name: 'Success Template',
                 description: 'A template that should succeed',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.success := true
@@ -488,6 +495,7 @@ describe('HogTransformer', () => {
                 name: 'Failing Template',
                 description: 'A template that should fail',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     // Return invalid result (not an object with properties)
                     return "invalid"
@@ -569,6 +577,7 @@ describe('HogTransformer', () => {
                 name: 'Success Template',
                 description: 'A template that should succeed',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.success := true
@@ -1254,6 +1263,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := true
@@ -1296,6 +1306,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A simple test template',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.test_property := true
@@ -1409,6 +1420,7 @@ describe('HogTransformer', () => {
                 name: 'Disabled Test Template',
                 description: 'A test template that should be skipped due to disabled state',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.should_not_be_set := true
@@ -1466,6 +1478,7 @@ describe('HogTransformer', () => {
                 name: 'Healthy Test Template',
                 description: 'A test template that should execute because state is healthy',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.should_be_set := true
@@ -1524,6 +1537,7 @@ describe('HogTransformer', () => {
                 name: 'Test Template',
                 description: 'A test template that should execute despite disabled state because hogwatcher is off',
                 category: ['Custom'],
+                code_language: 'hog',
                 hog: `
                     let returnEvent := event
                     returnEvent.properties.should_be_set := true
