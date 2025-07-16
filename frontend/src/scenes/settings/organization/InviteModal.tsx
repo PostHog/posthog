@@ -5,18 +5,18 @@ import { LemonInput, LemonSelect, LemonTextArea, Link, Tooltip } from '@posthog/
 import { useActions, useValues } from 'kea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { isEmail, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, isEmail, pluralize } from 'lib/utils'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { inviteLogic } from './inviteLogic'
-import { AvailableFeature } from '~/types'
+import { AccessControlLevel, AvailableFeature } from '~/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 /** Shuffled placeholder names */
@@ -59,7 +59,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
         (project: any) => !selectedProjects.some((selected) => selected.id === project.id)
     )
 
-    const addProjectAccess = (projectId: number, level: TeamMembershipLevel): void => {
+    const addProjectAccess = (projectId: number, level: AccessControlLevel): void => {
         addProjectAccessAction(inviteIndex, projectId, level)
     }
 
@@ -67,7 +67,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
         removeProjectAccessAction(inviteIndex, projectId)
     }
 
-    const updateProjectAccess = (projectId: number, level: TeamMembershipLevel): void => {
+    const updateProjectAccess = (projectId: number, level: AccessControlLevel): void => {
         const newAccess = selectedProjects.map((access) => (access.id === projectId ? { ...access, level } : access))
         updateInviteAtIndex({ private_project_access: newAccess }, inviteIndex)
     }
@@ -80,10 +80,19 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
         <div className="space-y-2">
             <div className="flex items-center gap-2">
                 <h4 className="text-sm font-medium mb-0">Project access</h4>
-                <Tooltip title="Give this user access to specific projects. These access controls will be applied when the user accepts the invite and joins the organization. Learn more about access controls in our docs.">
-                    <Link to="https://posthog.com/docs/settings/access-control" target="_blank">
-                        <IconInfo className="text-muted-alt" />
-                    </Link>
+                <Tooltip
+                    title={
+                        <span>
+                            Give this user access to specific projects. These access controls will be applied when the
+                            user accepts the invite and joins the organization. Learn more about{' '}
+                            <Link to="https://posthog.com/docs/settings/access-control" target="_blank">
+                                access controls
+                            </Link>{' '}
+                            in our docs.
+                        </span>
+                    }
+                >
+                    <IconInfo className="text-muted-alt" />
                 </Tooltip>
                 {availableProjectsToShow.length > 0 && (
                     <LemonSelect
@@ -96,17 +105,18 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                         }))}
                         onChange={(projectId) => {
                             if (projectId) {
-                                addProjectAccess(Number(projectId), TeamMembershipLevel.Member)
+                                addProjectAccess(Number(projectId), AccessControlLevel.Member)
                             }
                         }}
                     />
                 )}
             </div>
 
-            {isOrgLevelAdminOrOwner && (
+            {isOrgLevelAdminOrOwner && selectedProjects.length > 0 && (
                 <LemonBanner type="warning" className="text-xs">
-                    This user will have {OrganizationMembershipLevel[invite.level]} access on the organization level,
-                    which will override any project-specific access controls.
+                    This user will have{' '}
+                    <span className="font-bold italic">{OrganizationMembershipLevel[invite.level].toLowerCase()}</span>{' '}
+                    access on the organization level, which will override any project-specific access controls.
                 </LemonBanner>
             )}
 
@@ -123,47 +133,50 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
 
                         return (
                             <div key={access.id} className="space-y-2">
-                                {isLowerThanDefault && (
-                                    <LemonBanner type="warning" className="text-xs">
-                                        The default access level for {project.name} is {defaultLevel}. Your selection of {access.level}
-                                        will be overridden by the default Admin access.
-                                    </LemonBanner>
-                                )}
-                                <div className="flex items-center gap-2 p-2 bg-bg-light rounded border">
-                                    <div className="flex-1">
-                                        <span className="font-medium">{project.name}</span>{' '}
-                                        {defaultLevel && <span>(default: {defaultLevel})</span>}
+                                <div className="p-2 bg-bg-light rounded border">
+                                    {isLowerThanDefault && (
+                                        <div className="mb-2">
+                                            <LemonBanner type="warning" className="text-xs">
+                                                <strong>{project.name}</strong> has a default access level of{' '}
+                                                <span className="font-bold italic">{defaultLevel}</span>. Since you
+                                                selected <span className="font-bold italic">{access.level}</span> (which
+                                                is lower), the user will actually get{' '}
+                                                <span className="font-bold italic">{defaultLevel}</span> access.
+                                            </LemonBanner>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex-1">
+                                            <span className="font-medium">{project.name}</span>{' '}
+                                            {defaultLevel && <span>(default: {defaultLevel})</span>}
+                                        </div>
+                                        <LemonSelect
+                                            className="bg-bg-light"
+                                            size="small"
+                                            options={[
+                                                {
+                                                    value: AccessControlLevel.Member,
+                                                    label: capitalizeFirstLetter(AccessControlLevel.Member),
+                                                },
+                                                {
+                                                    value: AccessControlLevel.Admin,
+                                                    label: capitalizeFirstLetter(AccessControlLevel.Admin),
+                                                },
+                                            ]}
+                                            value={access.level}
+                                            onChange={(level) => {
+                                                if (level) {
+                                                    updateProjectAccess(access.id, level)
+                                                }
+                                            }}
+                                        />
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconTrash />}
+                                            status="danger"
+                                            onClick={() => removeProjectAccess(access.id)}
+                                        />
                                     </div>
-                                    <LemonSelect
-                                        className="bg-bg-light"
-                                        size="small"
-                                        options={[
-                                            {
-                                                value: TeamMembershipLevel.Member,
-                                                label: TeamMembershipLevel[TeamMembershipLevel.Member],
-                                            },
-                                            {
-                                                value: TeamMembershipLevel.Admin,
-                                                label: TeamMembershipLevel[TeamMembershipLevel.Admin],
-                                            },
-                                        ]}
-                                        value={
-                                            access.level === 'member'
-                                                ? TeamMembershipLevel.Member
-                                                : TeamMembershipLevel.Admin
-                                        }
-                                        onChange={(level) => {
-                                            if (level) {
-                                                updateProjectAccess(access.id, level)
-                                            }
-                                        }}
-                                    />
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconTrash />}
-                                        status="danger"
-                                        onClick={() => removeProjectAccess(access.id)}
-                                    />
                                 </div>
                             </div>
                         )

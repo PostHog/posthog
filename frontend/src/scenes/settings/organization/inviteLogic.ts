@@ -2,13 +2,13 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { OrganizationInviteType } from '~/types'
+import { AccessControlLevel, OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
 
@@ -19,7 +19,7 @@ export interface InviteRowState {
     level: OrganizationMembershipLevel
     isValid: boolean
     message?: string
-    private_project_access: Array<{ id: number; level: 'member' | 'admin' }>
+    private_project_access: Array<{ id: number; level: AccessControlLevel.Member | AccessControlLevel.Admin }>
 }
 
 const EMPTY_INVITE: InviteRowState = {
@@ -45,7 +45,7 @@ export const inviteLogic = kea<inviteLogicType>([
         appendInviteRow: true,
         resetInviteRows: true,
         setIsInviteConfirmed: (inviteConfirmed: boolean) => ({ inviteConfirmed }),
-        addProjectAccess: (inviteIndex: number, projectId: number, level: TeamMembershipLevel) => ({
+        addProjectAccess: (inviteIndex: number, projectId: number, level: AccessControlLevel) => ({
             inviteIndex,
             projectId,
             level,
@@ -156,7 +156,10 @@ export const inviteLogic = kea<inviteLogicType>([
                     )
 
                     // Add new access
-                    invite.private_project_access.push({ id: projectId, level })
+                    invite.private_project_access.push({
+                        id: projectId,
+                        level: level as AccessControlLevel.Member | AccessControlLevel.Admin,
+                    })
                     newState[inviteIndex] = invite
                     return newState
                 },
