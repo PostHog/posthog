@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconMarkdown, IconTools } from 'lib/lemon-ui/icons'
+import { IconMarkdown, IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTextArea, LemonTextAreaProps } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
 import React, { useRef, useState } from 'react'
@@ -40,44 +39,51 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                         key: 'write',
                         label: 'Write',
                         content: (
-                            <div ref={dropRef} className="LemonTextMarkdown flex flex-col deprecated-space-y-1 rounded">
+                            <div ref={dropRef} className="LemonTextMarkdown flex flex-col gap-y-1 rounded">
                                 <LemonTextArea
                                     ref={ref}
                                     {...editAreaProps}
                                     autoFocus
                                     value={value}
                                     onChange={onChange}
+                                    rightFooter={
+                                        <>
+                                            <Tooltip title="Markdown formatting supported">
+                                                <div>
+                                                    <IconMarkdown className="text-xl" />
+                                                </div>
+                                            </Tooltip>
+                                        </>
+                                    }
+                                    actions={[
+                                        <LemonFileInput
+                                            key="file-upload"
+                                            accept={'image/*'}
+                                            multiple={false}
+                                            alternativeDropTargetRef={dropRef}
+                                            onChange={setFilesToUpload}
+                                            loading={uploading}
+                                            value={filesToUpload}
+                                            callToAction={
+                                                objectStorageAvailable ? (
+                                                    <Tooltip title="Click here or drag and drop to upload images">
+                                                        <div className="rounded hover:bg-fill-button-tertiary-hover px-1 py-0.5">
+                                                            {' '}
+                                                            <IconUploadFile className="text-xl" />
+                                                        </div>
+                                                    </Tooltip>
+                                                ) : (
+                                                    <Tooltip title="Enable object storage to add images by dragging and dropping">
+                                                        <div className="rounded px-1 py-0.5">
+                                                            {' '}
+                                                            <IconUploadFile className="text-xl" />
+                                                        </div>
+                                                    </Tooltip>
+                                                )
+                                            }
+                                        />,
+                                    ]}
                                 />
-                                <div className="text-secondary inline-flex items-center deprecated-space-x-1">
-                                    <IconMarkdown className="text-2xl" />
-                                    <span>Markdown formatting support</span>
-                                </div>
-                                {objectStorageAvailable ? (
-                                    <LemonFileInput
-                                        accept={'image/*'}
-                                        multiple={false}
-                                        alternativeDropTargetRef={dropRef}
-                                        onChange={setFilesToUpload}
-                                        loading={uploading}
-                                        value={filesToUpload}
-                                    />
-                                ) : (
-                                    <div className="text-secondary inline-flex items-center deprecated-space-x-1">
-                                        <Tooltip title="Enable object storage to add images by dragging and dropping.">
-                                            <span>
-                                                <IconTools className="text-xl mr-1" />
-                                            </span>
-                                        </Tooltip>
-                                        <span>
-                                            Add external images using{' '}
-                                            <Link to="https://www.markdownguide.org/basic-syntax/#images-1">
-                                                {' '}
-                                                Markdown image links
-                                            </Link>
-                                            .
-                                        </span>
-                                    </div>
-                                )}
                             </div>
                         ),
                     },
