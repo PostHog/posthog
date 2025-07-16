@@ -1,4 +1,3 @@
-from typing import cast
 import uuid
 
 from inline_snapshot import snapshot
