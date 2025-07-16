@@ -138,40 +138,43 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return query
 
+    def _default_breakdown_query(self) -> ast.SelectQuery:
+        previous_period_filter, current_period_filter = self.get_date_ranges()
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+            SELECT
+                {breakdown_field} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`
+            FROM web_stats_combined
+            WHERE {filters}
+            GROUP BY `context.columns.breakdown_value`
+            """,
+                placeholders={
+                    "breakdown_field": self._get_breakdown_field(),
+                    "visitors_tuple": self._period_comparison_tuple(
+                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "views_tuple": self._period_comparison_tuple(
+                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                    ),
+                    "filters": self._get_filters(table_name="web_stats_combined"),
+                },
+            ),
+        )
+
+        return query
+
     def get_query(self) -> ast.SelectQuery:
         if self.runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
             query = self._bounce_rate_query()
         elif self.runner.query.breakdownBy == WebStatsBreakdown.PAGE:
             query = self._path_query()
         else:
-            previous_period_filter, current_period_filter = self.get_date_ranges()
-
-            query = cast(
-                ast.SelectQuery,
-                parse_select(
-                    """
-                SELECT
-                    {breakdown_field} as `context.columns.breakdown_value`,
-                    {visitors_tuple} AS `context.columns.visitors`,
-                    {views_tuple} as `context.columns.views`
-                FROM web_stats_combined
-                GROUP BY `context.columns.breakdown_value`
-                """,
-                    placeholders={
-                        "breakdown_field": self._get_breakdown_field(),
-                        "visitors_tuple": self._period_comparison_tuple(
-                            "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
-                        ),
-                        "views_tuple": self._period_comparison_tuple(
-                            "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
-                        ),
-                    },
-                ),
-            )
-
-            filters = self._get_filters(table_name="web_stats_combined")
-            if filters:
-                query.where = filters
+            query = self._default_breakdown_query()
 
         query.order_by = [self._get_order_by()]
 
