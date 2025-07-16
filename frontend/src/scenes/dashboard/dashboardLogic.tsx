@@ -97,7 +97,7 @@ export interface RefreshStatus {
 export enum DashboardLoadAction {
     /** Initial dashboard load, when no variables are present. */
     InitialLoad = 'initial_load',
-    /** Initial dashboard load, when variables are present. Deferred until variables are loaded. */
+    /** Initial dashboard load, when variables are present in the URL. Deferred until variables are loaded. */
     InitialLoadWithVariables = 'initial_load_with_variables',
     /** Get a fresh copy of the dashboard after it was updated (e.g. a tile was duplicated or removed). */
     Update = 'update',
