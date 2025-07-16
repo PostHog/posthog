@@ -2630,11 +2630,15 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(HogqlxChildElement) {
-    if (ctx->hogqlxTagElement())
-      return visitAsPyObject(ctx->hogqlxTagElement());
-    if (ctx->hogqlxText())
-      return visitAsPyObject(ctx->hogqlxText());
-    return visitAsPyObject(ctx->columnExpr());   // {...} interpolation
+    auto tag_element_ctx = ctx->hogqlxTagElement();
+    if (tag_element_ctx) {
+      return visitAsPyObject(tag_element_ctx);
+    }
+    auto text_element_ctx = ctx->hogqlxText();
+    if (text_element_ctx) {
+      return visitAsPyObject(text_element_ctx);
+    }
+    return visitAsPyObject(ctx->columnExpr());
   }
 
   VISIT(HogqlxText) {
@@ -2645,8 +2649,8 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(HogqlxTagElementClosed) {
     string kind = visitAsString(ctx->identifier());
     RETURN_NEW_AST_NODE(
-      "HogQLXTag", "{s:s#,s:N}", "kind", kind.data(), kind.size(), "attributes",
-      visitPyListOfObjects(ctx->hogqlxTagAttribute())
+        "HogQLXTag", "{s:s#,s:N}", "kind", kind.data(), kind.size(), "attributes",
+        visitPyListOfObjects(ctx->hogqlxTagAttribute())
     );
   }
 
