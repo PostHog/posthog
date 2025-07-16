@@ -25,9 +25,6 @@ patchedDependencies:
   heatmap.js@2.0.5:
     hash: gydrxrztd4ruyhouu6tu7zh43e
     path: patches/heatmap.js@2.0.5.patch
-  node-rdkafka@2.17.0:
-    hash: bugorwxdhlhl2utknko2c5ibqm
-    path: patches/node-rdkafka@2.17.0.patch
 
 importers:
 
@@ -1360,8 +1357,8 @@ importers:
         specifier: ^2.6.1
         version: 2.6.9(encoding@0.1.13)
       node-rdkafka:
-        specifier: ^2.17.0
-        version: 2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm)
+        specifier: ^3.4.1
+        version: 3.4.1
       node-schedule:
         specifier: ^2.1.0
         version: 2.1.1
@@ -13117,9 +13114,9 @@ packages:
     resolution: {integrity: sha512-RM5oyBy45cLEoHqCeh+MNuFAxO0vTFBLskvQbOKnEE7YTTSN4tbN8QWDIPQ6L+WvKsB/qLEGpYe2ZZ9d4W9OIQ==}
     engines: {node: '>=8'}
 
-  node-rdkafka@2.17.0:
-    resolution: {integrity: sha512-vFABzRcE5FaH0WqfqJRxDoqeG6P8UEB3M4qFQ7SkwMgQueMMO78+fm8MYfl5hLW3bBYfBekK2BXIIr0lDQtSEQ==}
-    engines: {node: '>=6.0.0'}
+  node-rdkafka@3.4.1:
+    resolution: {integrity: sha512-qWEjyeZmCNtc7MVUucl9xRsSSXdmMS3lQOiQU15fXIFaLK0K3OZr5T6VTjAAIgz+yoATvaCBDXmMc4RiK65eTg==}
+    engines: {node: '>=16'}
 
   node-releases@2.0.19:
     resolution: {integrity: sha512-xxOWJsBKtzAq7DY0J+DTzuz58K8e7sJbdgwkbMWQe8UYB6ekmsQ45q0M/tJDsGaZmbC+l7n57UV8Hl5tHxO9uw==}
@@ -31506,10 +31503,10 @@ snapshots:
     dependencies:
       process-on-spawn: 1.0.0
 
-  node-rdkafka@2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm):
+  node-rdkafka@3.4.1:
     dependencies:
       bindings: 1.5.0
-      nan: 2.17.0
+      nan: 2.22.0
 
   node-releases@2.0.19: {}
 

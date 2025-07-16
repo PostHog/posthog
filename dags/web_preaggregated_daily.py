@@ -8,6 +8,7 @@ import structlog
 import chdb
 from dags.common import JobOwners, dagster_tags
 from dags.web_preaggregated_utils import (
+    HISTORICAL_DAILY_CRON_SCHEDULE,
     TEAM_IDS_WITH_WEB_PREAGGREGATED_ENABLED,
     CLICKHOUSE_SETTINGS,
     merge_clickhouse_settings,
@@ -323,7 +324,7 @@ web_pre_aggregate_daily_job = dagster.define_asset_job(
 
 
 @dagster.schedule(
-    cron_schedule="0 1 * * *",
+    cron_schedule=HISTORICAL_DAILY_CRON_SCHEDULE,
     job=web_pre_aggregate_daily_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
