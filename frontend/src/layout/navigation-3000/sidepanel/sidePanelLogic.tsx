@@ -9,6 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
+import { combineUrl, router, urlToAction } from 'kea-router'
+import { urls } from 'scenes/urls'
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
@@ -154,5 +156,24 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 return enabledTabs.filter((tab: any) => !visibleTabs.includes(tab))
             },
         ],
+    }),
+    urlToAction(() => {
+        return {
+            '/': (_, _searchParams, hashParams): void => {
+                // Redirect old feature preview side panel links to new settings page
+                if (hashParams.panel?.includes('feature-previews')) {
+                    const parts = hashParams.panel.split(':')
+                    // from: ${url}/#panel=feature-previews
+                    // to:   ${url}/settings/user-feature-previews
+                    if (parts.length > 1) {
+                        // from: ${url}/#panel=feature-previews%3A${flagKey}
+                        // to:   ${url}/settings/user-feature-previews#${flagKey}
+                        router.actions.replace(combineUrl(urls.settings('user-feature-previews'), {}, parts[1]).url)
+                    } else {
+                        router.actions.replace(urls.settings('user-feature-previews'))
+                    }
+                }
+            },
+        }
     }),
 ])

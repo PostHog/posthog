@@ -569,6 +569,15 @@ export const redirects: Record<
     '/settings/organization-rbac': urls.settings('organization-roles'),
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    '/': (_params, _searchParams, hashParams) => {
+        if (hashParams.panel?.includes('feature-previews')) {
+            if (hashParams.panel?.includes('%3A')) {
+                return combineUrl(urls.settings('user-feature-previews'), {}, hashParams.panel.split('%3A')[1]).url
+            }
+            return urls.settings('user-feature-previews')
+        }
+        return urls.dashboards()
+    },
     ...productRedirects,
 }
 
