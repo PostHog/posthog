@@ -7,6 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.utils import capture_exception
+from posthog.models import User
+from typing import cast
 
 logger = structlog.get_logger(__name__)
 
@@ -29,15 +31,16 @@ def ensure_zendesk_organization(request: Request) -> Response:
         data = request.data
         org_id = data.get("organization_id")
         org_name = data.get("organization_name")
+        user = cast(User, request.user)
 
         # Validate that the user can only submit for their own organization
-        if request.user.current_organization_id and str(org_id) != str(request.user.current_organization_id):
+        if user.current_organization_id and str(org_id) != str(user.current_organization_id):
             capture_exception(
                 Exception("User attempted to create Zendesk organization for different organization"),
                 {
-                    "user_org_id": request.user.current_organization_id,
+                    "user_org_id": user.current_organization_id,
                     "requested_org_id": org_id,
-                    "user_email": request.user.email,
+                    "user_email": user.email,
                 },
             )
             return Response({"status": "success"})
@@ -48,7 +51,7 @@ def ensure_zendesk_organization(request: Request) -> Response:
                 {
                     "org_id": org_id,
                     "org_name": org_name,
-                    "user_email": request.user.email,
+                    "user_email": user.email,
                 },
             )
             return Response({"status": "success"})
@@ -60,7 +63,7 @@ def ensure_zendesk_organization(request: Request) -> Response:
                 {
                     "org_id": org_id,
                     "org_name": org_name,
-                    "user_email": request.user.email,
+                    "user_email": user.email,
                 },
             )
             return Response({"status": "success"})
@@ -100,7 +103,7 @@ def ensure_zendesk_organization(request: Request) -> Response:
             {
                 "org_id": org_id,
                 "org_name": org_name,
-                "user_email": request.user.email,
+                "user_email": user.email,
             },
         )
         logger.warning(

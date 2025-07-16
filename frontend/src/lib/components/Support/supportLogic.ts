@@ -762,8 +762,8 @@ export const supportLogic = kea<supportLogicType>([
                     context: 'zendesk_organization_creation',
                     organization_id: organizationLogic.values.currentOrganization?.id,
                     organization_name: organizationLogic.values.currentOrganization?.name,
-                    error_message: error.message,
-                    error_status: error.status,
+                    error_message: error instanceof Error ? error.message : String(error),
+                    error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
                 })
             }
         },
