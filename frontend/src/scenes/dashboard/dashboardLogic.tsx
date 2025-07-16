@@ -1261,9 +1261,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setProperties(values.filters.properties ?? null)
             actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
         },
-        updateFiltersAndLayoutsAndVariablesSuccess: () => {
-            actions.loadDashboard({ action: DashboardLoadAction.Update })
-        },
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
