@@ -21,14 +21,7 @@ import {
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import {
-    GroupTypeIndex,
-    PropertyFilterType,
-    PropertyFilterValue,
-    PropertyFilterBaseValue,
-    PropertyOperator,
-    PropertyType,
-} from '~/types'
+import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -228,12 +221,12 @@ export function PropertyValue({
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
-    return isFlagDependencyProperty ? (
-        <LemonInputSelect<PropertyFilterBaseValue>
+    return (
+        <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
             loading={propertyOptions?.status === 'loading'}
-            value={typedValues}
+            value={isFlagDependencyProperty ? typedValues : formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
             allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
@@ -250,52 +243,17 @@ export function PropertyValue({
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: value }, index) => {
                 const name = toString(value)
-                const hasVariants = displayOptions.length > 2
+                const hasVariants = isFlagDependencyProperty && displayOptions.length > 2
                 let tooltip: string | undefined = undefined
 
                 // Add tooltip for boolean values when flag has variants
-                if (typeof value === 'boolean' && hasVariants) {
+                if (isFlagDependencyProperty && typeof value === 'boolean' && hasVariants) {
                     tooltip = value
                         ? 'Matches any variant of the flag'
                         : "Flag is disabled or doesn't match any conditions"
                 }
 
-                return {
-                    key: name,
-                    label: name,
-                    labelComponent: (
-                        <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {formatLabelContent(value)}
-                        </span>
-                    ),
-                    value,
-                    tooltip,
-                }
-            })}
-        />
-    ) : (
-        <LemonInputSelect
-            className={inputClassName}
-            data-attr="prop-val"
-            loading={propertyOptions?.status === 'loading'}
-            value={formattedValues}
-            mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
-            onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
-            onInputChange={onSearchTextChange}
-            placeholder={placeholder}
-            size={size}
-            title={
-                PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
-                    ? 'Suggested values (last 7 days)'
-                    : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                    ? 'Suggested values'
-                    : undefined
-            }
-            popoverClassName="max-w-200"
-            options={displayOptions.map(({ name: value }, index) => {
-                const name = toString(value)
-                return {
+                const option: any = {
                     key: name,
                     label: name,
                     labelComponent: (
@@ -304,6 +262,15 @@ export function PropertyValue({
                         </span>
                     ),
                 }
+
+                if (isFlagDependencyProperty) {
+                    option.value = value
+                    if (tooltip) {
+                        option.tooltip = tooltip
+                    }
+                }
+
+                return option
             })}
         />
     )
