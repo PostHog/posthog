@@ -31,6 +31,8 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
 
     paginator = Paginator(query.all(), 100)
 
+    hook_ids_to_delete = []
+
     for page_number in paginator.page_range:
         page = paginator.page(page_number)
         hog_functions: list[HogFunction] = []
@@ -47,13 +49,14 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
 
         if not dry_run:
             HogFunction.objects.bulk_create(hog_functions)
+            hook_ids_to_delete.extend([hook.id for hook in page.object_list])
         else:
             print("Would have created the following HogFunctions:")  # noqa: T201
             for hog_function in hog_functions:
                 print(hog_function)  # noqa: T201
 
     if not dry_run:
-        query.delete()
+        query.filter(id__in=hook_ids_to_delete).delete()
         reload_all_hog_functions_on_workers()
 
 
