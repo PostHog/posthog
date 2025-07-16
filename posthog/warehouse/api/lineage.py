@@ -68,7 +68,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     root_query = DataWarehouseSavedQuery.objects.filter(id=model_id, team_id=team_id).first()
     if not root_query:
         return dag
-    
+
     node_data[root_query.name] = {
         "id": root_query.name,
         "type": "view",
@@ -82,32 +82,29 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     # Recursively fetch all dependencies with a bfs
     # Fetch everything by names, ids and names are the same right now
     to_process = [(root_query.name, root_query.external_tables)]
-    
+
     while to_process:
         current_id, external_tables = to_process.pop(0)
-        
+
         # Batch lookup all external tables at this level
         unseen_external_tables = [et for et in external_tables if et not in seen_nodes]
         if unseen_external_tables:
             saved_queries = {
-                sq.name: sq for sq in DataWarehouseSavedQuery.objects.filter(
-                    name__in=unseen_external_tables, team_id=team_id
-                )
+                sq.name: sq
+                for sq in DataWarehouseSavedQuery.objects.filter(name__in=unseen_external_tables, team_id=team_id)
             }
             tables = {
-                t.name: t for t in DataWarehouseTable.objects.filter(
-                    name__in=unseen_external_tables, team_id=team_id
-                )
+                t.name: t for t in DataWarehouseTable.objects.filter(name__in=unseen_external_tables, team_id=team_id)
             }
-        
+
         for external_table in external_tables:
             edge = {"source": external_table, "target": current_id}
             if edge not in dag["edges"]:
                 dag["edges"].append(edge)
-            
+
             if external_table not in seen_nodes:
                 seen_nodes.add(external_table)
-                
+
                 # Process the current external table
                 saved_query = saved_queries.get(external_table)
                 if saved_query:
