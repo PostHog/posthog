@@ -199,6 +199,10 @@ export class IngestionConsumer {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
+        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
+        logger.info('🔁', `${this.name} - stopping batch consumer`)
+        await this.kafkaConsumer?.disconnect()
+
         // Wait for current batch and scheduled promises to complete before proceeding with shutdown (if feature flag is enabled)
         if (this.hub.KAFKA_CONSUMER_GRACEFUL_SHUTDOWN) {
             if (this.currentBatchPromise) {
@@ -210,9 +214,6 @@ export class IngestionConsumer {
             await this.promiseScheduler.waitForAll()
         }
 
-        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        logger.info('🔁', `${this.name} - stopping batch consumer`)
-        await this.kafkaConsumer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
