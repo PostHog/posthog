@@ -1174,55 +1174,29 @@ async fn test_fetch_and_filter_flags() {
         only_evaluate_survey_feature_flags: Some(true),
         ..Default::default()
     };
-    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
+    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 2);
-    assert!(result
-        .flags
-        .iter()
-        .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+    assert!(result.flags.iter().all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+    assert!(!had_errors);
 
     // Test 2: only_evaluate_survey_feature_flags = false
     let query_params = FlagsQueryParams {
         only_evaluate_survey_feature_flags: Some(false),
         ..Default::default()
     };
-    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
+    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 4);
-    assert!(result
-        .flags
-        .iter()
-        .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+    assert!(!had_errors);
 
-    // Test 3: only_evaluate_survey_feature_flags not set
+    // Test 3: default behavior (should return all flags)
     let query_params = FlagsQueryParams::default();
-    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
+    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 4);
-    assert!(result
-        .flags
-        .iter()
-        .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
-
-    // Test 4: Survey filter only (flag_keys filtering now happens in evaluation logic)
-    let query_params = FlagsQueryParams {
-        only_evaluate_survey_feature_flags: Some(true),
-        ..Default::default()
-    };
-
-    let result = fetch_and_filter(&flag_service, team.project_id, &query_params)
-        .await
-        .unwrap();
-
-    // Should return all survey flags since flag_keys filtering now happens in evaluation logic
-    // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation
-    assert_eq!(result.flags.len(), 2);
-    assert!(result
-        .flags
-        .iter()
-        .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+    assert!(!had_errors);
 }
