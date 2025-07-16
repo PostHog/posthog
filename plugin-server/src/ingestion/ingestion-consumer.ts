@@ -263,7 +263,38 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
+    private logBatchStart(messages: Message[]): void {
+        // Log earliest message from each partition to detect duplicate processing across pods
+        const podName = process.env.HOSTNAME || 'unknown'
+        const partitionEarliestMessages = new Map<number, Message>()
+        const partitionBatchSizes = new Map<number, number>()
+
+        messages.forEach((message) => {
+            const existing = partitionEarliestMessages.get(message.partition)
+            if (!existing || message.offset < existing.offset) {
+                partitionEarliestMessages.set(message.partition, message)
+            }
+            partitionBatchSizes.set(message.partition, (partitionBatchSizes.get(message.partition) || 0) + 1)
+        })
+
+        partitionEarliestMessages.forEach((message) => {
+            logger.info('📖', `KAFKA_BATCH_START: ${this.name}`, {
+                pod: podName,
+                topic: message.topic,
+                partition: message.partition,
+                offset: message.offset,
+                timestamp: message.timestamp,
+                groupId: this.groupId,
+                batchSize: partitionBatchSizes.get(message.partition) || 0,
+            })
+        })
+    }
+
     public async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<any> }> {
+        if (this.hub.KAFKA_BATCH_START_LOGGING_ENABLED) {
+            this.logBatchStart(messages)
+        }
+
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
         const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
