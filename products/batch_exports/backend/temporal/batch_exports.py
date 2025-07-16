@@ -398,6 +398,8 @@ class FinishBatchExportRunInputs:
             See the docstring in 'pause_batch_export_if_over_failure_threshold'.
         failure_check_window: Used when determining to pause a batch export that has failed.
             See the docstring in 'pause_batch_export_if_over_failure_threshold'.
+        bytes_exported: Total number of bytes exported.
+            This is the size of the actual data exported, which takes into account the file type and compression.
     """
 
     id: str
@@ -409,6 +411,7 @@ class FinishBatchExportRunInputs:
     records_total_count: int | None = None
     failure_threshold: int = 10
     failure_check_window: int = 50
+    bytes_exported: int | None = None
 
 
 @activity.defn
