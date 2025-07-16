@@ -22,23 +22,20 @@ class WebAnalyticsDataFactory:
             "sessions": (400, 2500),
         }
 
-        self.breakdown_values: dict[str, list[str]] = {
-            "Page": ["/home", "/products", "/about", "/pricing", "/blog", "/contact", "/features", "/login", "/signup"],
-            "InitialPage": ["/home", "/products", "/blog", "/pricing", "/about", "/features"],
-            "ExitPage": ["/contact", "/pricing", "/checkout", "/home", "/products"],
-            "InitialReferringDomain": ["google.com", "facebook.com", "direct", "twitter.com", "linkedin.com"],
-            "InitialUTMSource": ["google", "facebook", "twitter", "linkedin", "email"],
-            "InitialUTMCampaign": ["summer_sale", "product_launch", "brand_awareness", "retargeting"],
-            "InitialUTMMedium": ["cpc", "organic", "email", "social", "referral"],
-            "InitialUTMTerm": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-            "InitialUTMContent": ["banner_top", "banner_side", "text_link", "button_cta", "footer_link"],
-            "Viewport": ["1920x1080", "1366x768", "1440x900", "1536x864", "1280x720", "375x667", "414x896"],
-            "Browser": ["Chrome", "Safari", "Firefox", "Edge", "Opera"],
-            "OS": ["Windows", "macOS", "iOS", "Android", "Linux"],
-            "DeviceType": ["Desktop", "Mobile", "Tablet"],
-            "Country": ["US", "GB", "CA", "DE", "FR", "AU", "JP", "BR"],
-            "Region": ["California, US", "Texas, US", "New York, US", "England, GB"],
-            "City": ["San Francisco", "New York", "London", "Toronto", "Berlin"],
+        self.breakdown_values = {
+            "page": ["/home", "/products", "/about", "/pricing", "/blog", "/contact", "/features", "/login", "/signup"],
+            "entry_page": ["/home", "/products", "/blog", "/pricing", "/about", "/features"],
+            "exit_page": ["/contact", "/pricing", "/checkout", "/home", "/products"],
+            "referrer": ["google.com", "facebook.com", "direct", "twitter.com", "linkedin.com"],
+            "utm_source": ["google", "facebook", "twitter", "linkedin", "email"],
+            "utm_campaign": ["summer_sale", "product_launch", "brand_awareness", "retargeting"],
+            "utm_medium": ["cpc", "organic", "email", "social", "referral"],
+            "browser": ["Chrome", "Safari", "Firefox", "Edge", "Opera"],
+            "os": ["Windows", "macOS", "iOS", "Android", "Linux"],
+            "device": ["Desktop", "Mobile", "Tablet"],
+            "country": ["US", "GB", "CA", "DE", "FR", "AU", "JP", "BR"],
+            "region": ["California, US", "Texas, US", "New York, US", "England, GB"],
+            "city": ["San Francisco", "New York", "London", "Toronto", "Berlin"],
         }
 
     def _get_api_url(self, request: Request, team_id: int, endpoint: str, params: dict) -> str:

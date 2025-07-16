@@ -4,12 +4,16 @@ import pytest
 from typing import Any
 
 from posthog.api.external_web_analytics.query_adapter import ExternalWebAnalyticsQueryAdapter
-from posthog.api.external_web_analytics.serializers import WebAnalyticsOverviewRequestSerializer
-from posthog.schema import WebOverviewItem, WebOverviewItemKind
+from posthog.api.external_web_analytics.serializers import (
+    EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
+    WebAnalyticsOverviewRequestSerializer,
+    WebAnalyticsBreakdownRequestSerializer,
+)
+from posthog.schema import WebOverviewItem, WebOverviewItemKind, WebStatsBreakdown
 from posthog.test.base import APIBaseTest
 
 
-class TestExternalWebAnalyticsQueryAdapter(APIBaseTest):
+class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
     @pytest.fixture(autouse=True)
     def setup_fixtures(self):
         self.serializer_data = {
@@ -293,3 +297,301 @@ class TestExternalWebAnalyticsQueryAdapter(APIBaseTest):
                 result = adapter.get_overview_data(serializer)
 
                 assert result["bounce_rate"] == expected_external
+
+
+class TestExternalWebAnalyticsBreakdownQueryAdapter(APIBaseTest):
+    @pytest.fixture(autouse=True)
+    def setup_breakdown_fixtures(self):
+        self.breakdown_serializer_data = {
+            "date_from": date(2025, 1, 1),
+            "date_to": date(2025, 1, 31),
+            "breakdown_by": "Browser",
+            "domain": "example.com",
+            "filter_test_accounts": True,
+            "do_path_cleaning": True,
+            "limit": 100,
+            "metrics": ["visitors", "views"],
+        }
+
+    def _create_mock_breakdown_request_serializer(self, **overrides):
+        serializer = MagicMock(spec=WebAnalyticsBreakdownRequestSerializer)
+        data = {**self.breakdown_serializer_data, **overrides}
+        serializer.validated_data = {k: v for k, v in data.items() if v is not None}
+        return serializer
+
+    def _create_mock_breakdown_response(self, columns, results):
+        response = MagicMock()
+        response.columns = columns
+        response.results = results
+        return response
+
+    def test_breakdown_transforms_data_correctly(self):
+        columns = ["context.columns.breakdown_value", "context.columns.visitors", "context.columns.views"]
+        results = [
+            ["Chrome", (150, 120), (500, 400)],
+            ["Firefox", (100, 90), (300, 250)],
+            ["Safari", (80, 70), (200, 180)],
+        ]
+
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer()
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            result = adapter.get_breakdown_data(serializer)
+
+            assert result["count"] == 3
+            assert len(result["results"]) == 3
+
+            # Check first result
+            first_result = result["results"][0]
+            assert first_result["breakdown_value"] == "Chrome"
+            assert first_result["visitors"] == 150
+            assert first_result["views"] == 500
+
+            # Check second result
+            second_result = result["results"][1]
+            assert second_result["breakdown_value"] == "Firefox"
+            assert second_result["visitors"] == 100
+            assert second_result["views"] == 300
+
+    def test_breakdown_with_bounce_rate(self):
+        columns = [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.views",
+            "context.columns.bounce_rate",
+        ]
+        results = [
+            ["/home", (200, 180), (400, 350), (0.25, 0.30)],
+            ["/about", (150, 130), (200, 180), (0.35, 0.40)],
+        ]
+
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer(
+                breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
+            )
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            result = adapter.get_breakdown_data(serializer)
+
+            assert result["count"] == 2
+            first_result = result["results"][0]
+            assert first_result["breakdown_value"] == "/home"
+            assert first_result["visitors"] == 200
+            assert first_result["views"] == 400
+            assert first_result["bounce_rate"] == 0.25
+
+    def test_breakdown_filters_metrics_correctly(self):
+        columns = [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.views",
+            "context.columns.bounce_rate",
+        ]
+        results = [
+            ["Chrome", (150, 120), (500, 400), (0.25, 0.30)],
+        ]
+
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer(metrics=["visitors"])
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            result = adapter.get_breakdown_data(serializer)
+
+            first_result = result["results"][0]
+            assert "breakdown_value" in first_result
+            assert "visitors" in first_result
+            assert "views" not in first_result
+            assert "bounce_rate" not in first_result
+
+    def test_breakdown_handles_null_values(self):
+        columns = ["context.columns.breakdown_value", "context.columns.visitors", "context.columns.views"]
+        results = [
+            ["Chrome", (150, 120), (500, 400)],
+            [None, (50, 40), (100, 80)],
+        ]
+
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer()
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            result = adapter.get_breakdown_data(serializer)
+
+            assert result["count"] == 2
+            assert result["results"][0]["breakdown_value"] == "Chrome"
+            assert result["results"][1]["breakdown_value"] == EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE
+
+    def test_breakdown_empty_results(self):
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            # Empty results but with valid columns structure
+            columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer()
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            result = adapter.get_breakdown_data(serializer)
+
+            assert result["count"] == 0
+            assert result["results"] == []
+            assert result["next"] is None
+            assert result["previous"] is None
+
+    def test_breakdown_missing_columns_raises_error(self):
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            # No columns indicates query execution error
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response([], [])
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer()
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+
+            with pytest.raises(ValueError, match="Query response missing columns"):
+                adapter.get_breakdown_data(serializer)
+
+    def test_breakdown_query_configuration(self):
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer(
+                breakdown_by="DeviceType", filter_test_accounts=False, do_path_cleaning=False, limit=50
+            )
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            adapter.get_breakdown_data(serializer)
+
+            _, kwargs = mock_runner_class.call_args
+            query = kwargs["query"]
+
+            assert query.breakdownBy == WebStatsBreakdown.DEVICE_TYPE
+            assert query.filterTestAccounts is False
+            assert query.doPathCleaning is False
+            assert query.limit == 50
+            assert query.includeBounceRate is False
+
+    def test_breakdown_with_bounce_rate_breakdowns(self):
+        bounce_rate_breakdowns = ["InitialPage", "Page"]
+
+        for breakdown_by in bounce_rate_breakdowns:
+            with patch(
+                "posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner"
+            ) as mock_runner_class:
+                mock_runner = MagicMock()
+                columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+                mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+                mock_runner_class.return_value = mock_runner
+
+                serializer = self._create_mock_breakdown_request_serializer(breakdown_by=breakdown_by)
+                adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+                adapter.get_breakdown_data(serializer)
+
+                _, kwargs = mock_runner_class.call_args
+                query = kwargs["query"]
+
+                assert query.includeBounceRate is True, f"Failed for breakdown_by: {breakdown_by}"
+
+    def test_breakdown_enum_conversion(self):
+        breakdown_mappings = {
+            "Browser": WebStatsBreakdown.BROWSER,
+            "DeviceType": WebStatsBreakdown.DEVICE_TYPE,
+            "OS": WebStatsBreakdown.OS,
+            "Country": WebStatsBreakdown.COUNTRY,
+            "Page": WebStatsBreakdown.PAGE,
+            "InitialPage": WebStatsBreakdown.INITIAL_PAGE,
+        }
+
+        for breakdown_str, expected_enum in breakdown_mappings.items():
+            with patch(
+                "posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner"
+            ) as mock_runner_class:
+                mock_runner = MagicMock()
+                columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+                mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+                mock_runner_class.return_value = mock_runner
+
+                serializer = self._create_mock_breakdown_request_serializer(breakdown_by=breakdown_str)
+                adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+                adapter.get_breakdown_data(serializer)
+
+                _, kwargs = mock_runner_class.call_args
+                query = kwargs["query"]
+
+                assert query.breakdownBy == expected_enum, f"Failed for breakdown: {breakdown_str}"
+
+    def test_breakdown_with_domain_filter(self):
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer(domain="app.example.com")
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            adapter.get_breakdown_data(serializer)
+
+            _, kwargs = mock_runner_class.call_args
+            query = kwargs["query"]
+
+            assert len(query.properties) == 1
+            assert query.properties[0].key == "$host"
+            assert query.properties[0].value == ["app.example.com"]
+
+    def test_breakdown_type_conversions(self):
+        columns = [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.views",
+            "context.columns.bounce_rate",
+        ]
+        results = [
+            ["/home", (150.0, 120.0), (500.0, 400.0), (0.25, 0.30)],
+        ]
+
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, results)
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer(
+                breakdown_by="Page", metrics=["visitors", "views", "bounce_rate"]
+            )
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            result = adapter.get_breakdown_data(serializer)
+
+            first_result = result["results"][0]
+            assert isinstance(first_result["visitors"], int)
+            assert isinstance(first_result["views"], int)
+            assert isinstance(first_result["bounce_rate"], float)
+
+    def test_breakdown_modifiers_configuration(self):
+        with patch("posthog.api.external_web_analytics.query_adapter.WebStatsTableQueryRunner") as mock_runner_class:
+            mock_runner = MagicMock()
+            columns = ["context.columns.breakdown_value", "context.columns.visitors"]
+            mock_runner.calculate.return_value = self._create_mock_breakdown_response(columns, [])
+            mock_runner_class.return_value = mock_runner
+
+            serializer = self._create_mock_breakdown_request_serializer()
+            adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
+            adapter.get_breakdown_data(serializer)
+
+            _, kwargs = mock_runner_class.call_args
+            modifiers = kwargs["modifiers"]
+
+            assert modifiers.useWebAnalyticsPreAggregatedTables is True
+            assert modifiers.convertToProjectTimezone is True
