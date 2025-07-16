@@ -106,9 +106,6 @@ export class HogFunctionHandler implements ActionHandler {
             },
         }
 
-        // TODO: Swap to `executeWithAsync` or something
-        // TODO: Take logs and metrics - modify them to have the correct app_source_id, instance_id as well as pre-pending the logs with the action ID
-
         return this.hogFunctionExecutor.executeWithAsyncFunctions(hogFunctionInvocation)
     }
 }

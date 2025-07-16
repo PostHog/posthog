@@ -10,7 +10,6 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorService } from '../../hog-executor.service'
-import { HogFunctionManagerService } from '../../managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { HogFunctionHandler } from './hog_function'
 
@@ -22,7 +21,6 @@ describe('HogFunctionHandler', () => {
     let hogFunctionHandler: HogFunctionHandler
     let mockHub: jest.Mocked<Hub>
     let mockHogFunctionExecutor: jest.Mocked<HogExecutorService>
-    let mockHogFunctionManager: jest.Mocked<HogFunctionManagerService>
     let mockHogFunctionTemplateManager: jest.Mocked<HogFunctionTemplateManagerService>
 
     let invocation: CyclotronJobInvocationHogFlow
@@ -35,15 +33,9 @@ describe('HogFunctionHandler', () => {
         } as any
 
         mockHogFunctionExecutor = new (HogExecutorService as any)()
-        mockHogFunctionManager = new (HogFunctionManagerService as any)()
         mockHogFunctionTemplateManager = new (HogFunctionTemplateManagerService as any)()
 
-        hogFunctionHandler = new HogFunctionHandler(
-            mockHub,
-            mockHogFunctionExecutor,
-            mockHogFunctionManager,
-            mockHogFunctionTemplateManager
-        )
+        hogFunctionHandler = new HogFunctionHandler(mockHub, mockHogFunctionExecutor, mockHogFunctionTemplateManager)
 
         invocation = {
             id: 'inv_123',
@@ -113,7 +105,6 @@ describe('HogFunctionHandler', () => {
         const handlerResult = await hogFunctionHandler.execute(invocation, action, result)
 
         expect(mockHogFunctionTemplateManager.getHogFunctionTemplate).toHaveBeenCalledWith('template_123')
-        expect(mockHogFunctionManager.enrichWithIntegrations).toHaveBeenCalled()
         expect(mockHogFunctionExecutor.executeWithAsyncFunctions).toHaveBeenCalled()
         expect(result.logs).toHaveLength(1)
         expect(result.logs[0].message).toBe('[Action:action_123] Function executed')
@@ -149,7 +140,7 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute(invocation, action, result)
 
-        expect(result.invocation.state.hogFunctionState).toEqual(functionResult.invocation.state)
+        expect(result.invocation.state.currentAction?.hogFunctionState).toEqual(functionResult.invocation.state)
         expect(result.invocation.queueParameters).toEqual({ some: 'param' })
         expect(handlerResult.scheduledAt).toEqual(scheduledAt)
         expect(handlerResult.nextAction).toBeUndefined()
@@ -187,13 +178,5 @@ describe('HogFunctionHandler', () => {
         mockHogFunctionExecutor.executeWithAsyncFunctions.mockResolvedValue(functionResult as any)
 
         await hogFunctionHandler.execute(invocation, action, result)
-
-        expect(mockHogFunctionManager.enrichWithIntegrations).toHaveBeenCalledTimes(1)
-        const enrichWithIntegrationsCall = mockHogFunctionManager.enrichWithIntegrations.mock.calls[0][0]
-        expect(enrichWithIntegrationsCall).toHaveLength(1)
-        const hogFunctionArg = enrichWithIntegrationsCall[0]
-        expect(hogFunctionArg.id).toBe(invocation.hogFlow.id)
-        expect(hogFunctionArg.team_id).toBe(invocation.teamId)
-        expect(hogFunctionArg.name).toBe('My Hog Flow - Test Template')
     })
 })

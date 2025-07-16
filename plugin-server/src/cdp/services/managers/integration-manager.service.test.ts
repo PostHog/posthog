@@ -17,7 +17,7 @@ describe('IntegrationManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new IntegrationManagerService(hub)
+        manager = new IntegrationManagerService(hub.pubSub, hub.db.postgres, hub.encryptedFields)
 
         const team = await getTeam(hub, 2)
 
