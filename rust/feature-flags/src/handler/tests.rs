@@ -1195,11 +1195,34 @@ async fn test_fetch_and_filter_flags() {
     assert_eq!(result.flags.len(), 4);
     assert!(!had_errors);
 
-    // Test 3: default behavior (should return all flags)
+    // Test 3: only_evaluate_survey_feature_flags not set
     let query_params = FlagsQueryParams::default();
     let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
         .await
         .unwrap();
     assert_eq!(result.flags.len(), 4);
     assert!(!had_errors);
+    assert!(result
+        .flags
+        .iter()
+        .any(|f| !f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
+
+    // Test 4: Survey filter only (flag_keys filtering now happens in evaluation logic)
+    let query_params = FlagsQueryParams {
+        only_evaluate_survey_feature_flags: Some(true),
+        ..Default::default()
+    };
+
+    let (result, had_errors) = fetch_and_filter(&flag_service, team.project_id, &query_params)
+        .await
+        .unwrap();
+
+    // Should return all survey flags since flag_keys filtering now happens in evaluation logic
+    // Survey filter keeps only survey flags, but flag_keys filtering is deferred to evaluation
+    assert!(!had_errors);
+    assert_eq!(result.flags.len(), 2);
+    assert!(result
+        .flags
+        .iter()
+        .all(|f| f.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)));
 }
