@@ -1136,7 +1136,7 @@ class GitHubIntegration:
 
         issue = response.json()
 
-        return {"id": issue["id"], "repository": repository}
+        return {"number": issue["number"], "repository": repository}
 
 
 class MetaAdsIntegration:

@@ -58,7 +58,11 @@ class HogQLGeneratorTool(MaxTool):
                     + SCHEMA_MESSAGE.format(schema_description=schema_description)
                     + "\n\n<current_query>\n{{{current_query}}}\n</current_query>",
                 ),
-                ("user", "Write a new HogQL query or tweak the current one to satisfy this request: " + instructions),
+                (
+                    "user",
+                    "Write a new HogQL query or modify the current one to satisfy this request. ONLY make formatting or casing changes if explicitly requested by the user. Request:"
+                    + instructions,
+                ),
             ],
             template_format="mustache",
         )
