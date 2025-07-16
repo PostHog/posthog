@@ -202,7 +202,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                               {
                                   label: (
                                       <>
-                                          Calendar heatmap{' '}
+                                          Calendar heatmap
                                           <LemonTag type="warning" className="uppercase ml-2">
                                               Beta
                                           </LemonTag>
