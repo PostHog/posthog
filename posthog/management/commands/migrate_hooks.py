@@ -36,17 +36,21 @@ def migrate_hooks(hook_ids: list[str], team_ids: list[int], dry_run: bool = Fals
         hog_functions: list[HogFunction] = []
 
         for hook in page.object_list:
-            hog_function = create_zapier_hog_function(
-                hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}, from_migration=True
-            )
-            hog_functions.append(hog_function)
+            try:
+                hog_function = create_zapier_hog_function(
+                    hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}, from_migration=True
+                )
+                hog_functions.append(hog_function)
+            except Exception as e:
+                print(f"Error migrating hook {hook.id}: {e}")  # noqa: T201
+                continue
 
         if not dry_run:
             HogFunction.objects.bulk_create(hog_functions)
         else:
             print("Would have created the following HogFunctions:")  # noqa: T201
             for hog_function in hog_functions:
-                print(hog_function, hog_function.inputs, hog_function.filters)  # noqa: T201
+                print(hog_function)  # noqa: T201
 
     if not dry_run:
         query.delete()
