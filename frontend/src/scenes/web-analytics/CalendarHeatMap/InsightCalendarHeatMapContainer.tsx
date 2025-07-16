@@ -3,7 +3,7 @@ import './CalendarHeatMap.scss'
 import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { CalendarHeatmapQuery } from '~/queries/schema/schema-general'
+import { CalendarHeatmapQuery, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { WebActiveHoursHeatmap } from '../WebActiveHoursHeatmap/WebActiveHoursHeatmap'
@@ -17,7 +17,7 @@ export function InsightCalendarHeatMapContainer({ context }: CalendarHeatMapProp
     return (
         <WebActiveHoursHeatmap
             context={{ ...context, insightProps: insightProps }}
-            query={(insightProps.query || query) as CalendarHeatmapQuery}
+            query={(query as InsightVizNode)?.source as CalendarHeatmapQuery}
         />
     )
 }
