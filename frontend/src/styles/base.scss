@@ -1633,6 +1633,11 @@
         padding: var(--spacing);
     }
 
+    .animate-mark {
+        animation: animate-mark 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
     // Highlight background blink
 
     /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1643,6 +1648,18 @@
 
         100% {
             background-color: initial;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes animate-mark {
+        0%,
+        100% {
+            background-color: var(--original-bg, initial);
+        }
+
+        50% {
+            background-color: color-mix(in sRGB, var(--mark) 50%, transparent);
         }
     }
 

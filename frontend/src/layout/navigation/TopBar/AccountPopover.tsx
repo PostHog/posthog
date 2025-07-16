@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconFeatures,
     IconGear,
+    IconInfo,
     IconLeave,
     IconLive,
     IconPlusSmall,
@@ -28,13 +29,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
-
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import {
-    AccessLevelIndicator,
-    NewOrganizationButton,
-    OtherOrganizationButton,
-} from '~/layout/navigation/OrganizationSwitcher'
+import { NewOrganizationButton, OtherOrganizationButton } from '~/layout/navigation/OrganizationSwitcher'
 import { getTreeItemsGames } from '~/products'
 
 import { organizationLogic } from '../../../scenes/organizationLogic'
@@ -43,6 +39,7 @@ import { urls } from '../../../scenes/urls'
 import { userLogic } from '../../../scenes/userLogic'
 import { OrganizationBasicType, SidePanelTab } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
+import { AccessLevelIndicator } from '../AccessLevelIndicator'
 
 function AccountPopoverSection({
     title,
@@ -216,16 +213,34 @@ function DjangoAdmin(): JSX.Element {
 }
 
 function FeaturePreviewsButton(): JSX.Element {
-    const { closeAccountPopover } = useActions(navigationLogic)
+    const { closeAccountPopover, acknowledgeFeaturePreviewChange } = useActions(navigationLogic)
+    const { featurePreviewChangeAcknowledged } = useValues(navigationLogic)
 
     return (
         <LemonButton
             onClick={() => {
                 closeAccountPopover()
+                acknowledgeFeaturePreviewChange()
                 router.actions.push(urls.settings('user-feature-previews'))
             }}
+            className={!featurePreviewChangeAcknowledged ? 'animate-mark' : ''}
             icon={<IconFeatures />}
             fullWidth
+            // TODO: Remove this in a while so all users have acknowledged the change
+            tooltipForceMount={!featurePreviewChangeAcknowledged}
+            tooltipPlacement="right"
+            tooltip={
+                !featurePreviewChangeAcknowledged ? (
+                    <>
+                        <div className="flex items-center gap-2">
+                            <IconInfo className="size-4" />
+                            <span>
+                                <span className="font-bold">Feature previews</span> now live in settings.
+                            </span>
+                        </div>
+                    </>
+                ) : null
+            }
         >
             Feature previews
         </LemonButton>
