@@ -26,7 +26,7 @@ export function OrganizationDropdownMenu({
     buttonProps = { className: 'font-semibold' },
 }: {
     buttonProps?: ButtonPrimitiveProps
-}): JSX.Element | null {
+}): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
