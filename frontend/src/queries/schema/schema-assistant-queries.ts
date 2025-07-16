@@ -386,6 +386,7 @@ export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnels
 export interface AssistantFunnelsExclusionEventsNode extends FunnelExclusionSteps {
     kind: NodeKind.EventsNode
     event: string
+    properties?: AssistantPropertyFilter[]
 }
 
 export interface AssistantFunnelsFilter {

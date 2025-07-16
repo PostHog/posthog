@@ -1059,14 +1059,22 @@
                     "type": "string"
                 },
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "From which step to apply the particular exclusion. Steps 0-indexed here."
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Until which step to apply the particular exclusion. Steps 0-indexed here."
                 },
                 "kind": {
                     "const": "EventsNode",
                     "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["event", "funnelFromStep", "funnelToStep", "kind"],
@@ -11667,10 +11675,12 @@
                     "type": "array"
                 },
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "From which step to apply the particular exclusion. Steps 0-indexed here."
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Until which step to apply the particular exclusion. Steps 0-indexed here."
                 },
                 "id": {
                     "$ref": "#/definitions/integer"
@@ -11740,10 +11750,12 @@
                     "type": "array"
                 },
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "From which step to apply the particular exclusion. Steps 0-indexed here."
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Until which step to apply the particular exclusion. Steps 0-indexed here."
                 },
                 "kind": {
                     "const": "EventsNode",
@@ -11837,10 +11849,12 @@
             "additionalProperties": false,
             "properties": {
                 "funnelFromStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "From which step to apply the particular exclusion. Steps 0-indexed here."
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Until which step to apply the particular exclusion. Steps 0-indexed here."
                 }
             },
             "required": ["funnelFromStep", "funnelToStep"],

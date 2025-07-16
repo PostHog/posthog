@@ -1183,7 +1183,9 @@ export type FunnelsFilterLegacy = Omit<
 >
 
 export interface FunnelExclusionSteps {
+    /** From which step to apply the particular exclusion. Steps 0-indexed here. */
     funnelFromStep: integer
+    /** Until which step to apply the particular exclusion. Steps 0-indexed here. */
     funnelToStep: integer
 }
 export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
