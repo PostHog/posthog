@@ -6,8 +6,6 @@ from typing import Annotated, Literal, Optional, Union
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     BaseMessage as LangchainBaseMessage,
-    ToolMessage as LangchainToolMessage,
-    AIMessage as LangchainAIMessage,
 )
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
@@ -29,8 +27,6 @@ AIMessageUnion = Union[
     FailureMessage,
     ReasoningMessage,
     AssistantToolCallMessage,
-    LangchainToolMessage,
-    LangchainAIMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion]
 
