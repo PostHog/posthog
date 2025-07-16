@@ -37,7 +37,6 @@ export class HogFlowExecutorService {
     constructor(
         private hub: Hub,
         private hogFunctionExecutor: HogExecutorService,
-        private hogFunctionManager: HogFunctionManagerService,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     ) {
         this.actionHandlers = this.initializeActionHandlers()
@@ -75,7 +74,6 @@ export class HogFlowExecutorService {
         const hogFunctionHandler = new HogFunctionHandler(
             this.hub,
             this.hogFunctionExecutor,
-            this.hogFunctionManager,
             this.hogFunctionTemplateManager
         )
         handlers.set('function', hogFunctionHandler)

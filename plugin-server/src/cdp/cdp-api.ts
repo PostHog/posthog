@@ -42,12 +42,7 @@ export class CdpApi {
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(
-            hub,
-            this.hogExecutor,
-            this.hogFunctionManager,
-            this.hogFunctionTemplateManager
-        )
+        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))

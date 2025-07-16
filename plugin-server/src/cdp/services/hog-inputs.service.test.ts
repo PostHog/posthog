@@ -6,7 +6,7 @@ import { formatHogInput } from './hog-inputs.service'
 describe('Hog Inputs', () => {
     jest.setTimeout(1000)
 
-    beforeEach(async () => {
+    beforeEach(() => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
     })
