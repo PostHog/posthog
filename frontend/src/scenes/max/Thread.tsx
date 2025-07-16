@@ -384,15 +384,14 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     isEditingInsight: boolean
 }): JSX.Element | null {
     const { insight } = useValues(insightSceneLogic)
-
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    // const [isApplied, setIsApplied] = useState(false)
+    const [isRejected, setIsRejected] = useState(false)
 
     // Get insight props for the logic
     const insightProps = { dashboardItemId: insight?.short_id }
     const { previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight } = useActions(insightLogic(insightProps))
+    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
 
     useEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -437,14 +436,20 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                           <div className="flex items-center gap-1.5">
                               {isEditingInsight && previousQuery && (
                                   <LemonButton
-                                      onClick={() => onRejectSuggestedInsight()}
-                                      // status="danger"
-                                      icon={<IconX />}
+                                      onClick={() => {
+                                          setIsRejected(!isRejected)
+                                          if (!isRejected) {
+                                              onRejectSuggestedInsight()
+                                          } else {
+                                              onReapplySuggestedInsight()
+                                          }
+                                      }}
+                                      sideIcon={!isRejected ? <IconX /> : <IconRefresh />}
                                       size="xsmall"
-                                      tooltip="Reject Max's changes"
+                                      tooltip={!isRejected ? "Reject Max's changes" : "Reapply Max's changes"}
                                   />
                               )}
-                              {isEditingInsight && (
+                              {!isEditingInsight && (
                                   <LemonButton
                                       to={urls.insightNew({ query })}
                                       icon={<IconOpenInNew />}
