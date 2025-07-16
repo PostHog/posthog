@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 from typing import Any
 
 from posthog.models.notebook.notebook import Notebook
@@ -80,6 +81,9 @@ def create_summary_notebook(
 ) -> Notebook:
     """Create a notebook with session summary patterns converted from EnrichedSessionGroupSummaryPatternsList"""
     notebook_content = _generate_notebook_content_from_summary(summary, session_ids, domain)
+    # TODO: Remove after testing
+    with open("notebook_content.json", "w") as f:
+        f.write(json.dumps(notebook_content, indent=4))
     notebook = Notebook.objects.create(
         team=team,
         title=f"Session Summaries Report - {domain} ({datetime.now().strftime('%Y-%m-%d')})",
