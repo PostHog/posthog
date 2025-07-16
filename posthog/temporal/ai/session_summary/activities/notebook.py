@@ -150,9 +150,12 @@ def _create_bullet_list(items: list[str] | list[TipTapContent]) -> TipTapNode:
     for item in items:
         if isinstance(item, str):
             list_items.append({"type": "listItem", "content": [_create_paragraph_with_text(item)]})
+        elif isinstance(item, list):
+            # item is already a content array (could be paragraph + nested list)
+            list_items.append({"type": "listItem", "content": item})
         else:
-            # item is already a content array
-            list_items.append({"type": "listItem", "content": [_create_paragraph_with_content(item)]})
+            # item is a single content node
+            list_items.append({"type": "listItem", "content": [_create_paragraph_with_content([item])]})
 
     return {"type": "bulletList", "content": list_items}
 
@@ -271,10 +274,8 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
             ],
         }
     )
-
     # Quick summary
     content.append(_create_heading_with_text("Quick summary", 5))
-
     quick_summary_items = [
         [_create_text_content("What user was doing: ", is_bold=True), _create_text_content(event_data.segment_name)],
         [
@@ -287,18 +288,22 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
         ],
     ]
     content.append(_create_bullet_list(quick_summary_items))
-
     # Outcome section
     content.append(_create_heading_with_text("Outcome", 5))
-
     outcome_items = []
-
     # What happened before
     if event_data.previous_events_in_segment:
-        outcome_items.append([_create_text_content("What happened before:", is_bold=True)])
         # Add nested items for previous events
+        prev_events_list = []
         for prev_event in event_data.previous_events_in_segment:
-            outcome_items.append([_create_text_content(f"  • {prev_event.description}")])
+            prev_events_list.append(prev_event.description)
+
+        # Create list item with paragraph and nested bullet list as content
+        prev_events_content = [
+            _create_paragraph_with_content([_create_text_content("What happened before:", is_bold=True)]),
+            _create_bullet_list(prev_events_list),
+        ]
+        outcome_items.append(prev_events_content)
     else:
         outcome_items.append(
             [
@@ -309,10 +314,17 @@ def _create_example_section(event_data: PatternAssignedEventSegmentContext) -> T
 
     # What happened after
     if event_data.next_events_in_segment:
-        outcome_items.append([_create_text_content("What happened after:", is_bold=True)])
         # Add nested items for next events
+        next_events_list = []
         for next_event in event_data.next_events_in_segment:
-            outcome_items.append([_create_text_content(f"  • {next_event.description}")])
+            next_events_list.append(next_event.description)
+
+        # Create list item with paragraph and nested bullet list as content
+        next_events_content = [
+            _create_paragraph_with_content([_create_text_content("What happened after:", is_bold=True)]),
+            _create_bullet_list(next_events_list),
+        ]
+        outcome_items.append(next_events_content)
     else:
         outcome_items.append(
             [
