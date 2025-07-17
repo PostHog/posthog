@@ -37,7 +37,7 @@ describe('SQL Editor IndexedDB wrapper', () => {
 
         it('creates object store if missing during upgrade', async () => {
             // this is just to make sure that when IndexedDB need to upgrade, that it creates the object store if missing
-            let upgradeCallback
+            let upgradeCallback: ((context: any) => void) | undefined
             openDBMock.mockImplementation((_name, _version, options) => {
                 upgradeCallback = options.upgrade
                 return Promise.resolve(mockedDb)
@@ -48,6 +48,9 @@ describe('SQL Editor IndexedDB wrapper', () => {
             const upgradeContext = {
                 createObjectStore: jest.fn(),
                 objectStoreNames: { contains: () => false }, // store doesn't exist yet
+            }
+            if (!upgradeCallback) {
+                throw new Error('upgradeCallback was not set')
             }
             upgradeCallback(upgradeContext)
             expect(upgradeContext.createObjectStore).toHaveBeenCalledWith(STORE_NAME)
