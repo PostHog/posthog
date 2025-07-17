@@ -4,6 +4,7 @@ from unittest import mock
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from parameterized import parameterized
 from boto3 import resource
 from botocore.config import Config
 from django.db import transaction
@@ -64,10 +65,39 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
-            "count": 0,
+            "count": 1,
             "next": None,
             "previous": None,
-            "results": [],
+            "results": [
+                {
+                    "created_at": None,
+                    "created_by": None,
+                    "deleted": False,
+                    "derived_name": "History",
+                    "description": "",
+                    "filters": {},
+                    "id": "history",
+                    "last_modified_at": None,
+                    "last_modified_by": None,
+                    "name": "History",
+                    "pinned": False,
+                    "recordings_counts": {
+                        "collection": {
+                            "count": 0,
+                            "watched_count": 0,
+                        },
+                        "saved_filters": {
+                            "count": None,
+                            "has_more": None,
+                            "watched_count": None,
+                            "increased": None,
+                            "last_refreshed_at": None,
+                        },
+                    },
+                    "short_id": "history",
+                    "type": "collection",
+                },
+            ],
         }
 
     def test_list_playlists_when_there_are_some_playlists(self):
@@ -89,10 +119,38 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
-            "count": 2,
+            "count": 3,
             "next": None,
             "previous": None,
             "results": [
+                {
+                    "created_at": None,
+                    "created_by": None,
+                    "deleted": False,
+                    "derived_name": "History",
+                    "description": "",
+                    "filters": {},
+                    "id": "history",
+                    "last_modified_at": None,
+                    "last_modified_by": None,
+                    "name": "History",
+                    "pinned": False,
+                    "recordings_counts": {
+                        "collection": {
+                            "count": 1,
+                            "watched_count": 1,
+                        },
+                        "saved_filters": {
+                            "count": None,
+                            "has_more": None,
+                            "watched_count": None,
+                            "increased": None,
+                            "last_refreshed_at": None,
+                        },
+                    },
+                    "short_id": "history",
+                    "type": "collection",
+                },
                 {
                     "created_at": mock.ANY,
                     "created_by": {
@@ -766,12 +824,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
         assert response_collection.status_code == status.HTTP_200_OK
         results_collection = response_collection.json()["results"]
-        assert len(results_collection) == 4
+        assert len(results_collection) == 5
         assert {p["id"] for p in results_collection} == {
             p_collection_explicit_items.id,
             p_collection_explicit_no_filters.id,
             p_null_filters_items.id,
             p_null_no_filters_items.id,
+            "history",
         }
 
         # Test listing without type filter (should include all non-deleted)
@@ -926,3 +985,101 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert result["success"] is True
         assert result["added_count"] == 2  # Only new ones counted
         assert result["total_requested"] == 3
+
+    def test_list_playlists_includes_history_item_with_no_filters(self):
+        playlist = self._create_playlist({"name": "test playlist", "type": "collection"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert response.json()["count"] == 2
+        # 1 regular playlist + 1 synthetic history item
+        assert [{"name": "History", "type": "collection"}, {"name": playlist.json()["name"], "type": "collection"}] == [
+            {"name": x["name"], "type": x["type"]} for x in results
+        ]
+
+    @parameterized.expand(
+        [
+            ({}, True),  # No filters - should include
+            ({"type": "collection"}, True),  # Type filter - should include
+            ({"type": "filters"}, False),  # Type filter - should exclude
+            ({"pinned": "true"}, True),  # Pinned filter - should include
+            ({"search": "test"}, False),  # Search filter - should exclude
+            ({"search": "history"}, True),  # Search for "history" - should include
+            ({"search": "HISTORY"}, True),  # Case-insensitive search for "history" - should include
+            ({"user": "true"}, False),  # User filter - should exclude
+            ({"date_from": "2023-01-01"}, False),  # Date filter - should exclude
+            ({"date_to": "2023-12-31"}, False),  # Date filter - should exclude
+            ({"session_recording_id": "test123"}, False),  # Session recording filter - should exclude
+            # Note: created_by test handled separately due to needing dynamic user ID
+        ]
+    )
+    def test_list_playlists_history_item_inclusion_based_on_filters(self, filter_params, should_include_history):
+        self._create_playlist({"name": "test playlist", "type": "collection"})
+
+        query_string = "&".join([f"{key}={value}" for key, value in filter_params.items()])
+        url = f"/api/projects/{self.team.id}/session_recording_playlists"
+        if query_string:
+            url += f"?{query_string}"
+
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+
+        if should_include_history:
+            history_item = results[0]
+            assert history_item["name"] == "History"
+        else:
+            assert all(item["id"] != "history" for item in results)
+
+    def test_list_playlists_history_item_exclusion_with_created_by_filter(self):
+        self._create_playlist({"name": "test playlist", "type": "collection"})
+
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+
+        url = f"/api/projects/{self.team.id}/session_recording_playlists?created_by={other_user.id}"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        assert all(item["id"] != "history" for item in results)
+
+    def test_list_playlists_history_item_includes_watched_counts(self):
+        """Test that the synthetic history item includes correct watched counts from SessionRecordingViewed"""
+        # Create some SessionRecordingViewed records
+        from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+
+        # Create some viewed recordings for this user and team
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id="session_1",
+        )
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id="session_2",
+        )
+
+        # Create a view for a different user (should not be counted)
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=other_user,
+            session_id="session_3",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists?type=collection")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+        history_item = results[0]
+
+        assert history_item["id"] == "history"
+        assert history_item["name"] == "History"
+
+        # Check that watched count is 2 (distinct session_1 and session_2 for this user)
+        assert history_item["recordings_counts"]["collection"]["count"] == 2
+        assert history_item["recordings_counts"]["collection"]["watched_count"] == 2
