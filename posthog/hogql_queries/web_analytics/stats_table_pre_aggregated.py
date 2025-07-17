@@ -2,7 +2,11 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from posthog.hogql import ast
 
-from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty, create_channel_type_expr, ChannelTypeExprs
+from posthog.hogql.database.schema.channel_type import (
+    wrap_with_null_if_empty,
+    create_channel_type_expr,
+    ChannelTypeExprs,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
