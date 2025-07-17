@@ -330,8 +330,8 @@ def org_quota_limited_until(
             "quota_limiting_suspended_until": None,
         }
 
-    # 3. medium / medium high / high trust (and feature flags with any trust score)
-    elif trust_score in [7, 10, 15] or resource == QuotaResource.FEATURE_FLAG_REQUESTS:
+    # 3. medium / medium high / high trust
+    elif trust_score in [7, 10, 15] or minimum_grace_period:
         trust_score_grace_period = GRACE_PERIOD_DAYS.get(trust_score, 0)
         grace_period_days = max(trust_score_grace_period, minimum_grace_period)
 
