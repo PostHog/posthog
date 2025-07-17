@@ -15,12 +15,10 @@ class TestHogFlowAPI(APIBaseTest):
                 "actions": [
                     {
                         "name": "action_1",
-                        "hasCompiledConfigInputs": True,
                         "config": {"inputs": {"key": "value"}},
                     },
                     {
                         "name": "action_2",
-                        "hasCompiledConfigInputs": False,
                         "config": {"inputs": {"key": "value"}},
                     },
                 ],
@@ -50,7 +48,6 @@ class TestHogFlowAPI(APIBaseTest):
                 "actions": [
                     {
                         "name": "action_1",
-                        "hasCompiledConfigInputs": True,
                         "config": {"inputs": {"key": "value"}},
                     }
                 ],
@@ -70,7 +67,6 @@ class TestHogFlowAPI(APIBaseTest):
                 "actions": [
                     {
                         "name": "action_1",
-                        "hasCompiledConfigInputs": True,
                         "config": {"inputs": {"key": "new_value"}},
                     }
                 ],

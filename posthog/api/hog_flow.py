@@ -50,7 +50,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
-        if data.get("config").get("hasCompiledConfigInputs", False):
+        if "function" in data.get("type", ""):
             from posthog.cdp.validation import generate_template_bytecode
 
             inputs = data.get("config", {}).get("inputs", {})
