@@ -513,6 +513,15 @@ async def materialize_model(
             raise CannotCoerceColumnException(
                 f"Data type not supported in model {model_label}: {error_message}. This is likely due to decimal precision."
             ) from e
+        elif (
+            "Decimal value does not fit in precision" in error_message
+            or "Rescaling Decimal128 value would cause data loss" in error_message
+        ):
+            error_message = f"Decimal precision issue. Try reducing the precision of the decimal columns, or using toInt() or toFloat() to a cast to a different column type."
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message, logger)
+            raise CannotCoerceColumnException(f"Decimal precision error in model {model_label}: {error_message}") from e
         elif "Unknown table" in error_message:
             error_message = (
                 f"Table reference no longer exists for model. This is likely due to a table no longer being available."
