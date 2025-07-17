@@ -35,7 +35,6 @@ from posthog.temporal.common.logger import (
     get_logger,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    RecordsCompleted,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
@@ -52,6 +51,7 @@ from products.batch_exports.backend.temporal.pipeline.entrypoint import (
 from products.batch_exports.backend.temporal.pipeline.producer import (
     Producer as ProducerFromInternalStage,
 )
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     wait_for_schema_or_producer,
@@ -332,7 +332,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
 
 
 @activity.defn
-async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsCompleted:
+async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
     """Activity to batch export data to a customer's S3.
 
     This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
@@ -389,7 +389,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
                 inputs.data_interval_end or "END",
             )
 
-            return 0
+            return BatchExportResult(records_completed=0, bytes_exported=0)
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -408,7 +408,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
-        records_completed = await run_consumer_from_stage(
+        return await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
@@ -419,8 +419,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> RecordsC
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             json_columns=("properties", "person_properties", "set", "set_once"),
         )
-
-        return records_completed
 
 
 class ConcurrentS3Consumer(ConsumerFromStage):

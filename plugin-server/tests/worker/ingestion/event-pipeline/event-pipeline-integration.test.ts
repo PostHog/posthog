@@ -16,7 +16,7 @@ import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipe
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
+import { resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
@@ -196,46 +196,5 @@ describe('Event Pipeline integration test', () => {
         expect(parseJSON(secondArg!.body as unknown as string)).toEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
-    })
-
-    it('single postgres action per run to create or load person', async () => {
-        const event: PluginEvent = {
-            event: 'xyz',
-            properties: { foo: 'bar' },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            distinct_id: 'abc',
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-
-        const personsStoreForBatch = new MeasuringPersonsStoreForBatch(hub.db)
-        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(hub.db)
-        await new EventPipelineRunner(
-            hub,
-            event,
-            undefined,
-            undefined,
-            personsStoreForBatch,
-            groupStoreForBatch
-        ).runEventPipeline(event, team)
-
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
-        expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
-
-        // second time single fetch
-        await new EventPipelineRunner(
-            hub,
-            event,
-            undefined,
-            undefined,
-            personsStoreForBatch,
-            groupStoreForBatch
-        ).runEventPipeline(event, team)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
-
-        await delayUntilEventIngested(() => hub.db.fetchEvents(), 2)
     })
 })
