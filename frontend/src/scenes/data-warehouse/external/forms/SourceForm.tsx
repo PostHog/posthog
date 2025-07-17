@@ -11,11 +11,11 @@ import { FieldName, Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import React, { useEffect } from 'react'
 
-import { sourceWizardLogic } from '../../new/sourceWizardLogic'
+import { sourceWizardLogic, SSH_FIELD } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
 import { parseConnectionString } from './parseConnectionString'
 import { useValues } from 'kea'
-import { SourceConfig, SourceFieldConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
+import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 
 export interface SourceFormProps {
@@ -25,87 +25,8 @@ export interface SourceFormProps {
     setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
-const CONNECTION_STRING_DEFAULT_PORT = {
+const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Postgres: 5432,
-}
-
-const ssh_field: SourceFieldSwitchGroupConfig = {
-    name: 'ssh-tunnel',
-    label: 'Use SSH tunnel?',
-    type: 'switch-group',
-    default: false,
-    fields: [
-        {
-            name: 'host',
-            label: 'Tunnel host',
-            type: 'text',
-            required: true,
-            placeholder: 'localhost',
-        },
-        {
-            name: 'port',
-            label: 'Tunnel port',
-            type: 'number',
-            required: true,
-            placeholder: '22',
-        },
-        {
-            type: 'select',
-            name: 'auth_type',
-            label: 'Authentication type',
-            required: true,
-            defaultValue: 'password',
-            options: [
-                {
-                    label: 'Password',
-                    value: 'password',
-                    fields: [
-                        {
-                            name: 'username',
-                            label: 'Tunnel username',
-                            type: 'text',
-                            required: true,
-                            placeholder: 'User1',
-                        },
-                        {
-                            name: 'password',
-                            label: 'Tunnel password',
-                            type: 'password',
-                            required: true,
-                            placeholder: '',
-                        },
-                    ],
-                },
-                {
-                    label: 'Key pair',
-                    value: 'keypair',
-                    fields: [
-                        {
-                            name: 'username',
-                            label: 'Tunnel username',
-                            type: 'text',
-                            required: false,
-                            placeholder: 'User1',
-                        },
-                        {
-                            name: 'private_key',
-                            label: 'Tunnel private key',
-                            type: 'textarea',
-                            required: true,
-                            placeholder: '',
-                        },
-                        {
-                            name: 'passphrase',
-                            label: 'Tunnel passphrase',
-                            type: 'password',
-                            required: false,
-                            placeholder: '',
-                        },
-                    ],
-                },
-            ],
-        },
-    ],
 }
 
 const sourceFieldToElement = (
@@ -192,11 +113,18 @@ const sourceFieldToElement = (
 
     if (field.type === 'select') {
         const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
+        const shouldFlatten = field.flattenComplexSelect && hasOptionFields
 
+        const getOptions = (value: any): JSX.Element[] | undefined =>
+            field.options
+                .find((n) => n.value === (value ?? field.defaultValue))
+                ?.fields?.map((optionField) =>
+                    sourceFieldToElement(optionField, sourceConfig, lastValue?.[optionField.name])
+                )
         return (
             <LemonField
                 key={field.name}
-                name={hasOptionFields ? [field.name, 'selection'] : field.name}
+                name={shouldFlatten ? field.name : hasOptionFields ? [field.name, 'selection'] : field.name}
                 label={field.label}
             >
                 {({ value, onChange }) => (
@@ -210,13 +138,11 @@ const sourceFieldToElement = (
                             }
                             onChange={onChange}
                         />
-                        <Group name={field.name}>
-                            {field.options
-                                .find((n) => n.value === (value ?? field.defaultValue))
-                                ?.fields?.map((field) =>
-                                    sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
-                                )}
-                        </Group>
+                        {shouldFlatten ? (
+                            <>{getOptions(value)}</>
+                        ) : (
+                            <Group name={field.name}>{getOptions(value)}</Group>
+                        )}
                     </>
                 )}
             </LemonField>
@@ -270,7 +196,7 @@ const sourceFieldToElement = (
 
     if (field.type === 'ssh-tunnel') {
         return sourceFieldToElement(
-            { ...ssh_field, name: field.name, label: field.label },
+            { ...SSH_FIELD, name: field.name, label: field.label },
             sourceConfig,
             lastValue,
             isUpdateMode
