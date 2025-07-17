@@ -118,13 +118,14 @@ class ExternalWebAnalyticsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, vi
             description="Get trends for visitors, views, or sessions.",
         ),
         methods=["GET"],
+        exclude=True,  # TODO: remove this once we support trend queries
         examples=[
             OpenApiExample(
                 "Trend Response",
                 description="Example paginated response with trend data",
                 response_only=True,
                 value={
-                    "count": 31,
+                    "count": 3,
                     "next": None,
                     "previous": None,
                     "results": [
