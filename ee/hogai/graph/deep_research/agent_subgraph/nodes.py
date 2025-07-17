@@ -171,4 +171,4 @@ class DeepResearchAgentSubgraphNode(DeepResearchNode):
         return ET.tostring(root, encoding="unicode"), insights_map
 
     def _get_model(self, state: AssistantState, config: RunnableConfig):
-        return ChatOpenAI(model="o4-mini", temperature=0.3, streaming=True, stream_usage=True, max_retries=3)
+        return ChatOpenAI(model="o4-mini", streaming=True, stream_usage=True, max_retries=3)
