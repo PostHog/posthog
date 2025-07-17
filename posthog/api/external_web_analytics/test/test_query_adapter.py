@@ -3,14 +3,19 @@ from unittest.mock import patch, MagicMock
 import pytest
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.api.external_web_analytics.query_adapter import ExternalWebAnalyticsQueryAdapter
 from posthog.api.external_web_analytics.serializers import (
     EXTERNAL_WEB_ANALYTICS_NONE_BREAKDOWN_VALUE,
     WebAnalyticsOverviewRequestSerializer,
     WebAnalyticsBreakdownRequestSerializer,
 )
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
+from posthog.models.utils import uuid7
+from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 from posthog.schema import WebOverviewItem, WebOverviewItemKind, WebStatsBreakdown
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 
 
 class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
@@ -591,3 +596,256 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
 
         assert modifiers.useWebAnalyticsPreAggregatedTables is True
         assert modifiers.convertToProjectTimezone is True
+
+
+class TestExternalWebAnalyticsQueryAdapterIntegration(WebAnalyticsPreAggregatedTestBase):
+    """Integration tests that hit actual pre-aggregated tables"""
+
+    def _setup_test_data(self):
+        with freeze_time("2024-01-01T09:00:00Z"):
+            sessions = [str(uuid7("2024-01-01")) for _ in range(10)]
+
+            for i in range(10):
+                _create_person(team_id=self.team.pk, distinct_ids=[f"user_{i}"])
+
+            # Desktop user - Chrome, Windows, US
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_0",
+                timestamp="2024-01-01T10:00:00Z",
+                properties={
+                    "$session_id": sessions[0],
+                    "$current_url": "https://example.com/landing",
+                    "$pathname": "/landing",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Chrome",
+                    "$os": "Windows",
+                    "$viewport_width": 1920,
+                    "$viewport_height": 1080,
+                    "$geoip_country_code": "US",
+                    "$geoip_city_name": "New York",
+                    "$geoip_subdivision_1_code": "NY",
+                    "utm_source": "google",
+                    "utm_medium": "cpc",
+                    "utm_campaign": "summer_sale",
+                    "$referring_domain": "google.com",
+                },
+            )
+
+            # Mobile user - Safari, iOS, Canada
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_1",
+                timestamp="2024-01-01T11:00:00Z",
+                properties={
+                    "$session_id": sessions[1],
+                    "$current_url": "https://example.com/pricing",
+                    "$pathname": "/pricing",
+                    "$host": "example.com",
+                    "$device_type": "Mobile",
+                    "$browser": "Safari",
+                    "$os": "iOS",
+                    "$viewport_width": 375,
+                    "$viewport_height": 812,
+                    "$geoip_country_code": "CA",
+                    "$geoip_city_name": "Toronto",
+                    "$geoip_subdivision_1_code": "ON",
+                    "$referring_domain": "search.yahoo.com",
+                },
+            )
+
+            # Desktop user - Firefox, macOS, UK
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_2",
+                timestamp="2024-01-01T12:00:00Z",
+                properties={
+                    "$session_id": sessions[2],
+                    "$current_url": "https://example.com/features",
+                    "$pathname": "/features",
+                    "$host": "example.com",
+                    "$device_type": "Desktop",
+                    "$browser": "Firefox",
+                    "$os": "macOS",
+                    "$viewport_width": 1440,
+                    "$viewport_height": 900,
+                    "$geoip_country_code": "GB",
+                    "$geoip_city_name": "London",
+                    "$geoip_subdivision_1_code": "EN",
+                    "utm_source": "facebook",
+                    "utm_medium": "social",
+                    "$referring_domain": "facebook.com",
+                },
+            )
+
+            flush_persons_and_events()
+            self._populate_preaggregated_tables()
+
+    def _populate_preaggregated_tables(self, date_start: str = "2024-01-01", date_end: str = "2024-01-02"):
+        bounces_insert = WEB_BOUNCES_INSERT_SQL(
+            date_start=date_start,
+            date_end=date_end,
+            team_ids=[self.team.pk],
+        )
+        stats_insert = WEB_STATS_INSERT_SQL(
+            date_start=date_start,
+            date_end=date_end,
+            team_ids=[self.team.pk],
+        )
+        sync_execute(stats_insert)
+        sync_execute(bounces_insert)
+
+    def test_overview_data_integration_smoke_test(self):
+        adapter = ExternalWebAnalyticsQueryAdapter(self.team)
+
+        serializer = WebAnalyticsOverviewRequestSerializer(
+            data={
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result = adapter.get_overview_data(serializer)
+
+        # Verify the response structure
+        assert "visitors" in result
+        assert "views" in result
+        assert "sessions" in result
+        assert "bounce_rate" in result
+        assert "session_duration" in result
+
+        # Verify we actually got data from our test setup
+        assert result["visitors"] == 3  # user_0, user_1, user_2
+        assert result["views"] == 3  # 3 pageviews total
+        assert result["sessions"] == 3  # 3 sessions total
+
+    def test_breakdown_data_integration_smoke_test(self):
+        adapter = ExternalWebAnalyticsQueryAdapter(self.team)
+
+        serializer = WebAnalyticsBreakdownRequestSerializer(
+            data={
+                "breakdown_by": "DeviceType",
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "metrics": "visitors,views",
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result = adapter.get_breakdown_data(serializer)
+
+        # Verify the response structure
+        assert "count" in result
+        assert "results" in result
+        assert "next" in result
+        assert "previous" in result
+
+        # Verify we actually got data from our test setup
+        assert result["count"] == 2  # Desktop and Mobile
+
+        # Sort results for consistent testing
+        results = sorted(result["results"], key=lambda x: x["breakdown_value"])
+
+        # Desktop: user_0, user_2 (2 visitors, 2 views)
+        desktop_result = next(r for r in results if r["breakdown_value"] == "Desktop")
+        assert desktop_result["visitors"] == 2
+        assert desktop_result["views"] == 2
+
+        # Mobile: user_1 (1 visitor, 1 view)
+        mobile_result = next(r for r in results if r["breakdown_value"] == "Mobile")
+        assert mobile_result["visitors"] == 1
+        assert mobile_result["views"] == 1
+
+    def test_breakdown_data_with_bounce_rate_integration(self):
+        adapter = ExternalWebAnalyticsQueryAdapter(self.team)
+
+        serializer = WebAnalyticsBreakdownRequestSerializer(
+            data={
+                "breakdown_by": "Page",
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "metrics": "visitors,views,bounce_rate",
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result = adapter.get_breakdown_data(serializer)
+
+        # Verify we got results
+        assert result["count"] == 3  # /landing, /pricing, /features
+
+        # Check that results have bounce_rate
+        for row in result["results"]:
+            assert "bounce_rate" in row
+            assert isinstance(row["bounce_rate"], float)
+
+    def test_breakdown_data_with_domain_filter_integration(self):
+        adapter = ExternalWebAnalyticsQueryAdapter(self.team)
+
+        serializer = WebAnalyticsBreakdownRequestSerializer(
+            data={
+                "breakdown_by": "DeviceType",
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "domain": "example.com",
+                "metrics": "visitors,views",
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result = adapter.get_breakdown_data(serializer)
+
+        # Should still get results since all our test data is from example.com
+        assert result["count"] == 2
+
+        # Test with different domain - should get no results
+        serializer = WebAnalyticsBreakdownRequestSerializer(
+            data={
+                "breakdown_by": "DeviceType",
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "domain": "different.com",
+                "metrics": "visitors,views",
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result = adapter.get_breakdown_data(serializer)
+        assert result["count"] == 0
+
+    def test_overview_data_with_domain_filter_integration(self):
+        adapter = ExternalWebAnalyticsQueryAdapter(self.team)
+
+        serializer = WebAnalyticsOverviewRequestSerializer(
+            data={
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "domain": "example.com",
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result = adapter.get_overview_data(serializer)
+
+        # Should get results since all our test data is from example.com
+        assert result["visitors"] == 3
+        assert result["views"] == 3
+
+        # Test with different domain - should get no results
+        serializer = WebAnalyticsOverviewRequestSerializer(
+            data={
+                "date_from": "2024-01-01",
+                "date_to": "2024-01-02",
+                "domain": "different.com",
+            }
+        )
+        serializer.is_valid(raise_exception=True)
+
+        result = adapter.get_overview_data(serializer)
+        assert result["visitors"] == 0
+        assert result["views"] == 0
