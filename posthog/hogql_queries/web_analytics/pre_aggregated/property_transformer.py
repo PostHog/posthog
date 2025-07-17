@@ -33,7 +33,7 @@ class ChannelTypeReplacer(CloningVisitor):
         super().__init__()
         self.channel_type_expr = channel_type_expr
 
-    def visit_field(self, node: ast.Field) -> ast.Field:
+    def visit_field(self, node: ast.Field) -> ast.Expr | ast.Field:
         if node.chain == ["session", "$channel_type"] or node.chain == ["properties", "$channel_type"]:
             return self.channel_type_expr
         return super().visit_field(node)
