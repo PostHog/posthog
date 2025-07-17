@@ -37,11 +37,15 @@ SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMP
 # intended to allow testing of new releases of rrweb or our lazy loaded recording script
 SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, optional=True)
 
-# a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
-# can be a comma separated list of team ids or '*' to allow all teams
-SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
+# can set specific teams to take the posthog-recorder
+SESSION_REPLAY_RRWEB_SCRIPT_FORCE_ENABLE_TEAMS = [
+    int(x) for x in get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_MAX_ALLOWED_TEAMS", default="1,2"))
+]
+# _and_ set a sample rate, a given team will always be sampled in or out
+# defaults to 0 i.e. nobody gets the alternative script
+SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE", 0, type_cast=float)
 
-# a AI model to use for session recording filters
+# an AI model to use for session recording filters
 SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
 

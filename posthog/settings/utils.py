@@ -28,7 +28,7 @@ def get_from_env(
     return value
 
 
-def get_list(text: str) -> list[str]:
+def get_list(text: str | None) -> list[str]:
     if not text:
         return []
     return [item.strip() for item in text.split(",")]
