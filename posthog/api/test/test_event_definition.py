@@ -243,11 +243,25 @@ class TestEventDefinitionAPI(APIBaseTest):
             {"name": "updated_event"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         event_definition.refresh_from_db()
-        self.assertEqual(event_definition.name, "updated_event")
-        self.assertEqual(response.json()["name"], "updated_event")
+        assert event_definition.name == "updated_event"
+        assert response.json()["name"] == "updated_event"
+
+    @patch("posthog.models.Organization.is_feature_available", return_value=False)
+    def test_update_event_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
+        """Test that enterprise-only fields are ignored for basic users"""
+        event_definition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+
+        response = self.client.patch(
+            f"/api/projects/@current/event_definitions/{event_definition.id}",
+            {"verified": True},  # This should be ignored since it's enterprise-only
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Enterprise fields should not be in the response for basic users
+        assert "verified" not in response.json()
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
@@ -259,10 +273,10 @@ class TestEventDefinitionAPI(APIBaseTest):
             {"verified": True},  # verified field only exists in enterprise serializer
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify the enterprise-only field was updated
-        self.assertEqual(response.json()["verified"], True)
+        assert response.json()["verified"]
 
 
 @dataclasses.dataclass

@@ -457,12 +457,28 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             {"property_type": "Numeric"},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         property_definition.refresh_from_db()
-        self.assertEqual(property_definition.property_type, "Numeric")
-        self.assertTrue(property_definition.is_numerical)
-        self.assertEqual(response.json()["property_type"], "Numeric")
+        assert property_definition.property_type == "Numeric"
+        assert property_definition.is_numerical
+        assert response.json()["property_type"] == "Numeric"
+
+    @patch("posthog.models.Organization.is_feature_available", return_value=False)
+    def test_update_property_definition_cannot_set_verified_without_entitlement(self, mock_is_feature_available):
+        """Test that enterprise-only fields are ignored for basic users"""
+        property_definition = PropertyDefinition.objects.create(
+            team=self.team, name="test_property", property_type="String"
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/property_definitions/{property_definition.id}",
+            {"verified": True},  # This should be ignored since it's enterprise-only
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Enterprise fields should not be in the response for basic users
+        assert "verified" not in response.json()
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
@@ -476,15 +492,15 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             {"property_type": "Numeric", "verified": True},  # verified field only exists in enterprise serializer
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         property_definition.refresh_from_db()
-        self.assertEqual(property_definition.property_type, "Numeric")
-        self.assertTrue(property_definition.is_numerical)
-        self.assertEqual(response.json()["property_type"], "Numeric")
+        assert property_definition.property_type == "Numeric"
+        assert property_definition.is_numerical
+        assert response.json()["property_type"] == "Numeric"
 
         # Verify the enterprise-only field was updated
-        self.assertEqual(response.json()["verified"], True)
+        assert response.json()["verified"]
 
     def test_can_report_event_property_coexistence_when_custom_event_has_no_session_id(self) -> None:
         EventProperty.objects.create(team=self.team, event="$pageview", property="$session_id")
