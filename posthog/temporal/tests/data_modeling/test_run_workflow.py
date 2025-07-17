@@ -16,6 +16,7 @@ from django.conf import settings
 from django.test import override_settings
 from freezegun.api import freeze_time
 import pyarrow as pa
+from unittest.mock import patch
 
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
@@ -146,11 +147,13 @@ async def test_create_table_activity(minio_client, activity_environment, ateam, 
                 "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
             },
         ),
+        # this mock is needed, otherwise the test takes ~30s b/c of the sync behavior of get_count
+        unittest.mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_count", return_value=42),
     ):
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
 
-    table = await DataWarehouseTable.objects.aget(name=saved_query.name)
+    table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, name=saved_query.name)
     assert table.name == saved_query.name
     assert saved_query.normalized_name in table.url_pattern
 
@@ -1116,21 +1119,17 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
         updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
     )
 
-    # Create saved query for new job
     saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
         team=ateam, name="test_query", query={"query": "SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"}
     )
 
-    # Test that cleanup activity marks orphaned jobs as FAILED
     await activity_environment.run(cleanup_running_jobs_activity, CleanupRunningJobsActivityInputs(team_id=ateam.pk))
 
-    # Verify orphaned job was cleaned up
     await database_sync_to_async(orphaned_job.refresh_from_db)()
     assert orphaned_job.status == DataModelingJob.Status.FAILED
     assert orphaned_job.error is not None
     assert "orphaned when a new data modeling run started" in orphaned_job.error
 
-    # Test that create_job_model_activity creates a new job
     with unittest.mock.patch("temporalio.activity.info") as mock_info:
         mock_info.return_value.workflow_id = "new-workflow"
         mock_info.return_value.workflow_run_id = "new-run"
@@ -1142,7 +1141,6 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
             ),
         )
 
-    # Verify new job was created
     new_job = await database_sync_to_async(DataModelingJob.objects.get)(id=new_job_id)
     assert new_job.status == DataModelingJob.Status.RUNNING
     assert new_job.workflow_id == "new-workflow"
@@ -1205,3 +1203,75 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
         assert job.status == DataModelingJob.Status.COMPLETED
         assert job.rows_materialized == 6
         assert job.rows_expected == 6
+
+
+async def test_create_table_activity_row_count_functionality(minio_client, activity_environment, ateam):
+    """Test that create_table_activity properly sets row count using get_count() method."""
+
+    saved_query = await DataWarehouseSavedQuery.objects.acreate(
+        team=ateam,
+        name="test_row_count_query",
+        query={"query": "SELECT 1 as id, 'test' as name UNION ALL SELECT 2 as id, 'test2' as name"},
+    )
+
+    from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+
+    credential = await DataWarehouseCredential.objects.acreate(
+        team=ateam,
+        access_key="test_key",
+        access_secret="test_secret",
+    )
+
+    table = await DataWarehouseTable.objects.acreate(
+        team=ateam,
+        name="test_table",
+        credential=credential,
+        format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        url_pattern="https://test-bucket/test-path",
+        row_count=0,
+    )
+
+    saved_query.table = table
+    await saved_query.asave()
+
+    create_table_activity_inputs = CreateTableActivityInputs(
+        models=[str(saved_query.id)],  # Pass UUID, not name
+        team_id=ateam.pk,
+    )
+
+    with (
+        patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table,
+        patch.object(DataWarehouseTable, "get_count", return_value=42) as mock_get_count,
+    ):
+        async with asyncio.timeout(10):
+            await activity_environment.run(create_table_activity, create_table_activity_inputs)
+
+    mock_create_table.assert_called_once_with(str(saved_query.id), ateam.pk)
+    mock_get_count.assert_called_once()
+    await table.arefresh_from_db()
+    assert table.row_count == 42
+
+
+@pytest.mark.asyncio
+async def test_create_table_activity_invalid_uuid_fails(activity_environment, ateam):
+    """Test that create_table_activity fails fast when given non-UUID model identifier."""
+
+    create_table_activity_inputs = CreateTableActivityInputs(
+        models=["invalid_model_name"],  # Name instead of UUID
+        team_id=ateam.pk,
+    )
+
+    with (
+        patch("posthog.temporal.data_modeling.run_workflow.create_table_from_saved_query") as mock_create_table,
+        patch("posthog.temporal.data_modeling.run_workflow.bind_temporal_worker_logger") as mock_logger,
+    ):
+        mock_logger.return_value.aerror = unittest.mock.AsyncMock()
+
+        async with asyncio.timeout(10):
+            await activity_environment.run(create_table_activity, create_table_activity_inputs)
+
+    mock_create_table.assert_not_called()
+
+    mock_logger.return_value.aerror.assert_called_once()
+    error_message = mock_logger.return_value.aerror.call_args[0][0]
+    assert "Invalid model identifier 'invalid_model_name': expected UUID format" in error_message
