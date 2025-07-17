@@ -8314,3 +8314,72 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_circular_dependency_detection_complex_graph(self):
+        """Test that circular dependency detection works with complex dependency graphs."""
+        # Create a complex dependency graph: A → B → C → D, A → E → F
+        flags = {}
+
+        # Create base flags
+        for key in ["flag-a", "flag-b", "flag-c", "flag-d", "flag-e", "flag-f"]:
+            flags[key] = FeatureFlag.objects.create(
+                name=f"Flag {key.upper()}",
+                key=key,
+                team=self.team,
+                filters={"groups": [{"rollout_percentage": 100}]},
+            )
+
+        # Set up dependencies: B→A, C→B, D→C, E→A, F→E
+        dependencies = [
+            ("flag-b", "flag-a"),
+            ("flag-c", "flag-b"),
+            ("flag-d", "flag-c"),
+            ("flag-e", "flag-a"),
+            ("flag-f", "flag-e"),
+        ]
+
+        for dependent, dependency in dependencies:
+            flags[dependent].filters = {
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {
+                                "key": dependency,
+                                "type": "flag",
+                                "value": "true",
+                                "operator": "exact",
+                            }
+                        ],
+                    }
+                ]
+            }
+            flags[dependent].save()
+
+        # Test creating a new flag that would create a cycle (A → D)
+        # This should involve checking the entire dependency graph
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flags['flag-a'].id}",
+            {
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {
+                                    "key": "flag-d",  # Would create cycle: A→D→C→B→A
+                                    "type": "flag",
+                                    "value": "true",
+                                    "operator": "exact",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            format="json",
+        )
+
+        # Should detect cycle and return 400
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Circular dependency detected", str(response.json()))
