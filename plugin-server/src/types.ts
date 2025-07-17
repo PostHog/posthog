@@ -20,6 +20,7 @@ import { VM } from 'vm2'
 import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueSource } from './cdp/types'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
@@ -409,6 +410,7 @@ export interface Hub extends PluginsServerConfig {
     encryptedFields: EncryptedFields
     cookielessManager: CookielessManager
     pubSub: PubSub
+    integrationManager: IntegrationManagerService
 }
 
 export interface PluginServerCapabilities {
