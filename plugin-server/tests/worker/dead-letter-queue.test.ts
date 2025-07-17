@@ -13,7 +13,6 @@ import { BatchWritingGroupStoreForBatch } from '../../src/worker/ingestion/group
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../helpers/sql'
 import { forSnapshot } from '../helpers/snapshots'
-import { DateTime } from 'luxon'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/logger')
