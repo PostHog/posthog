@@ -28,6 +28,12 @@ class Command(BaseCommand):
         batch_size = options.get("batch_size", 10000)
         dry_run = options.get("dry_run", False)
 
+        # Safety: Limit batch size to prevent memory issues
+        max_batch_size = 50000
+        if batch_size > max_batch_size:
+            logger.warning(f"Batch size {batch_size} exceeds maximum of {max_batch_size}. Using {max_batch_size}.")
+            batch_size = max_batch_size
+
         # Parse model name
         try:
             app_label, model_label = model_name.split(".")
@@ -57,6 +63,23 @@ class Command(BaseCommand):
             logger.info(f"  Team ID: {team_id}")
             logger.info(f"  Total records: {total_count}")
             logger.info(f"  Batch size: {batch_size}")
+            return
+
+        # Safety checks and confirmation
+        if total_count == 0:
+            logger.info("No records found to delete. Exiting.")
+            return
+
+        logger.warning(f"⚠️  WARNING: About to delete {total_count:,} records!")
+        logger.warning(f"   This is a large deletion operation.")
+        logger.warning(f"   Model: {model_name}")
+        logger.warning(f"   Team ID: {team_id}")
+        logger.warning(f"   Batch size: {batch_size}")
+
+        # Require explicit confirmation for large deletions
+        confirm_large = input(f"\nType 'DELETE {total_count:,} RECORDS' to confirm this large deletion: ")
+        if confirm_large != f"DELETE {total_count:,} RECORDS":
+            logger.info("Large deletion cancelled by user.")
             return
 
         # Start the background task
