@@ -22363,5 +22363,6 @@
     "timezone": null,
     "is_cached": true,
     "tags": [],
-    "filters_hash": "cache_8d66c1292f9177cea9732edefbed9a09"
+    "filters_hash": "cache_8d66c1292f9177cea9732edefbed9a09",
+    "user_access_level": "editor"
 }

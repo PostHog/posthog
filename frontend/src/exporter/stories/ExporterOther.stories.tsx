@@ -2,15 +2,23 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType } from '~/exporter/types'
+import { InsightModel } from '~/types'
 
 import { Exporter } from '../Exporter'
 
-import retentionInsight from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
-import lifecycleInsight from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
-import stickinessInsight from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
-import userPathsInsight from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
-import eventTableInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
-import sqlInsight from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+import retentionInsightData from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
+import lifecycleInsightData from '../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'
+import stickinessInsightData from '../../mocks/fixtures/api/projects/team_id/insights/stickiness.json'
+import userPathsInsightData from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+import eventTableInsightData from '../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
+import sqlInsightData from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
+
+const retentionInsight = retentionInsightData as unknown as InsightModel
+const lifecycleInsight = lifecycleInsightData as unknown as InsightModel
+const stickinessInsight = stickinessInsightData as unknown as InsightModel
+const userPathsInsight = userPathsInsightData as unknown as InsightModel
+const eventTableInsight = eventTableInsightData as unknown as InsightModel
+const sqlInsight = sqlInsightData as unknown as InsightModel
 
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {

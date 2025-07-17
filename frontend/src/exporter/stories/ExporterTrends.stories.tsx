@@ -2,23 +2,40 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType } from '~/exporter/types'
-import trendsLineInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
-import trendsLineMultiInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
-import trendsLineBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
-import trendsBarInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json'
-import trendsBarBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
-import trendsValueInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
-import trendsValueBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
-import trendsAreaInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
-import trendsAreaBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
-import trendsNumberInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
-import trendsTableInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
-import trendsTableBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
-import trendsPieInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
-import trendsPieBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
-import trendsWorldMapInsight from '../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+import trendsLineInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import trendsLineMultiInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import trendsLineBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
+import trendsBarInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json'
+import trendsBarBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+import trendsValueInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import trendsValueBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
+import trendsAreaInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
+import trendsAreaBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
+import trendsNumberInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import trendsTableInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import trendsTableBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
+import trendsPieInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import trendsPieBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import trendsWorldMapInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 
 import { Exporter } from '../Exporter'
+import { InsightModel } from '~/types'
+
+const trendsLineInsight = trendsLineInsightData as unknown as InsightModel
+const trendsLineMultiInsight = trendsLineMultiInsightData as unknown as InsightModel
+const trendsLineBreakdownInsight = trendsLineBreakdownInsightData as unknown as InsightModel
+const trendsBarInsight = trendsBarInsightData as unknown as InsightModel
+const trendsBarBreakdownInsight = trendsBarBreakdownInsightData as unknown as InsightModel
+const trendsValueInsight = trendsValueInsightData as unknown as InsightModel
+const trendsValueBreakdownInsight = trendsValueBreakdownInsightData as unknown as InsightModel
+const trendsAreaInsight = trendsAreaInsightData as unknown as InsightModel
+const trendsAreaBreakdownInsight = trendsAreaBreakdownInsightData as unknown as InsightModel
+const trendsNumberInsight = trendsNumberInsightData as unknown as InsightModel
+const trendsTableInsight = trendsTableInsightData as unknown as InsightModel
+const trendsTableBreakdownInsight = trendsTableBreakdownInsightData as unknown as InsightModel
+const trendsPieInsight = trendsPieInsightData as unknown as InsightModel
+const trendsPieBreakdownInsight = trendsPieBreakdownInsightData as unknown as InsightModel
+const trendsWorldMapInsight = trendsWorldMapInsightData as unknown as InsightModel
 
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {

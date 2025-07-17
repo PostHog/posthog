@@ -51,6 +51,9 @@ const partialInsight43 = {
     short_id: Insight43,
     result: ['result 43'],
     filters: API_FILTERS,
+    dashboards: [],
+    dashboard_tiles: [],
+    user_access_level: AccessControlLevel.Editor,
 }
 
 const patchResponseFor = (
@@ -67,7 +70,8 @@ const patchResponseFor = (
         description: id === '42' ? undefined : 'Lorem ipsum.',
         tags: id === '42' ? undefined : ['good'],
         dashboards: payload['dashboards'],
-        dashboard_tiles: id === '43' ? [{ dashboard_id: MOCK_DASHBOARD_ID }] : undefined,
+        dashboard_tiles: id === '43' ? [{ dashboard_id: MOCK_DASHBOARD_ID }] : null,
+        user_access_level: AccessControlLevel.Editor,
     }
 }
 

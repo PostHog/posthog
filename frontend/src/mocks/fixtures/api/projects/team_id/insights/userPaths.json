@@ -354,5 +354,8 @@
             }
         },
         "full": true
-    }
+    },
+    "dashboards": [],
+    "dashboard_tiles": [],
+    "user_access_level": "editor"
 }

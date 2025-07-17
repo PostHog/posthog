@@ -155,5 +155,6 @@
     "timezone": null,
     "is_cached": true,
     "tags": [],
-    "filters_hash": "cache_84e45312b7a0d1b6c30160c6d1875718"
+    "filters_hash": "cache_84e45312b7a0d1b6c30160c6d1875718",
+    "user_access_level": "editor"
 }
