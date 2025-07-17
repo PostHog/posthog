@@ -41,16 +41,16 @@ export function AIConsentPopoverWrapper({
                             <dfn>external AI providers</dfn>
                         </Tooltip>
                         .<br />
-                        Your data won't be used for training models.
+                        <i>Your data won't be used for training models.</i>
                     </p>
                     <p className="text-muted text-xs leading-relaxed mb-2">
                         If your org requires a Data Processing Agreement (DPA)
                         <br />
                         for compliance (and your existing DPA doesn't already
                         <br />
-                        cover AI subprocessors) you can{' '}
+                        cover AI subprocessors),{' '}
                         <Link to="https://posthog.com/dpa" target="_blank">
-                            get a swanky DPA here
+                            you can get a fresh DPA here
                         </Link>
                         .
                     </p>
