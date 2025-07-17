@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Literal, cast
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.web_analytics.pre_aggregated.query_builder import WebAnalyticsPreAggregatedQueryBuilder
 from posthog.hogql_queries.web_analytics.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
@@ -10,26 +11,35 @@ if TYPE_CHECKING:
     from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
 
 
-class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
-    SUPPORTED_BREAKDOWNS = [
-        WebStatsBreakdown.DEVICE_TYPE,
-        WebStatsBreakdown.BROWSER,
-        WebStatsBreakdown.OS,
-        WebStatsBreakdown.VIEWPORT,
-        WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
-        WebStatsBreakdown.INITIAL_UTM_SOURCE,
-        WebStatsBreakdown.INITIAL_UTM_MEDIUM,
-        WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
-        WebStatsBreakdown.INITIAL_UTM_TERM,
-        WebStatsBreakdown.INITIAL_UTM_CONTENT,
-        WebStatsBreakdown.COUNTRY,
-        WebStatsBreakdown.REGION,
-        WebStatsBreakdown.CITY,
-        WebStatsBreakdown.INITIAL_PAGE,
-        WebStatsBreakdown.PAGE,
-        WebStatsBreakdown.EXIT_PAGE,
-    ]
+WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
+    WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.BROWSER,
+    WebStatsBreakdown.OS,
+    WebStatsBreakdown.VIEWPORT,
+    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE,
+    WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+    WebStatsBreakdown.INITIAL_UTM_TERM,
+    WebStatsBreakdown.INITIAL_UTM_CONTENT,
+    WebStatsBreakdown.COUNTRY,
+    WebStatsBreakdown.REGION,
+    WebStatsBreakdown.CITY,
+    WebStatsBreakdown.INITIAL_PAGE,
+    WebStatsBreakdown.PAGE,
+    WebStatsBreakdown.EXIT_PAGE,
+]
 
+
+def _nullif_empty_decorator(func):
+    def wrapper(self):
+        result = func(self)
+        return wrap_with_null_if_empty(result)
+
+    return wrapper
+
+
+class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder):
     def __init__(self, runner: "WebStatsTableQueryRunner") -> None:
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
@@ -37,7 +47,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         if not super().can_use_preaggregated_tables():
             return False
 
-        return self.runner.query.breakdownBy in self.SUPPORTED_BREAKDOWNS
+        return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
 
     def _bounce_rate_query(self) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
@@ -56,7 +66,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    "breakdown_value": ast.Call(
+                        name="nullIf",
+                        args=[self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])), ast.Constant(value="")],
+                    ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
                     ),
@@ -69,6 +82,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 },
             ),
         )
+
+        filters = self._get_filters(table_name="web_bounces_combined")
+        if filters:
+            query.where = filters
 
         return query
 
@@ -91,7 +108,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
-                    "breakdown_value": self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                    "breakdown_value": ast.Call(
+                        name="nullIf",
+                        args=[self._apply_path_cleaning(ast.Field(chain=["pathname"])), ast.Constant(value="")],
+                    ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
@@ -115,6 +135,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 },
             ),
         )
+
+        filters = self._get_filters(table_name="web_stats_combined")
+        if filters:
+            query.where = filters
 
         return query
 
@@ -182,6 +206,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
         return ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order="DESC")
 
+    @_nullif_empty_decorator
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
             case WebStatsBreakdown.DEVICE_TYPE:
@@ -227,7 +252,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
 
     def _apply_path_cleaning(self, path_expr: ast.Expr) -> ast.Expr:
-        """Apply path cleaning to path expressions, similar to the non-pre-aggregated version"""
         if not self.runner.query.doPathCleaning:
             return path_expr
 
@@ -243,6 +267,18 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     ) -> ast.Tuple:
         field_chain: list[str | int] = [table_prefix, state_field] if table_prefix else [state_field]
 
+        previous_expr = (
+            ast.Constant(value=None)
+            if not self.runner.query_compare_to_date_range
+            else ast.Call(
+                name=function_name,
+                args=[
+                    ast.Field(chain=field_chain),
+                    previous_period_filter,
+                ],
+            )
+        )
+
         return ast.Tuple(
             exprs=[
                 ast.Call(
@@ -252,13 +288,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         current_period_filter,
                     ],
                 ),
-                ast.Call(
-                    name=function_name,
-                    args=[
-                        ast.Field(chain=field_chain),
-                        previous_period_filter,
-                    ],
-                ),
+                previous_expr,
             ]
         )
 
@@ -292,9 +322,16 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 ],
             )
 
+        # When there's no comparison period, return None for previous period to match regular approach
+        previous_expr = (
+            ast.Constant(value=None)
+            if not self.runner.query_compare_to_date_range
+            else safe_bounce_rate(previous_period_filter)
+        )
+
         return ast.Tuple(
             exprs=[
                 safe_bounce_rate(current_period_filter),
-                safe_bounce_rate(previous_period_filter),
+                previous_expr,
             ]
         )

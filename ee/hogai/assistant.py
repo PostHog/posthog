@@ -94,6 +94,11 @@ VERBOSE_NODES = STREAMING_NODES | {
 }
 """Nodes that can send messages to the client."""
 
+THINKING_NODES = {
+    AssistantNodeName.QUERY_PLANNER,
+}
+"""Nodes that pass on thinking messages to the client. Current implementation assumes o3/o4 style of reasoning summaries!"""
+
 
 logger = structlog.get_logger(__name__)
 
@@ -109,6 +114,10 @@ class Assistant:
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
     _custom_update_ids: set[str]
+    _reasoning_headline_chunk: Optional[str]
+    """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
+    _last_reasoning_headline: Optional[str]
+    """Last emittted reasoning headline, to be able to carry it over."""
 
     def __init__(
         self,
@@ -155,6 +164,8 @@ class Assistant:
         )
         self._trace_id = trace_id
         self._custom_update_ids = set()
+        self._reasoning_headline_chunk = None
+        self._last_reasoning_headline = None
 
     async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
         """Returns all messages in once without streaming."""
@@ -314,57 +325,44 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case (
-                AssistantNodeName.TRENDS_PLANNER
-                | AssistantNodeName.TRENDS_PLANNER_TOOLS
-                | AssistantNodeName.FUNNEL_PLANNER
-                | AssistantNodeName.FUNNEL_PLANNER_TOOLS
-                | AssistantNodeName.RETENTION_PLANNER
-                | AssistantNodeName.RETENTION_PLANNER_TOOLS
-                | AssistantNodeName.SQL_PLANNER
-                | AssistantNodeName.SQL_PLANNER_TOOLS
-            ):
+            case AssistantNodeName.QUERY_PLANNER:
                 substeps: list[str] = []
                 if input:
                     if intermediate_steps := input.intermediate_steps:
                         for action, _ in intermediate_steps:
+                            assert isinstance(action.tool_input, dict)
                             match action.tool:
                                 case "retrieve_event_properties":
-                                    substeps.append(f"Exploring `{action.tool_input}` event's properties")
+                                    substeps.append(f"Exploring `{action.tool_input['event_name']}` event's properties")
                                 case "retrieve_entity_properties":
-                                    substeps.append(f"Exploring {action.tool_input} properties")
+                                    substeps.append(f"Exploring {action.tool_input['entity']} properties")
                                 case "retrieve_event_property_values":
-                                    assert isinstance(action.tool_input, dict)
                                     substeps.append(
-                                        f"Analyzing `{action.tool_input['property_name']}` event's property `{action.tool_input['event_name']}`"
+                                        f"Analyzing `{action.tool_input['event_name']}` event's property `{action.tool_input['property_name']}`"
                                     )
                                 case "retrieve_entity_property_values":
-                                    assert isinstance(action.tool_input, dict)
                                     substeps.append(
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
                                 case "retrieve_action_properties" | "retrieve_action_property_values":
-                                    id = (
-                                        action.tool_input
-                                        if isinstance(action.tool_input, str)
-                                        else action.tool_input["action_id"]
-                                    )
                                     try:
                                         action_model = await Action.objects.aget(
-                                            pk=id, team__project_id=self._team.project_id
+                                            pk=action.tool_input["action_id"], team__project_id=self._team.project_id
                                         )
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action properties")
-                                        elif action.tool == "retrieve_action_property_values" and isinstance(
-                                            action.tool_input, dict
-                                        ):
+                                        elif action.tool == "retrieve_action_property_values":
                                             substeps.append(
                                                 f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
                                             )
                                     except Action.DoesNotExist:
                                         pass
 
-                return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
+                # We don't want to reset back to just "Picking relevant events" after running QueryPlannerTools,
+                # so we reuse the last reasoning headline when going back to QueryPlanner
+                return ReasoningMessage(
+                    content=self._last_reasoning_headline or "Picking relevant events and properties", substeps=substeps
+                )
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
             case AssistantNodeName.FUNNEL_GENERATOR:
@@ -444,6 +442,11 @@ class Assistant:
                             _messages.append(candidate_message)
                     return _messages
 
+        for node_name in THINKING_NODES:
+            if node_val := state_update.get(node_name):
+                # If update involves new state from a thinking node, we reset the thinking headline to be sure
+                self._reasoning_headline_chunk = None
+
         return None
 
     def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
@@ -462,6 +465,44 @@ class Assistant:
                 if self._chunks.content:
                     # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
                     return AssistantMessage(content=cast(str, self._chunks.content))
+            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                    return ReasoningMessage(content=reasoning_headline)
+        return None
+
+    def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
+        """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it."""
+        try:
+            summary_text_chunk = reasoning["summary"][0]["text"]
+        except (KeyError, IndexError):
+            self._reasoning_headline_chunk = None  # Not expected, so let's just reset
+            return None
+
+        index_of_bold_in_text = summary_text_chunk.find("**")
+        if index_of_bold_in_text != -1:
+            # The headline is either beginning or ending with bold text in this chunk
+            if self._reasoning_headline_chunk is None:
+                # If we don't have a headline, we should start reading it
+                remaining_text = summary_text_chunk[index_of_bold_in_text + 2 :]  # Remove the ** from start
+                # Check if there's another ** in the remaining text (complete headline in one chunk)
+                end_index = remaining_text.find("**")
+                if end_index != -1:
+                    # Complete headline in one chunk
+                    self._last_reasoning_headline = remaining_text[:end_index]
+                    return self._last_reasoning_headline
+                else:
+                    # Start of headline, continue chunking
+                    self._reasoning_headline_chunk = remaining_text
+            else:
+                # If we already have a headline, it means we should wrap up
+                self._reasoning_headline_chunk += summary_text_chunk[:index_of_bold_in_text]  # Remove the ** from end
+                self._last_reasoning_headline = self._reasoning_headline_chunk
+                self._reasoning_headline_chunk = None
+                return self._last_reasoning_headline
+        elif self._reasoning_headline_chunk is not None:
+            # No bold text in this chunk, so we should just add the text to the headline
+            self._reasoning_headline_chunk += summary_text_chunk
+
         return None
 
     async def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:

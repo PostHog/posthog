@@ -42,7 +42,13 @@ import {
 
 import { actionsModel } from '~/models/actionsModel'
 import { MathType, NodeKind } from '~/queries/schema/schema-general'
-import { getMathTypeWarning, isInsightVizNode, isStickinessQuery, TRAILING_MATH_TYPES } from '~/queries/utils'
+import {
+    getMathTypeWarning,
+    isCalendarHeatmapQuery,
+    isInsightVizNode,
+    isStickinessQuery,
+    TRAILING_MATH_TYPES,
+} from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -206,27 +212,33 @@ export function ActionFilterRow({
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
+
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
-        const mathProperties = selectedMath
-            ? {
-                  ...mathTypeToApiValues(selectedMath),
-                  math_property:
-                      mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
-                          ? mathProperty ?? '$time'
-                          : undefined,
-                  math_hogql:
-                      mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                          ? mathHogQL ?? 'count()'
-                          : undefined,
-                  mathPropertyType,
-              }
-            : {
-                  math_property: undefined,
-                  mathPropertyType: undefined,
-                  math_hogql: undefined,
-                  math_group_type_index: undefined,
-                  math: undefined,
-              }
+        let mathProperties
+        if (selectedMath) {
+            const math_property =
+                mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
+                    ? mathProperty ?? '$time'
+                    : undefined
+            const math_hogql =
+                mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                    ? mathHogQL ?? 'count()'
+                    : undefined
+            mathProperties = {
+                ...mathTypeToApiValues(selectedMath),
+                math_property,
+                math_hogql,
+                mathPropertyType,
+            }
+        } else {
+            mathProperties = {
+                math_property: undefined,
+                mathPropertyType: undefined,
+                math_hogql: undefined,
+                math_group_type_index: undefined,
+                math: undefined,
+            }
+        }
 
         updateFilterMath({
             index,
@@ -234,6 +246,7 @@ export function ActionFilterRow({
             ...mathProperties,
         })
     }
+
     const onMathPropertySelect = (_: unknown, property: string, groupType: TaxonomicFilterGroupType): void => {
         updateFilterMath({
             ...filter,
@@ -704,8 +717,10 @@ function useMathSelectorOptions({
     trendsDisplayCategory,
     allowedMathTypes,
     query,
+    mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
+    const isCalendarHeatmap = query && isInsightVizNode(query) && isCalendarHeatmapQuery(query.source)
 
     const {
         needsUpgradeForGroups,
@@ -714,6 +729,8 @@ function useMathSelectorOptions({
         funnelMathDefinitions,
         staticActorsOnlyMathDefinitions,
         calendarHeatmapMathDefinitions,
+        aggregationLabel,
+        groupsMathDefinitions,
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
@@ -724,6 +741,15 @@ function useMathSelectorOptions({
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
 
+    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(() => {
+        if (math === 'unique_group' && mathGroupTypeIndex !== undefined) {
+            const groupKey = `unique_group::${mathGroupTypeIndex}`
+            const groupDef = groupsMathDefinitions[groupKey]
+            return groupDef ? groupKey : 'users'
+        }
+        return 'users'
+    })
+
     let definitions = staticMathDefinitions
     if (mathAvailability === MathAvailability.FunnelsOnly) {
         definitions = funnelMathDefinitions
@@ -732,6 +758,7 @@ function useMathSelectorOptions({
     } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
         definitions = calendarHeatmapMathDefinitions
     }
+    const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
 
     const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
@@ -867,6 +894,57 @@ function useMathSelectorOptions({
         }
     }
 
+    if (isGroupsEnabled && !isCalendarHeatmap) {
+        const uniqueActorsOptions = [
+            {
+                value: 'users',
+                label: 'users',
+                'data-attr': `math-users-${index}`,
+            },
+            ...Object.entries(groupsMathDefinitions).map(([key, definition]) => ({
+                value: key,
+                label: definition.shortName,
+                'data-attr': `math-${key}-${index}`,
+            })),
+        ]
+
+        const uniqueUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.UniqueUsers
+        )
+        if (uniqueUsersIndex !== -1) {
+            const isDau = uniqueActorsShown === 'users'
+            const value = isDau ? BaseMathType.UniqueUsers : uniqueActorsShown
+            const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
+            const tooltip = isDau
+                ? options[uniqueUsersIndex].tooltip
+                : groupsMathDefinitions[uniqueActorsShown].description
+            options[uniqueUsersIndex] = {
+                value,
+                label,
+                tooltip,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>Unique</span>
+                        <LemonSelect
+                            value={uniqueActorsShown}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                            onSelect={(value) => {
+                                setUniqueActorsShown(value as string)
+                                const mathType = value === 'users' ? BaseMathType.UniqueUsers : value
+                                onMathSelect(index, mathType)
+                            }}
+                            options={uniqueActorsOptions}
+                        />
+                    </div>
+                ),
+                'data-attr': `math-node-unique-actors-${index}`,
+            }
+        }
+    }
+
     if (
         mathAvailability !== MathAvailability.FunnelsOnly &&
         mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
@@ -883,10 +961,7 @@ function useMathSelectorOptions({
     return [
         {
             options,
-            footer:
-                needsUpgradeForGroups || canStartUsingGroups ? (
-                    <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
-                ) : undefined,
+            footer: !isGroupsEnabled ? <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} /> : undefined,
         },
     ]
 }
