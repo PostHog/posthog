@@ -540,7 +540,7 @@ def WEB_BOUNCES_INSERT_SQL(
         has_gclid,
         has_gad_source_paid_search,
         has_fbclid
-    {"SETTINGS " + settings if settings and not select_only else ""}
+    {settings_clause}
     """
 
     if select_only:
