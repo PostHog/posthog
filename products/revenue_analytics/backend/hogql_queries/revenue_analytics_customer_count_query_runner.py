@@ -9,7 +9,7 @@ from posthog.schema import (
     RevenueAnalyticsCustomerCountQueryResponse,
     RevenueAnalyticsCustomerCountQuery,
 )
-from posthog.utils import format_label_date
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
 from products.revenue_analytics.backend.views import RevenueAnalyticsInvoiceItemView, RevenueAnalyticsSubscriptionView
 
@@ -307,7 +307,7 @@ class RevenueAnalyticsCustomerCountQueryRunner(RevenueAnalyticsQueryRunner):
         # First, let's generate all of the dates/labels because they'll be exactly the same for all of the results
         all_dates = self.query_date_range.all_values()
         days = [date.strftime("%Y-%m-%d") for date in all_dates]
-        labels = [format_label_date(item, self.query_date_range.interval_name) for item in all_dates]
+        labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in all_dates]
 
         # We can also group the results we have by a tuple of (breakdown_by, period_start)
         # This will allow us to easily query the results by breakdown_by and period_start

@@ -15,13 +15,14 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import DOMPurify from 'dompurify'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
+import { capitalizeFirstLetter, escapeHtml, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -298,13 +299,25 @@ function PersonalAPIKeysTable(): JSX.Element {
                             const orgNames = restrictedOrgs.map((org: any) => org.name)
                             const tooltipMessage =
                                 orgNames.length === 1
-                                    ? `Organization <strong>${orgNames[0]}</strong> has restricted the use of personal API keys.`
-                                    : `Organizations <strong>${orgNames.join(
-                                          ', '
+                                    ? `Organization <strong>${escapeHtml(
+                                          orgNames[0]
+                                      )}</strong> has restricted the use of personal API keys.`
+                                    : `Organizations <strong>${escapeHtml(
+                                          orgNames.join(', ')
                                       )}</strong> have restricted the use of personal API keys.`
 
                             return (
-                                <Tooltip title={<span dangerouslySetInnerHTML={{ __html: tooltipMessage }} />}>
+                                <Tooltip
+                                    title={
+                                        <span
+                                            dangerouslySetInnerHTML={{
+                                                __html: DOMPurify.sanitize(tooltipMessage, {
+                                                    ALLOWED_TAGS: ['strong'],
+                                                }),
+                                            }}
+                                        />
+                                    }
+                                >
                                     <LemonTag type="danger">Disabled</LemonTag>
                                 </Tooltip>
                             )
@@ -319,17 +332,21 @@ function PersonalAPIKeysTable(): JSX.Element {
                                 const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
 
                                 if (restrictedOrgNames.length === 1 && restrictedTeamNames.length === 1) {
-                                    tooltipMessage = `Organization <strong>${restrictedOrgNames[0]}</strong> has restricted the use of personal API keys. This key will not work for project <strong>${restrictedTeamNames[0]}</strong>.`
-                                } else if (restrictedOrgNames.length === 1) {
-                                    tooltipMessage = `Organization <strong>${
+                                    tooltipMessage = `Organization <strong>${escapeHtml(
                                         restrictedOrgNames[0]
-                                    }</strong> has restricted the use of personal API keys. This key will not work for projects: <strong>${restrictedTeamNames.join(
-                                        ', '
+                                    )}</strong> has restricted the use of personal API keys. This key will not work for project <strong>${escapeHtml(
+                                        restrictedTeamNames[0]
+                                    )}</strong>.`
+                                } else if (restrictedOrgNames.length === 1) {
+                                    tooltipMessage = `Organization <strong>${escapeHtml(
+                                        restrictedOrgNames[0]
+                                    )}</strong> has restricted the use of personal API keys. This key will not work for projects: <strong>${escapeHtml(
+                                        restrictedTeamNames.join(', ')
                                     )}</strong>.`
                                 } else {
                                     // Multiple organizations affecting projects
-                                    tooltipMessage = `Multiple organizations have restricted personal API keys. This key will not work for projects: <strong>${restrictedTeamNames.join(
-                                        ', '
+                                    tooltipMessage = `Multiple organizations have restricted personal API keys. This key will not work for projects: <strong>${escapeHtml(
+                                        restrictedTeamNames.join(', ')
                                     )}</strong>.`
                                 }
                             }
@@ -338,16 +355,28 @@ function PersonalAPIKeysTable(): JSX.Element {
                                 const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
 
                                 if (restrictedOrgNames.length === 1) {
-                                    tooltipMessage = `Organization <strong>${restrictedOrgNames[0]}</strong> has restricted the use of personal API keys.`
+                                    tooltipMessage = `Organization <strong>${escapeHtml(
+                                        restrictedOrgNames[0]
+                                    )}</strong> has restricted the use of personal API keys.`
                                 } else {
-                                    tooltipMessage = `Organizations <strong>${restrictedOrgNames.join(
-                                        ', '
+                                    tooltipMessage = `Organizations <strong>${escapeHtml(
+                                        restrictedOrgNames.join(', ')
                                     )}</strong> have restricted the use of personal API keys.`
                                 }
                             }
 
                             return (
-                                <Tooltip title={<span dangerouslySetInnerHTML={{ __html: tooltipMessage }} />}>
+                                <Tooltip
+                                    title={
+                                        <span
+                                            dangerouslySetInnerHTML={{
+                                                __html: DOMPurify.sanitize(tooltipMessage, {
+                                                    ALLOWED_TAGS: ['strong'],
+                                                }),
+                                            }}
+                                        />
+                                    }
+                                >
                                     <LemonTag type="warning">Partial restrictions</LemonTag>
                                 </Tooltip>
                             )
