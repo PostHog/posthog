@@ -113,7 +113,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
                     try {
                         const response = await api.get<ChangesResponse>(
-                            `api/projects/${values.currentProjectId}/activity_log/important_changes?` +
+                            `api/projects/${values.currentProjectId}/my_notifications?` +
                                 toParams({ unread: onlyUnread })
                         )
 
@@ -149,12 +149,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         return current
                     }
 
-                    await api.create(
-                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
-                        {
-                            bookmark: latestNotification.created_at.toISOString(),
-                        }
-                    )
+                    await api.create(`api/projects/${values.currentProjectId}/my_notifications/bookmark`, {
+                        bookmark: latestNotification.created_at.toISOString(),
+                    })
 
                     return {
                         last_read: latestNotification.created_at.toISOString(),

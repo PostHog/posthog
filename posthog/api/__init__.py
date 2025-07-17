@@ -9,7 +9,7 @@ from products.user_interviews.backend.api import UserInterviewViewSet
 from products.llm_observability.api import LLMProxyViewSet
 from products.messaging.backend.api import MessageTemplatesViewSet
 import products.logs.backend.api as logs
-from posthog.api import data_color_theme, hog_flow, metalytics, project
+from posthog.api import data_color_theme, hog_flow, metalytics, project, my_notifications
 from posthog.api.wizard import http as wizard
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
@@ -177,6 +177,12 @@ projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
+    ["project_id"],
+)
+projects_router.register(
+    r"my_notifications",
+    my_notifications.MyNotificationsViewSet,
+    "project_notifications",
     ["project_id"],
 )
 project_feature_flags_router = projects_router.register(
