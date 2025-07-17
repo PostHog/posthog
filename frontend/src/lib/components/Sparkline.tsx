@@ -66,7 +66,13 @@ export function Sparkline({
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
-        const arrayData = Array.isArray(data) ? data : [data]
+        const arrayData = Array.isArray(data)
+            ? data.length > 0 && typeof data[0] === 'object'
+                ? data // array of objects, one per series
+                : [data] // array of numbers, turn it into the first series
+            : typeof data === 'object'
+            ? [data] // first series as an object
+            : [[data]] // just a random number... huh
         return arrayData.map((timeseries, index): SparklineTimeSeries => {
             const defaultName =
                 names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
