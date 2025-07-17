@@ -97,6 +97,7 @@ export interface TaxonomicFilterGroup {
     value?: string
     searchAlias?: string
     valuesEndpoint?: (propertyKey: string) => string | undefined
+    getGroup?: (instance: any) => TaxonomicFilterGroup
     getName?: (instance: any) => string
     getValue?: (instance: any) => TaxonomicFilterValue
     getPopoverHeader: (instance: any) => string
@@ -148,6 +149,7 @@ export enum TaxonomicFilterGroupType {
     Replay = 'replay',
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
+    ErrorTrackingIssueProperties = 'error_tracking_issue_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
 }
@@ -179,6 +181,8 @@ export type ListFuse = Fuse<{
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
+type ExceptionPropertyDefinition = { value: string; name: string; group: TaxonomicFilterGroupType }
+
 export type TaxonomicDefinitionTypes =
     | EventDefinition
     | PropertyDefinition
@@ -187,3 +191,4 @@ export type TaxonomicDefinitionTypes =
     | PersonProperty
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
+    | ExceptionPropertyDefinition

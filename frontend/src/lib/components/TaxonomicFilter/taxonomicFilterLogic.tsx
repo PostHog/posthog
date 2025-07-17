@@ -57,6 +57,7 @@ import {
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { exceptionEventProperties } from 'products/error_tracking/frontend/components/ErrorFilters/FilterGroup'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -422,6 +423,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         valuesEndpoint: (key) =>
                             `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
                         getPopoverHeader: () => 'Issues',
+                    },
+                    {
+                        name: 'Exception properties',
+                        searchPlaceholder: 'exceptions',
+                        type: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
+                        options: exceptionEventProperties
+                            .filter(
+                                (o) =>
+                                    !excludedProperties[
+                                        TaxonomicFilterGroupType.ErrorTrackingIssueProperties
+                                    ]?.includes(o.value)
+                            )
+                            .map(({ value, group }) => ({ name: value, value, group })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Exception properties',
                     },
                     {
                         name: 'Revenue analytics properties',
