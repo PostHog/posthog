@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 import { insightAlertsLogic } from '../../Alerts/insightAlertsLogic'
 import { SubscriptionBaseProps, urlForSubscriptions } from '../../Subscriptions/utils'
+
 interface SceneNotificationDropdownMenuProps extends SubscriptionBaseProps {
     insight?: Partial<QueryBasedInsightModel>
     insightLogicProps?: InsightLogicProps
