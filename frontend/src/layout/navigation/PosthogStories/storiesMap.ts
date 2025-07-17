@@ -55,11 +55,11 @@ export const storiesMap: storyGroup[] = [
         title: 'DeskHog',
         stories: [
             {
-                id: 'deskhog-intro',
+                id: 'deskhog-minidoc',
                 title: 'DeskHog',
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/Desk_Hog_ab9bb61eba.mp4',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/deskhog_minidoc_ea362ae944.mp4',
                 type: StoryType.Video,
             },
             {
@@ -67,7 +67,7 @@ export const storiesMap: storyGroup[] = [
                 title: 'DeskHog',
                 description: 'ORDER NOW!',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
-                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/DESKHOG_INFORMERCIAL_7ae11f729e.mp4',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/deskhog_infomercial_a50a1dd4ec.mp4',
                 type: StoryType.Video,
                 aspectRatio: '4:3',
             },
@@ -93,6 +93,11 @@ export const storiesMap: storyGroup[] = [
                 description: 'Open-source, 3D-printed, palm-sized',
                 thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_7d6d55ea31.png',
                 mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/deskhog_cta_513a9e19f4.png',
+                seeMoreLink: 'https://posthog.com/deskhog',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get your own',
+                },
                 type: StoryType.Image,
             },
         ],
