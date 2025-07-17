@@ -28,6 +28,7 @@ logger = structlog.get_logger(__name__)
 
 class HogFlowTriggerSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer()
+    type = serializers.ChoiceField(choices=["event"], required=True)
 
 
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
