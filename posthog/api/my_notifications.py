@@ -42,7 +42,6 @@ class MyNotificationsSerializer(serializers.ModelSerializer):
 
 
 class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "my_notifications"
     queryset = ActivityLog.objects.all()
     serializer_class = MyNotificationsSerializer
     filter_rewrite_rules = {"project_id": "team_id"}
