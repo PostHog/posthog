@@ -278,10 +278,16 @@ export function FeatureFlagReleaseConditions({
                                             const flagId = property.key || ''
                                             return (
                                                 <Tooltip title={flagId}>
-                                                    <LemonSnack>
-                                                        <IconFlag className="mr-1" />
-                                                        {flagKeysLoading ? 'Loading...' : flagKeyData(flagId)}
-                                                    </LemonSnack>
+                                                    <LemonButton
+                                                        to={urls.featureFlag(flagId)}
+                                                        size="small"
+                                                        className="p-0"
+                                                    >
+                                                        <LemonSnack>
+                                                            <IconFlag className="mr-1" />
+                                                            {flagKeysLoading ? 'Loading...' : flagKeyData(flagId)}
+                                                        </LemonSnack>
+                                                    </LemonButton>
                                                 </Tooltip>
                                             )
                                         })()}
