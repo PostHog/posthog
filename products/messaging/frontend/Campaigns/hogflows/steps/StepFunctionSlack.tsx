@@ -22,6 +22,7 @@ export const StepFunctionSlack: HogFlowStep<'function_slack'> = {
                 on_error: 'continue',
                 config: {
                     template_id: 'template-slack',
+                    inputs: {},
                 },
             },
         }
