@@ -13,30 +13,17 @@ test.describe('Dashboard Pydantic Validation Errors', () => {
         validInsightName = randomString('Valid Insight')
         invalidInsightName = randomString('Invalid Insight with Pydantic Error')
 
-        // Create dashboard through UI
         const dashboardPage = new DashboardPage(page)
         await dashboardPage.createNew(dashboardName)
 
         // Create valid insight using simple approach (avoiding the problematic editName method)
         const validInsightPage = new InsightPage(page)
-        await validInsightPage.goToNew()
-        // Set name using keyboard approach that works (like Cypress)
-        await page.getByTestId('top-bar-name').getByRole('button').click()
-        await page.getByTestId('top-bar-name').getByRole('textbox').clear()
-        await page.getByTestId('top-bar-name').getByRole('textbox').fill(validInsightName)
-        await page.keyboard.press('Enter')
-        await validInsightPage.save()
+        await validInsightPage.createNew(validInsightName)
         await validInsightPage.addToDashboard(dashboardName)
 
         // Create another insight that we'll corrupt later
         const invalidInsightPage = new InsightPage(page)
-        await invalidInsightPage.goToNew()
-        // Set name using keyboard approach
-        await page.getByTestId('top-bar-name').getByRole('button').click()
-        await page.getByTestId('top-bar-name').getByRole('textbox').clear()
-        await page.getByTestId('top-bar-name').getByRole('textbox').fill(invalidInsightName)
-        await page.keyboard.press('Enter')
-        await invalidInsightPage.save()
+        await invalidInsightPage.createNew(invalidInsightName)
         await invalidInsightPage.addToDashboard(dashboardName)
 
         // Now corrupt the second insight's query field via Django admin interface
