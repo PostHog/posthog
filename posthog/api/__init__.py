@@ -77,13 +77,13 @@ from . import (
     team,
     uploaded_media,
     user,
-    external_web_analytics,
     web_vitals,
 )
 from .file_system import file_system, file_system_shortcut, persisted_folder
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
+from .external_web_analytics import http as external_web_analytics
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])

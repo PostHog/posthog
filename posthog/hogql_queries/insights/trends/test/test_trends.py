@@ -2414,11 +2414,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "count": 4.0,
                     "data": [0.0, 1.0, 2.0, 1.0, 0.0],
                     "labels": [
-                        "25-Oct – 31-Oct",
-                        "1-Nov – 7-Nov",
-                        "8-Nov – 14-Nov",
-                        "15-Nov – 21-Nov",
-                        "22-Nov – 28-Nov",
+                        "29–31 Oct",  # starts at the date_from
+                        "1–7 Nov",
+                        "8–14 Nov",
+                        "15–21 Nov",
+                        "22–24 Nov",  # ends at the date_to
                     ],
                     "days": [
                         "2020-10-25",
@@ -2498,10 +2498,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "count": 4.0,
                     "data": [1.0, 2.0, 1.0, 0.0],
                     "labels": [
-                        "1-Nov – 7-Nov",
-                        "8-Nov – 14-Nov",
-                        "15-Nov – 21-Nov",
-                        "22-Nov – 28-Nov",
+                        "4–7 Nov",
+                        "8–14 Nov",
+                        "15–21 Nov",
+                        "22–24 Nov",
                     ],
                     "days": ["2020-11-01", "2020-11-08", "2020-11-15", "2020-11-22"],
                 }
@@ -2825,12 +2825,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     "count": 6.0,
                     "data": [0.0, 3.0, 2.0, 0.0, 1.0, 0.0],
                     "labels": [
-                        "25-Oct – 31-Oct",
-                        "1-Nov – 7-Nov",
-                        "8-Nov – 14-Nov",
-                        "15-Nov – 21-Nov",
-                        "22-Nov – 28-Nov",
-                        "29-Nov – 5-Dec",
+                        "31-Oct-2020",
+                        "1–7 Nov",
+                        "8–14 Nov",
+                        "15–21 Nov",
+                        "22–28 Nov",
+                        "29–30 Nov",
                     ],
                     "days": [
                         "2020-10-25",
@@ -3135,7 +3135,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ),
                 self.team,
             )
-        self.assertCountEqual(response[0]["labels"], ["22-Dec – 28-Dec", "29-Dec – 4-Jan"])
+        self.assertCountEqual(response[0]["labels"], ["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"])
         self.assertCountEqual(response[0]["data"], [0, 1003])
 
     @snapshot_clickhouse_queries
@@ -3271,7 +3271,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertCountEqual(weekly_response[0]["labels"], ["22-Dec – 28-Dec", "29-Dec – 4-Jan"])
+        self.assertCountEqual(weekly_response[0]["labels"], ["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"])
         self.assertCountEqual(weekly_response[0]["data"], [0, 5])
 
         self.assertCountEqual(
@@ -3442,7 +3442,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     [resp["breakdown_value"] for resp in weekly_response], ["value2", "value1"], breakdown_type
                 )
 
-            self.assertCountEqual(weekly_response[0]["labels"], ["22-Dec – 28-Dec", "29-Dec – 4-Jan"], breakdown_type)
+            self.assertCountEqual(
+                weekly_response[0]["labels"], ["28-Dec-2019", "29-Dec-2019 – 4-Jan-2020"], breakdown_type
+            )
             self.assertCountEqual(weekly_response[0]["data"], [0, 10], breakdown_type)
             self.assertCountEqual(weekly_response[1]["data"], [0, 5], breakdown_type)
 
@@ -3717,7 +3719,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
         self.assertEqual(
             response[0]["labels"][:5],
-            ["24-Nov – 30-Nov", "1-Dec – 7-Dec", "8-Dec – 14-Dec", "15-Dec – 21-Dec", "22-Dec – 28-Dec"],
+            ["24–30 Nov", "1–7 Dec", "8–14 Dec", "15–21 Dec", "22–28 Dec"],
         )
         self.assertEqual(response[0]["data"][:5], [0.0, 0.0, 0.0, 0.0, 1.0])
 
@@ -4556,7 +4558,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             response[0]["labels"][:5],
-            ["24-Nov – 30-Nov", "1-Dec – 7-Dec", "8-Dec – 14-Dec", "15-Dec – 21-Dec", "22-Dec – 28-Dec"],
+            ["24–30 Nov", "1–7 Dec", "8–14 Dec", "15–21 Dec", "22–28 Dec"],
         )
         self.assertEqual(response[0]["data"][:5], [0.0, 0.0, 0.0, 0.0, 1.0])
 
