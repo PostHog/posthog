@@ -133,96 +133,40 @@ export function DashboardItems(): JSX.Element {
                             removeFromDashboard: () => removeTile(tile),
                         }
 
-                        // Handle error tiles first - use the actual insight but show in error state
-                        if (tile.error) {
-                            // If we have insight data despite the error, use it; otherwise create a minimal one
-                            const insightToUse = tile.insight || {
-                                id: tile.id,
-                                short_id: `error-${tile.id}` as any,
-                                name: tile.error.tile_name || `Untitled tile ${tile.id}`,
-                                description: tile.error.tile_description || undefined,
-                                derived_name: null,
-                                favorited: false,
-                                order: tile.order || 0,
-                                result: null,
-                                deleted: false,
-                                saved: true,
-                                created_at: '',
-                                created_by: null,
-                                is_sample: false,
-                                dashboards: dashboard?.id ? [dashboard.id] : [],
-                                dashboard_tiles: [],
-                                updated_at: '',
-                                tags: [],
-                                last_modified_at: '',
-                                last_modified_by: null,
-                                effective_restriction_level: 0 as any,
-                                effective_privilege_level: 21 as any,
-                                timezone: null,
-                                query: null,
-                                query_status: undefined,
-                                last_refresh: null,
-                                user_access_level: 21 as any,
-                            }
-
-                            return (
-                                <InsightCard
-                                    key={tile.id}
-                                    insight={insightToUse}
-                                    loadingQueued={false}
-                                    loading={false}
-                                    apiErrored={true}
-                                    apiError={
-                                        {
-                                            status: 400,
-                                            detail: `${tile.error.type}: ${tile.error.message}`,
-                                        } as any
-                                    }
-                                    highlighted={highlightedInsightId && insightToUse.short_id === highlightedInsightId}
-                                    updateColor={(color) => updateTileColor(tile.id, color)}
-                                    ribbonColor={tile.color}
-                                    refresh={() => triggerDashboardItemRefresh({ tile })}
-                                    refreshEnabled={!itemsLoading}
-                                    rename={() => tile.insight && renameInsight(tile.insight)}
-                                    duplicate={() => tile.insight && duplicateInsight(tile.insight)}
-                                    showDetailsControls={placement != DashboardPlacement.Export}
-                                    placement={placement}
-                                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                    variablesOverride={temporaryVariables}
-                                    breakdownColorOverride={temporaryBreakdownColors}
-                                    dataColorThemeId={dataColorThemeId}
-                                    noCache={noCache}
-                                    {...commonTileProps}
-                                />
-                            )
-                        }
-
                         if (insight) {
+                            // Check if this insight has an error from the server
+                            const isErrorTile = !!tile.error
+                            const apiErrored = isErrorTile ? true : refreshStatus[insight.short_id]?.errored || false
+                            const apiError = isErrorTile
+                                ? ({ status: 400, detail: `${tile.error!.type}: ${tile.error!.message}` } as any)
+                                : refreshStatus[insight.short_id]?.error
+                            const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
+                            const loading = isErrorTile ? false : isRefreshing(insight.short_id)
+                            const refreshEnabled = !itemsLoading
+
                             return (
                                 <InsightCard
                                     key={tile.id}
                                     insight={insight}
-                                    loadingQueued={isRefreshingQueued(insight.short_id)}
-                                    loading={isRefreshing(insight.short_id)}
-                                    apiErrored={refreshStatus[insight.short_id]?.errored || false}
-                                    apiError={refreshStatus[insight.short_id]?.error}
+                                    loadingQueued={loadingQueued}
+                                    loading={loading}
+                                    apiErrored={apiErrored}
+                                    apiError={apiError}
                                     highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
                                     updateColor={(color) => updateTileColor(tile.id, color)}
                                     ribbonColor={tile.color}
                                     refresh={() => triggerDashboardItemRefresh({ tile })}
-                                    refreshEnabled={!itemsLoading}
+                                    refreshEnabled={refreshEnabled}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
                                     showDetailsControls={placement != DashboardPlacement.Export}
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
-                                    // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}
                                     noCache={noCache}
                                     {...commonTileProps}
-                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
                         }
