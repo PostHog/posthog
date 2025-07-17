@@ -1,6 +1,4 @@
-import { PostgresUse } from '~/utils/db/postgres'
-
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createAction, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { createIncomingEvent } from '../_tests/fixtures'
@@ -28,7 +26,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
     describe('action matching with actual database', () => {
         it('should match action when event matches bytecode filter', async () => {
-            // Insert an action directly into the database
+            // Create an action with bytecode
             const bytecode = [
                 '_H',
                 1,
@@ -54,12 +52,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 1,
             ]
 
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'INSERT INTO posthog_action (id, name, description, team_id, deleted, bytecode, post_to_slack, slack_message_format, is_calculating, last_calculated_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())',
-                [1, 'Test action', 'Test action', team.id, false, JSON.stringify(bytecode), false, '', false],
-                'insert-test-action'
-            )
+            await createAction(hub.postgres, team.id, 'Test action', bytecode)
 
             // Create a matching event
             const matchingEvent = createIncomingEvent(team.id, {
@@ -80,7 +73,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
         })
 
         it('should not match action when event does not match bytecode filter', async () => {
-            // Insert an action directly into the database
+            // Create an action with bytecode
             const bytecode = [
                 '_H',
                 1,
@@ -106,12 +99,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 1,
             ]
 
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'INSERT INTO posthog_action (id, name, description, team_id, deleted, bytecode, post_to_slack, slack_message_format, is_calculating, last_calculated_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())',
-                [2, 'Test action', 'Test action', team.id, false, JSON.stringify(bytecode), false, '', false],
-                'insert-test-action'
-            )
+            await createAction(hub.postgres, team.id, 'Test action', bytecode)
 
             // Create a non-matching event
             const nonMatchingEvent = createIncomingEvent(team.id, {
