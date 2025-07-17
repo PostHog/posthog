@@ -9,7 +9,7 @@ import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
 import { InsightsTable } from './InsightsTable'
-import trendsLineBreakdownInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json?url'
+import trendsLineBreakdownInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 
 type Story = StoryObj<typeof InsightsTable>
 const meta: Meta<typeof InsightsTable> = {

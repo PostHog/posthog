@@ -2,12 +2,12 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType } from '~/exporter/types'
-import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json?url'
-import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json?url'
-import funnelTopToBottomInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json?url'
-import funnelTopToBottomBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json?url'
-import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json?url'
-import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json?url'
+import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
+import funnelTopToBottomInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
+import funnelTopToBottomBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
+import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import { Exporter } from '../Exporter'
 
 type Story = StoryObj<typeof Exporter>

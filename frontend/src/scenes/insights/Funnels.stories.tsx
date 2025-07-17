@@ -5,10 +5,10 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
-import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json?url'
-import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json?url'
-import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json?url'
-import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json?url'
+import funnelLeftToRightInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import funnelLeftToRightBreakdownInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
+import funnelHistoricalTrendsInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import funnelTimeToConvertInsight from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

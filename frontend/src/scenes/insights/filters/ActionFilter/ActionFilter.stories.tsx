@@ -14,7 +14,7 @@ import { FilterType, InsightLogicProps, InsightType } from '~/types'
 
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import trendsLineBreakdownInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json?url'
+import trendsLineBreakdownInsight from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 type Story = StoryObj<typeof ActionFilter>
 const meta: Meta<typeof ActionFilter> = {
     title: 'Filters/Action Filter',

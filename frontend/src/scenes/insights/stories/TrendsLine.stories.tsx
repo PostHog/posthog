@@ -4,12 +4,20 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { mswDecorator } from '~/mocks/browser'
+import { QueryBasedInsightModel } from '~/types'
 
-import trendsLineInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json?url'
-import trendsLineMultiInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json?url'
-import trendsLineBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json?url'
-import trendsBarInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json?url'
-import trendsBarBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json?url'
+import trendsLineInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import trendsLineMultiInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import trendsLineBreakdownInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
+import trendsBarInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json'
+import trendsBarBreakdownInsightData from '../../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+
+// Type assertions for JSON fixtures
+const trendsLineInsight = trendsLineInsightData as unknown as QueryBasedInsightModel
+const trendsLineMultiInsight = trendsLineMultiInsightData as unknown as QueryBasedInsightModel
+const trendsLineBreakdownInsight = trendsLineBreakdownInsightData as unknown as QueryBasedInsightModel
+const trendsBarInsight = trendsBarInsightData as unknown as QueryBasedInsightModel
+const trendsBarBreakdownInsight = trendsBarBreakdownInsightData as unknown as QueryBasedInsightModel
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

@@ -5,13 +5,13 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
-import trendsValueInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json?url'
-import trendsValueBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json?url'
-import trendsAreaInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json?url'
-import trendsAreaBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json?url'
-import trendsNumberInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json?url'
-import trendsTableInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json?url'
-import trendsTableBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json?url'
+import trendsValueInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import trendsValueBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
+import trendsAreaInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
+import trendsAreaBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
+import trendsNumberInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import trendsTableInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import trendsTableBreakdownInsight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {

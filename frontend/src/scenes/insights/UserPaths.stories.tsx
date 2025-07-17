@@ -5,7 +5,7 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { mswDecorator } from '~/mocks/browser'
 
-import userPathsInsight from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json?url'
+import userPathsInsight from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
