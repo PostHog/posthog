@@ -351,18 +351,19 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        query = TrendsQuery(
-            **{
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
-                "trendsFilter": {},
-                "breakdownFilter": {"breakdowns": [{"property": "$virt_revenue", "type": "person"}]},
-            },
-            dateRange=DateRange(date_from="all", date_to=None),
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
-        )
-        tqr = TrendsQueryRunner(team=self.team, query=query)
-        results = tqr.calculate().results
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = TrendsQuery(
+                **{
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "name": "$pageview", "event": "$pageview", "math": "total"}],
+                    "trendsFilter": {},
+                    "breakdownFilter": {"breakdowns": [{"property": "$virt_revenue", "type": "person"}]},
+                },
+                dateRange=DateRange(date_from="all", date_to=None),
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+            )
+            tqr = TrendsQueryRunner(team=self.team, query=query)
+            results = tqr.calculate().results
 
         # Doesnt make sense to breakdown by this, but this is just proving it works
         poe_modes = [
