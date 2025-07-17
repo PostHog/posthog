@@ -429,7 +429,14 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
     logger = LOGGER.bind()
     external_logger = EXTERNAL_LOGGER.bind()
 
-    not_model_params = ("id", "team_id", "batch_export_id", "failure_threshold", "failure_check_window")
+    not_model_params = (
+        "id",
+        "team_id",
+        "batch_export_id",
+        "failure_threshold",
+        "failure_check_window",
+        "bytes_exported",  # TODO: once we add this to the model we can remove this
+    )
     update_params = {
         key: value
         for key, value in dataclasses.asdict(inputs).items()
