@@ -38,22 +38,19 @@ function makeLogicStub(actionNames: string[] = [], defaults: Record<string, any>
 }
 
 // mock parts of codeEditorLogic spesifically the APIs used by multitabEditorLogic
-const mockedCodeEditorMock = kea({
-    path: () => ['lib', 'monaco', 'codeEditorLogic'],
+const mockedCodeEditorLogic = {
     actions: {
-        createModel: (...args: unknown[]) => {
+        createModel: jest.fn((...args: unknown[]) => {
             const [query, path, name] = args as [string, string, string]
             return { query, path, name }
-        },
+        }),
     },
-    reducers: {
-        editorModelQueries: [
-            [{ id: 'mock-id', path: 'mock-id', query: TEST_VALUE, name: 'Mock Tab' }],
-            { createModel: (state, { query, path, name }) => [...state, { id: path, path, query, name }] },
-        ],
+    values: {
+        editorModelQueries: [{ id: 'mock-id', path: 'mock-id', query: TEST_VALUE, name: 'Mock Tab' }],
     },
-})
-
+    mount: jest.fn(),
+    unmount: jest.fn(),
+}
 // mock the parts of monaco which are used by multitabEditorLogic
 const mockMonaco = {
     Uri: { parse: (p: string) => ({ path: p, toString: () => p }) },
@@ -72,8 +69,8 @@ const mockMonaco = {
 beforeEach(() => {
     resetContext({ createStore: true })
     _models.clear()
-    jest.mock('lib/monaco/codeEditorLogic', () => ({ codeEditorLogic: mockedCodeEditorMock }))
-    mockedCodeEditorMock.mount()
+    jest.mock('lib/monaco/codeEditorLogic', () => ({ codeEditorLogic: mockedCodeEditorLogic }))
+    mockedCodeEditorLogic.mount()
 
     // mock localStorage
     Object.defineProperty(window, 'localStorage', {
