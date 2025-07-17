@@ -203,6 +203,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Groups',
         defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
+    [Scene.GroupsNew]: {
+        projectBased: true,
+        name: 'GroupsNew',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
     [Scene.Group]: {
         projectBased: true,
         name: 'People & groups',
@@ -630,6 +635,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
     [urls.customCss()]: [Scene.CustomCss, 'customCss'],
     [urls.groups(':groupTypeIndex')]: [Scene.PersonsManagement, 'groups'],
+    [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
