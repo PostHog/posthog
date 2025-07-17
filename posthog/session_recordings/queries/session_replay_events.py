@@ -108,7 +108,7 @@ class SessionReplayEvents:
         """
         result = sync_execute(
             """
-            SELECT 
+            SELECT
                 session_id,
                 min(min_first_timestamp) as min_timestamp,
                 max(max_last_timestamp) as max_timestamp
