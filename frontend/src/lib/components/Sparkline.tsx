@@ -20,10 +20,14 @@ export interface SparklineTimeSeries {
 export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
 
 interface SparklineProps {
-    /** Optional labels for the X axis. */
-    labels?: string[]
     /** Either a list of numbers for a muted graph or an array of time series */
     data: number[] | SparklineTimeSeries[]
+    /** Check vars.scss for available colors. @default 'muted' */
+    color?: string
+    colors?: string[]
+    /** A label for the graph, shown in the tooltip. */
+    label?: string
+    labels?: string[]
     /** @default 'bar' */
     type?: 'bar' | 'line'
     /** Whether the Y-axis maximum should be indicated in the graph. @default true */
@@ -40,8 +44,11 @@ interface SparklineProps {
 }
 
 export function Sparkline({
-    labels,
     data,
+    color,
+    colors,
+    label,
+    labels,
     type = 'bar',
     maximumIndicator = true,
     loading = false,
@@ -56,7 +63,31 @@ export function Sparkline({
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
     const adjustedData: SparklineTimeSeries[] = useMemo(() => {
-        return !isSparkLineTimeSeries(data) ? [{ name: 'Count', color: 'muted', values: data }] : data
+        const arrayData = Array.isArray(data) ? data : [data]
+        return arrayData.map((timeseries, index): SparklineTimeSeries => {
+            const defaultLabel =
+                labels?.[index] || (arrayData.length === 1 ? label || 'Count' : `${label || 'Series'} ${index + 1}`)
+            const defaultColor = colors?.[index] || color || 'muted'
+            if (typeof timeseries === 'object') {
+                if (!Array.isArray(timeseries)) {
+                    return {
+                        name: timeseries.name || defaultLabel,
+                        color: timeseries.color || defaultColor,
+                        values: timeseries.values || [],
+                    }
+                }
+                return {
+                    name: defaultLabel,
+                    color: defaultColor,
+                    values: timeseries,
+                }
+            }
+            return {
+                name: defaultLabel,
+                color: defaultColor,
+                values: timeseries ? [timeseries] : [],
+            }
+        })
     }, [data])
 
     useEffect(() => {
@@ -211,8 +242,4 @@ export function Sparkline({
     ) : (
         <LemonSkeleton className={finalClassName} />
     )
-}
-
-function isSparkLineTimeSeries(data: number[] | SparklineTimeSeries[]): data is SparklineTimeSeries[] {
-    return typeof data[0] !== 'number'
 }
