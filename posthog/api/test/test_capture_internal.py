@@ -79,7 +79,7 @@ class TestCaptureInternal(BaseTest):
             event_name=event_name,
             event_source="test_capture_internal",
             distinct_id=distinct_id,
-            timsestamp=timestamp,
+            timestamp=timestamp,
             properties=test_props,
         )
         assert response.status_code == 200
@@ -127,7 +127,7 @@ class TestCaptureInternal(BaseTest):
             event_name=event_name,
             event_source="test_capture_internal_with_persons_processing",
             distinct_id=distinct_id,
-            timsestamp=timestamp,
+            timestamp=timestamp,
             properties=test_props,
             process_person_profile=True,
         )
@@ -168,7 +168,7 @@ class TestCaptureInternal(BaseTest):
             event_name=event_name,
             event_source="test_capture_internal_with_capture_post_server_error",
             distinct_id=distinct_id,
-            timsestamp=timestamp,
+            timestamp=timestamp,
             properties=test_props,
         )
         assert response.status_code == 503
@@ -263,7 +263,7 @@ class TestCaptureInternal(BaseTest):
             event_name=event_name,
             event_source="test_capture_internal_replay",
             distinct_id=distinct_id,
-            timsestamp=timestamp,
+            timestamp=timestamp,
             properties=test_replay_props,
         )
         assert response.status_code == 200
@@ -303,7 +303,7 @@ class TestCaptureInternal(BaseTest):
                 event_name=event_name,
                 event_source="test_capture_internal_invalid_token",
                 distinct_id=distinct_id,
-                timsestamp=timestamp,
+                timestamp=timestamp,
                 properties=test_props,
             )
         assert (
@@ -334,7 +334,7 @@ class TestCaptureInternal(BaseTest):
                 event_name=event_name,
                 event_source="test_capture_internal_invalid_distinct_id",
                 distinct_id=distinct_id,
-                timsestamp=timestamp,
+                timestamp=timestamp,
                 properties=test_props,
             )
         assert (
@@ -365,7 +365,7 @@ class TestCaptureInternal(BaseTest):
                 event_name=event_name,
                 event_source="test_capture_internal_invalid_event_name",
                 distinct_id=distinct_id,
-                timsestamp=timestamp,
+                timestamp=timestamp,
                 properties=test_props,
             )
         assert str(e.exception) == "capture_internal (test_capture_internal_invalid_event_name): event name is required"
