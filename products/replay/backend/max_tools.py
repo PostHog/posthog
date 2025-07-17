@@ -31,7 +31,7 @@ class SearchSessionRecordingsTool(MaxTool):
 
     def _run_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
         model = (
-            ChatOpenAI(model="gpt-4o", temperature=0.2)
+            ChatOpenAI(model="gpt-4.1", temperature=0.2)
             .with_structured_output(MaxRecordingUniversalFilters, include_raw=False)
             .with_retry()
         )

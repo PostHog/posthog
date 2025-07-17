@@ -26,6 +26,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
+
         return await Promise.all(loadedInvocations.map((item) => this.hogExecutor.executeWithAsyncFunctions(item)))
     }
 

@@ -4,10 +4,11 @@ import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
+import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -60,7 +61,16 @@ export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' 
     seriesData: SeriesDatum[]
     breakdownFilter?: BreakdownFilter | undefined | null
     groupTypeLabel?: string
-    timezone?: string | null
+    timezone?: string | undefined
+    interval?: IntervalType | null
+    dateRange?: DateRange | null
+}
+
+export interface FormattedDateOptions {
+    interval?: IntervalType | null
+    dateRange?: DateRange | null
+    timezone?: string
+    weekStartDay?: number // 0 for Sunday, 1 for Monday, etc.
 }
 
 export const COL_CUTOFF = 4
@@ -68,13 +78,13 @@ export const ROW_CUTOFF = 8
 
 export function getTooltipTitle(
     seriesData: SeriesDatum[],
-    altTitleOrFn?: string | ((tooltipData: SeriesDatum[], date: string) => React.ReactNode),
-    date?: string
+    altTitleOrFn: string | ((tooltipData: SeriesDatum[], date: string) => React.ReactNode),
+    formattedDate: string
 ): React.ReactNode | null {
     // Use tooltip alternate title (or generate one if it's a function). Else default to date.
     if (altTitleOrFn) {
         if (typeof altTitleOrFn === 'function') {
-            return altTitleOrFn(seriesData, getFormattedDate(date))
+            return altTitleOrFn(seriesData, formattedDate)
         }
         return altTitleOrFn
     }
@@ -82,24 +92,63 @@ export function getTooltipTitle(
 }
 
 export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
-    minute: 'DD MMM YYYY HH:mm:00',
-    hour: 'DD MMM YYYY HH:00',
-    day: 'DD MMM YYYY',
-    week: 'DD MMM YYYY',
+    minute: 'D MMM YYYY HH:mm:00',
+    hour: 'D MMM YYYY HH:00',
+    day: 'D MMM YYYY',
+    week: 'D MMM YYYY',
     month: 'MMMM YYYY',
 }
 
-export function getFormattedDate(input?: string | number, interval: IntervalType = 'day'): string {
+/**
+ * Format a date range
+ */
+function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
+    // Same year and month
+    if (startDate.month() === endDate.month() && startDate.year() === endDate.year()) {
+        return `${startDate.format('D')}-${endDate.format('D MMM YYYY')}`
+    }
+
+    // Same year but different months
+    if (startDate.year() === endDate.year()) {
+        return `${startDate.format('D MMM')} - ${endDate.format('D MMM YYYY')}`
+    }
+
+    // Different years
+    return `${startDate.format('D MMM YYYY')} - ${endDate.format('D MMM YYYY')}`
+}
+
+export function getFormattedDate(input?: string | number, options?: FormattedDateOptions): string {
+    const defaultOptions = {
+        interval: 'day',
+        timezone: 'UTC',
+        weekStartDay: 0, // Default to Sunday
+    }
+    const { interval, dateRange, timezone, weekStartDay } = { ...defaultOptions, ...options }
+
     // Number of intervals (i.e. days, weeks)
     if (Number.isInteger(input)) {
-        return pluralize(input as number, interval)
+        return pluralize(input as number, interval ?? 'day')
     }
-    const day = dayjs(input)
-    // Dayjs formatted day
-    if (input !== undefined && day.isValid()) {
-        return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval])
+
+    const day = dayjs.tz(input, timezone)
+    if (input === undefined || !day.isValid()) {
+        return String(input)
     }
-    return String(input)
+
+    // Handle week interval separately
+    if (interval === 'week') {
+        const dateFrom = dayjs.tz(dateRange?.date_from, timezone)
+        const dateTo = dayjs.tz(dateRange?.date_to, timezone)
+        const { start: weekStart, end: weekEnd } = getConstrainedWeekRange(
+            day,
+            { start: dateFrom, end: dateTo },
+            weekStartDay
+        )
+        return formatDateRange(weekStart, weekEnd)
+    }
+
+    // Handle all other intervals
+    return day.format(INTERVAL_UNIT_TO_DAYJS_FORMAT[interval ?? 'day'])
 }
 
 function getPillValues(
