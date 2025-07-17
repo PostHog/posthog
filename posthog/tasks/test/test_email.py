@@ -1,6 +1,7 @@
 import datetime as dt
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.api.authentication import password_reset_token_generator
@@ -11,6 +12,7 @@ from posthog.batch_exports.models import (
     BatchExportRun,
 )
 from posthog.models import Organization, Team, User
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
@@ -22,12 +24,15 @@ from posthog.tasks.email import (
     send_canary_email,
     send_email_verification,
     send_fatal_plugin_error,
+    send_hog_functions_digest_email,
+    send_hog_functions_daily_digest,
     send_invite,
     send_member_join,
     send_password_reset,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
+from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -232,3 +237,253 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    def test_send_hog_functions_digest_email(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        digest_data = {
+            "team_id": self.team.id,
+            "functions": [
+                {
+                    "id": "test-hog-function-1",
+                    "name": "Test Function 1",
+                    "type": "destination",
+                    "succeeded": 95,
+                    "failed": 5,
+                    "filtered": 2,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-1",
+                },
+                {
+                    "id": "test-hog-function-2",
+                    "name": "Test Function 2",
+                    "type": "transformation",
+                    "succeeded": 200,
+                    "failed": 50,
+                    "filtered": 10,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function-2",
+                },
+            ],
+        }
+
+        send_hog_functions_digest_email(digest_data)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+    def test_send_hog_functions_digest_email_with_settings(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        digest_data = {
+            "team_id": self.team.id,
+            "functions": [
+                {
+                    "id": "test-hog-function",
+                    "name": "Test Function",
+                    "type": "destination",
+                    "succeeded": 80,
+                    "failed": 10,
+                    "filtered": 5,
+                    "url": "http://localhost:8000/project/1/pipeline/destinations/test-hog-function",
+                }
+            ],
+        }
+
+        send_hog_functions_digest_email(digest_data)
+
+        # Should only be sent to user2 (user1 has notifications disabled)
+        assert mocked_email_messages[0].to == [{"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com"}]
+
+        self.user.partial_notification_settings = {"plugin_disabled": True}
+        self.user.save()
+        send_hog_functions_digest_email(digest_data)
+
+        # Should now be sent to both users
+        assert len(mocked_email_messages[1].to) == 2
+
+    def test_send_hog_functions_digest_email_team_not_found(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        digest_data = {
+            "team_id": 99999,  # Non-existent team ID
+            "functions": [
+                {
+                    "id": "test",
+                    "name": "Test",
+                    "type": "destination",
+                    "succeeded": 50,
+                    "failed": 10,
+                    "filtered": 3,
+                    "url": "test",
+                }
+            ],
+        }
+
+        send_hog_functions_digest_email(digest_data)
+
+        # Should not send any emails
+        assert len(mocked_email_messages) == 0
+
+    def test_send_hog_functions_daily_digest(self, MockEmailMessage: MagicMock) -> None:
+        from posthog.test.fixtures import create_app_metric2
+
+        # Clean up app_metrics2 table before test
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Create a HogFunction for testing
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Test Destination Function",
+            type="destination",
+            enabled=True,
+            deleted=False,
+            hog="return event",
+        )
+
+        # Create test data in app_metrics2 table with all metric types
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
+            metric_name="failed",
+            count=5,  # This will trigger the digest
+        )
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),
+            metric_kind="success",
+            metric_name="succeeded",
+            count=95,
+        )
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),
+            metric_kind="filter",
+            metric_name="filtered",
+            count=3,
+        )
+
+        # Test 1: Enable digest for this team - should send email since there are failures
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+        # Reset mocked messages
+        mocked_email_messages.clear()
+
+        # Test 2: Team not in allowlist - should not send email
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=["999"]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 0
+
+        # Test 3: Empty allowlist (default behavior) - should send email since there are failures
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+    def test_send_hog_functions_daily_digest_no_eligible_functions(self, MockEmailMessage: MagicMock) -> None:
+        from posthog.test.fixtures import create_app_metric2
+
+        # Clean up app_metrics2 table before test
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        # Test 1: No HogFunctions created - should not send email
+        send_hog_functions_daily_digest()
+        assert len(mocked_email_messages) == 0
+
+        # Test 2: HogFunction with no failures - should not send email
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Working Function",
+            type="destination",
+            enabled=True,
+            deleted=False,
+            hog="return event",
+        )
+
+        # Only create successful metrics, no failures
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(hog_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="success",
+            metric_name="succeeded",
+            count=100,
+        )
+
+        send_hog_functions_daily_digest()
+        assert len(mocked_email_messages) == 0
+
+        # Test 3: Disabled HogFunction with failures - should not send email
+        HogFunction.objects.all().delete()  # Clear previous functions
+        disabled_function = HogFunction.objects.create(
+            team=self.team,
+            name="Disabled Function",
+            type="destination",
+            enabled=False,  # Disabled
+            deleted=False,
+            hog="return event",
+        )
+
+        # Create failure metrics for disabled function
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(disabled_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
+            metric_name="failed",
+            count=5,
+        )
+
+        send_hog_functions_daily_digest()
+        assert len(mocked_email_messages) == 0
+
+        # Test 4: Deleted HogFunction with failures - should not send email
+        HogFunction.objects.all().delete()  # Clear previous functions
+        deleted_function = HogFunction.objects.create(
+            team=self.team,
+            name="Deleted Function",
+            type="destination",
+            enabled=True,
+            deleted=True,  # Deleted
+            hog="return event",
+        )
+
+        # Create failure metrics for deleted function
+        create_app_metric2(
+            team_id=self.team.id,
+            app_source="hog_function",
+            app_source_id=str(deleted_function.id),
+            timestamp=timezone.now() - dt.timedelta(hours=1),  # Within last 24h
+            metric_kind="failure",
+            metric_name="failed",
+            count=5,
+        )
+
+        with self.settings(HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS=[str(self.team.id)]):
+            send_hog_functions_daily_digest()
+
+        assert len(mocked_email_messages) == 0
