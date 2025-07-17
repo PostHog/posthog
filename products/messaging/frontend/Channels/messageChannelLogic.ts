@@ -14,7 +14,7 @@ export const messageChannelLogic = kea<messageChannelLogicType>([
     selectors(() => ({
         displayName: [
             () => [(_, props) => props],
-            ({ integration }): boolean => {
+            ({ integration }): string => {
                 switch (integration?.kind) {
                     case 'email':
                         return integration.config.domain
