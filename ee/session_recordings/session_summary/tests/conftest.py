@@ -787,21 +787,18 @@ def mock_window_mapping(mock_window_mapping_reversed: dict[str, str]) -> dict[st
 @pytest.fixture
 def mock_session_batch_events_query_response_factory(
     mock_raw_events: list[tuple[Any, ...]],
+    mock_raw_events_columns: list[str],
 ) -> Callable:
     """
     Factory for creating SessionBatchEventsQueryResponse with minimal required fields. For E2E testing.
     """
 
     def _create_response(session_ids: list[str]) -> SessionBatchEventsQueryResponse:
-        # Create events data from mock raw events
+        # Create events data from mock raw events with all columns
         events_for_session = []
         for event in mock_raw_events:
-            # Extract relevant fields (event, timestamp, url)
-            event_type = event[0]
-            timestamp = event[1].isoformat()
-            url = event[6]
-            event_row = [event_type, timestamp, url]
-            events_for_session.append(event_row)
+            # Use all columns from the raw event
+            events_for_session.append(list(event))
 
         # Create session events for each session ID with the same events
         session_events = []
@@ -818,12 +815,33 @@ def mock_session_batch_events_query_response_factory(
         for _ in session_ids:
             all_results.extend(events_for_session)
 
+        # Generate types for each column
+        types = []
+        for col in mock_raw_events_columns:
+            if col == "timestamp":
+                types.append("DateTime")
+            elif col in [
+                "elements_chain_texts",
+                "elements_chain_elements",
+                "elements_chain_ids",
+                "$exception_types",
+                "$exception_sources",
+                "$exception_values",
+                "$exception_functions",
+            ]:
+                types.append("Array(String)")
+            elif col == "$exception_fingerprint_record":
+                types.append("Array(Object)")
+            else:
+                types.append("String")
+
         session_ids_str = ", ".join(f"'{sid}'" for sid in session_ids)
+        columns_str = ", ".join(mock_raw_events_columns)
         return SessionBatchEventsQueryResponse(
-            columns=["event", "timestamp", "$current_url"],
-            hogql=f"SELECT event, timestamp, $current_url FROM events WHERE $session_id IN [{session_ids_str}] ORDER BY timestamp",
+            columns=mock_raw_events_columns,
+            hogql=f"SELECT {columns_str} FROM events WHERE $session_id IN [{session_ids_str}] ORDER BY timestamp",
             results=all_results,
-            types=["String", "DateTime", "String"],
+            types=types,
             session_events=session_events,
             sessions_with_no_events=[],
         )
