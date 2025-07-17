@@ -88,7 +88,7 @@ export function Sparkline({
                 return {
                     name: defaultName,
                     color: defaultColor,
-                    values: timeseries,
+                    values: timeseries as number[],
                 }
             }
             return {
