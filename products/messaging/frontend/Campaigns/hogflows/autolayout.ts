@@ -29,7 +29,7 @@ const elk = new ELK()
 export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[]): Promise<HogFlowActionNode[]> => {
     const elkOptions = {
         'elk.algorithm': 'layered',
-        'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP}`,
+        'elk.layered.spacing.nodeNodeBetweenLayers': `${NODE_GAP * 1.5}`,
         'elk.spacing.nodeNode': `${NODE_GAP}`,
         'elk.spacing.edgeEdge': `${NODE_GAP}`,
         'elk.spacing.edgeNode': `${NODE_GAP}`,

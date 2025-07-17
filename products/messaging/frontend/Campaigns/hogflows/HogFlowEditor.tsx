@@ -18,6 +18,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { campaignLogic } from '../campaignLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
+import { REACT_FLOW_EDGE_TYPES } from './steps/SmartEdge'
 import { HogFlowActionNode } from './types'
 import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 
@@ -59,11 +60,12 @@ function HogFlowEditorContent(): JSX.Element {
                 onDrop={onDrop}
                 onNodeClick={(_, node) => node.selectable && setSelectedNodeId(node.id)}
                 nodeTypes={REACT_FLOW_NODE_TYPES as NodeTypes}
+                edgeTypes={REACT_FLOW_EDGE_TYPES}
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 onPaneClick={() => setSelectedNodeId(null)}
             >
-                <Background gap={36} variant={BackgroundVariant.Dots} />
+                <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
 
                 <Controls showInteractive={false} />
 
