@@ -42,7 +42,6 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
                     if (!res) {
                         throw new Error('Template not found')
                     }
-                    // Sets the correct defaults etc.
                     return res
                 },
             },
@@ -57,9 +56,9 @@ export const hogFunctionStepLogic = kea<hogFunctionStepLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        loadTemplateSuccess: ({ template }: { template: HogFunctionTemplateType }) => {
+        loadTemplateSuccess: ({ template }) => {
             // Set the inputs to be the defaults if not already set
-            if (!values.configuration.inputs) {
+            if (template && !values.configuration.inputs) {
                 actions.setConfigurationValues({
                     inputs: templateToConfiguration(template).inputs,
                 })
