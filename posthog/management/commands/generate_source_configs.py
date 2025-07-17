@@ -26,17 +26,12 @@ logger.setLevel(logging.INFO)
 
 
 class ConfigGenerator:
-    """Generates @config.config classes from SourceConfig definitions."""
-
     def __init__(self):
         self.generated_classes: dict[str, str] = {}
         self.imports: set[str] = set()
         self.nested_configs: dict[str, str] = {}
 
     def generate_all_configs(self) -> str:
-        """Generate all config classes for all available sources."""
-
-        # Add required imports
         self.imports.update(
             [
                 "from typing import Any, Literal",
@@ -45,7 +40,6 @@ class ConfigGenerator:
             ]
         )
 
-        # Generate configs for each source
         for source_type, source_config in AVAILABLE_SOURCES.items():
             try:
                 self.generate_source_config(source_type, source_config)
@@ -56,13 +50,10 @@ class ConfigGenerator:
         return self._build_output()
 
     def generate_source_config(self, source_type: ExternalDataSource.Type, source_config: SourceConfig) -> None:
-        """Generate config class for a specific source."""
-
         class_name = self._get_config_class_name(source_type)
         fields = []
         nested_classes = []
 
-        # Process each field in the source config
         for field in source_config.fields:
             field_defs, nested = self._process_field(field, class_name, source_config)
             if field_defs:
@@ -70,15 +61,12 @@ class ConfigGenerator:
             if nested:
                 nested_classes.extend(nested)
 
-        # Generate the main config class
         config_class = self._generate_config_class(class_name, fields)
 
-        # Store nested classes
         for nested_class in nested_classes:
             nested_name = self._extract_class_name(nested_class)
             self.nested_configs[nested_name] = nested_class
 
-        # Store main class
         self.generated_classes[class_name] = config_class
 
     def _process_field(self, field: Any, parent_class: str, source_config: SourceConfig) -> tuple[list[str], list[str]]:
@@ -112,25 +100,18 @@ class ConfigGenerator:
             return [], []
 
     def _process_input_field(self, field: SourceFieldInputConfig) -> str:
-        """Process a simple input field."""
-
-        # Determine Python type
         python_type = self._get_python_type(field.type)
 
-        # Determine if optional
         is_optional = not field.required
         if is_optional:
             python_type = f"{python_type} | None"
 
-        # Build field definition
         field_parts = []
 
-        # Add converter if needed
         converter = self._get_converter(field.type)
         if converter:
             field_parts.append(f"converter={converter}")
 
-        # Add default value
         if not field.required:
             if field_parts:
                 field_parts.append("default=None")
@@ -149,19 +130,12 @@ class ConfigGenerator:
     def _process_select_field(
         self, field: SourceFieldSelectConfig, parent_class: str, source_config: SourceConfig
     ) -> tuple[list[str], list[str]]:
-        """Process a select field with possible option sub-fields."""
-
-        nested_classes = []
-
-        # Check if any options have fields (complex select)
         has_option_fields = any(option.fields for option in field.options if option.fields)
 
         if not has_option_fields:
-            # Simple select - create Literal type
             option_values = [f'"{option.value}"' for option in field.options]
             literal_type = f"Literal[{', '.join(option_values)}]"
 
-            # Add default value if specified
             if field.defaultValue:
                 field_def = f'    {field.name}: {literal_type} = "{field.defaultValue}"'
             elif not field.required:
@@ -171,86 +145,85 @@ class ConfigGenerator:
 
             return [field_def], []
 
-        else:
-            # Complex select - check if we should flatten or nest
-            if field.flattenComplexSelect:
-                # Legacy flattening behavior - flatten option fields to main config
-                # The select field itself becomes a simple literal
-                option_values = [f'"{option.value}"' for option in field.options]
-                literal_type = f"Literal[{', '.join(option_values)}]"
+        nested_classes = []
 
-                if field.defaultValue:
-                    select_field = f'    {field.name}: {literal_type} = "{field.defaultValue}"'
-                elif not field.required:
-                    select_field = f"    {field.name}: {literal_type} | None = None"
-                else:
-                    select_field = f"    {field.name}: {literal_type}"
+        # Select with sub-fields
+        if field.flattenComplexSelect:
+            # Legacy flattening behavior - flatten option fields to main config
+            # The select field itself becomes a simple literal
+            option_values = [f'"{option.value}"' for option in field.options]
+            literal_type = f"Literal[{', '.join(option_values)}]"
 
-                # Collect all option fields
-                option_fields = []
-                seen_field_names = set()
-                for option in field.options:
-                    if option.fields:
-                        for option_field in option.fields:
-                            # Process option field recursively
-                            field_defs, nested = self._process_field(option_field, parent_class, source_config)
-                            if field_defs:
-                                # Deduplicate based on field name
-                                for field_def in field_defs:
-                                    field_name = field_def.split(":")[0].strip()
-                                    if field_name not in seen_field_names:
-                                        option_fields.append(field_def)
-                                        seen_field_names.add(field_name)
-                            if nested:
-                                nested_classes.extend(nested)
-
-                # Return select field + all option fields as separate fields
-                all_fields = [select_field, *option_fields]
-                return all_fields, nested_classes
-
+            if field.defaultValue:
+                select_field = f'    {field.name}: {literal_type} = "{field.defaultValue}"'
+            elif not field.required:
+                select_field = f"    {field.name}: {literal_type} | None = None"
             else:
-                # New nested behavior - create nested structure
-                nested_class_name = f"{parent_class}{field.name.title()}Config"
+                select_field = f"    {field.name}: {literal_type}"
 
-                # Create nested config for each option that has fields
-                nested_field_defs = []
+            option_fields = []
+            seen_field_names = set()
+            for option in field.options:
+                if not option.fields:
+                    continue
 
-                # Add selection field
-                option_values = [f'"{option.value}"' for option in field.options]
-                literal_type = f"Literal[{', '.join(option_values)}]"
-                nested_field_defs.append(f"    selection: {literal_type}")
+                for option_field in option.fields:
+                    field_defs, nested = self._process_field(option_field, parent_class, source_config)
+                    if field_defs:
+                        for field_def in field_defs:
+                            field_name = field_def.split(":")[0].strip()
+                            if field_name not in seen_field_names:
+                                option_fields.append(field_def)
+                                seen_field_names.add(field_name)
+                    if nested:
+                        nested_classes.extend(nested)
 
-                # Add all option fields
-                for option in field.options:
-                    if option.fields:
-                        for option_field in option.fields:
-                            field_defs, nested = self._process_field(option_field, nested_class_name, source_config)
-                            if field_defs:
+            all_fields = [select_field, *option_fields]
+            return all_fields, nested_classes
+
+        else:
+            # Nested behavior - create nested structure
+            nested_class_name = self._get_nested_class_name(field.name, parent_class)
+
+            nested_field_defs = []
+
+            option_values = [f'"{option.value}"' for option in field.options]
+            literal_type = f"Literal[{', '.join(option_values)}]"
+            nested_field_defs.append(f"    selection: {literal_type}")
+            seen_field_names = set()
+
+            for option in field.options:
+                if not option.fields:
+                    continue
+
+                for option_field in option.fields:
+                    field_defs, nested = self._process_field(option_field, nested_class_name, source_config)
+                    if field_defs:
+                        for field_def in field_defs:
+                            field_name = field_def.split(":")[0].strip()
+                            if field_name not in seen_field_names:
                                 nested_field_defs.extend(field_defs)
-                            if nested:
-                                nested_classes.extend(nested)
+                                seen_field_names.add(field_name)
+                    if nested:
+                        nested_classes.extend(nested)
 
-                # Generate the nested config class
-                nested_config = self._generate_config_class(nested_class_name, nested_field_defs)
-                nested_classes.append(nested_config)
+            nested_config = self._generate_config_class(nested_class_name, nested_field_defs)
+            nested_classes.append(nested_config)
 
-                # Generate field in parent class
-                if field.required:
-                    parent_field = f"    {field.name}: {nested_class_name}"
-                else:
-                    parent_field = f"    {field.name}: {nested_class_name} | None = None"
+            if field.required:
+                parent_field = f"    {field.name}: {nested_class_name}"
+            else:
+                parent_field = f"    {field.name}: {nested_class_name} | None = None"
 
-                return [parent_field], nested_classes
+            return [parent_field], nested_classes
 
     def _process_switch_group_field(
         self, field: SourceFieldSwitchGroupConfig, parent_class: str, source_config: SourceConfig
     ) -> tuple[str, list[str]]:
         """Process a switch group field (like SSH tunnel)."""
 
-        # Generate nested config class name
         nested_class_name = self._get_nested_class_name(field.name, parent_class)
 
-        # Generate nested config class
         nested_fields = ["    enabled: bool = config.value(converter=config.str_to_bool, default=False)"]
 
         nested_classes = []
@@ -264,7 +237,6 @@ class ConfigGenerator:
         nested_config = self._generate_config_class(nested_class_name, nested_fields)
         nested_classes.append(nested_config)
 
-        # Generate field in parent class
         # Convert dashes to underscores for valid Python field names
         python_field_name = field.name.replace("-", "_")
 
@@ -277,26 +249,22 @@ class ConfigGenerator:
         return field_def, nested_classes
 
     def _process_oauth_field(self, field: SourceFieldOauthConfig) -> str:
-        """Process an OAuth field."""
         if field.required:
             return f"    {field.name}: str"
         else:
             return f"    {field.name}: str | None = None"
 
     def _process_file_upload_field(self, field: SourceFieldFileUploadConfig) -> str:
-        """Process a file upload field."""
-        # File uploads are processed by frontend and come as parsed JSON
         if field.required:
             return f"    {field.name}: dict[str, Any]"
         else:
             return f"    {field.name}: dict[str, Any] | None = None"
 
     def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
-        """Process an SSH tunnel field by referencing the existing SSHTunnelConfig."""
-        # Add import for SSHTunnelConfig
+        """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
+
         self.imports.add("from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig")
 
-        # Convert dashes to underscores for valid Python field names
         python_field_name = field.name.replace("-", "_")
 
         if "-" in field.name:
@@ -306,7 +274,6 @@ class ConfigGenerator:
             return f"    {python_field_name}: SSHTunnelConfig"
 
     def _get_python_type(self, field_type: Type4) -> str:
-        """Convert field type to Python type."""
         type_mapping = {
             Type4.TEXT: "str",
             Type4.PASSWORD: "str",
@@ -314,42 +281,33 @@ class ConfigGenerator:
             Type4.NUMBER: "int",
             Type4.TEXTAREA: "str",
         }
+
         return type_mapping.get(field_type, "str")
 
     def _get_converter(self, field_type: Type4) -> Optional[str]:
-        """Get converter function for field type."""
         converter_mapping = {
             Type4.NUMBER: "int",
         }
+
         return converter_mapping.get(field_type)
 
     def _get_config_class_name(self, source_type: ExternalDataSource.Type) -> str:
-        """Generate config class name from source type."""
-
-        # Use enum value directly as it's already properly formatted
-        class_name_base = source_type.value
-
-        return f"{class_name_base}SourceConfig"
+        return f"{source_type.value}SourceConfig"
 
     def _get_nested_class_name(self, field_name: str, parent_class: str) -> str:
-        """Generate nested config class name."""
-        # Extract parent prefix from class name (e.g., "PostgresSourceConfig" -> "Postgres")
         parent_prefix = parent_class.replace("SourceConfig", "")
 
-        # Convert field name to class name format
         class_name_part = "".join(word.title() for word in field_name.replace("-", "_").split("_"))
 
-        # Combine parent prefix with field name to ensure uniqueness
         return f"{parent_prefix}{class_name_part}Config"
 
     def _sort_fields_by_defaults(self, fields: list[str]) -> list[str]:
         """Sort fields so that fields without defaults come before fields with defaults."""
+
         fields_without_defaults = []
         fields_with_defaults = []
 
         for field in fields:
-            # Check if field has a default value by looking for = in the field definition
-            # Skip lines that are just pass or other non-field content
             field_content = field.strip()
             if field_content == "pass" or not field_content:
                 continue
@@ -360,14 +318,10 @@ class ConfigGenerator:
             else:
                 fields_without_defaults.append(field)
 
-        # Return fields without defaults first, then fields with defaults
         return fields_without_defaults + fields_with_defaults
 
     def _generate_config_class(self, class_name: str, fields: list[str]) -> str:
-        """Generate a complete config class."""
-
         if fields:
-            # Sort fields to ensure fields without defaults come before fields with defaults
             sorted_fields = self._sort_fields_by_defaults(fields)
             fields_str = "\n".join(sorted_fields)
         else:
@@ -378,7 +332,6 @@ class {class_name}(config.Config):
 {fields_str}"""
 
     def _extract_class_name(self, class_definition: str) -> str:
-        """Extract class name from class definition."""
         lines = class_definition.split("\n")
         for line in lines:
             if line.startswith("class "):
@@ -426,7 +379,6 @@ class Command(BaseCommand):
         generator = ConfigGenerator()
         output = generator.generate_all_configs()
 
-        # Write to output file
         output_path = os.path.join(
             os.path.dirname(__file__), "..", "..", "temporal", "data_imports", "sources", "generated_configs.py"
         )
