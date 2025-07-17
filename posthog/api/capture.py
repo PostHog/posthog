@@ -27,8 +27,8 @@ SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event", *SESSION_REC
 # let's track who is using this to detect new (ab)usive call sites quickly
 CAPTURE_INTERNAL_EVENT_SUBMITTED_COUNTER = Counter(
     "capture_internal_event_submitted",
-    "Events received by capture_internal, tagged by resource type.",
-    labelnames=["event_source"],
+    "Events received by capture_internal, tagged by source.",
+    labelnames=["event_source"],  # which internal codepath submitted this event
 )
 
 
