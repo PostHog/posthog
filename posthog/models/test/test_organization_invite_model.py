@@ -83,7 +83,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created correctly
         access_control = AccessControl.objects.filter(
-            team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
+            team=team, resource="project", resource_id=str(team.id), organization_member=org_membership
         ).first()
         if not access_control:
             raise Exception("Access control not found")
@@ -117,7 +117,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created with member level
         access_control = AccessControl.objects.filter(
-            team=team, resource="team", resource_id=str(team.id), organization_member=org_membership
+            team=team, resource="project", resource_id=str(team.id), organization_member=org_membership
         ).first()
 
         if not access_control:
@@ -165,7 +165,7 @@ class TestOrganizationInvite(BaseTest):
 
         # Verify the access control has been created correctly for the new team
         access_control = AccessControl.objects.filter(
-            team=new_team, resource="team", resource_id=str(new_team.id), organization_member=org_membership
+            team=new_team, resource="project", resource_id=str(new_team.id), organization_member=org_membership
         ).first()
         if not access_control:
             raise Exception("Access control not found")

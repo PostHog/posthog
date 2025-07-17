@@ -61,7 +61,12 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
 )
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.session_recording_list_from_query import (
+    SessionRecordingListFromQuery as OriginalSessionRecordingListFromQuery,
+)
+from posthog.session_recordings.queries_to_replace.session_recording_list_from_query import (
+    SessionRecordingListFromQuery as RewrittenSessionRecordingListFromQuery,
+)
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.realtime_snapshots import (
     get_realtime_snapshots,
@@ -1364,10 +1369,27 @@ def list_recordings_from_query(
     if (all_session_ids and query.session_ids) or not all_session_ids:
         modifiers = safely_read_modifiers_overrides(str(user.distinct_id), team) if user else None
 
-        with timer("load_recordings_from_hogql"):
-            (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
-                query=query, team=team, hogql_query_modifiers=modifiers
-            ).run()
+        use_multiple_sub_queries = (
+            posthoganalytics.feature_enabled(
+                "use-multiple-sub-queries",
+                str(user.distinct_id),
+            )
+            if user
+            else False
+        )
+
+        with timer("load_recordings_from_hogql"), posthoganalytics.new_context():
+            posthoganalytics.tag("use_multiple_sub_queries", use_multiple_sub_queries)
+            if use_multiple_sub_queries:
+                (ch_session_recordings, more_recordings_available, hogql_timings) = (
+                    RewrittenSessionRecordingListFromQuery(
+                        query=query, team=team, hogql_query_modifiers=modifiers
+                    ).run()
+                )
+            else:
+                (ch_session_recordings, more_recordings_available, hogql_timings) = (
+                    OriginalSessionRecordingListFromQuery(query=query, team=team, hogql_query_modifiers=modifiers).run()
+                )
 
         with timer("build_recordings"):
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
