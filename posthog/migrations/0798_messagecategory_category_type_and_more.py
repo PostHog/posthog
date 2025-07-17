@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0794_fix_stripe_tables"),
+        ("posthog", "0797_batchexportrun_bytes_exported"),
     ]
 
     operations = [
