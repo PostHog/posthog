@@ -8,7 +8,6 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { IconExclamation } from 'lib/lemon-ui/icons'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -18,54 +17,6 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
-
-// Error tile card component
-function ErrorTileCard({
-    error,
-    tileId,
-    ...commonTileProps
-}: {
-    error: { type: string; message: string; tile_id: number }
-    tileId: number
-} & any): JSX.Element {
-    return (
-        <div className="dashboard-item-wrapper" style={{ position: 'relative' }}>
-            <div
-                className="dashboard-item dashboard-item--error"
-                style={{
-                    background: 'var(--bg-light)',
-                    border: '2px dashed var(--border-bold)',
-                    borderRadius: '6px',
-                    padding: '24px',
-                    height: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    textAlign: 'center',
-                    gap: '8px',
-                }}
-            >
-                <IconExclamation style={{ fontSize: '24px', color: 'var(--warning)' }} />
-                <h4 style={{ margin: 0, color: 'var(--default)' }}>Error loading tile</h4>
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '14px' }}>
-                    {error.type}: {error.message}
-                </p>
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '12px' }}>Tile ID: {tileId}</p>
-                {commonTileProps.removeFromDashboard && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={commonTileProps.removeFromDashboard}
-                        style={{ marginTop: '8px' }}
-                    >
-                        Remove tile
-                    </LemonButton>
-                )}
-            </div>
-        </div>
-    )
-}
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -182,10 +133,64 @@ export function DashboardItems(): JSX.Element {
                             removeFromDashboard: () => removeTile(tile),
                         }
 
-                        // Handle error tiles first
+                        // Handle error tiles first - use the actual insight but show in error state
                         if (tile.error) {
+                            // If we have insight data despite the error, use it; otherwise create a minimal one
+                            const insightToUse = tile.insight || {
+                                id: tile.id,
+                                short_id: `error-${tile.id}` as any,
+                                name: `Error loading tile ${tile.id}`,
+                                description: `${tile.error.type}: ${tile.error.message}`,
+                                derived_name: null,
+                                favorited: false,
+                                order: tile.order || 0,
+                                result: null,
+                                deleted: false,
+                                saved: true,
+                                created_at: '',
+                                created_by: null,
+                                is_sample: false,
+                                dashboards: dashboard?.id ? [dashboard.id] : [],
+                                dashboard_tiles: [],
+                                updated_at: '',
+                                tags: [],
+                                last_modified_at: '',
+                                last_modified_by: null,
+                                effective_restriction_level: 0 as any,
+                                effective_privilege_level: 21 as any,
+                                timezone: null,
+                                query: null,
+                                query_status: undefined,
+                                last_refresh: null,
+                                user_access_level: 21 as any,
+                            }
+
                             return (
-                                <ErrorTileCard key={tile.id} error={tile.error} tileId={tile.id} {...commonTileProps} />
+                                <InsightCard
+                                    key={tile.id}
+                                    insight={insightToUse}
+                                    loadingQueued={false}
+                                    loading={false}
+                                    apiErrored={true}
+                                    apiError={
+                                        new Error(`${tile.error.type}: ${tile.error.message} (Tile ID: ${tile.id})`)
+                                    }
+                                    highlighted={highlightedInsightId && insightToUse.short_id === highlightedInsightId}
+                                    updateColor={(color) => updateTileColor(tile.id, color)}
+                                    ribbonColor={tile.color}
+                                    refresh={() => triggerDashboardItemRefresh({ tile })}
+                                    refreshEnabled={!itemsLoading}
+                                    rename={() => tile.insight && renameInsight(tile.insight)}
+                                    duplicate={() => tile.insight && duplicateInsight(tile.insight)}
+                                    showDetailsControls={placement != DashboardPlacement.Export}
+                                    placement={placement}
+                                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                    variablesOverride={temporaryVariables}
+                                    breakdownColorOverride={temporaryBreakdownColors}
+                                    dataColorThemeId={dataColorThemeId}
+                                    noCache={noCache}
+                                    {...commonTileProps}
+                                />
                             )
                         }
 

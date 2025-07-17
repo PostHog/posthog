@@ -483,13 +483,32 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
                         error=str(e),
                         exc_info=True,
                     )
-                    # Create an error tile that the frontend can handle
+                    # Create an error tile that tries to preserve the original insight/text
+                    insight_data = None
+                    text_data = None
+
+                    # Try to serialize insight separately if it exists
+                    if tile.insight:
+                        try:
+                            insight_data = InsightSerializer(tile.insight, context=self.context).data
+                        except Exception:
+                            logger.warning("dashboard_tile_insight_serialization_also_failed", tile_id=tile.id)
+                            insight_data = None
+
+                    # Try to serialize text separately if it exists
+                    if tile.text:
+                        try:
+                            text_data = TextSerializer(tile.text, context=self.context).data
+                        except Exception:
+                            logger.warning("dashboard_tile_text_serialization_also_failed", tile_id=tile.id)
+                            text_data = None
+
                     error_tile_data = {
                         "id": tile.id,
                         "layouts": tile.layouts,
                         "color": getattr(tile, "color", None),
-                        "insight": None,
-                        "text": None,
+                        "insight": insight_data,
+                        "text": text_data,
                         "order": order,
                         "last_refresh": None,
                         "is_cached": False,
