@@ -33,6 +33,9 @@ QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
 QUOTA_LIMIT_HIGH_TRUST_GRACE_PERIOD_DAYS = 5
 
+# Feature flags always get a 2-day grace period regardless of trust score
+FEATURE_FLAGS_GRACE_PERIOD_DAYS = 2
+
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
     3: 0,
@@ -271,6 +274,86 @@ def org_quota_limited_until(
         return None
 
     _, today_end = get_current_day()
+
+    # Special case for feature flags - always apply at least 2-day grace period
+    if resource == QuotaResource.FEATURE_FLAG_REQUESTS:
+        # Get the trust score grace period, but ensure at least 2 days
+        trust_score_grace_period = GRACE_PERIOD_DAYS.get(trust_score, 0)
+        grace_period_days = max(FEATURE_FLAGS_GRACE_PERIOD_DAYS, trust_score_grace_period)
+
+        # If the suspension is expired or never set, we want to suspend the limit for a grace period
+        if not quota_limiting_suspended_until or (
+            (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
+            < billing_period_start
+        ):
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "suspended",
+                    "current_usage": usage + todays_usage,
+                    "resource": resource.value,
+                    "grace_period_days": grace_period_days,
+                    "trust_score": trust_score,
+                    "trust_score_grace_period": trust_score_grace_period,
+                    "minimum_grace_period": FEATURE_FLAGS_GRACE_PERIOD_DAYS,
+                    "special_case": "feature_flags_minimum_grace_period",
+                },
+            )
+            quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
+            )
+            return {
+                "quota_limited_until": None,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+            }
+
+        elif today_end.timestamp() <= quota_limiting_suspended_until:
+            # If the suspension is still active, return the existing suspension date
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "suspension not expired",
+                    "current_usage": usage + todays_usage,
+                    "resource": resource.value,
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                    "special_case": "feature_flags_minimum_grace_period",
+                },
+            )
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
+            )
+            return {
+                "quota_limited_until": None,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+            }
+        else:
+            # If the suspension is expired, limit the org
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "suspended expired",
+                    "current_usage": usage + todays_usage,
+                    "resource": resource.value,
+                    "special_case": "feature_flags_minimum_grace_period",
+                },
+            )
+            update_organization_usage_fields(
+                organization,
+                resource,
+                {"quota_limited_until": billing_period_end, "quota_limiting_suspended_until": None},
+            )
+            return {
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": None,
+            }
 
     # Now we check the trust score
     # These trust score levels are defined in billing::customer::TrustScores.
