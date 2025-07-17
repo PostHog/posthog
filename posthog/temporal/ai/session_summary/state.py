@@ -12,10 +12,10 @@ T = TypeVar("T")
 
 
 class StateActivitiesEnum(Enum):
-    SESSION_DB_DATA = "session_db_data"
-    SESSION_SUMMARY = "session_summary"
-    SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"
-    SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"
+    SESSION_DB_DATA = "session_db_data"  # Events from DB
+    SESSION_SUMMARY = "session_summary"  # Single-session summaries (per session)
+    SESSION_GROUP_EXTRACTED_PATTERNS = "extracted_patterns"  # Patters from all the summaries
+    SESSION_GROUP_PATTERNS_ASSIGNMENTS = "patterns_assignments"  # Patterns assignments for all the sessions
 
 
 def get_redis_state_client(
