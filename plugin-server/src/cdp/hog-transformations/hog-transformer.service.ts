@@ -70,13 +70,10 @@ export class HogTransformerService {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
     }
 
-    public async start(): Promise<void> {
-        await this.hogFunctionManager.start()
-    }
+    public async start(): Promise<void> {}
 
     public async stop(): Promise<void> {
         await this.processInvocationResults()
-        await this.hogFunctionManager.stop()
         await this.redis.useClient({ name: 'cleanup' }, async (client) => {
             await client.quit()
         })
