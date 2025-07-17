@@ -406,12 +406,32 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
+class SourceVaryingSnapshotThrottle(PersonalApiKeyRateThrottle):
+    source: str | None = None
+
+    def get_rate(self):
+        num_requests, duration = self.parse_rate(self.get_rate())
+
+        divisors = {
+            "realtime": 4,
+            "blob": 2,
+            "blob_v2": 1,
+        }
+
+        divisor = divisors.get(self.source, 1)
+        return num_requests / divisor, duration
+
+    def allow_request(self, request, view):
+        self.source = request.GET.get("source", None)
+        return super().allow_request(request, view)
+
+
+class SnapshotsBurstRateThrottle(SourceVaryingSnapshotThrottle):
     scope = "snapshots_burst"
     rate = "120/minute"
 
 
-class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
+class SnapshotsSustainedRateThrottle(SourceVaryingSnapshotThrottle):
     scope = "snapshots_sustained"
     rate = "600/hour"
 
