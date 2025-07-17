@@ -572,6 +572,7 @@ async def materialize_model(
     job.rows_materialized = row_count
     job.status = DataModelingJob.Status.COMPLETED
     job.last_run_at = dt.datetime.now(dt.UTC)
+    job.error = None  # clear any previous error message
     await database_sync_to_async(job.save)()
 
     await logger.adebug("Setting DataModelingJob.Status = COMPLETED")
@@ -982,7 +983,7 @@ async def cleanup_running_jobs_activity(inputs: CleanupRunningJobsActivityInputs
         DataModelingJob.objects.filter(team_id=inputs.team_id, status=DataModelingJob.Status.RUNNING).update
     )(
         status=DataModelingJob.Status.FAILED,
-        error="Job was orphaned when a new data modeling run started",
+        error="Job timed out",
         updated_at=dt.datetime.now(dt.UTC),
     )
 
