@@ -139,7 +139,7 @@
         "d3": "^7.9.0",
         "d3-sankey": "^0.12.3",
         "dayjs": "1.11.11",
-        "dompurify": "^3.0.6",
+        "dompurify": "^3.2.6",
         "elkjs": "^0.10.0",
         "emoji-regex": "^10.4.0",
         "eventsource-parser": "^3.0.0",
