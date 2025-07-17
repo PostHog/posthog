@@ -477,9 +477,16 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         else:
             raise ValueError(f"Invalid view: {view}")
 
-    # If we can detect we're syncing Revenue data for the first time, cache for just 1 minute
-    # Otherwise, cache it for half the frequency we sync data from Stripe
+    SMALL_CACHE_TARGET_AGE = timedelta(minutes=1)
+    DEFAULT_CACHE_TARGET_AGE = timedelta(hours=6)
+
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
+        """
+        If we're syncing Revenue data for the first time, cache for `SMALL_CACHE_TARGET_AGE`
+        Otherwise, cache it for half the frequency we sync data from Stripe
+
+        If we can't figure out the interval, default to caching for `DEFAULT_CACHE_TARGET_AGE`.
+        """
         if last_refresh is None:
             return None
 
@@ -496,13 +503,13 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext):
         if any(
             schema.status == ExternalDataSchema.Status.RUNNING and schema.last_synced_at is None for schema in schemas
         ):
-            return last_refresh + timedelta(minutes=1)
+            return last_refresh + self.SMALL_CACHE_TARGET_AGE
 
         # Otherwise, let's check the frequency of the schemas that are syncing revenue data
         # In the rare case where we can't figure out the interval, default to caching for 6 hours
         intervals = [schema.sync_frequency_interval for schema in schemas if schema.sync_frequency_interval is not None]
         if not intervals:
-            return last_refresh + timedelta(hours=6)
+            return last_refresh + self.DEFAULT_CACHE_TARGET_AGE
 
         # If we can figure out the interval, let's cache for half of that
         # to guarantee that - on average - we'll have fresh data for the next sync

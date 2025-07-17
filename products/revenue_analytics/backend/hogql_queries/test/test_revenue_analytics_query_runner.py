@@ -32,8 +32,8 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
         self.assertEqual(runner.cache_target_age(None), None)
 
     def test_cache_target_age_without_sources(self):
-        """Test that when there are no sources, we use the default 6 hours"""
-        self.assertDiff(timedelta(hours=6))
+        """Test that when there are no sources, we use our default cache target age"""
+        self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
 
     def test_cache_target_age_first_time_sync(self):
         """Test that first-time sync (RUNNING status with no last_synced_at) returns 1 minute cache"""
@@ -57,7 +57,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             last_synced_at=None,  # Never synced before
         )
 
-        self.assertDiff(timedelta(minutes=1))
+        self.assertDiff(RevenueAnalyticsQueryRunner.SMALL_CACHE_TARGET_AGE)
 
     def test_cache_target_age_with_sync_intervals(self):
         """Test that when schemas have sync intervals, we cache for half the minimum interval"""
@@ -96,7 +96,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
         self.assertDiff(timedelta(hours=2))
 
     def test_cache_target_age_without_sync_intervals(self):
-        """Test that when schemas have no sync intervals, we default to 6 hours"""
+        """Test that when schemas have no sync intervals, we use our default cache target age"""
 
         # Create a Stripe source with revenue analytics enabled
         source = ExternalDataSource.objects.create(
@@ -128,7 +128,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             sync_frequency_interval=None,  # No interval
         )
 
-        self.assertDiff(timedelta(hours=6))
+        self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
 
     def test_cache_target_age_mixed_sync_intervals(self):
         """Test that when some schemas have intervals and others don't, we use the minimum"""
@@ -199,8 +199,8 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             sync_frequency_interval=timedelta(hours=2),
         )
 
-        # Should default to 6 hours since no Stripe sources
-        self.assertDiff(timedelta(hours=6))
+        # Should use our default cache target age since no Stripe sources
+        self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
 
     def test_cache_target_age_revenue_analytics_disabled_ignored(self):
         """Test that sources with revenue_analytics_enabled=False are ignored"""
@@ -225,8 +225,8 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             sync_frequency_interval=timedelta(hours=2),
         )
 
-        # Should default to 6 hours since revenue analytics is disabled
-        self.assertDiff(timedelta(hours=6))
+        # Should use our default cache target age since revenue analytics is disabled
+        self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
 
     def test_cache_target_age_should_sync_false_ignored(self):
         """Test that schemas with should_sync=False are ignored"""
@@ -251,8 +251,8 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             sync_frequency_interval=timedelta(hours=2),
         )
 
-        # Should default to 6 hours since schema shouldn't sync
-        self.assertDiff(timedelta(hours=6))
+        # Should use our default cache target age since schema shouldn't sync
+        self.assertDiff(RevenueAnalyticsQueryRunner.DEFAULT_CACHE_TARGET_AGE)
 
     def test_cache_target_age_first_time_sync_priority(self):
         """Test that first-time sync takes priority over sync intervals"""
@@ -287,8 +287,8 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             sync_frequency_interval=timedelta(hours=4),
         )
 
-        # Should return 1 minute due to first-time sync, not 2 hours from interval
-        self.assertDiff(timedelta(minutes=1))
+        # Should return our small cache target age since it's the first time syncing
+        self.assertDiff(RevenueAnalyticsQueryRunner.SMALL_CACHE_TARGET_AGE)
 
     def test_cache_target_age_complex_scenario(self):
         """Test a complex scenario with multiple schemas and edge cases"""
@@ -343,5 +343,5 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
             sync_frequency_interval=None,  # Should be ignored for interval calculation
         )
 
-        # Should return 1 minute due to first-time sync, not 3 hours from minimum interval
-        self.assertDiff(timedelta(minutes=1))
+        # Should return our small cache target age since it's the first time syncing
+        self.assertDiff(RevenueAnalyticsQueryRunner.SMALL_CACHE_TARGET_AGE)
