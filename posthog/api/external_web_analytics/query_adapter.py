@@ -133,7 +133,7 @@ class ExternalWebAnalyticsQueryAdapter:
             ),
             properties=self._get_base_properties(data.get("domain")),
             filterTestAccounts=data.get("filter_test_accounts", True),
-            doPathCleaning=data.get("do_path_cleaning", True),
+            doPathCleaning=data.get("apply_path_cleaning", True),
             includeRevenue=False,
         )
 
@@ -161,7 +161,7 @@ class ExternalWebAnalyticsQueryAdapter:
             ),
             properties=self._get_base_properties(data.get("domain")),
             filterTestAccounts=data.get("filter_test_accounts", True),
-            doPathCleaning=data.get("do_path_cleaning", True),
+            doPathCleaning=data.get("apply_path_cleaning", True),
             includeBounceRate=self.breakdown_metrics_config.is_metric_supported("bounce_rate", breakdown_by),
             limit=data.get("limit", EXTERNAL_WEB_ANALYTICS_PAGINATION_DEFAULT_LIMIT),
         )

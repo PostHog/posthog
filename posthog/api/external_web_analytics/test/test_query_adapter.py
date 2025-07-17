@@ -21,7 +21,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             "date_to": date(2025, 1, 31),
             "domain": "example.com",
             "filter_test_accounts": True,
-            "do_path_cleaning": True,
+            "apply_path_cleaning": True,
         }
 
         self.sample_overview_items = [
@@ -234,10 +234,10 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
     def test_filter_configuration_variations(self, mock_runner_class):
         test_cases = [
-            {"filter_test_accounts": False, "do_path_cleaning": False},
-            {"filter_test_accounts": True, "do_path_cleaning": False},
-            {"filter_test_accounts": False, "do_path_cleaning": True},
-            {"filter_test_accounts": True, "do_path_cleaning": True},
+            {"filter_test_accounts": False, "apply_path_cleaning": False},
+            {"filter_test_accounts": True, "apply_path_cleaning": False},
+            {"filter_test_accounts": False, "apply_path_cleaning": True},
+            {"filter_test_accounts": True, "apply_path_cleaning": True},
         ]
 
         for filters in test_cases:
@@ -253,7 +253,7 @@ class TestExternalWebAnalyticsQueryAdapterOverview(APIBaseTest):
             query = kwargs["query"]
 
             assert query.filterTestAccounts == filters["filter_test_accounts"]
-            assert query.doPathCleaning == filters["do_path_cleaning"]
+            assert query.doPathCleaning == filters["apply_path_cleaning"]
 
     @patch("posthog.api.external_web_analytics.query_adapter.WebOverviewQueryRunner")
     def test_ignores_unknown_metrics(self, mock_runner_class):
@@ -308,7 +308,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
             "breakdown_by": "Browser",
             "domain": "example.com",
             "filter_test_accounts": True,
-            "do_path_cleaning": True,
+            "apply_path_cleaning": True,
             "limit": 100,
             "metrics": ["visitors", "views"],
         }
@@ -471,7 +471,7 @@ class TestExternalWebAnalyticsQueryAdapterBreakdown(APIBaseTest):
         mock_runner_class.return_value = mock_runner
 
         serializer = self._create_mock_breakdown_request_serializer(
-            breakdown_by="DeviceType", filter_test_accounts=False, do_path_cleaning=False, limit=50
+            breakdown_by="DeviceType", filter_test_accounts=False, apply_path_cleaning=False, limit=50
         )
         adapter = ExternalWebAnalyticsQueryAdapter(team=self.team)
         adapter.get_breakdown_data(serializer)
