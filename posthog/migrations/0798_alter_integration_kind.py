@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0795_add_progress_tracking_to_datamodelingjob"),
+        ("posthog", "0797_batchexportrun_bytes_exported"),
     ]
 
     operations = [
