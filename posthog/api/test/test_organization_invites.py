@@ -21,7 +21,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            *(self.organization.available_product_features or []),
             {"key": AvailableFeature.ADVANCED_PERMISSIONS},
         ]
         self.organization.save()
@@ -834,7 +834,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to False
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            *(self.organization.available_product_features or []),
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
         ]
         self.organization.members_can_invite = False
@@ -868,7 +868,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.client.force_login(member_user)
 
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            *(self.organization.available_product_features or []),
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
         ]
         self.organization.members_can_invite = False
@@ -891,7 +891,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Enable ORGANIZATION_INVITE_SETTINGS feature and set members_can_invite to True
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            *(self.organization.available_product_features or []),
             {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
         ]
         self.organization.members_can_invite = True
