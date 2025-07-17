@@ -2336,6 +2336,8 @@ export interface RawAnnotationType {
     recording_id?: string | null
     // convenience flag that indicates the content _should_ be a single emoji
     is_emoji?: boolean
+    // convenience flag that indicates certain user ids are tagged in the content
+    tagged_users?: number[]
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
