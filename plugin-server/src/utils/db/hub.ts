@@ -7,6 +7,8 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
@@ -137,6 +139,8 @@ export async function createHub(
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
     const geoipService = new GeoIPService(serverConfig)
     await geoipService.get()
+    const encryptedFields = new EncryptedFields(serverConfig)
+    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
 
     const hub: Hub = {
         ...serverConfig,
@@ -175,10 +179,11 @@ export async function createHub(
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
         ),
-        encryptedFields: new EncryptedFields(serverConfig),
+        encryptedFields,
         celery: new Celery(serverConfig),
         cookielessManager,
         pubSub,
+        integrationManager,
     }
 
     return hub
