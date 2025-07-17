@@ -11,7 +11,7 @@ from asgiref.sync import async_to_sync
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from django.conf import settings
 from ee.hogai.session_summaries.constants import FAILED_SESSION_SUMMARIES_MIN_RATIO
-from ee.session_recordings.session_summary.input_data import add_context_and_filter_events
+from ee.session_recordings.session_summary.input_data import add_context_and_filter_events, get_team
 from ee.session_recordings.session_summary.llm.consume import get_llm_single_session_summary
 from ee.session_recordings.session_summary.patterns.output_data import EnrichedSessionGroupSummaryPatternsList
 from ee.session_recordings.session_summary.summarize_session import (
@@ -120,7 +120,7 @@ async def fetch_session_batch_events_activity(
         recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
     )
     # Fetch events for all uncached sessions
-    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    team = await database_sync_to_async(get_team)(team_id=inputs.team_id)
     all_session_events: dict[str, list[tuple]] = {}  # session_id -> list of events
     columns, offset, page_size = None, 0, DEFAULT_TOTAL_EVENTS_PER_QUERY
     # Paginate
@@ -164,9 +164,9 @@ async def fetch_session_batch_events_activity(
             )
             continue
         # Prepare the data to be used by the next activity
-        columns, session_events = add_context_and_filter_events(columns, session_events)
+        filtered_columns, filtered_events = add_context_and_filter_events(columns, session_events)
         session_db_data = SessionSummaryDBData(
-            session_metadata=session_metadata, session_events_columns=columns, session_events=session_events
+            session_metadata=session_metadata, session_events_columns=filtered_columns, session_events=filtered_events
         )
         summary_data = await prepare_data_for_single_session_summary(
             session_id=session_id,
