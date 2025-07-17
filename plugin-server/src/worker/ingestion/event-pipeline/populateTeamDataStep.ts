@@ -4,7 +4,7 @@ import { sanitizeString } from '../../../utils/db/utils'
 import { tokenOrTeamPresentCounter } from './metrics'
 
 export async function populateTeamDataStep(
-    hub: Hub,
+    hub: Pick<Hub, 'teamManager'>,
     event: PipelineEvent
 ): Promise<{ event: PipelineEvent; team: Team } | null> {
     /**

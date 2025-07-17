@@ -16,7 +16,6 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import {
     Hub,
-    IncomingEvent,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
     KafkaConsumerBreadcrumbSchema,
@@ -24,22 +23,25 @@ import {
     PluginServerService,
     PluginsServerConfig,
 } from '../types'
-import { normalizeEvent } from '../utils/event'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restriction-manager'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { retryIfRetriable } from '../utils/retries'
-import { UUID } from '../utils/utils'
-import { populateTeamDataStep } from '../worker/ingestion/event-pipeline/populateTeamDataStep'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { MeasuringPersonsStore } from '../worker/ingestion/persons/measuring-person-store'
 import { PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { captureIngestionWarning } from '../worker/ingestion/utils'
+import {
+    applyDropEventsRestrictions,
+    applyPersonProcessingRestrictions,
+    parseKafkaMessage,
+    resolveTeam,
+    validateEventUuid,
+} from './event-preprocessing'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -573,25 +575,25 @@ export class IngestionConsumer {
         const preprocessedEvents: IncomingEventWithTeam[] = []
 
         for (const message of messages) {
-            const filteredMessage = this.applyDropEventsRestrictions(message)
+            const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
             if (!filteredMessage) {
                 continue
             }
 
-            const parsedEvent = this.parseKafkaMessage(filteredMessage)
+            const parsedEvent = parseKafkaMessage(filteredMessage)
             if (!parsedEvent) {
                 continue
             }
 
-            const eventWithTeam = await this.resolveTeam(parsedEvent)
+            const eventWithTeam = await resolveTeam(this.hub, parsedEvent)
             if (!eventWithTeam) {
                 continue
             }
 
-            this.applyPersonProcessingRestrictions(eventWithTeam)
+            applyPersonProcessingRestrictions(eventWithTeam, this.eventIngestionRestrictionManager)
 
             // We only validate it here because we want to raise ingestion warnings
-            const validEvent = await this.validateEventUuid(eventWithTeam)
+            const validEvent = await validateEventUuid(eventWithTeam, this.hub)
             if (!validEvent) {
                 continue
             }
@@ -600,95 +602,6 @@ export class IngestionConsumer {
         }
 
         return preprocessedEvents
-    }
-
-    private applyDropEventsRestrictions(message: Message): Message | null {
-        let distinctId: string | undefined
-        let token: string | undefined
-
-        // Parse the headers so we can early exit if found and should be dropped
-        message.headers?.forEach((header) => {
-            if (header.key === 'distinct_id') {
-                distinctId = header.value.toString()
-            }
-            if (header.key === 'token') {
-                token = header.value.toString()
-            }
-        })
-
-        if (this.shouldDropEvent(token, distinctId)) {
-            this.logDroppedEvent(token, distinctId)
-            return null
-        }
-
-        return message
-    }
-
-    private parseKafkaMessage(message: Message): IncomingEvent | null {
-        try {
-            // Parse the message payload into the event object
-            const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
-            const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
-            const event: PipelineEvent = normalizeEvent({
-                ...combinedEvent,
-            })
-
-            return { message, event }
-        } catch (error) {
-            logger.warn('Failed to parse Kafka message', { error })
-            return null
-        }
-    }
-
-    private async resolveTeam(incomingEvent: IncomingEvent): Promise<IncomingEventWithTeam | null> {
-        const result = await populateTeamDataStep(this.hub, incomingEvent.event)
-        if (!result) {
-            return null
-        }
-        return {
-            event: result.event,
-            team: result.team,
-            message: incomingEvent.message,
-        }
-    }
-
-    private applyPersonProcessingRestrictions(eventWithTeam: IncomingEventWithTeam): void {
-        const { event, team } = eventWithTeam
-
-        // Check the event restriction manager for person processing overrides
-        let shouldSkipPerson = this.shouldSkipPerson(event.token, event.distinct_id)
-
-        // Check for team-level person processing opt-out setting
-        if (team.person_processing_opt_out) {
-            shouldSkipPerson = true
-        }
-
-        if (shouldSkipPerson) {
-            event.properties = {
-                ...(event.properties ?? {}),
-                $process_person_profile: false,
-            }
-        }
-    }
-
-    private async validateEventUuid(eventWithTeam: IncomingEventWithTeam): Promise<IncomingEventWithTeam | null> {
-        const { event, team } = eventWithTeam
-
-        // Check for an invalid UUID, which should be blocked by capture, when team_id is present
-        if (!UUID.validateString(event.uuid, false)) {
-            await captureIngestionWarning(this.hub.db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
-                eventUuid: JSON.stringify(event.uuid),
-            })
-            eventDroppedCounter
-                .labels({
-                    event_type: 'analytics',
-                    drop_cause: event.uuid ? 'invalid_uuid' : 'empty_uuid',
-                })
-                .inc()
-            return null
-        }
-
-        return eventWithTeam
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
