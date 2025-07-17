@@ -482,6 +482,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyViewed',
                 'reportSurveyCycleDetected',
             ],
+            teamLogic,
+            ['addProductIntent'],
         ],
         values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data']],
     })),
@@ -576,6 +578,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             },
                             false
                         )
+                        actions.addProductIntent({
+                            product_type: ProductKey.SURVEYS,
+                            intent_context: ProductIntentContext.SURVEY_VIEWED,
+                            metadata: {
+                                survey_id: survey.id,
+                            },
+                        })
                         return survey
                     } catch (error: any) {
                         if (error.status === 404) {
@@ -605,7 +614,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 return newSurvey
             },
             createSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.create(surveyPayload)
+                const response = await api.surveys.create(surveyPayload)
+                actions.addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: response.id,
+                    },
+                })
+                return response
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
                 const response = await api.surveys.update(props.id, surveyPayload)
@@ -833,13 +850,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.loadSurveys()
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
-                addProductIntent({
-                    product_type: ProductKey.SURVEYS,
-                    intent_context: ProductIntentContext.SURVEY_CREATED,
-                    metadata: {
-                        survey_id: survey.id,
-                    },
-                })
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
