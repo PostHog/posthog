@@ -42,7 +42,13 @@ import {
 
 import { actionsModel } from '~/models/actionsModel'
 import { MathType, NodeKind } from '~/queries/schema/schema-general'
-import { getMathTypeWarning, isInsightVizNode, isStickinessQuery, TRAILING_MATH_TYPES } from '~/queries/utils'
+import {
+    getMathTypeWarning,
+    isCalendarHeatmapQuery,
+    isInsightVizNode,
+    isStickinessQuery,
+    TRAILING_MATH_TYPES,
+} from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
@@ -714,6 +720,7 @@ function useMathSelectorOptions({
     mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
+    const isCalendarHeatmap = query && isInsightVizNode(query) && isCalendarHeatmapQuery(query.source)
 
     const {
         needsUpgradeForGroups,
@@ -887,7 +894,7 @@ function useMathSelectorOptions({
         }
     }
 
-    if (isGroupsEnabled) {
+    if (isGroupsEnabled && !isCalendarHeatmap) {
         const uniqueActorsOptions = [
             {
                 value: 'users',
