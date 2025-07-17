@@ -42,7 +42,7 @@ def capture_internal(
     token: str,
     event_name: str,
     event_source: str,
-    distinct_id: Optional[str],
+    distinct_id: str,
     timestamp: Optional[datetime],
     properties: dict[str, Any],
     process_person_profile: bool = False,
@@ -139,14 +139,17 @@ def capture_batch_internal(
         #    new capture_internal will attempt to extract from each event if missing
         # 2. distinct_id should be present on each event since these can differ within a batch
         for event in events:
+            properties = event.get("properties", {})
+            distinct_id = event.get("distinct_id", "")
+
             future = executor.submit(
                 capture_internal,
                 token=token,
                 event_name=event.get("event", ""),
                 event_source=event_source,
-                distinct_id=None,
+                distinct_id=distinct_id,
                 timestamp=None,
-                properties=event.get("properties", {}),
+                properties=properties,
                 process_person_profile=process_person_profile,
             )
             futures.append(future)
@@ -167,20 +170,16 @@ def prepare_capture_internal_payload(
     # mark event as internal for observability
     properties["capture_internal"] = True
 
-    # for back compat, if the caller specifies TRUE to process_person_profile
-    # we don't change the event contents at all; either the caller set the
-    # event prop already to force the issue, or we rely on the team's default
-    # person processing settings to decide during ingest processing.
-    # If the caller set process_person_profile to FALSE, we explictly set
-    # it as an event property, to ensure internal capture events don't
-    # perform expensive person processing without explicitly opting in
+    # for back compatibility, if this is TRUE, we don't change the event
+    # so existing event (or team acct) settings for $process_person_profile
+    # will apply. If FALSE, we set the prop to explicitly force the issue.
+    # with FALSE as default, we avoid accidental internal uses that cause
+    # expensive person profile updates for no reason
     if not process_person_profile:
         properties["$process_person_profile"] = process_person_profile
 
     # ensure args passed into capture_internal that
     # override event attributes are well formed
-    if not token:
-        token = properties.get("api_key", properties.get("token", ""))
     if not token:
         raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): API token is required")
 
