@@ -39,7 +39,7 @@ class EnrichedPatternAssignedEvent(PatternAssignedEvent):
     exception: str | None
     timestamp: str
     milliseconds_since_start: int
-    window_id: str
+    window_id: str | None
     current_url: str
     event: str
     event_type: str | None

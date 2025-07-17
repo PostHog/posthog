@@ -275,7 +275,7 @@ async def assign_events_to_patterns_activity(
         combined_event_ids_mappings = combine_event_ids_mappings_from_single_session_summaries(
             single_session_summaries_inputs=single_session_summaries_llm_inputs
         )
-        # Combine patterns assignments to have a single patter-to-event list
+        # Combine patterns assignments to have a single pattern-to-events list
         combined_patterns_assignments = combine_patterns_assignments_from_single_session_summaries(
             patterns_assignments_list_of_lists=patterns_assignments_list_of_lists
         )
