@@ -147,6 +147,8 @@ async def test_create_table_activity(minio_client, activity_environment, ateam, 
                 "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
             },
         ),
+        # this mock is needed, otherwise the test takes ~30s b/c of the sync behavior of get_count
+        unittest.mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_count", return_value=42),
     ):
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
