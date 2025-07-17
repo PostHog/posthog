@@ -42,9 +42,9 @@ export class CdpApi {
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
+        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.nativeDestinationExecutorService = new NativeDestinationExecutorService(hub)
         this.segmentDestinationExecutorService = new SegmentDestinationExecutorService(hub)
-        this.hogFlowExecutor = new HogFlowExecutorService(hub, this.hogExecutor, this.hogFunctionTemplateManager)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
@@ -60,13 +60,12 @@ export class CdpApi {
         }
     }
 
-    async start() {
-        await this.hogFunctionManager.start()
+    async start(): Promise<void> {
         await this.cdpSourceWebhooksConsumer.start()
     }
 
-    async stop() {
-        await Promise.all([this.hogFunctionManager.stop(), this.cdpSourceWebhooksConsumer.stop()])
+    async stop(): Promise<void> {
+        await Promise.all([this.cdpSourceWebhooksConsumer.stop()])
     }
 
     isHealthy() {

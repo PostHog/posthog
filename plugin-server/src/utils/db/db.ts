@@ -18,7 +18,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    DistinctPersonIdentifiers,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -62,7 +61,7 @@ import {
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
-import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
+import { moveDistinctIdsCountHistogram, personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
@@ -582,24 +581,6 @@ export class DB {
         }
     }
 
-    public async fetchPersonIdsByDistinctId(
-        distinctId: string,
-        teamId: number
-    ): Promise<DistinctPersonIdentifiers | null> {
-        const queryString = `SELECT posthog_person.id as person_id, posthog_person.uuid, posthog_person.team_id, posthog_persondistinctid.distinct_id
-            FROM posthog_person JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
-            WHERE posthog_persondistinctid.team_id = $1 AND posthog_persondistinctid.distinct_id = $2 LIMIT 1`
-
-        const { rows } = await this.postgres.query<DistinctPersonIdentifiers>(
-            PostgresUse.PERSONS_WRITE,
-            queryString,
-            [teamId, distinctId],
-            'fetchPersonIdsByDistinctId'
-        )
-
-        return rows.length > 0 ? rows[0] : null
-    }
-
     public async createPerson(
         createdAt: DateTime,
         properties: Properties,
@@ -990,6 +971,8 @@ export class DB {
                     team_id: target.team_id,
                     person_id: target.id,
                 })
+                // Track 0 moved IDs for failed merges
+                moveDistinctIdsCountHistogram.observe(0)
                 return {
                     success: false,
                     error: 'TargetNotFound',
@@ -1006,6 +989,8 @@ export class DB {
                 team_id: source.team_id,
                 person_id: source.id,
             })
+            // Track 0 moved IDs for failed merges
+            moveDistinctIdsCountHistogram.observe(0)
             return {
                 success: false,
                 error: 'SourceNotFound',
@@ -1025,6 +1010,10 @@ export class DB {
                 ],
             })
         }
+
+        // Track the number of distinct IDs moved in this merge operation
+        moveDistinctIdsCountHistogram.observe(movedDistinctIdResult.rows.length)
+
         return { success: true, messages: kafkaMessages }
     }
 

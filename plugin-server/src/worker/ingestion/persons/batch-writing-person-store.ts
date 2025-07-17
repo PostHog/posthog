@@ -6,7 +6,6 @@ import { NoRowsUpdatedError } from '~/utils/utils'
 
 import { TopicMessage } from '../../../kafka/producer'
 import {
-    DistinctPersonIdentifiers,
     InternalPerson,
     PersonBatchWritingDbWriteMode,
     PropertiesLastOperation,
@@ -41,7 +40,6 @@ import { PersonsStoreForBatch } from './persons-store-for-batch'
 type MethodName =
     | 'fetchForChecking'
     | 'fetchForUpdate'
-    | 'fetchPersonIdsByDistinctId'
     | 'fetchPerson'
     | 'updatePersonAssertVersion'
     | 'updatePersonNoAssert'
@@ -377,12 +375,6 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
         return fetchPromise
     }
-    async fetchPersonIdsByDistinctId(distinctId: string, teamId: number): Promise<DistinctPersonIdentifiers | null> {
-        this.incrementCount('fetchPersonIdsByDistinctId', distinctId)
-        this.incrementDatabaseOperation('fetchPersonIdsByDistinctId', distinctId)
-        const result = await this.db.fetchPersonIdsByDistinctId(distinctId, teamId)
-        return result
-    }
 
     updatePersonForMerge(
         person: InternalPerson,
@@ -566,6 +558,10 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             this.distinctIdToPersonId.delete(distinctCacheKey)
             this.personCheckCache.delete(distinctCacheKey)
         }
+    }
+
+    removeDistinctIdFromCache(teamId: number, distinctId: string): void {
+        this.distinctIdToPersonId.delete(this.getDistinctCacheKey(teamId, distinctId))
     }
 
     clearAllCachesForDistinctId(teamId: number, distinctId: string): void {
