@@ -36,6 +36,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.api.web_experiment import web_experiments
 from posthog.api.utils import hostname_in_allowed_url_list
 from products.early_access_features.backend.api import early_access_features
@@ -172,6 +173,7 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
