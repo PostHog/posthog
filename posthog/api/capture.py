@@ -53,17 +53,21 @@ def capture_internal(
     teams/projects. PLEASE DO NOT write events directly to ingestion Kafka topics - USE THIS!
 
     Args:
-        token: API token to use for the event (required)
+        token: API token to submit the event on behalf of (required)
         event_name: the name of the event to be published (required)
-        event_source: the caller, for observability of internal use cases (required)
+        event_source: observability tag indicating the internal module/codepath submitting the event (required)
         distinct_id: the distict ID of the event (optional; required in properties if absent)
         timestamp: the timestamp of the event to be published (optional; will be set to now UTC if absent)
-        properties: event payload to submit to capture-rs backend (required; can be empty)
+        properties: event properties to submit with the event (required; can be empty)
         process_person_profile: if TRUE, process the person profile for the event according to the caller's settings.
                                 if FALSE, disable person processing for this event.
 
     Returns:
         Response object, the result of POSTing the event payload to the capture-rs backend service.
+
+    Throws:
+        HTTPError if the request fails.
+        CaptureInternalError if the inputs to capture_internal are malformed or missing required values.
     """
     logger.debug(
         "capture_internal",
@@ -109,19 +113,20 @@ def capture_batch_internal(
 ) -> list[Future]:
     """
     capture_batch_internal submits multiple capture request payloads to
-    PostHog (capture-rs backend) concurrently using ThreadPoolExecutor.
-    This does not submit serial requests to the /batch/ endpoint, so historical
+    PostHog (capture-rs backend) concurrently. capture_batch_internal does
+    not submit single requests to the capture /batch/ endpoint, so historical
     event submission is not supported.
 
     Args:
-        events: List of event dictionaries to capture. The payloads MUST include
-                well-formed distinct_id, timestamp, and optional properties map
-        event_source: observability tag for error logging
-        token: Optional API token to use for all events (overrides individual event tokens)
-        process_person_profile: if FALSE (default) specifically disable person processing on each event
+        events: List of event payloads to capture. Each payload MUST include
+                well-formed distinct_id, timestamp, and (possibly empty) properties dict
+        event_source: observability tag indicating the internal module/codepath submitting the event (required)
+        token: API token to submit events in this batch on behalf of (required; overrides individual event tokens)
+        process_person_profile: if TRUE, process the person profile for each event according to it's properties or team config
+                                if FALSE, disable person processing for all events in the batch (default: FALSE)
 
     Returns:
-        List of Future objects that the caller can await to get Response objects or thrown Exceptions
+        List of Future objects that the caller can resolve to Response objects or thrown Exceptions
     """
     logger.debug(
         "capture_batch_internal",
