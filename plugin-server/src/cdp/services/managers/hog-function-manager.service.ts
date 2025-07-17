@@ -5,7 +5,7 @@ import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { HOG_FUNCTION_TEMPLATES } from '../../templates'
-import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../../types'
+import { HogFunctionType, HogFunctionTypeType } from '../../types'
 
 const HOG_FUNCTION_FIELDS = [
     'id',
@@ -90,11 +90,6 @@ export class HogFunctionManagerService {
         this.lazyLoader = new LazyLoader({
             name: 'hog_function_manager',
             loader: async (ids) => await this.fetchHogFunctions(ids),
-        })
-
-        this.hub.pubSub.on<{ integrationIds: IntegrationType['id'][] }>('reload-integrations', ({ integrationIds }) => {
-            logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds })
-            this.onIntegrationsReloaded(integrationIds)
         })
 
         this.hub.pubSub.on<{ teamId: Team['id']; hogFunctionIds: HogFunctionType['id'][] }>(
@@ -186,28 +181,12 @@ export class HogFunctionManagerService {
         ).rows
 
         this.sanitize(items)
-        await this.enrichWithIntegrations(items)
         return items[0] ?? null
     }
 
-    private onHogFunctionsReloaded(teamId: Team['id'], hogFunctionIds: HogFunctionType['id'][]) {
+    private onHogFunctionsReloaded(teamId: Team['id'], hogFunctionIds: HogFunctionType['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
         this.lazyLoader.markForRefresh(hogFunctionIds)
-    }
-
-    private onIntegrationsReloaded(integrationIds: IntegrationType['id'][]) {
-        const hogFunctionsRequiringRefresh = Object.values(this.lazyLoader.getCache()).filter((hogFunction) => {
-            for (const integrationId of integrationIds) {
-                if (hogFunction?.depends_on_integration_ids?.has(integrationId)) {
-                    return true
-                }
-            }
-            return false
-        })
-
-        this.lazyLoader.markForRefresh(
-            hogFunctionsRequiringRefresh.filter((x) => !!x).map((hogFunction) => hogFunction!.id)
-        )
     }
 
     private async fetchTeamHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionTeamInfo[]>> {
@@ -245,7 +224,6 @@ export class HogFunctionManagerService {
         const hogFunctions = response.rows
 
         this.sanitize(hogFunctions)
-        await this.enrichWithIntegrations(hogFunctions)
 
         return hogFunctions.reduce<Record<string, HogFunctionType | undefined>>((acc, hogFunction) => {
             acc[hogFunction.id] = hogFunction
@@ -291,82 +269,6 @@ export class HogFunctionManagerService {
                 }
             }
             // For any other case (null, undefined, unexpected types), leave as-is
-        })
-    }
-
-    public async enrichWithIntegrations(items: HogFunctionType[]): Promise<void> {
-        logger.debug('[HogFunctionManager]', 'Enriching with integrations', { functionCount: items.length })
-        const integrationIds: number[] = []
-
-        items.forEach((item) => {
-            item.inputs_schema?.forEach((schema) => {
-                if (schema.type === 'integration') {
-                    const input = item.inputs?.[schema.key]
-                    const value = input?.value?.integrationId ?? input?.value
-                    if (value && typeof value === 'number') {
-                        integrationIds.push(value)
-                        item.depends_on_integration_ids = item.depends_on_integration_ids || new Set()
-                        item.depends_on_integration_ids.add(value)
-                    }
-                }
-            })
-        })
-
-        if (!integrationIds.length) {
-            logger.debug('[HogFunctionManager]', 'No integrations to enrich with')
-            return
-        }
-
-        logger.debug('[HogFunctionManager]', 'Fetching integrations', { ids: integrationIds })
-
-        const integrations: IntegrationType[] = (
-            await this.hub.postgres.query(
-                PostgresUse.COMMON_READ,
-                `SELECT id, team_id, kind, config, sensitive_config
-                FROM posthog_integration
-                WHERE id = ANY($1)`,
-                [integrationIds],
-                'fetchIntegrations'
-            )
-        ).rows
-
-        logger.debug('[HogFunctionManager]', 'Decrypting integrations', { integrationCount: integrations.length })
-
-        const integrationConfigsByTeamAndId: Record<string, Record<string, any>> = integrations.reduce(
-            (acc, integration) => {
-                acc[`${integration.team_id}:${integration.id}`] = {
-                    ...integration.config,
-                    ...this.hub.encryptedFields.decryptObject(integration.sensitive_config || {}, {
-                        ignoreDecryptionErrors: true,
-                    }),
-                    integrationId: integration.id,
-                }
-                return acc
-            },
-            {} as Record<string, Record<string, any>>
-        )
-        logger.debug('[HogFunctionManager]', 'Enriching hog functions', { functionCount: items.length })
-
-        let updatedValuesCount = 0
-        items.forEach((item) => {
-            item.inputs_schema?.forEach((schema) => {
-                if (schema.type === 'integration') {
-                    const input = item.inputs?.[schema.key]
-                    if (!input) {
-                        return
-                    }
-                    const integrationId = input.value?.integrationId ?? input.value
-                    const integrationConfig = integrationConfigsByTeamAndId[`${item.team_id}:${integrationId}`]
-                    if (integrationConfig) {
-                        input.value = integrationConfig
-                        updatedValuesCount++
-                    }
-                }
-            })
-        })
-        logger.debug('[HogFunctionManager]', 'Enriched hog functions', {
-            functionCount: items.length,
-            updatedValuesCount,
         })
     }
 }

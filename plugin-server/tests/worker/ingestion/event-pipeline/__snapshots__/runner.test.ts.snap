@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`EventPipelineRunner runEventPipeline() runs steps starting from pluginsProcessEventStep 1`] = `
+exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
 [
   [
     "dropOldEventsStep",
@@ -35,22 +35,6 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from plugins
         "test_account_filters": null,
         "timezone": "UTC",
         "uuid": "<REPLACED-UUID-0>",
-      },
-    ],
-  ],
-  [
-    "pluginsProcessEventStep",
-    [
-      {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00.000Z",
-        "properties": {},
-        "site_url": "http://localhost",
-        "team_id": 2,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-        "uuid": "uuid1",
       },
     ],
   ],
@@ -134,7 +118,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from plugins
       {
         "distinct_id": "my_id",
         "event": "default event",
-        "ip": null,
+        "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
         "properties": {
           "$ip": "127.0.0.1",
