@@ -41,43 +41,25 @@ const config: StorybookConfig = {
                     public: resolve(__dirname, '../../../frontend/src/assets'),
                     products: resolve(__dirname, '../../../products'),
                     cypress: resolve(__dirname, '../../../cypress'),
-                    // Node.js polyfills for browser
-                    buffer: require.resolve('buffer'),
-                    crypto: require.resolve('crypto-browserify'),
                 },
             },
             define: {
                 global: 'globalThis',
                 'process.env.NODE_ENV': '"development"',
-                // Add Buffer global for browser compatibility
+                // Add process.env polyfill
                 'process.env': '{}',
-                process: JSON.stringify({ env: {}, browser: true }),
-                // Provide Buffer global for modules that expect it
-                Buffer: 'Buffer',
             },
             optimizeDeps: {
-                include: ['buffer', 'crypto-browserify'],
-                // Force include buffer to prevent externalization
-                force: true,
+                include: ['buffer', 'crypto-browserify', '@posthog/hogvm'],
             },
-            // Add explicit polyfills for Node.js modules
             build: {
                 rollupOptions: {
                     external: ['@storybook/blocks'],
-                    // Don't externalize buffer
-                    output: {
-                        globals: {
-                            buffer: 'Buffer',
-                        },
-                    },
-                },
-                commonjsOptions: {
-                    transformMixedEsModules: true,
                 },
             },
             // Prevent externalization of Node.js modules in browser builds
             ssr: {
-                noExternal: ['buffer', '@posthog/hogvm'],
+                noExternal: ['buffer', '@posthog/hogvm', 'crypto-browserify'],
             },
         })
     },
@@ -89,14 +71,6 @@ const config: StorybookConfig = {
 
     docs: {
         autodocs: 'tag',
-    },
-
-    typescript: {
-        reactDocgen: 'react-docgen-typescript',
-        reactDocgenTypescriptOptions: {
-            shouldExtractLiteralValuesFromEnum: true,
-            propFilter: (prop) => (prop.parent ? !/node_modules/.test(prop.parent.fileName) : true),
-        },
     },
 }
 
