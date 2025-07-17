@@ -555,16 +555,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
         mock_capture.assert_called_once_with(
-            self.team.api_token,
-            "some_distinct_id",
-            {
-                "event": "$set",
-                "properties": {
-                    "$set": {"foo": "bar"},
-                },
-                "timestamp": mock.ANY,
+            token=self.team.api_token,
+            event_name="$set",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$set": {"foo": "bar"},
             },
-            True,
+            process_person_profile=True,
         )
 
     @mock.patch("posthog.api.person.capture_internal")
@@ -579,16 +578,15 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.client.post(f"/api/person/{person.uuid}/delete_property", {"$unset": "foo"})
 
         mock_capture.assert_called_once_with(
-            self.team.api_token,
-            "some_distinct_id",
-            {
-                "event": "$delete_person_property",
-                "properties": {
-                    "$unset": ["foo"],
-                },
-                "timestamp": mock.ANY,
+            token=self.team.api_token,
+            event_name="$delete_person_property",
+            event_source="person_viewset",
+            distinct_id="some_distinct_id",
+            timestamp=mock.ANY,
+            properties={
+                "$unset": ["foo"],
             },
-            True,
+            process_person_profile=True,
         )
 
     def test_return_non_anonymous_name(self) -> None:
