@@ -243,9 +243,10 @@ export function StatelessInsightLoadingState({
         }
     }, [pollResponse, showLoadingDetails])
 
-    // Toggle between loading messages every 3 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
+    // Toggle between loading messages every 2.5-3.5 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
     useEffect(() => {
-        const TOGGLE_INTERVAL = 3000
+        const TOGGLE_INTERVAL_MIN = 2500
+        const TOGGLE_INTERVAL_JITTER = 1000
         const FADE_OUT_DURATION = 300
 
         // Don't toggle loading messages in storybook, will make tests flaky if so
@@ -266,7 +267,7 @@ export function StatelessInsightLoadingState({
                 })
                 setIsLoadingMessageVisible(true)
             }, FADE_OUT_DURATION)
-        }, TOGGLE_INTERVAL)
+        }, TOGGLE_INTERVAL_MIN + Math.random() * TOGGLE_INTERVAL_JITTER)
 
         return () => clearInterval(interval)
     }, [])

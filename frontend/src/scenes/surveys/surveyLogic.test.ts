@@ -1161,6 +1161,100 @@ describe('survey filters', () => {
             })
     })
 
+    it('handles group property filters correctly', async () => {
+        const groupPropertyFilters: AnyPropertyFilter[] = [
+            {
+                key: 'name',
+                value: 'ACME Corp',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Group,
+                group_type_index: 0,
+            },
+            {
+                key: 'industry',
+                value: 'technology',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Group,
+                group_type_index: 0,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(groupPropertyFilters)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: groupPropertyFilters,
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            {
+                                key: 'name',
+                                value: 'ACME Corp',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Group,
+                                group_type_index: 0,
+                            },
+                            {
+                                key: 'industry',
+                                value: 'technology',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Group,
+                                group_type_index: 0,
+                            },
+                        ]),
+                    }),
+                }),
+            })
+    })
+
+    it('handles mixed property and group filters correctly', async () => {
+        const mixedFilters: AnyPropertyFilter[] = [
+            {
+                key: 'email',
+                value: 'test@posthog.com',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Person,
+            },
+            {
+                key: 'company_name',
+                value: 'ACME Corp',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Group,
+                group_type_index: 0,
+            },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setPropertyFilters(mixedFilters)
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setPropertyFilters'])
+            .toMatchValues({
+                propertyFilters: mixedFilters,
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            {
+                                key: 'email',
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Person,
+                            },
+                            {
+                                key: 'company_name',
+                                value: 'ACME Corp',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Group,
+                                group_type_index: 0,
+                            },
+                        ]),
+                    }),
+                }),
+            })
+    })
+
     it('preserves existing query properties when setting filters', async () => {
         const propertyFilters: AnyPropertyFilter[] = [
             {

@@ -1,4 +1,5 @@
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
 
 
@@ -6,7 +7,7 @@ def TABLE_TEMPLATE(table_name, columns, order_by):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -25,7 +26,7 @@ def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None):
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
     return f"""
-    CREATE TABLE IF NOT EXISTS {table_name}
+    CREATE TABLE IF NOT EXISTS {table_name} {ON_CLUSTER_CLAUSE(on_cluster=True)}
     (
         period_bucket DateTime,
         team_id UInt64,
@@ -190,16 +191,23 @@ def get_insert_params(team_ids, granularity="daily"):
 
 
 def WEB_STATS_INSERT_SQL(
-    date_start, date_end, team_ids=None, timezone="UTC", settings="", table_name="web_stats_daily", granularity="daily"
+    date_start,
+    date_end,
+    team_ids=None,
+    timezone="UTC",
+    settings="",
+    table_name="web_stats_daily",
+    granularity="daily",
+    select_only=False,
 ):
     params = get_insert_params(team_ids, granularity)
     team_filter = params["team_filter"]
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
+    settings_clause = f"SETTINGS {settings}" if settings else ""
 
-    return f"""
-    INSERT INTO {table_name}
+    query = f"""
     SELECT
         {time_bucket_func}(start_timestamp) AS period_bucket,
         team_id,
@@ -277,7 +285,7 @@ def WEB_STATS_INSERT_SQL(
                 AND fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)) <= toDateTime('{date_end}', '{timezone}')
             GROUP BY
                 raw_sessions.session_id_v7
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__session ON toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')) = events__session.session_id_v7
         LEFT JOIN
         (
@@ -288,7 +296,7 @@ def WEB_STATS_INSERT_SQL(
             WHERE {person_team_filter}
             GROUP BY person_distinct_id_overrides.distinct_id
             HAVING ifNull(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version) = 0, 0)
-            SETTINGS {settings}
+            {settings_clause}
         ) AS events__override ON e.distinct_id = events__override.distinct_id
         WHERE {events_team_filter}
             AND ((e.event = '$pageview') OR (e.event = '$screen'))
@@ -317,7 +325,7 @@ def WEB_STATS_INSERT_SQL(
             city_name,
             region_code,
             region_name
-        SETTINGS {settings}
+        {settings_clause}
     )
     GROUP BY
         period_bucket,
@@ -341,8 +349,13 @@ def WEB_STATS_INSERT_SQL(
         city_name,
         region_code,
         region_name
-    SETTINGS {settings}
+    {settings_clause}
     """
+
+    if select_only:
+        return query
+    else:
+        return f"INSERT INTO {table_name}\n{query}"
 
 
 def WEB_BOUNCES_INSERT_SQL(
@@ -360,6 +373,8 @@ def WEB_BOUNCES_INSERT_SQL(
     person_team_filter = params["person_team_filter"]
     events_team_filter = params["events_team_filter"]
     time_bucket_func = params["time_bucket_func"]
+
+    settings_clause = f"SETTINGS {settings}" if settings else ""
 
     query = f"""
     SELECT
@@ -492,7 +507,7 @@ def WEB_BOUNCES_INSERT_SQL(
         os,
         viewport_width,
         viewport_height
-    {"SETTINGS " + settings if settings and not select_only else ""}
+    {settings_clause}
     """
 
     if select_only:
