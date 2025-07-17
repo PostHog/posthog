@@ -227,18 +227,16 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [('{"name": "Mr. Krabs", "industry": "technology"}',)])
 
         mock_capture.assert_called_once_with(
-            self.team.api_token,
-            str(self.team.uuid),
-            {
-                "event": "$groupidentify",
-                "timestamp": mock.ANY,
-                "properties": {
-                    "$group_type": group_type_mapping.group_type,
-                    "$group_key": group.group_key,
-                    "$group_set": {"industry": "technology"},
-                },
+            token=self.team.api_token,
+            event_name="$groupidentify",
+            event_source="ee_ch_views_groups",
+            timestamp=mock.ANY,
+            properties={
+                "$group_type": group_type_mapping.group_type,
+                "$group_key": group.group_key,
+                "$group_set": {"industry": "technology"},
             },
-            False,
+            process_person_profile=False,
         )
 
         response = self.client.get(
@@ -310,18 +308,17 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(orjson.loads(response.results[0][0]), {"name": "Mr. Krabs", "industry": "technology"})
 
         mock_capture.assert_called_once_with(
-            self.team.api_token,
-            str(self.team.uuid),
-            {
-                "event": "$groupidentify",
-                "timestamp": mock.ANY,
-                "properties": {
-                    "$group_type": group_type_mapping.group_type,
-                    "$group_key": group.group_key,
-                    "$group_set": {"industry": "technology"},
-                },
+            token=self.team.api_token,
+            event_name="$groupidentify",
+            event_source="ee_ch_views_groups",
+            distinct_id=str(self.team.uuid),
+            timestamp=mock.ANY,
+            properties={
+                "$group_type": group_type_mapping.group_type,
+                "$group_key": group.group_key,
+                "$group_set": {"industry": "technology"},
             },
-            False,
+            process_person_profile=False,
         )
 
         response = self.client.get(
@@ -432,18 +429,17 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [('{"name": "Mr. Krabs"}',)])
 
         mock_capture.assert_called_once_with(
-            self.team.api_token,
-            str(self.team.uuid),
-            {
-                "event": "$delete_group_property",
-                "timestamp": mock.ANY,
-                "properties": {
-                    "$group_type": group_type_mapping.group_type,
-                    "$group_key": group.group_key,
-                    "$group_unset": ["industry"],
-                },
+            token=self.team.api_token,
+            event_name="$delete_group_property",
+            event_source="ee_ch_views_groups",
+            distinct_id=str(self.team.uuid),
+            timestamp=mock.ANY,
+            properties={
+                "$group_type": group_type_mapping.group_type,
+                "$group_key": group.group_key,
+                "$group_unset": ["industry"],
             },
-            False,
+            process_person_profile=False,
         )
 
         response = self.client.get(
