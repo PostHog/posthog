@@ -298,7 +298,9 @@ export class IngestionConsumer {
             this.logBatchStart(messages)
         }
 
-        const eventsPerDistinctId = await this.preprocessEvents(messages)
+        const preprocessedEvents = await this.preprocessEvents(messages)
+        const postCookielessMessages = await this.hub.cookielessManager.doBatch(preprocessedEvents)
+        const eventsPerDistinctId = this.groupEventsByDistinctId(postCookielessMessages)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
@@ -565,55 +567,63 @@ export class IngestionConsumer {
         )
     }
 
-    private async preprocessEvents(messages: Message[]): Promise<IncomingEventsByDistinctId> {
-        const filteredMessages = this.applyDropEventsRestrictions(messages)
-        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () =>
-            this.parseKafkaBatch(filteredMessages)
-        )
-
-        const eventsWithTeams = await this.runInstrumented('resolveTeams', async () => {
-            return this.resolveTeams(parsedMessages)
-        })
-        const eventsWithPersonOverrides = this.applyPersonProcessingRestrictions(eventsWithTeams)
-        const eventsWithValidUuids = await this.validateEventUuids(eventsWithPersonOverrides)
-
-        const postCookielessMessages = await this.hub.cookielessManager.doBatch(eventsWithValidUuids)
-
-        return this.groupEventsByDistinctId(postCookielessMessages)
-    }
-
-    private applyDropEventsRestrictions(messages: Message[]): Message[] {
-        const filteredMessages: Message[] = []
+    private async preprocessEvents(messages: Message[]): Promise<IncomingEventWithTeam[]> {
+        const preprocessedEvents: IncomingEventWithTeam[] = []
 
         for (const message of messages) {
-            let distinctId: string | undefined
-            let token: string | undefined
-
-            // Parse the headers so we can early exit if found and should be dropped
-            message.headers?.forEach((header) => {
-                if (header.key === 'distinct_id') {
-                    distinctId = header.value.toString()
-                }
-                if (header.key === 'token') {
-                    token = header.value.toString()
-                }
-            })
-
-            if (this.shouldDropEvent(token, distinctId)) {
-                this.logDroppedEvent(token, distinctId)
+            const filteredMessage = this.applyDropEventsRestrictions(message)
+            if (!filteredMessage) {
                 continue
             }
 
-            filteredMessages.push(message)
+            const parsedEvent = this.parseKafkaMessage(filteredMessage)
+            if (!parsedEvent) {
+                continue
+            }
+
+            const eventWithTeam = await this.resolveTeam(parsedEvent)
+            if (!eventWithTeam) {
+                continue
+            }
+
+            this.applyPersonProcessingRestrictions(eventWithTeam)
+
+            // We only validate it here because we want to raise ingestion warnings
+            const validEvent = await this.validateEventUuid(eventWithTeam)
+            if (!validEvent) {
+                continue
+            }
+
+            preprocessedEvents.push(validEvent)
         }
 
-        return filteredMessages
+        return preprocessedEvents
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEvent[]> {
-        const batch: IncomingEvent[] = []
+    private applyDropEventsRestrictions(message: Message): Message | null {
+        let distinctId: string | undefined
+        let token: string | undefined
 
-        for (const message of messages) {
+        // Parse the headers so we can early exit if found and should be dropped
+        message.headers?.forEach((header) => {
+            if (header.key === 'distinct_id') {
+                distinctId = header.value.toString()
+            }
+            if (header.key === 'token') {
+                token = header.value.toString()
+            }
+        })
+
+        if (this.shouldDropEvent(token, distinctId)) {
+            this.logDroppedEvent(token, distinctId)
+            return null
+        }
+
+        return message
+    }
+
+    private parseKafkaMessage(message: Message): IncomingEvent | null {
+        try {
             // Parse the message payload into the event object
             const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
             const combinedEvent: PipelineEvent = { ...parseJSON(dataStr), ...rawEvent }
@@ -621,101 +631,93 @@ export class IngestionConsumer {
                 ...combinedEvent,
             })
 
-            batch.push({ message, event })
+            return { message, event }
+        } catch (error) {
+            logger.warn('Failed to parse Kafka message', { error })
+            return null
         }
-
-        return Promise.resolve(batch)
     }
 
-    private applyPersonProcessingRestrictions(messages: IncomingEventWithTeam[]): IncomingEventWithTeam[] {
-        for (const { event, team } of messages) {
-            let shouldSkipPerson = this.shouldSkipPerson(event.token, event.distinct_id)
+    private async resolveTeam(incomingEvent: IncomingEvent): Promise<IncomingEventWithTeam | null> {
+        const result = await populateTeamDataStep(this.hub, incomingEvent.event)
+        if (!result) {
+            return null
+        }
+        return {
+            event: result.event,
+            team: result.team,
+            message: incomingEvent.message,
+        }
+    }
 
-            // Check the env variable person processing overrides
-            if (event.token) {
-                const skipPersonsProcessingForDistinctIds = this.hub.eventsToSkipPersonsProcessingByToken.get(
-                    event.token
-                )
-                if (skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)) {
-                    shouldSkipPerson = true
-                }
-            }
+    private applyPersonProcessingRestrictions(eventWithTeam: IncomingEventWithTeam): void {
+        const { event, team } = eventWithTeam
+        let shouldSkipPerson = this.shouldSkipPerson(event.token, event.distinct_id)
 
-            // Check for team-level person processing opt-out setting
-            if (team.person_processing_opt_out) {
+        // Check the env variable person processing overrides
+        if (event.token) {
+            const skipPersonsProcessingForDistinctIds = this.hub.eventsToSkipPersonsProcessingByToken.get(event.token)
+            if (skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)) {
                 shouldSkipPerson = true
             }
+        }
 
-            if (shouldSkipPerson) {
-                event.properties = {
-                    ...(event.properties ?? {}),
-                    $process_person_profile: false,
-                }
+        // Check for team-level person processing opt-out setting
+        if (team.person_processing_opt_out) {
+            shouldSkipPerson = true
+        }
+
+        if (shouldSkipPerson) {
+            event.properties = {
+                ...(event.properties ?? {}),
+                $process_person_profile: false,
             }
         }
-        return messages
     }
 
-    private async validateEventUuids(messages: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
-        const validMessages: IncomingEventWithTeam[] = []
+    private async validateEventUuid(eventWithTeam: IncomingEventWithTeam): Promise<IncomingEventWithTeam | null> {
+        const { event, team } = eventWithTeam
 
-        for (const { event, message, team } of messages) {
-            // Check for an invalid UUID, which should be blocked by capture, when team_id is present
-            if (!UUID.validateString(event.uuid, false)) {
-                await captureIngestionWarning(this.hub.db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
-                    eventUuid: JSON.stringify(event.uuid),
+        // Check for an invalid UUID, which should be blocked by capture, when team_id is present
+        if (!UUID.validateString(event.uuid, false)) {
+            await captureIngestionWarning(this.hub.db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
+                eventUuid: JSON.stringify(event.uuid),
+            })
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: event.uuid ? 'invalid_uuid' : 'empty_uuid',
                 })
-                eventDroppedCounter
-                    .labels({
-                        event_type: 'analytics',
-                        drop_cause: event.uuid ? 'invalid_uuid' : 'empty_uuid',
-                    })
-                    .inc()
-                continue
-            }
-
-            validMessages.push({ event, message, team })
+                .inc()
+            return null
         }
 
-        return validMessages
+        return eventWithTeam
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]) {
-        const batches: IncomingEventsByDistinctId = {}
-        for (const { event, message, team } of messages) {
+    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
+        const groupedEvents: IncomingEventsByDistinctId = {}
+
+        for (const eventWithTeam of messages) {
+            const { message, event, team } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
 
-            // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
-            // for a given distinct_id
-            if (!batches[eventKey]) {
-                batches[eventKey] = {
+            // We collect the events grouped by token and distinct_id so that we can process batches in parallel
+            // whilst keeping the order of events for a given distinct_id.
+            if (!groupedEvents[eventKey]) {
+                groupedEvents[eventKey] = {
                     token: token,
                     distinctId,
                     events: [],
                 }
             }
 
-            batches[eventKey].events.push({ message, event, team })
+            groupedEvents[eventKey].events.push({ message, event, team })
         }
-        return batches
-    }
 
-    private async resolveTeams(messages: IncomingEvent[]): Promise<IncomingEventWithTeam[]> {
-        const resolvedMessages: IncomingEventWithTeam[] = []
-        for (const { event, message } of messages) {
-            const result = await populateTeamDataStep(this.hub, event)
-            if (!result) {
-                continue
-            }
-            resolvedMessages.push({
-                event: result.event,
-                team: result.team,
-                message,
-            })
-        }
-        return resolvedMessages
+        return groupedEvents
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
