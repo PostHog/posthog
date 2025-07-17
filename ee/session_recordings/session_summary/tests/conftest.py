@@ -1,4 +1,5 @@
 from typing import Any
+from collections.abc import Callable
 from unittest.mock import MagicMock
 import pytest
 from datetime import datetime, UTC
@@ -784,67 +785,102 @@ def mock_window_mapping(mock_window_mapping_reversed: dict[str, str]) -> dict[st
 
 
 @pytest.fixture
-def mock_session_batch_events_query_response(
+def mock_session_batch_events_query_response_factory(
     mock_raw_events: list[tuple[Any, ...]],
+) -> Callable:
+    """
+    Factory for creating SessionBatchEventsQueryResponse with minimal required fields. For E2E testing.
+    """
+
+    def _create_response(session_ids: list[str]) -> SessionBatchEventsQueryResponse:
+        # Create events data from mock raw events
+        events_for_session = []
+        for event in mock_raw_events:
+            # Extract relevant fields (event, timestamp, url)
+            event_type = event[0]
+            timestamp = event[1].isoformat()
+            url = event[6]
+            event_row = [event_type, timestamp, url]
+            events_for_session.append(event_row)
+
+        # Create session events for each session ID with the same events
+        session_events = []
+        for session_id in session_ids:
+            session_events.append(
+                SessionEventsItem(
+                    session_id=session_id,
+                    events=events_for_session,
+                )
+            )
+
+        # Combine all results for all sessions
+        all_results = []
+        for _ in session_ids:
+            all_results.extend(events_for_session)
+
+        session_ids_str = ", ".join(f"'{sid}'" for sid in session_ids)
+        return SessionBatchEventsQueryResponse(
+            columns=["event", "timestamp", "$current_url"],
+            hogql=f"SELECT event, timestamp, $current_url FROM events WHERE $session_id IN [{session_ids_str}] ORDER BY timestamp",
+            results=all_results,
+            types=["String", "DateTime", "String"],
+            session_events=session_events,
+            sessions_with_no_events=[],
+        )
+
+    return _create_response
+
+
+@pytest.fixture
+def mock_cached_session_batch_events_query_response_factory(
+    mock_session_batch_events_query_response_factory: Callable,
+) -> Callable:
+    """
+    Factory for creating CachedSessionBatchEventsQueryResponse built on top of SessionBatchEventsQueryResponse. For E2E testing.
+    """
+
+    def _create_cached_response(session_ids: list[str]) -> CachedSessionBatchEventsQueryResponse:
+        # Create the base response using the factory
+        base_response = mock_session_batch_events_query_response_factory(session_ids)
+        now = datetime.now(UTC)
+
+        return CachedSessionBatchEventsQueryResponse(
+            # Required fields from parent
+            columns=base_response.columns,
+            hogql=base_response.hogql,
+            results=base_response.results,
+            types=base_response.types,
+            session_events=base_response.session_events,
+            sessions_with_no_events=base_response.sessions_with_no_events,
+            # Cache-specific required fields
+            cache_key="test_cache_key_12345",
+            is_cached=False,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            hasMore=False,  # One page, for simplicity of e2e testing
+        )
+
+    return _create_cached_response
+
+
+@pytest.fixture
+def mock_session_batch_events_query_response(
+    mock_session_batch_events_query_response_factory: Any,
     mock_session_id: str,
 ) -> SessionBatchEventsQueryResponse:
     """
-    Mock SessionBatchEventsQueryResponse with minimal required fields. For E2E testing.
+    Convenience fixture that creates a response for a single session.
     """
-    # Create session events from mock raw events
-    session_events = []
-    events_for_session = []
-
-    for event in mock_raw_events:
-        # Extract relevant fields (event, timestamp, url)
-        event_type = event[0]
-        timestamp = event[1].isoformat()
-        url = event[6]
-        event_row = [event_type, timestamp, url]
-        events_for_session.append(event_row)
-
-    # Group all events under one session
-    session_events.append(
-        SessionEventsItem(
-            session_id=mock_session_id,
-            events=events_for_session,
-        )
-    )
-
-    return SessionBatchEventsQueryResponse(
-        columns=["event", "timestamp", "$current_url"],
-        hogql="SELECT event, timestamp, $current_url FROM events WHERE $session_id = '{}' ORDER BY timestamp".format(
-            mock_session_id
-        ),
-        results=events_for_session,
-        types=["String", "DateTime", "String"],
-        session_events=session_events,
-        sessions_with_no_events=[],
-    )
+    return mock_session_batch_events_query_response_factory([mock_session_id])
 
 
 @pytest.fixture
 def mock_cached_session_batch_events_query_response(
-    mock_session_batch_events_query_response: SessionBatchEventsQueryResponse,
+    mock_cached_session_batch_events_query_response_factory: Any,
+    mock_session_id: str,
 ) -> CachedSessionBatchEventsQueryResponse:
     """
-    Mock CachedSessionBatchEventsQueryResponse built on top of SessionBatchEventsQueryResponse. For E2E testing.
+    Convenience fixture that creates a cached response for a single session.
     """
-    now = datetime.now(UTC)
-
-    return CachedSessionBatchEventsQueryResponse(
-        # Required fields from parent
-        columns=mock_session_batch_events_query_response.columns,
-        hogql=mock_session_batch_events_query_response.hogql,
-        results=mock_session_batch_events_query_response.results,
-        types=mock_session_batch_events_query_response.types,
-        session_events=mock_session_batch_events_query_response.session_events,
-        sessions_with_no_events=mock_session_batch_events_query_response.sessions_with_no_events,
-        # Cache-specific required fields
-        cache_key="test_cache_key_12345",
-        is_cached=False,
-        last_refresh=now,
-        next_allowed_client_refresh=now,
-        timezone="UTC",
-        hasMore=False,  # One page, for simplicity of e2e testing
-    )
+    return mock_cached_session_batch_events_query_response_factory([mock_session_id])

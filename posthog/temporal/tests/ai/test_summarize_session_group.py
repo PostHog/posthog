@@ -10,7 +10,7 @@ import dataclasses
 from pytest_mock import MockerFixture
 from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
-from posthog.schema import CachedSessionBatchEventsQueryResponse
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.temporal.ai.session_summary.shared import fetch_session_data_activity
 from posthog.temporal.ai.session_summary.state import _compress_redis_data, get_redis_state_client, StateActivitiesEnum
 
@@ -301,7 +301,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_valid_event_ids: list[str],
         mock_patterns_extraction_yaml_response: str,
         mock_patterns_assignment_yaml_response: str,
-        mock_cached_session_batch_events_query_response: CachedSessionBatchEventsQueryResponse,
+        mock_cached_session_batch_events_query_response_factory: Callable,
         custom_content: str | None = None,
     ):
         """Test environment for sync Django functions to run the workflow from"""
@@ -326,13 +326,14 @@ class TestSummarizeSessionGroupWorkflow:
             ),
             # Mock DB calls
             patch("posthog.temporal.ai.session_summary.summarize_session_group.get_team", return_value=mock_team),
-            patch(
-                "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.get_group_metadata",
+            patch.object(
+                SessionReplayEvents,
+                "get_group_metadata",
                 return_value=MockMetadataDict(),
             ),
             patch(
                 "posthog.temporal.ai.session_summary.summarize_session_group._get_db_events_per_page",
-                return_value=mock_cached_session_batch_events_query_response,
+                return_value=mock_cached_session_batch_events_query_response_factory(session_ids),
             ),
             # Mock deterministic hex generation
             patch.object(
@@ -353,7 +354,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_valid_event_ids: list[str],
         mock_patterns_extraction_yaml_response: str,
         mock_patterns_assignment_yaml_response: str,
-        mock_cached_session_batch_events_query_response: CachedSessionBatchEventsQueryResponse,
+        mock_cached_session_batch_events_query_response_factory: Callable,
         custom_content: str | None = None,  # noqa: ARG002
     ) -> AsyncGenerator[tuple[WorkflowEnvironment, Worker], None]:
         """Test environment for Temporal workflow"""
@@ -365,7 +366,7 @@ class TestSummarizeSessionGroupWorkflow:
             mock_valid_event_ids,
             mock_patterns_extraction_yaml_response,
             mock_patterns_assignment_yaml_response,
-            mock_cached_session_batch_events_query_response,
+            mock_cached_session_batch_events_query_response_factory,
             custom_content,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -451,7 +452,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_session_group_summary_inputs: Callable,
         mock_patterns_extraction_yaml_response: str,
         mock_patterns_assignment_yaml_response: str,
-        mock_cached_session_batch_events_query_response: CachedSessionBatchEventsQueryResponse,
+        mock_cached_session_batch_events_query_response_factory: Callable,
         redis_test_setup: AsyncRedisTestContext,
     ):
         """Test that the workflow completes successfully and returns the expected result"""
@@ -469,7 +470,7 @@ class TestSummarizeSessionGroupWorkflow:
             mock_valid_event_ids,
             mock_patterns_extraction_yaml_response,
             mock_patterns_assignment_yaml_response,
-            mock_cached_session_batch_events_query_response,
+            mock_cached_session_batch_events_query_response_factory,
             custom_content=None,
         ) as (activity_environment, worker):
             # Wait for workflow to complete and get result
