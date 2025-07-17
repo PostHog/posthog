@@ -58,7 +58,6 @@ export function HTMLEditor({
     activeTab: SurveyQuestionDescriptionContentType
     textPlaceholder?: string
 }): JSX.Element {
-    const { surveysHTMLAvailable } = useValues(surveysLogic)
 
     return (
         <>
@@ -83,13 +82,11 @@ export function HTMLEditor({
                         label: (
                             <div>
                                 <span className="text-sm">HTML</span>
-                                {!surveysHTMLAvailable && <IconLock className="ml-2" />}
                             </div>
                         ),
                         content: (
                             <div>
-                                {surveysHTMLAvailable ? (
-                                    <CodeEditor
+                                <CodeEditor
                                         className="border"
                                         language="html"
                                         value={value}
@@ -111,32 +108,6 @@ export function HTMLEditor({
                                             folding: false,
                                         }}
                                     />
-                                ) : (
-                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
-                                        <CodeEditor
-                                            className="border"
-                                            language="html"
-                                            value={value}
-                                            onChange={(v) => onChange(v ?? '')}
-                                            height={150}
-                                            options={{
-                                                minimap: {
-                                                    enabled: false,
-                                                },
-                                                scrollbar: {
-                                                    alwaysConsumeMouseWheel: false,
-                                                },
-                                                wordWrap: 'on',
-                                                scrollBeyondLastLine: false,
-                                                automaticLayout: true,
-                                                fixedOverflowWidgets: true,
-                                                lineNumbers: 'off',
-                                                glyphMargin: false,
-                                                folding: false,
-                                            }}
-                                        />
-                                    </PayGateMini>
-                                )}
                             </div>
                         ),
                     },

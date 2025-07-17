@@ -27,9 +27,8 @@ export function SurveyTemplates(): JSX.Element {
     const surveyAppearance = {
         ...currentTeam?.survey_config?.appearance,
     }
-    const { surveysEventsAvailable } = useValues(surveysLogic)
 
-    const templates = surveysEventsAvailable ? [...defaultSurveyTemplates, errorTrackingSurvey] : defaultSurveyTemplates
+    const templates = [...defaultSurveyTemplates, errorTrackingSurvey]
 
     return (
         <>
