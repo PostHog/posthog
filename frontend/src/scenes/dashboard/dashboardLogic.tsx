@@ -1068,20 +1068,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return sortDayJsDates(validDates)
             },
         ],
-        sortedClientRefreshAllowed: [
-            (s) => [s.insightTiles],
-            (insightTiles): Dayjs[] => {
-                if (!insightTiles || !insightTiles.length) {
-                    return []
-                }
-
-                const validDates = insightTiles
-                    .filter((i) => !!i.insight?.cache_target_age || !!i.insight?.next_allowed_client_refresh)
-                    .map((i) => dayjs(i.insight?.cache_target_age ?? i.insight?.next_allowed_client_refresh))
-                    .filter((date) => date.isValid())
-                return sortDayJsDates(validDates)
-            },
-        ],
         nextAllowedDashboardRefresh: [
             (s) => [s.lastDashboardRefresh],
             (lastDashboardRefresh): Dayjs | null => {
