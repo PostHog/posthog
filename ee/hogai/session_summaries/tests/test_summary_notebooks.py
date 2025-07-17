@@ -89,6 +89,7 @@ class TestNotebookCreation(APIBaseTest):
         self.assertEqual(notebook.team, self.team)
         self.assertEqual(notebook.created_by, self.user)
         self.assertEqual(notebook.last_modified_by, self.user)
+        assert notebook.title is not None
         self.assertIn("Session Summaries Report - TestDomain", notebook.title)
 
         # Check content structure

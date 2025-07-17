@@ -144,7 +144,7 @@ def _create_paragraph_with_content(content: TipTapContent) -> TipTapNode:
     }
 
 
-def _create_bullet_list(items: list[str] | list[TipTapContent]) -> TipTapNode:
+def _create_bullet_list(items: list[str] | list[TipTapContent] | TipTapContent) -> TipTapNode:
     """Create a bullet list with list items. Items can be strings or content arrays."""
     list_items = []
     for item in items:
