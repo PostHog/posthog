@@ -47,7 +47,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { tools, dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
-    const { threadLoading, inputDisabled, submissionDisabledReason } = useValues(maxThreadLogic)
+    const { conversation, threadLoading, inputDisabled, submissionDisabledReason, isSharedThread } =
+        useValues(maxThreadLogic)
     const { askMax, stopGeneration, completeThreadGeneration } = useActions(maxThreadLogic)
 
     return (
@@ -84,7 +85,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             }
                         }}
                     >
-                        {!isThreadVisible ? (
+                        {isSharedThread ? null : !isThreadVisible ? (
                             <div className="flex items-start justify-between">
                                 <ContextDisplay size={contextDisplaySize} />
                                 <div className="flex items-start gap-1 h-full mt-1 mr-1">{topActions}</div>
@@ -94,10 +95,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
                         <LemonTextArea
                             ref={textAreaRef}
-                            value={question}
+                            value={isSharedThread ? '' : question}
                             onChange={(value) => setQuestion(value)}
                             placeholder={
-                                threadLoading ? 'Thinking…' : isFloating ? placeholder || 'Ask follow-up' : 'Ask away'
+                                conversation && isSharedThread
+                                    ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
+                                    : threadLoading
+                                    ? 'Thinking…'
+                                    : isFloating
+                                    ? placeholder || 'Ask follow-up'
+                                    : 'Ask away'
                             }
                             onPressEnter={() => {
                                 if (question && !submissionDisabledReason && !threadLoading) {
@@ -112,10 +119,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         />
                     </div>
                     <div
-                        className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isFloating,
-                            'bottom-[7px] right-2': !isFloating,
-                        })}
+                        className={clsx(
+                            'absolute flex items-center',
+                            isFloating ? 'bottom-[11px] right-3' : 'bottom-[7px] right-2',
+                            isSharedThread && 'hidden' // Submit not available at all for shared threads
+                        )}
                     >
                         <AIConsentPopoverWrapper
                             placement="bottom-end"
@@ -160,7 +168,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 </div>
                 <div className="flex items-center w-full gap-1 justify-between">
-                    {tools.length > 0 && (
+                    {!isSharedThread && tools.length > 0 && (
                         <div
                             className={clsx(
                                 'flex flex-wrap gap-x-1 gap-y-0.5 text-xs font-medium cursor-default px-1.5 whitespace-nowrap',
