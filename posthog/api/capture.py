@@ -43,7 +43,7 @@ def capture_internal(
     event_name: str,
     event_source: str,
     distinct_id: str,
-    timestamp: Optional[datetime],
+    timestamp: Optional[datetime | str],
     properties: dict[str, Any],
     process_person_profile: bool = False,
 ) -> Response:
@@ -139,8 +139,9 @@ def capture_batch_internal(
         #    new capture_internal will attempt to extract from each event if missing
         # 2. distinct_id should be present on each event since these can differ within a batch
         for event in events:
-            properties = event.get("properties", {})
-            distinct_id = event.get("distinct_id", "")
+            properties: dict[str, Any] = event.get("properties", {})
+            distinct_id: str = event.get("distinct_id", "")
+            timestamp: str = event.get("timestamp", properties.get("timestamp", ""))
 
             future = executor.submit(
                 capture_internal,
@@ -148,7 +149,7 @@ def capture_batch_internal(
                 event_name=event.get("event", ""),
                 event_source=event_source,
                 distinct_id=distinct_id,
-                timestamp=None,
+                timestamp=timestamp,
                 properties=properties,
                 process_person_profile=process_person_profile,
             )
@@ -163,7 +164,7 @@ def prepare_capture_internal_payload(
     event_name: str,
     event_source: str,
     distinct_id: Optional[str],
-    timestamp: Optional[datetime],
+    timestamp: Optional[datetime | str],
     properties: dict[str, Any],
     process_person_profile: bool = False,
 ) -> dict[str, Any]:
@@ -180,6 +181,7 @@ def prepare_capture_internal_payload(
 
     # ensure args passed into capture_internal that
     # override event attributes are well formed
+
     if not token:
         raise CaptureInternalError(f"capture_internal ({event_source}, {event_name}): API token is required")
 
@@ -193,14 +195,11 @@ def prepare_capture_internal_payload(
 
     event_timestamp = datetime.now(UTC).isoformat()
     if timestamp:
-        event_timestamp = timestamp.replace(tzinfo=UTC).isoformat()
-    elif "timestamp" in properties:
-        tz = properties["timestamp"]
-        if isinstance(tz, datetime):
-            event_timestamp = tz.replace(tzinfo=UTC).isoformat()
-        else:
-            # assume it's a stringified date in ISO 8601 already
-            event_timestamp = tz
+        if isinstance(timestamp, datetime):
+            event_timestamp = timestamp.replace(tzinfo=UTC).isoformat()
+        elif isinstance(timestamp, str):
+            # assume its an ISO8601 string and submit it as-is
+            event_timestamp = timestamp
 
     return {
         "api_key": token,

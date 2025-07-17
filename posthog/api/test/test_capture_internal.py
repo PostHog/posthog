@@ -61,17 +61,15 @@ class TestCaptureInternal(BaseTest):
         event_name = "test_event"
         timestamp = datetime.now(UTC)
 
-        test_props = (
-            {
-                "$current_url": "https://example.com",
-                "$ip": "127.0.0.1",
-                "$lib": "python",
-                "$lib_version": "1.0.0",
-                "$screen_width": 1920,
-                "$screen_height": 1080,
-                "some_custom_property": True,
-            },
-        )
+        test_props = {
+            "$current_url": "https://example.com",
+            "$ip": "127.0.0.1",
+            "$lib": "python",
+            "$lib_version": "1.0.0",
+            "$screen_width": 1920,
+            "$screen_height": 1080,
+            "some_custom_property": True,
+        }
 
         spy = InstallCapturePostSpy(mock_session_class)
         response = capture_internal(
@@ -460,7 +458,10 @@ class TestCaptureInternal(BaseTest):
         for future in resp_futures:
             with self.assertRaises(CaptureInternalError) as e:
                 future.result()
-            assert str(e.exception) == "capture_internal: distinct ID is required"
+                err_msg = str(e.exception)
+                assert "capture_internal" in err_msg
+                assert "test_capture_batch_internal_invalid_payload" in err_msg
+                assert "distinct ID is required" in err_msg
 
     @patch("posthog.api.capture.Session")
     def test_capture_batch_internal_bad_req(self, mock_session_class):
