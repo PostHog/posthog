@@ -292,11 +292,14 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
       history:
-        specifier: ^4.10.1
-        version: 4.10.1
+        specifier: ^5.3.0
+        version: 5.3.0
+      kea:
+        specifier: ^3.1.6
+        version: 3.1.6(react@18.2.0)
       kea-router:
         specifier: ^3.2.1
-        version: 3.2.1(kea@3.1.5(react@18.2.0))
+        version: 3.2.1(kea@3.1.6(react@18.2.0))
       mockdate:
         specifier: ^3.0.5
         version: 3.0.5
@@ -316,6 +319,9 @@ importers:
       '@storybook/testing-library':
         specifier: ^0.2.2
         version: 0.2.2
+      '@types/history':
+        specifier: ^5.0.0
+        version: 5.0.0
       vite:
         specifier: ^5.4.19
         version: 5.4.19(@types/node@22.15.17)(less@4.2.2)(lightningcss@1.29.2)(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.19.1)
@@ -7924,6 +7930,10 @@ packages:
   '@types/heatmap.js@2.0.41':
     resolution: {integrity: sha512-3oHffxC+N+1EKXjeC65klk1kHnLJ5i6tEKFNb/04J+qSfQuCliacsNBWDpt59JfG2vBXRRn+ICbzRZj48j6HfQ==}
 
+  '@types/history@5.0.0':
+    resolution: {integrity: sha512-hy8b7Y1J8OGe6LbAjj3xniQrj3v6lsivCcrmf4TzSgPzLkhIeKgc5IZnT7ReIqmEuodjfO8EYAuoFvIrHi/+jQ==}
+    deprecated: This is a stub types definition. history provides its own type definitions, so you do not need this installed.
+
   '@types/hogan.js@3.0.5':
     resolution: {integrity: sha512-/uRaY3HGPWyLqOyhgvW9Aa43BNnLZrNeQxl2p8wqId4UHMfPKolSB+U7BlZyO1ng7MkLnyEAItsBzCG0SDhqrA==}
 
@@ -11383,9 +11393,6 @@ packages:
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
 
-  history@4.10.1:
-    resolution: {integrity: sha512-36nwAD620w12kuzPAsyINPWJqlNbij+hpK1k9XRloDtym8mxzGYl2c17LnV6IAGB2Dmg4tEa7G7DlawS0+qjew==}
-
   history@5.3.0:
     resolution: {integrity: sha512-ZqaKwjjrAYUYfLG+htGaIIZ4nioX2L70ZUMIFysS3xvBsSG4x/n1V6TXV3N8ZYNuFGlDirFg32T7B6WOUPDYcQ==}
 
@@ -12439,6 +12446,11 @@ packages:
 
   kea@3.1.5:
     resolution: {integrity: sha512-jkChXczG+F0Z1DZXeOC93wVVbuRKmGrEE0xxg0odAgrVA9Cn5LqkKN8wktyULAeAbTv/KrTfDpU8xfrPehL6mw==}
+    peerDependencies:
+      react: '>= 16.8'
+
+  kea@3.1.6:
+    resolution: {integrity: sha512-EftYkqGyI8hdC8Eo9r6jGtUSxdykNe1L+Cpu+7t/SEWc9f3OPFtNFPF+hdxdYBeZp2Je3EY6BAEQfWhP4mbUPA==}
     peerDependencies:
       react: '>= 16.8'
 
@@ -15297,9 +15309,6 @@ packages:
     resolution: {integrity: sha512-qYg9KP24dD5qka9J47d0aVky0N+b4fTU89LN9iDnjB5waksiC49rvMB0PrUJQGoTmH50XPiqOvAjDfaijGxYZw==}
     engines: {node: '>=8'}
 
-  resolve-pathname@3.0.0:
-    resolution: {integrity: sha512-C7rARubxI8bXFNB/hqcp/4iUeIXJhJZvFPFPiSPRnhU5UPxzMFIl+2E6yY6c4k9giDJAhtV+enfA+G89N6Csng==}
-
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
 
@@ -16336,9 +16345,6 @@ packages:
     resolution: {integrity: sha512-iNgFugVuQgBKrqeO/mpiTTgmBsTP0WL6yeuLfLs/Ctf0pI/ixGqIRm8sDCwMcXGe9WWvt2sGXI5mNqZbValmJg==}
     engines: {node: '>=12'}
 
-  tiny-warning@1.0.3:
-    resolution: {integrity: sha512-lBN9zLN/oAf68o3zNXYrdCt1kP8WsiGW8Oo2ka41b2IM5JL/S1CTyX1rW0mb/zSuJun0ZUrDxx4sqvYS2FWzPA==}
-
   tinyqueue@2.0.3:
     resolution: {integrity: sha512-ppJZNDuKGgxzkHihX8v9v9G5f+18gzaTfrukGrq6ueg0lmH4nqVnA2IPG0AEH3jKEk2GRJCUhDoqpoiw3PHLBA==}
 
@@ -16885,9 +16891,6 @@ packages:
   validate-npm-package-name@6.0.0:
     resolution: {integrity: sha512-d7KLgL1LD3U3fgnvWEY1cQXoO/q6EQ1BSz48Sa149V/5zVTAbgmZIpyI8TRi6U9/JNyeYLlTKsEMPtLC27RFUg==}
     engines: {node: ^18.17.0 || >=20.5.0}
-
-  value-equal@1.0.1:
-    resolution: {integrity: sha512-NOJ6JZCAWr0zlxZt+xqCHNTEKOsrks2HQd4MqhP1qy4z1SkbEP467eNx6TgDKXMvUOb+OENfJCZwM+16n7fRfw==}
 
   varint@6.0.0:
     resolution: {integrity: sha512-cXEIW6cfr15lFv563k4GuVuW/fiwjknytD37jIOLSdSWuOI6WnO/oKwmP2FQTU2l01LP8/M5TSAJpzUaGe3uWg==}
@@ -24967,6 +24970,10 @@ snapshots:
     dependencies:
       '@types/leaflet': 0.7.40
 
+  '@types/history@5.0.0':
+    dependencies:
+      history: 5.3.0
+
   '@types/hogan.js@3.0.5': {}
 
   '@types/http-errors@2.0.4': {}
@@ -27789,7 +27796,7 @@ snapshots:
 
   dom-helpers@5.2.1:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       csstype: 3.1.1
 
   dom-serializer@0.2.2:
@@ -29320,18 +29327,9 @@ snapshots:
 
   highlight.js@10.7.3: {}
 
-  history@4.10.1:
-    dependencies:
-      '@babel/runtime': 7.27.6
-      loose-envify: 1.4.0
-      resolve-pathname: 3.0.0
-      tiny-invariant: 1.3.3
-      tiny-warning: 1.0.3
-      value-equal: 1.0.1
-
   history@5.3.0:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
 
   hls.js@1.5.15: {}
 
@@ -30801,6 +30799,11 @@ snapshots:
       kea: 3.1.5(react@18.2.0)
       url-pattern: 1.0.3
 
+  kea-router@3.2.1(kea@3.1.6(react@18.2.0)):
+    dependencies:
+      kea: 3.1.6(react@18.2.0)
+      url-pattern: 1.0.3
+
   kea-subscriptions@3.0.1(kea@3.1.5(react@18.2.0)):
     dependencies:
       kea: 3.1.5(react@18.2.0)
@@ -30837,6 +30840,13 @@ snapshots:
       redux: 4.2.0
       reselect: 4.1.7
       use-sync-external-store: 1.2.0(react@18.2.0)
+
+  kea@3.1.6(react@18.2.0):
+    dependencies:
+      react: 18.2.0
+      redux: 4.2.0
+      reselect: 4.1.7
+      use-sync-external-store: 1.5.0(react@18.2.0)
 
   keyv@4.5.4:
     dependencies:
@@ -33353,7 +33363,7 @@ snapshots:
 
   prosemirror-trailing-node@2.0.3(prosemirror-model@1.19.0)(prosemirror-state@1.4.2)(prosemirror-view@1.30.1):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       '@remirror/core-constants': 2.0.0
       '@remirror/core-helpers': 2.0.1
       escape-string-regexp: 4.0.0
@@ -33540,7 +33550,7 @@ snapshots:
 
   rc-align@4.0.12(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       classnames: 2.5.1
       dom-align: 1.12.3
       lodash: 4.17.21
@@ -33667,7 +33677,7 @@ snapshots:
 
   rc-motion@2.6.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       classnames: 2.5.1
       rc-util: 5.24.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react: 18.2.0
@@ -33875,7 +33885,7 @@ snapshots:
 
   rc-util@5.24.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
       react-is: 16.13.1
@@ -33917,7 +33927,7 @@ snapshots:
 
   react-base16-styling@0.9.1:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       '@types/base16': 1.0.5
       '@types/lodash': 4.17.16
       base16: 1.0.0
@@ -33995,7 +34005,7 @@ snapshots:
 
   react-instantsearch-core@7.6.0(algoliasearch@4.22.1)(react@18.2.0):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       algoliasearch: 4.22.1
       algoliasearch-helper: 3.16.2(algoliasearch@4.22.1)
       instantsearch.js: 4.65.0(algoliasearch@4.22.1)
@@ -34131,7 +34141,7 @@ snapshots:
 
   react-textarea-autosize@8.5.9(@types/react@17.0.52)(react@18.2.0):
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
       react: 18.2.0
       use-composed-ref: 1.3.0(react@18.2.0)
       use-latest: 1.2.1(@types/react@17.0.52)(react@18.2.0)
@@ -34275,7 +34285,7 @@ snapshots:
 
   redux@4.2.0:
     dependencies:
-      '@babel/runtime': 7.24.0
+      '@babel/runtime': 7.27.6
 
   refractor@3.6.0:
     dependencies:
@@ -34384,8 +34394,6 @@ snapshots:
   resolve-from@4.0.0: {}
 
   resolve-from@5.0.0: {}
-
-  resolve-pathname@3.0.0: {}
 
   resolve-pkg-maps@1.0.0: {}
 
@@ -35585,8 +35593,6 @@ snapshots:
 
   tiny-lru@11.0.1: {}
 
-  tiny-warning@1.0.3: {}
-
   tinyqueue@2.0.3: {}
 
   tippy.js@6.3.7:
@@ -36151,8 +36157,6 @@ snapshots:
       spdx-expression-parse: 3.0.1
 
   validate-npm-package-name@6.0.0: {}
-
-  value-equal@1.0.1: {}
 
   varint@6.0.0: {}
 

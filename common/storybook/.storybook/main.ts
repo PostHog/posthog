@@ -15,7 +15,7 @@ const config: StorybookConfig = {
         '@storybook/addon-a11y',
     ],
 
-    staticDirs: ['public', { from: '../../../frontend/public', to: '/static' }],
+    staticDirs: ['public', { from: '../../../frontend/src/assets', to: '/static' }],
 
     viteFinal: (config) => {
         return mergeConfig(config, {
@@ -38,7 +38,7 @@ const config: StorybookConfig = {
                     '@posthog/lemon-ui/': resolve(__dirname, '../../../frontend/@posthog/lemon-ui/src/'),
                     storybook: resolve(__dirname, '../../../frontend/.storybook'),
                     '@posthog/ee/exports': resolve(__dirname, '../../../ee/frontend/exports.ts'),
-                    public: resolve(__dirname, '../../../frontend/public'),
+                    public: resolve(__dirname, '../../../frontend/src/assets'),
                     products: resolve(__dirname, '../../../products'),
                     cypress: resolve(__dirname, '../../../cypress'),
                     buffer: 'buffer',

@@ -1,0 +1,8 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "typeRoots": ["../../frontend/node_modules/@types", "../../node_modules/@types"],
+        "suppressImplicitAnyIndexErrors": false
+    },
+    "include": [".storybook/**/*"]
+}
