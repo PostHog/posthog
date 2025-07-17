@@ -236,15 +236,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
-        use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
-            AvailableFeature.SURVEYS_TEXT_HTML
-        )
-
-        if thank_you_description_content_type == "html" and not use_survey_html_descriptions:
-            raise serializers.ValidationError(
-                "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
-            )
-
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
@@ -312,15 +303,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             description_content_type = raw_question.get("descriptionContentType")
             if description_content_type and description_content_type not in ["text", "html"]:
                 raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
-
-            use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
-                AvailableFeature.SURVEYS_TEXT_HTML
-            )
-
-            if description_content_type == "html" and not use_survey_html_descriptions:
-                raise serializers.ValidationError(
-                    "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
-                )
 
             choices = raw_question.get("choices")
             if choices:
