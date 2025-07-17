@@ -1,3 +1,4 @@
+import React from 'react'
 import { IconAI } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -6,6 +7,38 @@ import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+
+// NB!!! Sync this list with posthog/hogql/hogqlx.py
+// These tags only get the `key` and `children` attributes.
+const HOGQLX_TAGS_NO_ATTRIBUTES = [
+    'em',
+    'strong',
+    'span',
+    'div',
+    'p',
+    'pre',
+    'code',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'ul',
+    'ol',
+    'li',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'blockquote',
+    'hr',
+    'b',
+    'i',
+    'u',
+]
 
 export function parseHogQLX(value: any): any {
     if (!Array.isArray(value)) {
@@ -89,18 +122,24 @@ export function renderHogQLX(value: any): JSX.Element {
                     </Link>
                 </ErrorBoundary>
             )
-        } else if (tag === 'strong') {
+        } else if (tag === 'blink' || tag === 'marquee' || tag === 'redacted') {
+            const { children, source } = rest
+            const renderedChildren = children ?? source ? renderHogQLX(children ?? source) : ''
             return (
                 <ErrorBoundary>
-                    <strong>{renderHogQLX(rest.children ?? rest.source)}</strong>
+                    <span className={`hogqlx-${tag}`}>
+                        {tag === 'marquee' ? <span>{renderedChildren}</span> : renderedChildren}
+                    </span>
                 </ErrorBoundary>
             )
-        } else if (tag === 'em') {
-            return (
-                <ErrorBoundary>
-                    <em>{renderHogQLX(rest.children ?? rest.source)}</em>
-                </ErrorBoundary>
+        } else if (HOGQLX_TAGS_NO_ATTRIBUTES.includes(tag)) {
+            const { children, source, key } = rest
+            const element = React.createElement(
+                tag,
+                { key: key ?? undefined },
+                children ?? source ? renderHogQLX(children ?? source ?? '') : undefined
             )
+            return <ErrorBoundary>{element}</ErrorBoundary>
         }
         return <div>Unknown tag: {String(tag)}</div>
     }

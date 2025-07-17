@@ -12,7 +12,12 @@ from ee.hogai.tool import MaxTool
 
 
 class SearchSessionRecordingsArgs(BaseModel):
-    change: str = Field(description="The specific change to be made to recordings filters, briefly described.")
+    change: str = Field(
+        description=(
+            "The specific change to be made to recordings filters, briefly described. "
+            "Include ALL relevant details that may or may not be needed, as the tool won't receive the history of this conversation."
+        )
+    )
 
 
 class SearchSessionRecordingsTool(MaxTool):

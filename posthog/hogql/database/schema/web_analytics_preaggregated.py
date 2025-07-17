@@ -19,7 +19,6 @@ GEOIP_FIELDS = {
     "city_name": StringDatabaseField(name="city_name", nullable=True),
     "region_code": StringDatabaseField(name="region_code", nullable=True),
     "region_name": StringDatabaseField(name="region_name", nullable=True),
-    "time_zone": StringDatabaseField(name="time_zone", nullable=True),
 }
 
 UTM_FIELDS = {
@@ -62,7 +61,6 @@ web_preaggregated_base_fields = {
     "team_id": IntegerDatabaseField(name="team_id"),
     "host": StringDatabaseField(name="host"),
     "device_type": StringDatabaseField(name="device_type"),
-    "updated_at": DateTimeDatabaseField(name="updated_at"),
 }
 
 

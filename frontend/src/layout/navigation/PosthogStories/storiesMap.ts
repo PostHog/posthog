@@ -34,6 +34,7 @@ export interface story {
     mediaUrl?: string
     type: StoryType
     durationMs?: number
+    aspectRatio?: '4:3' | '16:9' | 'auto'
     seeMoreLink?: string
     seeMoreOverlay?: (closeOverlay: (action?: CloseOverlayAction) => void) => JSX.Element
     seeMoreOptions?: SeeMoreOptions
@@ -53,6 +54,14 @@ export const storiesMap: storyGroup[] = [
         id: 'changelog',
         title: 'Changelog',
         stories: [
+            {
+                id: 'changelog-55-cdp-destinations',
+                title: 'Changelog',
+                description: '55 new CDP destinations',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/hoggie_phone_9f7523e1a8.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/changelog_cdp_destinations_0e8b58be75.mp4',
+                type: StoryType.Video,
+            },
             {
                 id: 'changelog-hog-templating',
                 title: 'Changelog',
@@ -234,6 +243,33 @@ export const storiesMap: storyGroup[] = [
                 seeMoreOptions: {
                     backgroundColor: 'black',
                     text: 'Say hi',
+                },
+            },
+        ],
+    },
+    {
+        id: 'feature-flags',
+        title: 'Feature flags',
+        stories: [
+            {
+                id: 'feature-flags-overview',
+                title: 'Feature flags',
+                description: 'Roll out changes',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/video/upload/feature_flags_overview_79e6f410ae.mp4',
+                type: StoryType.Video,
+            },
+            {
+                id: 'feature-flags-cta',
+                title: 'Feature flags',
+                description: 'Try feature flags',
+                thumbnailUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_fd5d9949a0.png',
+                mediaUrl: 'https://res.cloudinary.com/dmukukwp6/image/upload/feature_flags_cta_image_3c1f74f6ed.png',
+                type: StoryType.Image,
+                seeMoreLink: 'https://app.posthog.com/feature_flags',
+                seeMoreOptions: {
+                    backgroundColor: 'black',
+                    text: 'Get started',
                 },
             },
         ],

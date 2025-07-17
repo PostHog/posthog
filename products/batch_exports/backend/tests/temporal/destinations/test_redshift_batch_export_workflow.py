@@ -50,11 +50,11 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     insert_into_redshift_activity,
     redshift_default_fields,
 )
+from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import (
     Producer,
     RecordBatchQueue,
     RecordBatchTaskError,
-    SessionsRecordBatchModel,
 )
 from products.batch_exports.backend.temporal.temporary_file import (
     remove_escaped_whitespace_recursive,

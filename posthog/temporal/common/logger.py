@@ -267,7 +267,7 @@ def configure_logger_async(
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S.%f", utc=True),
     ]
 
-    log_queue = queue if queue is not None else asyncio.Queue(maxsize=-1)
+    log_queue = queue if queue is not None else asyncio.Queue(maxsize=settings.TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE)
     log_producer = None
     log_producer_error = None
 
