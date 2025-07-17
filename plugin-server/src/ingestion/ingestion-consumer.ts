@@ -8,11 +8,7 @@ import { HogTransformerService } from '../cdp/hog-transformations/hog-transforme
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import {
-    eventDroppedCounter,
-    latestOffsetTimestampGauge,
-    setUsageInNonPersonEventsCounter,
-} from '../main/ingestion-queues/metrics'
+import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import {
     Hub,
@@ -627,26 +623,6 @@ export class IngestionConsumer {
         }
 
         return groupedEvents
-    }
-
-    private logDroppedEvent(token?: string, distinctId?: string) {
-        logger.debug('🔁', `Dropped event`, {
-            token,
-            distinctId,
-        })
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'blocked_token',
-            })
-            .inc()
-    }
-
-    private shouldDropEvent(token?: string, distinctId?: string) {
-        if (!token) {
-            return false
-        }
-        return this.eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
     }
 
     private shouldSkipPerson(token?: string, distinctId?: string) {

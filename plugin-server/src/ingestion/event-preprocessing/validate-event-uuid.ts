@@ -9,7 +9,19 @@ export async function validateEventUuid(
 ): Promise<IncomingEventWithTeam | null> {
     const { event, team } = eventWithTeam
 
-    // Check for an invalid UUID, which should be blocked by capture, when team_id is present
+    if (!event.uuid) {
+        await captureIngestionWarning(hub.db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
+            eventUuid: JSON.stringify(event.uuid),
+        })
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'empty_uuid',
+            })
+            .inc()
+        return null
+    }
+
     if (!UUID.validateString(event.uuid, false)) {
         await captureIngestionWarning(hub.db.kafkaProducer, team.id, 'skipping_event_invalid_uuid', {
             eventUuid: JSON.stringify(event.uuid),
@@ -17,7 +29,7 @@ export async function validateEventUuid(
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
-                drop_cause: event.uuid ? 'invalid_uuid' : 'empty_uuid',
+                drop_cause: 'invalid_uuid',
             })
             .inc()
         return null

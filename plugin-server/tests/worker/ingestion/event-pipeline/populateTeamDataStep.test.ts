@@ -116,38 +116,10 @@ describe('populateTeamDataStep()', () => {
         expect(response?.event).toEqual(input)
     })
 
-    it('event with a team_id whose team is opted-out from person processing', async () => {
-        const input = { ...pipelineEvent, team_id: 3 }
-        const response = await populateTeamDataStep(hub, input)
-        expect(response?.team.person_processing_opt_out).toBe(true)
-        expect(response?.event.properties?.$process_person_profile).toBe(false)
-    })
-
     it('PG errors are propagated up to trigger retries', async () => {
         jest.mocked(hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
         await expect(async () => {
             await populateTeamDataStep(hub, { ...pipelineEvent, token: teamTwoToken })
         }).rejects.toThrowError('retry me')
-    })
-
-    describe('validates eventUuid', () => {
-        test('invalid uuid string returns an error', async () => {
-            const event: PipelineEvent = {
-                ...pipelineEvent,
-                team_id: 2,
-                uuid: 'i_am_not_a_uuid',
-            }
-
-            await expect(populateTeamDataStep(hub, event)).resolves.toEqual(null)
-        })
-        test('null value in eventUUID returns an error', async () => {
-            const event = {
-                ...pipelineEvent,
-                team_id: 2,
-                uuid: null as any,
-            }
-
-            await expect(populateTeamDataStep(hub, event)).resolves.toEqual(null)
-        })
     })
 })
