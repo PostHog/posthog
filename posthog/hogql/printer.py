@@ -150,8 +150,13 @@ def prepare_ast_for_printing(
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
 
-    with context.timings.measure("preaggregated_table_transforms"):
-        node = do_preaggregated_table_transforms(node)
+    if context.modifiers.useWebAnalyticsPreAggregatedTables:
+        with context.timings.measure("preaggregated_table_transforms"):
+            node = do_preaggregated_table_transforms(node, context)
+            with context.timings.measure("resolve_types"):
+                node = resolve_types(
+                    node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None
+                )
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
