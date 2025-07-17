@@ -139,8 +139,8 @@ export function DashboardItems(): JSX.Element {
                             const insightToUse = tile.insight || {
                                 id: tile.id,
                                 short_id: `error-${tile.id}` as any,
-                                name: `Error loading tile ${tile.id}`,
-                                description: `${tile.error.type}: ${tile.error.message}`,
+                                name: tile.error.tile_name || `Untitled tile ${tile.id}`,
+                                description: tile.error.tile_description || undefined,
                                 derived_name: null,
                                 favorited: false,
                                 order: tile.order || 0,

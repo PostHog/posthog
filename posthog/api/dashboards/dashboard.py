@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional, cast
 
+import pydantic_core
 import structlog
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -476,49 +477,27 @@ class DashboardSerializer(DashboardBasicSerializer, InsightVariableMappingMixin)
                 try:
                     tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
                     serialized_tiles.append(tile_data)
-                except Exception as e:
-                    logger.error(
-                        "dashboard_tile_serialization_failed",
-                        tile_id=tile.id,
-                        error=str(e),
-                        exc_info=True,
-                    )
-                    # Create an error tile that tries to preserve the original insight/text
-                    insight_data = None
-                    text_data = None
-
-                    # Try to serialize insight separately if it exists
+                except pydantic_core.ValidationError as e:
                     if tile.insight:
-                        try:
-                            insight_data = InsightSerializer(tile.insight, context=self.context).data
-                        except Exception:
-                            logger.warning("dashboard_tile_insight_serialization_also_failed", tile_id=tile.id)
-                            insight_data = None
-
-                    # Try to serialize text separately if it exists
-                    if tile.text:
-                        try:
-                            text_data = TextSerializer(tile.text, context=self.context).data
-                        except Exception:
-                            logger.warning("dashboard_tile_text_serialization_also_failed", tile_id=tile.id)
-                            text_data = None
-
-                    error_tile_data = {
-                        "id": tile.id,
-                        "layouts": tile.layouts,
-                        "color": getattr(tile, "color", None),
-                        "insight": insight_data,
-                        "text": text_data,
-                        "order": order,
-                        "last_refresh": None,
-                        "is_cached": False,
-                        "error": {
-                            "type": type(e).__name__,
-                            "message": str(e),
-                            "tile_id": tile.id,
-                        },
-                    }
-                    serialized_tiles.append(error_tile_data)
+                        tile.insight.query = None
+                    try:
+                        tile_data = DashboardTileSerializer(tile, context=self.context).data
+                        tile_data["error"] = {"type": type(e).__name__, "message": str(e), "tile_id": tile.id}
+                        serialized_tiles.append(tile_data)
+                    except Exception:
+                        logger.warning("dashboard_tile_insight_serialization_also_failed", tile_id=tile.id)
+                        error_tile_data = {
+                            "id": tile.id,
+                            "layouts": tile.layouts,
+                            "color": getattr(tile, "color", None),
+                            "insight": None,
+                            "text": None,
+                            "order": order,
+                            "last_refresh": None,
+                            "is_cached": False,
+                            "error": {"type": type(e).__name__, "message": str(e), "tile_id": tile.id},
+                        }
+                        serialized_tiles.append(error_tile_data)
 
         return serialized_tiles
 
