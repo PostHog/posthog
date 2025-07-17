@@ -19,23 +19,22 @@ import trendsPieBreakdownInsightData from '../../mocks/fixtures/api/projects/tea
 import trendsWorldMapInsightData from '../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 
 import { Exporter } from '../Exporter'
-import { InsightModel } from '~/types'
 
-const trendsLineInsight = trendsLineInsightData as unknown as InsightModel
-const trendsLineMultiInsight = trendsLineMultiInsightData as unknown as InsightModel
-const trendsLineBreakdownInsight = trendsLineBreakdownInsightData as unknown as InsightModel
-const trendsBarInsight = trendsBarInsightData as unknown as InsightModel
-const trendsBarBreakdownInsight = trendsBarBreakdownInsightData as unknown as InsightModel
-const trendsValueInsight = trendsValueInsightData as unknown as InsightModel
-const trendsValueBreakdownInsight = trendsValueBreakdownInsightData as unknown as InsightModel
-const trendsAreaInsight = trendsAreaInsightData as unknown as InsightModel
-const trendsAreaBreakdownInsight = trendsAreaBreakdownInsightData as unknown as InsightModel
-const trendsNumberInsight = trendsNumberInsightData as unknown as InsightModel
-const trendsTableInsight = trendsTableInsightData as unknown as InsightModel
-const trendsTableBreakdownInsight = trendsTableBreakdownInsightData as unknown as InsightModel
-const trendsPieInsight = trendsPieInsightData as unknown as InsightModel
-const trendsPieBreakdownInsight = trendsPieBreakdownInsightData as unknown as InsightModel
-const trendsWorldMapInsight = trendsWorldMapInsightData as unknown as InsightModel
+const trendsLineInsight = trendsLineInsightData as unknown as any
+const trendsLineMultiInsight = trendsLineMultiInsightData as unknown as any
+const trendsLineBreakdownInsight = trendsLineBreakdownInsightData as unknown as any
+const trendsBarInsight = trendsBarInsightData as unknown as any
+const trendsBarBreakdownInsight = trendsBarBreakdownInsightData as unknown as any
+const trendsValueInsight = trendsValueInsightData as unknown as any
+const trendsValueBreakdownInsight = trendsValueBreakdownInsightData as unknown as any
+const trendsAreaInsight = trendsAreaInsightData as unknown as any
+const trendsAreaBreakdownInsight = trendsAreaBreakdownInsightData as unknown as any
+const trendsNumberInsight = trendsNumberInsightData as unknown as any
+const trendsTableInsight = trendsTableInsightData as unknown as any
+const trendsTableBreakdownInsight = trendsTableBreakdownInsightData as unknown as any
+const trendsPieInsight = trendsPieInsightData as unknown as any
+const trendsPieBreakdownInsight = trendsPieBreakdownInsightData as unknown as any
+const trendsWorldMapInsight = trendsWorldMapInsightData as unknown as any
 
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {

@@ -2,7 +2,6 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType } from '~/exporter/types'
-import { InsightModel } from '~/types'
 import funnelLeftToRightInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
 import funnelLeftToRightBreakdownInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
 import funnelTopToBottomInsightData from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
@@ -12,12 +11,12 @@ import funnelTimeToConvertInsightData from '../../mocks/fixtures/api/projects/te
 import { Exporter } from '../Exporter'
 
 // Type assertions for JSON fixtures
-const funnelLeftToRightInsight = funnelLeftToRightInsightData as unknown as InsightModel
-const funnelLeftToRightBreakdownInsight = funnelLeftToRightBreakdownInsightData as unknown as InsightModel
-const funnelTopToBottomInsight = funnelTopToBottomInsightData as unknown as InsightModel
-const funnelTopToBottomBreakdownInsight = funnelTopToBottomBreakdownInsightData as unknown as InsightModel
-const funnelHistoricalTrendsInsight = funnelHistoricalTrendsInsightData as unknown as InsightModel
-const funnelTimeToConvertInsight = funnelTimeToConvertInsightData as unknown as InsightModel
+const funnelLeftToRightInsight = funnelLeftToRightInsightData as unknown as any
+const funnelLeftToRightBreakdownInsight = funnelLeftToRightBreakdownInsightData as unknown as any
+const funnelTopToBottomInsight = funnelTopToBottomInsightData as unknown as any
+const funnelTopToBottomBreakdownInsight = funnelTopToBottomBreakdownInsightData as unknown as any
+const funnelHistoricalTrendsInsight = funnelHistoricalTrendsInsightData as unknown as any
+const funnelTimeToConvertInsight = funnelTimeToConvertInsightData as unknown as any
 
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {

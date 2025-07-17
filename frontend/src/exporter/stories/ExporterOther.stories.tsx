@@ -2,8 +2,6 @@ import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
 import { ExportType } from '~/exporter/types'
-import { InsightModel } from '~/types'
-
 import { Exporter } from '../Exporter'
 
 import retentionInsightData from '../../mocks/fixtures/api/projects/team_id/insights/retention.json'
@@ -13,12 +11,12 @@ import userPathsInsightData from '../../mocks/fixtures/api/projects/team_id/insi
 import eventTableInsightData from '../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import sqlInsightData from '../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
 
-const retentionInsight = retentionInsightData as unknown as InsightModel
-const lifecycleInsight = lifecycleInsightData as unknown as InsightModel
-const stickinessInsight = stickinessInsightData as unknown as InsightModel
-const userPathsInsight = userPathsInsightData as unknown as InsightModel
-const eventTableInsight = eventTableInsightData as unknown as InsightModel
-const sqlInsight = sqlInsightData as unknown as InsightModel
+const retentionInsight = retentionInsightData as unknown as any
+const lifecycleInsight = lifecycleInsightData as unknown as any
+const stickinessInsight = stickinessInsightData as unknown as any
+const userPathsInsight = userPathsInsightData as unknown as any
+const eventTableInsight = eventTableInsightData as unknown as any
+const sqlInsight = sqlInsightData as unknown as any
 
 type Story = StoryObj<typeof Exporter>
 const meta: Meta<typeof Exporter> = {
